@@ -25,21 +25,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_TERM_COLOR: always
   WS_ENDPOINT: ws://127.0.0.1:9944
   MAINNET_RPC: https://entrypoint-finney.opentensor.ai
   TRY_RUNTIME_VERSION: "0.10.1"
 
 jobs:
-  # Fork PRs must not run on self-hosted runners — checkout executes untrusted
-  # code from the fork head (RCE risk on persistent org hardware).
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   # "Sudo-upgrade mainnet clone and test" and "Docs and website build" are
   # required merge checks, so this workflow must always trigger (a required
   # check whose workflow never runs is stuck "Expected" and blocks the merge).
@@ -57,13 +47,16 @@ jobs:
       python_sdk: ${{ steps.filter.outputs.python_sdk }}
       sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
       snapshot_ci: ${{ steps.filter.outputs.snapshot_ci }}
+      node_reuse: ${{ steps.filter.outputs.node_reuse }}
     steps:
       - name: Checkout trusted path classifier
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: .github/scripts/classify-runtime-changes.sh
+          sparse-checkout: |
+            .github/scripts/classify-runtime-changes.sh
+            .github/scripts/classify-node-changes.sh
           sparse-checkout-cone-mode: false
           path: .trusted-runtime-filter
           persist-credentials: false
@@ -86,6 +79,7 @@ jobs:
               echo "python_sdk=true"
               echo "sdk_drift=true"
               echo "snapshot_ci=true"
+              echo "node_reuse=false"
             } >> "$GITHUB_OUTPUT"
           }
           publish_classification() {
@@ -106,7 +100,7 @@ jobs:
             enable_all
             exit 0
           fi
-          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then
+          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --paginate --slurp); then
             echo "::warning::PR file listing failed; enabling every check."
             enable_all
             exit 0
@@ -119,13 +113,29 @@ jobs:
           fi
           # A rename can move a runtime file outside a matched directory, so
           # classify both the current and previous paths.
+          if ! paths=$(jq -r '.[][] | .filename, (.previous_filename // empty)' <<< "$pages"); then
+            echo "::warning::PR file listing was invalid; enabling every check."
+            enable_all
+            exit 0
+          fi
           classification=$(mktemp)
           trap 'rm -f "$classification"' EXIT
-          if ! jq -r '.[][] | .filename, (.previous_filename // empty)' <<< "$pages" \
-              | bash "$classifier" "$classification" ||
+          if ! printf '%s\n' "$paths" | bash "$classifier" "$classification" ||
              ! publish_classification "$classification"; then
             echo "::warning::Runtime classifier failed or emitted invalid outputs; enabling every check."
             enable_all
+            exit 0
+          fi
+          # The release node may come from the base commit only when the
+          # trusted base's node classifier finds no natively compiled change.
+          node_classifier=.trusted-runtime-filter/.github/scripts/classify-node-changes.sh
+          : > "$classification"
+          if [[ -f "$node_classifier" ]] &&
+             printf '%s\n' "$paths" | bash "$node_classifier" "$classification" >/dev/null &&
+             grep -qx 'node_reuse=true' "$classification"; then
+            echo "node_reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_reuse=false" >> "$GITHUB_OUTPUT"
           fi
 
   snapshot-artifact-tests:
@@ -139,16 +149,18 @@ jobs:
       - run: .github/scripts/test-download-artifact.sh
       - run: .github/scripts/test-select-shared-release-artifact.sh
       - run: .github/scripts/test-runtime-change-filter.sh
+      - run: .github/scripts/test-classify-node-changes.sh
       - run: .github/scripts/test-clone-regression-phase.sh
 
   # Build the try-runtime wasm independently so its consumers do not wait for
   # the unrelated release node build. The source check also makes the
   # --disable-mbm-checks optimization self-disabling when MBMs are introduced.
+  # It finishes before the release node, so it takes the turbo-8 lane.
   build-try-runtime:
     name: build try-runtime wasm
-    needs: [trusted-pr, changes]
+    needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
-    runs-on: [self-hosted, fireactions-turbo-16]
+    runs-on: [self-hosted, fireactions-turbo-8]
     outputs:
       mbm_args: ${{ steps.mbm.outputs.args }}
     environment:
@@ -162,7 +174,6 @@ jobs:
 
       - uses: ./.github/actions/rust-setup
         with:
-          cache-key: runtime-checks
           sccache-credential-mode: auto
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
@@ -209,12 +220,14 @@ jobs:
   # update-runtime-with-alice.ts expects the wasm under target/release/wbuild.
   build-node-release:
     name: build release node
-    needs: [trusted-pr, changes]
+    needs: changes
     if: >-
-      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
     # Turbo runners probe the host-local tier and fail open to direct R2.
-    runs-on: [self-hosted, fireactions-turbo-8]
+    # This build gates clone-upgrade and TypeScript release reuse, so it takes
+    # the turbo-16 slot freed by the try-runtime wasm build.
+    runs-on: [self-hosted, fireactions-turbo-16]
     environment:
       name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
@@ -226,7 +239,6 @@ jobs:
 
       - uses: ./.github/actions/rust-setup
         with:
-          cache-key: runtime-checks-node
           sccache-credential-mode: auto
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
@@ -236,12 +248,26 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
+      # Runtime-only PRs run clone-upgrade on the base commit's node, which is
+      # what mainnet validators run when this runtime is enacted.
+      - name: Fetch base commit's release node
+        id: base-node
+        if: github.event_name == 'pull_request' && needs.changes.outputs.node_reuse == 'true'
+        uses: ./.github/actions/fetch-base-node
+        with:
+          runtime: non-fast-runtime
+
       - name: Build node-subtensor (release)
+        env:
+          BASE_NODE: ${{ steps.base-node.outputs.node }}
         run: |
           set -euo pipefail
           sccache --zero-stats
           started=$(date -u +%s)
-          cargo build --release -p node-subtensor
+          reuse=()
+          [[ -z "$BASE_NODE" ]] || reuse=(--base-node "$BASE_NODE")
+          .github/scripts/build-node-reusing-base.py --node target/release/node-subtensor "${reuse[@]}" \
+            -- cargo build --release -p node-subtensor
           seconds=$(($(date -u +%s) - started))
           {
             echo "### Release node compile"
@@ -442,7 +468,7 @@ jobs:
   # matches exactly once) and mainnet's comes from one RPC call.
   spec-version:
     name: spec_version newer than mainnet
-    needs: [trusted-pr, changes]
+    needs: changes
     if: >-
       !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') &&
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
@@ -477,7 +503,7 @@ jobs:
   # sdk/python/, the only input that can move the generated pages).
   sdk-checks:
     name: SDK offline checks
-    needs: [trusted-pr, changes]
+    needs: changes
     if: >-
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
@@ -503,6 +529,42 @@ jobs:
           uv run pytest
           uv run python -m codegen.check --coverage
           uv run python -m codegen.check --names
+          uv run python scripts/export_beta_baselines_rs.py --check
+
+  sdk-protected-e2e:
+    name: SDK protected-account E2E
+    needs: [changes, build-node-release]
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-subtensor-release-${{ github.sha }}
+          path: target/release
+      - name: Install uv and SDK dependencies
+        working-directory: sdk/python
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/uv" sync --python 3.14 --locked --all-extras --dev
+      - name: Test protected-account CLI on a disposable chain
+        env:
+          E2E_EVIDENCE_DIR: ${{ runner.temp }}/protected-cli-evidence
+        run: |
+          chmod +x target/release/node-subtensor
+          bash sdk/python/scripts/test_protected_cli.sh
+      - name: Upload public CLI receipts and disposable node log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protected-cli-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/protected-cli-evidence
+          retention-days: 3
+          if-no-files-found: ignore
 
   # Decide whether the clone regressions can fan out over the immutable
   # snapshot. Fresh-state diagnostics and a missing trusted snapshot retain
@@ -598,9 +660,11 @@ jobs:
   # run in parallel. A live scrape retains the combined sequential path.
   clone-upgrade:
     name: clone-upgrade (${{ matrix.phase }})
-    needs: [trusted-pr, changes, clone-plan, build-node-release]
+    needs: [changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade')
     timeout-minutes: 90
     permissions:
       contents: read
@@ -626,7 +690,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # The trusted base selector pins provenance and the immutable artifact
       # ID. Read integrity metadata for that exact ID here so rollout remains
@@ -689,23 +753,13 @@ jobs:
         if: needs.clone-plan.outputs.use_snapshot != 'true'
         # No-op when the snapshot restored the chainspec; otherwise scrapes
         # mainnet state live (first run, expired snapshot, or the
-        # fresh-mainnet-clone label). The live scrape's warp sync sometimes
-        # wedges downloading finality proofs (stuck at 0.00 MiB for an hour+,
-        # observed repeatedly); a healthy scrape finishes in ~15 minutes, so
-        # kill and retry — a fresh node picks new peers and unsticks. The
-        # script self-cleans partial state when the chainspec is missing.
-        run: |
-          for attempt in 1 2 3; do
-            if timeout --kill-after=30 1200 ./clones/scripts/clone-mainnet.sh; then
-              exit 0
-            fi
-            echo "::warning::mainnet scrape attempt ${attempt} timed out or failed; retrying"
-            # timeout only signals the script; reap its orphaned sync node so
-            # the retry can rebind ports and reuse the base path.
-            pkill -9 -f build-patched-spec || true
-            sleep 10
-          done
-          exit 1
+        # fresh-mainnet-clone label). clone-mainnet.sh bounds each warp-sync
+        # attempt and retries with a fresh peer set when sync wedges; three
+        # 20-minute attempts fit this job's 90-minute limit.
+        env:
+          CLONE_SYNC_ATTEMPTS: "3"
+          CLONE_SYNC_TIMEOUT_SEC: "1200"
+        run: ./clones/scripts/clone-mainnet.sh
 
       - name: Prepare a reusable checkpoint after live fallback
         if: needs.clone-plan.outputs.use_snapshot != 'true'
@@ -774,14 +828,116 @@ jobs:
             true|false) ;;
             *) echo "invalid runtime selection: '$RUNTIME_RELEVANT'" >&2; exit 1 ;;
           esac
-          if [ "$CLONE" = "skipped" ] && [ "$BUILD" = "skipped" ] && [ "$RUNTIME_RELEVANT" = "false" ]; then
+          if [ "$CLONE" = "skipped" ] && [ "$RUNTIME_RELEVANT" = "false" ] && \
+             { [ "$BUILD" = "skipped" ] || [ "$BUILD" = "success" ]; }; then
             exit 0
           fi
           exit 1
 
+  # A spec or Python version bump needs a notes file and a real releases page.
+  # Spec 492 and the current Python versions are grandfathered. This job also
+  # renders the Discord message. It does not call Discord or the model.
+  release-notes:
+    name: Release notes
+    if: github.event_name != 'workflow_dispatch' || inputs.try_runtime_only != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test announcement sanitizer
+        run: python3 .github/scripts/test_announce_summary.py
+
+      - name: Compare versions with the base
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          head_json=$(python3 .github/scripts/check-release-notes.py versions)
+          if [ "$EVENT_NAME" = pull_request ]; then
+            tmp=$(mktemp -d)
+            mkdir -p "$tmp/runtime/src" "$tmp/sdk/python" "$tmp/sdk/bittensor-core-py"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/runtime/src/lib.rs?ref=$BASE_SHA" \
+              > "$tmp/runtime/src/lib.rs"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/sdk/python/pyproject.toml?ref=$BASE_SHA" \
+              > "$tmp/sdk/python/pyproject.toml"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/sdk/bittensor-core-py/pyproject.toml?ref=$BASE_SHA" \
+              > "$tmp/sdk/bittensor-core-py/pyproject.toml"
+            base_json=$(python3 .github/scripts/check-release-notes.py versions --root "$tmp")
+          else
+            base_json=$head_json
+          fi
+          python3 .github/scripts/check-release-notes.py diff \
+            --base-spec "$(jq -er .spec <<<"$base_json")" \
+            --head-spec "$(jq -er .spec <<<"$head_json")" \
+            --base-sdk "$(jq -er .sdk <<<"$base_json")" \
+            --head-sdk "$(jq -er .sdk <<<"$head_json")" \
+            --base-core "$(jq -er .core <<<"$base_json")" \
+            --head-core "$(jq -er .core <<<"$head_json")"
+          python3 .github/scripts/check-release-notes.py tree
+          spec=$(jq -er .spec <<<"$head_json")
+          sdk=$(jq -er .sdk <<<"$head_json")
+          {
+            echo "spec=$spec"
+            echo "sdk=$sdk"
+            echo "core=$(jq -er .core <<<"$head_json")"
+          } >> "$GITHUB_OUTPUT"
+          if [ -f ".github/release-notes/runtime/${spec}.json" ]; then
+            echo "runtime_notes=.github/release-notes/runtime/${spec}.json" >> "$GITHUB_OUTPUT"
+            echo "runtime_sample=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime_notes=" >> "$GITHUB_OUTPUT"
+            echo "runtime_sample=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f ".github/release-notes/python/${sdk}.json" ]; then
+            echo "python_notes=.github/release-notes/python/${sdk}.json" >> "$GITHUB_OUTPUT"
+            echo "python_sample=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "python_notes=" >> "$GITHUB_OUTPUT"
+            echo "python_sample=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dry-run runtime Discord message
+        uses: ./.github/actions/announce-release
+        with:
+          kind: runtime-proposed
+          spec: ${{ steps.versions.outputs.spec }}
+          sdk-version: ${{ steps.versions.outputs.sdk }}
+          core-version: ${{ steps.versions.outputs.core }}
+          sha: ${{ github.sha }}
+          sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          notes-file: ${{ steps.versions.outputs.runtime_notes }}
+          allow-missing-notes: "true"
+          sample: ${{ steps.versions.outputs.runtime_sample }}
+          public-path: /releases/v${{ steps.versions.outputs.spec }}-upgrade
+          dry-run: "true"
+          status-context: announce/runtime-proposed
+
+      - name: Dry-run Python Discord message
+        uses: ./.github/actions/announce-release
+        with:
+          kind: python-stable
+          sdk-version: ${{ steps.versions.outputs.sdk }}
+          core-version: ${{ steps.versions.outputs.core }}
+          sha: ${{ github.sha }}
+          notes-file: ${{ steps.versions.outputs.python_notes }}
+          allow-missing-notes: "true"
+          sample: ${{ steps.versions.outputs.python_sample }}
+          public-path: /releases/python-sample
+          dry-run: "true"
+          status-context: announce/python-stable
+
   docs-website:
     name: Docs and website build
-    needs: [trusted-pr, changes]
+    needs: changes
     if: needs.changes.outputs.docs == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     steps:
@@ -801,7 +957,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Enable corepack (yarn 4)
         run: corepack enable

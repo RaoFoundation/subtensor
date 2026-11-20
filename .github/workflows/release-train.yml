@@ -4,10 +4,15 @@ name: Release Train
 # through the networks, gated by live smoke checks and environment approvals:
 #
 #   push to main
-#     └─ build wasm once (srtool)
-#          └─ deploy devnet ── smoke-check devnet
-#               └─ deploy testnet ── smoke-check testnet ── publish SDK rc
-#                    └─ propose mainnet upgrade (env gate + triumvirate multisig)
+#     ├─ build wasm once (srtool)
+#     │    └─ deploy devnet ── smoke-check devnet
+#     │         └─ deploy testnet ── smoke-check testnet ── publish SDK rc
+#     └─ (after the srtool build) plan stable Python ── build stable dist
+#
+#   one `mainnet` approval starts three jobs together:
+#     ├─ propose mainnet upgrade (CI half of the deployment multisig)
+#     ├─ wait until mainnet runs this wasm ── publish stable Python to PyPI
+#     └─ wait until mainnet runs this wasm ── deploy production docs
 #
 # Branch mirrors: after each successful deploy the `devnet`/`testnet` branch
 # is force-updated to the deployed commit, so those branches always contain
@@ -30,8 +35,49 @@ name: Release Train
 #   - trains queue (no cancel): a stale train no-ops at each deploy because
 #     of the spec_version guard
 #
+# One mainnet approval. GitHub asks for a new approval for every job that
+# reaches a protected environment after the click, so everything that needs
+# `mainnet` credentials is a job that becomes ready at the same moment as
+# propose-mainnet: they share one `needs` list and one approval releases them
+# together. The stable Python dist is built beside devnet/testnet, in jobs
+# with no environment and no id-token, and is not a dependency of the
+# proposal, so a Python failure neither blocks nor re-runs propose-mainnet.
+# The two publishing jobs wait inside the approved job until the triumvirate
+# executes the multisig and the finalized runtime is this train's exact wasm
+# under the immutable v<spec> tag (await-mainnet-enactment.sh). They stop
+# without publishing when mainnet moves past this spec or main carries a
+# newer one, and fail after 20 hours so a stuck release is visible.
+#
+# A late upgrade never makes publishing impossible. When the runtime goes
+# live and these jobs are no longer on it (they gave up, stopped for a newer
+# spec, or failed), the scheduled watch-mainnet-release.yml run that
+# finalizes the release asks for the PyPI and docs approval itself, exactly
+# as before this train published. Also, once the runtime is live:
+#   - dispatch watch-mainnet-release.yml: rebuilds from the v<spec> tag and
+#     publishes, for as long as that runtime is the one on mainnet; or
+#   - re-run this run's failed jobs: within GitHub's 30-day re-run window
+#     (the stable dist is kept as long), when no newer train is running.
+# Each asks for one fresh `mainnet` approval; re-run publishing jobs start
+# together, so one click covers PyPI and docs.
+#
+# The whole run, including the wait, holds the release-train concurrency
+# group, so a newer train queues until this runtime is live. That is why the
+# wait gives up as soon as main carries a newer spec_version.
+#
 # After the multisig executes on chain, watch-mainnet-release.yml cuts the
-# release (GitHub release, PyPI stable, crates.io, docs promotion).
+# release without another approval: mainnet mirror (and with it the mainnet
+# Docker images) and GitHub release.
+#
+# Discord (secret DISCORD_WEBHOOK_URL on mainnet and mainnet-release only):
+# one post when this train's propose job submits a mainnet upgrade, one from
+# the watcher when that upgrade is live, and one from this train when stable
+# PyPI succeeds. ANNOUNCE_OPENAI_API_KEY, on those same two environments,
+# may rewrite only the prose section from the committed summary. Versions,
+# hashes, install commands, and links stay in the template. A rejected or
+# failed rewrite posts the human summary. There is no post for devnet,
+# testnet, rc, or TestPyPI. A missing notes file blocks propose-mainnet.
+# Spec 492 and the Python versions committed with it are grandfathered
+# because they have no release page.
 
 on:
   push:
@@ -56,6 +102,7 @@ env:
   DEVNET_WS: wss://dev.chain.opentensor.ai:443
   TESTNET_WS: wss://test.finney.opentensor.ai:443
   MAINNET_WS: wss://entrypoint-finney.opentensor.ai:443
+  MAINNET_HTTP: https://entrypoint-finney.opentensor.ai:443
 
 jobs:
   # ------------------------------------------------------------------
@@ -87,6 +134,7 @@ jobs:
             -e PACKAGE=node-subtensor-runtime \
             -e BUILD_OPTS="--features=metadata-hash" \
             -e PROFILE=production \
+            -e CONST_RANDOM_SEED=subtensor-runtime \
             -v "$HOME/.cargo":/cargo-home \
             -v "$(pwd)":/build \
             srtool bash -c "git config --global --add safe.directory /build && \
@@ -145,7 +193,7 @@ jobs:
         if: steps.guard.outputs.should_deploy == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # Install without the deploy seed in scope and with install scripts
       # disabled, so a malicious transitive dependency cannot run an install
@@ -243,7 +291,7 @@ jobs:
         if: steps.guard.outputs.should_deploy == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install deploy deps
         if: steps.guard.outputs.should_deploy == 'true'
@@ -297,6 +345,31 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm moonwall test smoke_testnet
 
+  # Notes are required only when this build would propose a new mainnet spec.
+  # A missing file stops the tag, the multisig, and the pre-release.
+  check-runtime-notes:
+    name: Check runtime release notes
+    needs: [build, check-testnet]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require notes before a mainnet proposal
+        env:
+          SPEC: ${{ needs.build.outputs.spec_version }}
+        run: |
+          set -euo pipefail
+          chain=$(curl -sf --connect-timeout 10 --max-time 30 \
+            -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://entrypoint-finney.opentensor.ai" | jq -er '.result.specVersion')
+          echo "built spec $SPEC; mainnet spec $chain"
+          if [ "$SPEC" -gt "$chain" ]; then
+            python3 .github/scripts/check-release-notes.py runtime --spec "$SPEC"
+          else
+            echo "built spec is not newer than mainnet; notes are not required."
+          fi
+
   # SDK rc channel rides the train: publish after testnet is green
   # (replaces the publish-sdk-rc job in deploy-testnet.yml).
   #
@@ -347,6 +420,24 @@ jobs:
           echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
           echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
+  # The rc string is not a notes key. The check uses the stable base versions.
+  # This does not post to Discord and does not block propose-mainnet.
+  check-python-notes:
+    name: Check Python release notes
+    needs: rc-versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require notes for the stable versions behind this rc
+        run: |
+          set -euo pipefail
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
+          python3 .github/scripts/check-release-notes.py python \
+            --sdk "$(jq -er .sdk <<<"$versions")" \
+            --core "$(jq -er .core <<<"$versions")"
+
   build-core-rc:
     name: Build bittensor-core rc wheels
     needs: rc-versions
@@ -356,7 +447,7 @@ jobs:
 
   publish-sdk-rc:
     name: Publish SDK rc to PyPI
-    needs: [rc-versions, build-core-rc]
+    needs: [rc-versions, build-core-rc, check-python-notes]
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: testnet
     permissions:
@@ -386,6 +477,10 @@ jobs:
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
+      # The pinned rc core must export every native helper sp_core needs,
+      # both installed fresh and as an upgrade over an older published core.
+      - name: Check SDK against its minimum bittensor-core
+        run: .github/scripts/check-sdk-core-floor.sh dist
       # PEP 740 provenance: sign every dist with this job's OIDC identity
       # (must match the trusted publisher, so it runs here rather than in
       # build-core-wheels.yml). uv publish uploads the resulting
@@ -402,20 +497,182 @@ jobs:
             --check-url https://pypi.org/simple/ dist/*
 
   # ------------------------------------------------------------------
-  # Stage 3: mainnet — the human gate.
+  # Stable Python for this runtime, built before the mainnet gate.
+  # Runs beside devnet/testnet, in jobs with no environment and no
+  # id-token, so code from this commit never runs where it could mint a
+  # PyPI token. publish-python-on-enactment uploads the result once mainnet
+  # runs this train's wasm. None of these jobs is a dependency of
+  # propose-mainnet: a Python failure never blocks or re-runs the proposal.
+  # ------------------------------------------------------------------
+  stable-python-plan:
+    name: Plan stable Python for this runtime
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+      sdk: ${{ steps.plan.outputs.sdk }}
+      core: ${{ steps.plan.outputs.core }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Decide whether this runtime ships new stable packages
+        id: plan
+        env:
+          SPEC: ${{ needs.build.outputs.spec_version }}
+        run: |
+          set -euo pipefail
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
+          sdk=$(jq -er '.sdk' <<<"$versions")
+          core=$(jq -er '.core' <<<"$versions")
+          runtime=$(.github/scripts/mainnet-finalized-runtime.sh)
+          chain=$(sed -n 's/^spec_version=//p' <<<"$runtime")
+          : "${chain:?could not read the mainnet spec_version}"
+          needed=false
+          if [ "$SPEC" -le "$chain" ]; then
+            echo "spec $SPEC is not newer than mainnet's $chain; this train publishes no stable Python."
+          elif python3 .github/scripts/check-python-release.py \
+              --sdk-version "$sdk" \
+              --core-version "$core" \
+              --repository "$GITHUB_REPOSITORY"; then
+            echo "::warning::bittensor $sdk and bittensor-core $core are already on PyPI, so spec $SPEC ships no new stable Python. Bump the SDK base version."
+          else
+            status=$?
+            [ "$status" -eq 1 ] || exit "$status"
+            needed=true
+          fi
+          echo "spec $SPEC: stable bittensor $sdk, bittensor-core $core, needed=$needed"
+          {
+            echo "needed=$needed"
+            echo "sdk=$sdk"
+            echo "core=$core"
+          } >> "$GITHUB_OUTPUT"
+      - name: Require notes for the stable versions
+        if: steps.plan.outputs.needed == 'true'
+        env:
+          SDK_VERSION: ${{ steps.plan.outputs.sdk }}
+          CORE_VERSION: ${{ steps.plan.outputs.core }}
+        run: |
+          python3 .github/scripts/check-release-notes.py python \
+            --sdk "$SDK_VERSION" --core "$CORE_VERSION"
+
+  build-core-stable:
+    name: Build bittensor-core stable wheels
+    needs: stable-python-plan
+    if: needs.stable-python-plan.outputs.needed == 'true'
+    uses: ./.github/workflows/build-core-wheels.yml
+    with:
+      # build-core-rc already uploads core-dist-* in this run.
+      artifact-prefix: core-stable-dist
+
+  # publish-python-on-enactment looks this job up by name.
+  build-sdk-stable:
+    name: Build the stable SDK distribution
+    needs: [stable-python-plan, build-core-stable]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv 0.11.28
+        run: |
+          set -euo pipefail
+          [ "$(uname -m)" = x86_64 ] || { echo "this job only installs the pinned x86_64 uv"; exit 1; }
+          mkdir -p "$HOME/.local/bin" "$RUNNER_TEMP/uv"
+          curl -fsSL -o "$RUNNER_TEMP/uv.tar.gz" \
+            https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz
+          echo "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224  $RUNNER_TEMP/uv.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/uv.tar.gz" -C "$RUNNER_TEMP/uv"
+          install -m 755 "$RUNNER_TEMP/uv/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Download bittensor-core wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-stable-dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare stable SDK distribution
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: python3 .github/scripts/prepare-sdk-dist.py
+
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: uv build --out-dir "$GITHUB_WORKSPACE/dist"
+
+      - name: Verify stable artifacts
+        env:
+          EXPECTED_SDK_VERSION: ${{ needs.stable-python-plan.outputs.sdk }}
+          EXPECTED_CORE_VERSION: ${{ needs.stable-python-plan.outputs.core }}
+        run: |
+          set -euo pipefail
+          sdk_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/python/pyproject.toml | head -n 1)
+          core_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
+          : "${sdk_version:?could not parse stable SDK version}"
+          : "${core_version:?could not parse stable core version}"
+          [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "SDK version is not stable: $sdk_version"; exit 1; }
+          [[ "$core_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "core version is not stable: $core_version"; exit 1; }
+          [ "$sdk_version" = "$EXPECTED_SDK_VERSION" ] \
+            || { echo "SDK version $sdk_version != expected $EXPECTED_SDK_VERSION"; exit 1; }
+          [ "$core_version" = "$EXPECTED_CORE_VERSION" ] \
+            || { echo "core version $core_version != expected $EXPECTED_CORE_VERSION"; exit 1; }
+          ls -la dist
+          test -f "dist/bittensor-${sdk_version}-py3-none-any.whl"
+          test -f "dist/bittensor-${sdk_version}.tar.gz"
+          compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
+          test -f "dist/bittensor_core-${core_version}.tar.gz"
+
+      - name: Check SDK against its minimum bittensor-core
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: .github/scripts/check-sdk-core-floor.sh dist
+
+      # The publish job may start up to 20 hours later, once mainnet runs this
+      # wasm, or on a re-run within GitHub's 30-day re-run window.
+      - name: Upload the distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-python-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  # ------------------------------------------------------------------
+  # Stage 3: mainnet — the human gate, approved once.
   # Environment `mainnet` required reviewers = the "ok, deploy to mainnet"
   # click. The job then submits the CI half of the 2-of-2 deployment
   # multisig; the triumvirate approves out-of-band, and
   # watch-mainnet-release.yml cuts the release once it executes.
+  # publish-python-on-enactment and deploy-docs-on-enactment below have the
+  # same `needs`, so they wait for the same click; keep the three lists equal.
   # ------------------------------------------------------------------
   propose-mainnet:
     name: Propose mainnet upgrade (multisig)
-    needs: [build, check-testnet]
+    needs: [build, check-testnet, check-runtime-notes]
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     timeout-minutes: 30
     permissions:
       contents: write # publish the proposal pre-release + tag
+    outputs:
+      should_propose: ${{ steps.guard.outputs.should_propose }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -457,7 +714,7 @@ jobs:
         if: steps.guard.outputs.should_propose == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install deploy deps
         if: steps.guard.outputs.should_propose == 'true'
@@ -705,3 +962,375 @@ jobs:
             echo "btcli upgrade sign --url ${url} -w <your-wallet>"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Separate from propose-mainnet so a Discord failure does not submit
+  # another multisig. mainnet-release holds the webhook and has no reviewers,
+  # so this does not ask for a second mainnet approval.
+  announce-proposed:
+    name: Announce proposed runtime upgrade
+    needs: [build, propose-mainnet]
+    if: needs.propose-mainnet.outputs.should_propose == 'true'
+    runs-on: ubuntu-latest
+    environment: mainnet-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Require the main branch
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Discord announcements only run from main"
+            exit 1
+          }
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+      - name: Read release facts
+        id: facts
+        run: |
+          set -euo pipefail
+          sha256=$(jq -er '.sha256' wasm/subtensor-digest.json | tr '[:upper:]' '[:lower:]' | sed 's/^0x//')
+          [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "wasm sha256 is not 64 hex characters"; exit 1; }
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
+          spec="${{ needs.build.outputs.spec_version }}"
+          {
+            echo "sha256=$sha256"
+            echo "sdk=$(jq -er .sdk <<<"$versions")"
+            echo "core=$(jq -er .core <<<"$versions")"
+          } >> "$GITHUB_OUTPUT"
+          if [ -f ".github/release-notes/runtime/${spec}.json" ]; then
+            echo "notes=.github/release-notes/runtime/${spec}.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Post to Discord
+        uses: ./.github/actions/announce-release
+        with:
+          kind: runtime-proposed
+          spec: ${{ needs.build.outputs.spec_version }}
+          sdk-version: ${{ steps.facts.outputs.sdk }}
+          core-version: ${{ steps.facts.outputs.core }}
+          sha: ${{ github.sha }}
+          sha256: ${{ steps.facts.outputs.sha256 }}
+          notes-file: ${{ steps.facts.outputs.notes }}
+          allow-missing-notes: "true"
+          dry-run: "false"
+          status-context: announce/runtime-proposed
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}
+
+  # ------------------------------------------------------------------
+  # Published once mainnet runs this upgrade, under the same click.
+  # Both jobs have exactly propose-mainnet's `needs`, so all three wait for
+  # `mainnet` at the same moment and one approval starts them together. A job
+  # that reached the environment later would ask again. They wait for the
+  # triumvirate inside the approved job; await-mainnet-enactment.sh returns
+  # live=true only when the finalized runtime is this train's wasm and v<spec>
+  # names this commit.
+  # ------------------------------------------------------------------
+  publish-python-on-enactment:
+    name: Publish stable Python once mainnet runs this upgrade
+    needs: [build, check-testnet, check-runtime-notes]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # PyPI trusted publishing (OIDC). `bittensor` and bittensor-core need a
+    # trusted-publisher row for release-train.yml on the mainnet environment.
+    environment: mainnet
+    # Waits up to 20 hours (WAIT_MINUTES) for the upgrade to execute; the
+    # slowest so far took under two hours. The job's GITHUB_TOKEN can only be
+    # refreshed for 24 hours, so the wait plus publishing must stay below
+    # that; the job timeout is the backstop for a hung network call.
+    timeout-minutes: 1380
+    # No stable-python-pypi concurrency group: it would be held for the whole
+    # wait, and a job queued behind it would ask for a second approval later.
+    # check-python-release.py runs right before the upload and
+    # `uv publish --check-url` skips files that are already on the index.
+    permissions:
+      id-token: write
+      contents: read
+      # Read this run's jobs while waiting; dispatch the watcher if the
+      # upload fails after the upgrade is live.
+      actions: write
+    outputs:
+      uploaded: ${{ steps.state.outputs.should_upload }}
+      sdk: ${{ steps.state.outputs.sdk }}
+      core: ${{ steps.state.outputs.core }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+
+      - name: Wait until mainnet runs this runtime
+        id: wait
+        env:
+          SPEC: ${{ needs.build.outputs.spec_version }}
+          WASM: wasm/subtensor.wasm
+          RELEASE_SHA: ${{ github.sha }}
+          WAIT_MINUTES: "1200"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/await-mainnet-enactment.sh
+
+      - name: Decide whether to upload
+        id: state
+        if: steps.wait.outputs.live == 'true'
+        run: |
+          set -euo pipefail
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
+          sdk=$(jq -er '.sdk' <<<"$versions")
+          core=$(jq -er '.core' <<<"$versions")
+          should_upload=true
+          if python3 .github/scripts/check-python-release.py \
+              --sdk-version "$sdk" \
+              --core-version "$core" \
+              --repository "$GITHUB_REPOSITORY"; then
+            echo "bittensor $sdk and bittensor-core $core are already complete on PyPI."
+            should_upload=false
+          else
+            status=$?
+            [ "$status" -eq 1 ] || exit "$status"
+          fi
+          {
+            echo "should_upload=$should_upload"
+            echo "sdk=$sdk"
+            echo "core=$core"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require the stable Python build from this run
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_JOB: Build the stable SDK distribution
+        run: |
+          set -euo pipefail
+          # A re-run may rebuild the plan, the full core wheel matrix (macOS
+          # included) and the SDK next to this already-approved job.
+          for attempt in $(seq 1 150); do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+              | jq -r --arg name "$BUILD_JOB" \
+                'first(.jobs[] | select(.name == $name) | "\(.status) \(.conclusion // "")") // ""') \
+              || state=""
+            case "$state" in
+              "completed success")
+                echo "$BUILD_JOB succeeded."
+                exit 0
+                ;;
+              completed*)
+                echo "::error::$BUILD_JOB finished as '${state#completed }', so there is nothing to upload. Re-run the failed jobs if it was flaky (this job then asks for one more mainnet approval); a code fix needs a new commit, so dispatch watch-mainnet-release.yml instead."
+                exit 1
+                ;;
+            esac
+            echo "$BUILD_JOB is '${state:-not listed}'; waiting ($attempt/150)."
+            sleep 60
+          done
+          echo "::error::$BUILD_JOB did not finish within 150 minutes."
+          exit 1
+
+      - name: Install uv 0.11.28
+        if: steps.state.outputs.should_upload == 'true'
+        run: |
+          set -euo pipefail
+          [ "$(uname -m)" = x86_64 ] || { echo "this job only installs the pinned x86_64 uv"; exit 1; }
+          mkdir -p "$HOME/.local/bin" "$RUNNER_TEMP/uv"
+          curl -fsSL -o "$RUNNER_TEMP/uv.tar.gz" \
+            https://github.com/astral-sh/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz
+          echo "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224  $RUNNER_TEMP/uv.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/uv.tar.gz" -C "$RUNNER_TEMP/uv"
+          install -m 755 "$RUNNER_TEMP/uv/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Download the built distribution
+        if: steps.state.outputs.should_upload == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: stable-python-dist
+          path: dist
+
+      - name: Keep only the expected distribution files
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          SDK_VERSION: ${{ steps.state.outputs.sdk }}
+          CORE_VERSION: ${{ steps.state.outputs.core }}
+        run: python3 .github/scripts/select-stable-dist.py "$SDK_VERSION" "$CORE_VERSION" dist
+
+      - name: Generate PEP 740 attestations
+        if: steps.state.outputs.should_upload == 'true'
+        uses: astral-sh/attest-action@f589a42a7efb6fe400b4f400de60b4bc90390027 # v0.0.6
+
+      # The build steps above can take minutes; never upload for a runtime
+      # mainnet replaced in the meantime.
+      - name: Recheck that mainnet still runs this runtime
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          EXPECTED_SPEC: ${{ needs.build.outputs.spec_version }}
+          EXPECTED_CODE_HASH: ${{ steps.wait.outputs.code_hash }}
+        run: .github/scripts/mainnet-finalized-runtime.sh
+
+      - name: Publish to PyPI
+        if: steps.state.outputs.should_upload == 'true'
+        run: |
+          ls -la dist
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/ dist/*
+
+      - name: Verify complete publication on PyPI
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          SDK_VERSION: ${{ steps.state.outputs.sdk }}
+          CORE_VERSION: ${{ steps.state.outputs.core }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            status=0
+            python3 .github/scripts/check-python-release.py \
+              --sdk-version "$SDK_VERSION" \
+              --core-version "$CORE_VERSION" \
+              --repository "$GITHUB_REPOSITORY" || status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then
+              echo "PyPI state not authoritative yet (attempt $attempt/12); retrying."
+              sleep 10
+            fi
+          done
+          echo "PyPI did not expose the complete attested release within two minutes."
+          exit 1
+
+      # Once the upgrade is live, a failure here (stable build missing, PyPI
+      # rejecting the upload, a network error) must leave a pending approval,
+      # as the watcher did before the train published: the watcher's
+      # finalizing run may already have seen this job in progress and left
+      # PyPI to it. The dispatched run rebuilds from the v<spec> tag.
+      - name: Hand the upload to the release watcher
+        if: failure() && steps.wait.outputs.live == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run watch-mainnet-release.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "::error::The stable Python upload failed after spec ${{ needs.build.outputs.spec_version }} went live. Dispatched watch-mainnet-release.yml, which asks for one mainnet approval to publish it."
+
+  deploy-docs-on-enactment:
+    name: Deploy production docs once mainnet runs this upgrade
+    needs: [build, check-testnet, check-runtime-notes]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # The production Vercel credentials live in the mainnet environment.
+    # deploy-docs.yml can redeploy production manually if this is missed.
+    environment: mainnet
+    timeout-minutes: 1380
+    permissions:
+      contents: read
+      actions: read # read this run's jobs while waiting
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+
+      - name: Wait until mainnet runs this runtime
+        id: wait
+        env:
+          SPEC: ${{ needs.build.outputs.spec_version }}
+          WASM: wasm/subtensor.wasm
+          RELEASE_SHA: ${{ github.sha }}
+          WAIT_MINUTES: "1200"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/await-mainnet-enactment.sh
+
+      - name: Set up Node.js
+        if: steps.wait.outputs.live == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable corepack (yarn 4)
+        if: steps.wait.outputs.live == 'true'
+        run: corepack enable
+
+      - name: Build production docs
+        if: steps.wait.outputs.live == 'true'
+        # Repo root, not website/: the Vercel root directory is resolved
+        # against the cwd (see deploy-docs.yml).
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx --yes vercel build --prod --token "$VERCEL_TOKEN"
+
+      # The build can take a while; never promote docs for a runtime mainnet
+      # replaced in the meantime.
+      - name: Recheck that mainnet still runs this runtime
+        if: steps.wait.outputs.live == 'true'
+        env:
+          EXPECTED_SPEC: ${{ needs.build.outputs.spec_version }}
+          EXPECTED_CODE_HASH: ${{ steps.wait.outputs.code_hash }}
+        run: .github/scripts/mainnet-finalized-runtime.sh
+
+      - name: Deploy to Vercel (production)
+        if: steps.wait.outputs.live == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          # --archive=tgz: the prebuilt output exceeds Vercel's 15k-file
+          # upload limit (the generated docs tree alone is >30k files).
+          npx --yes vercel deploy --prebuilt --prod --archive=tgz --token "$VERCEL_TOKEN"
+
+  # Separate from the upload so a Discord failure never re-runs it.
+  # mainnet-release has no reviewers, so this does not ask for an approval.
+  announce-python:
+    name: Announce stable Python release
+    needs: publish-python-on-enactment
+    if: needs.publish-python-on-enactment.outputs.uploaded == 'true'
+    runs-on: ubuntu-latest
+    environment: mainnet-release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Require the main branch
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Discord announcements only run from main"
+            exit 1
+          }
+      - uses: actions/checkout@v4
+      - name: Find Python release notes
+        id: facts
+        env:
+          SDK_VERSION: ${{ needs.publish-python-on-enactment.outputs.sdk }}
+        run: |
+          set -euo pipefail
+          if [ -f ".github/release-notes/python/${SDK_VERSION}.json" ]; then
+            echo "notes=.github/release-notes/python/${SDK_VERSION}.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Post to Discord
+        uses: ./.github/actions/announce-release
+        with:
+          kind: python-stable
+          sdk-version: ${{ needs.publish-python-on-enactment.outputs.sdk }}
+          core-version: ${{ needs.publish-python-on-enactment.outputs.core }}
+          sha: ${{ github.sha }}
+          revision: ${{ github.sha }}
+          notes-file: ${{ steps.facts.outputs.notes }}
+          allow-missing-notes: "true"
+          dry-run: "false"
+          status-context: announce/python-stable
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          openai-api-key: ${{ secrets.ANNOUNCE_OPENAI_API_KEY }}

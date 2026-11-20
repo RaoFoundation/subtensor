@@ -1,4 +1,4 @@
-"""Publishing a neuron's endpoint on-chain (axon, TLS axon, prometheus).
+"""Publishing a neuron's endpoint on-chain (axon, TLS axon, prometheus, service url).
 
 This publishes connection info as chain data only — the SDK does not implement
 the neuron networking layer itself.
@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from .._generated import calls
+from ..result import BittensorError
 from .base import Intent
 from .registry import register
 
@@ -21,6 +23,9 @@ PROTOCOL_HELP = (
     "Application protocol tag stored alongside the endpoint; its meaning is subnet-defined."
 )
 VERSION_HELP = "Version number of the serving neuron's software, stored with the endpoint."
+
+# Longest service url the chain stores, in UTF-8 bytes.
+MAX_SERVICE_URL_LEN = 256
 
 
 @register
@@ -152,6 +157,58 @@ class ServePrometheus(Intent):
 
     def summary(self) -> str:
         return f"serve prometheus {self.ip}:{self.port} on netuid {self.netuid}"
+
+
+@register
+@dataclass
+class SetService(Intent):
+    """Publish this hotkey's service on a subnet, with the url where it describes
+    its services.
+
+    The chain stores the url only; the document the url points to (the
+    services and their interfaces) is the publisher's. Signed by the coldkey;
+    the hotkey must hold a validator permit on the subnet, or be the subnet
+    owner's hotkey with the subnet owner signing. An empty url removes the
+    service.
+    """
+
+    op = "set_service"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "set_service"),)
+
+    netuid: int = field(metadata={"help": "Subnet on which to publish the service."})
+    url: str = field(
+        metadata={
+            "help": "An http(s) url of the services document, up to 256 bytes; empty removes it."
+        }
+    )
+    hotkey_ss58: Optional[str] = field(
+        default=None, metadata={"help": "Hotkey whose service it is; defaults to the wallet's."}
+    )
+
+    def __post_init__(self):
+        if len(self.url.encode()) > MAX_SERVICE_URL_LEN:
+            raise BittensorError(
+                f"set_service: the url is {len(self.url.encode())} bytes, "
+                f"at most {MAX_SERVICE_URL_LEN} are allowed"
+            )
+        parts = urlsplit(self.url)
+        if self.url and not (parts.scheme in ("http", "https") and parts.netloc):
+            raise BittensorError(f"set_service: {self.url!r} is not an http(s) url")
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.set_service(
+                netuid=self.netuid,
+                hotkey=self.hotkey_address(wallet, self.hotkey_ss58),
+                url=self.url.encode(),
+            )
+        )
+
+    def summary(self) -> str:
+        if not self.url:
+            return f"remove the service on netuid {self.netuid}"
+        return f"set the service {self.url} on netuid {self.netuid}"
 
 
 @register

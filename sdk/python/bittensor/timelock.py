@@ -226,6 +226,16 @@ class Timelocked:
         """Portable hex form of the ciphertext (what you publish or store)."""
         return self.ciphertext.hex()
 
+    @property
+    def encrypted(self) -> bytes:
+        """Inner TLE ciphertext for `Commitments.set_commitment`.
+
+        `ciphertext` / `hex()` is the portable envelope (includes the reveal
+        round). The chain stores the inner TLE bytes and `reveal_round` as
+        separate fields, so pass this property as `TimelockEncrypted.encrypted`.
+        """
+        return bytes(_core.inner_ciphertext(self.ciphertext))
+
     def __bytes__(self) -> bytes:
         return self.ciphertext
 
@@ -260,6 +270,11 @@ def encrypt(
 
     Strings are encoded UTF-8. Purely local -- no network, no keys, nothing to
     keep secret afterwards except the plaintext itself.
+
+    For `Commitments.set_commitment`, pass ``sealed.encrypted`` (inner TLE
+    bytes) and ``sealed.reveal_round``. ``bytes(sealed)`` / ``sealed.hex()``
+    are the portable envelope, which the chain also accepts after this runtime
+    upgrade, but the inner bytes are the pallet-native format.
     """
     given = [x is not None for x in (reveal_in, reveal_at, reveal_round)]
     if sum(given) != 1:

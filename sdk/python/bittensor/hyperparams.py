@@ -108,6 +108,13 @@ class Hyperparam:
 
 
 HYPERPARAMS: dict[str, Hyperparam] = {
+    "epoch_consensus": Hyperparam(
+        "int",
+        "Epoch consensus selector: 0 is Yuma, 1 is Null. Owner setter accepts Yuma or Null.",
+        short="epoch consensus mechanism",
+        minimum=0,
+        maximum=1,
+    ),
     "rho": Hyperparam(
         "int",
         "Temperature of the sigmoid that maps a validator's consensus alignment to "
@@ -149,14 +156,14 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "min_difficulty": Hyperparam(
         "difficulty",
-        "Lower bound for the PoW registration difficulty controller. u64::MAX "
+        "Owner-controlled floor for independently adjusted PoW difficulty. u64::MAX "
         "pins difficulty at maximum, effectively disabling PoW registration.",
         short="PoW registration difficulty floor",
     ),
     "max_difficulty": Hyperparam(
         "difficulty",
-        "Upper bound for the PoW registration difficulty controller. u64::MAX "
-        "leaves the difficulty unbounded above.",
+        "PoW difficulty ceiling under independent registration pricing; the subnet floor "
+        "takes precedence. u64::MAX allows the full u64 range.",
         short="PoW registration difficulty ceiling",
     ),
     "difficulty": Hyperparam(
@@ -178,8 +185,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "adjustment_interval": Hyperparam(
         "blocks",
-        "Blocks between adjustments of the registration difficulty and burn cost.",
-        short="difficulty/burn adjustment cadence",
+        "Historical interval controller cadence; current burn/PoW pricing uses burn_half_life.",
+        short="historical adjustment cadence",
     ),
     "activity_cutoff": Hyperparam(
         "blocks",
@@ -199,18 +206,22 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "registration_allowed": Hyperparam(
         "bool",
-        "Whether new neuron registrations are currently accepted on this subnet.",
-        short="new neuron registrations allowed",
+        "Whether burn registration is accepted on this subnet, independently of the PoW toggle. "
+        "Owners must leave at least one registration method enabled.",
+        short="burn registration toggle",
     ),
     "network_pow_registration_allowed": Hyperparam(
         "bool",
-        "Whether proof-of-work registration is allowed (as opposed to burned registration only).",
+        "Whether fee-free proof-of-work registration is allowed, "
+        "independently of burn registration. "
+        "Owners must leave at least one registration method enabled.",
         short="PoW registration toggle",
     ),
     "target_regs_per_interval": Hyperparam(
         "int",
-        "Registrations per adjustment interval the difficulty/burn controller steers toward.",
-        short="registration-rate controller target",
+        "Historical target; current burn/PoW equilibrium uses burn_half_life "
+        "and burn_increase_mult.",
+        short="historical registration-rate target",
     ),
     "min_burn": Hyperparam(
         "rao",
@@ -235,8 +246,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "serving_rate_limit": Hyperparam(
         "blocks",
-        "Minimum blocks between axon serve calls for one neuron.",
-        short="cooldown between axon serve calls",
+        "Minimum blocks between axon serve calls, and between service url updates, for one neuron.",
+        short="cooldown between axon and url updates",
     ),
     "max_validators": Hyperparam(
         "int",
@@ -245,9 +256,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "adjustment_alpha": Hyperparam(
         "u64",
-        "Smoothing factor for the difficulty/burn adjustment, stored as u64 "
-        "(u64::MAX = 1.0): higher values adjust more slowly.",
-        short="difficulty/burn adjust smoothing",
+        "Historical interval-controller smoothing, stored as u64. Current burn/PoW pricing "
+        "uses the shared immediate multiplier and per-block half-life.",
+        short="historical adjustment smoothing",
     ),
     "commit_reveal_period": Hyperparam(
         "epochs",
@@ -305,22 +316,24 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     "max_allowed_uids": Hyperparam(
         "int",
         "Maximum neuron slots (UIDs) on the subnet; registrations beyond this "
-        "prune the lowest-scoring neuron.",
+        "prune the lowest-scoring neuron. Capacity shares a budget of 256 under Yuma "
+        "or 2500 under Null across emission mechanisms.",
         short="neuron slot capacity before pruning",
     ),
     "burn_increase_mult": Hyperparam(
         "fixed128",
-        "Multiplier applied to the burn cost after each registration within an "
-        "adjustment window. U64F64 fixed-point: the raw bits divided by 2^64 "
+        "Shared multiplier: a successful burn registration increases only burn price, "
+        "and a successful PoW registration increases only PoW difficulty. U64F64 fixed-point: "
+        "the raw bits divided by 2^64 "
         "give the real multiplier.",
-        short="burn cost bump per registration",
+        short="shared burn/PoW bump multiplier",
         minimum=FIXED128_ONE,
         maximum=3 * FIXED128_ONE,
     ),
     "burn_half_life": Hyperparam(
         "blocks",
-        "Blocks for the burn cost to decay halfway back toward min_burn.",
-        short="burn cost decay half-life",
+        "Shared half-life for burn price and PoW difficulty decay toward their floors.",
+        short="shared burn/PoW decay half-life",
     ),
     "collateral_lock_share": Hyperparam(
         "u16",
@@ -338,6 +351,12 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         short="collateral released per α earned",
         minimum=1,
         maximum=10 * FIXED128_ONE,
+    ),
+    "gamma_enabled": Hyperparam(
+        "bool",
+        "Whether this subnet allows gamma minting, which also needs gamma enabled "
+        "network-wide; the root subnet cannot enable it.",
+        short="gamma minting toggle",
     ),
     "yuma3_enabled": Hyperparam(
         "bool",
@@ -359,11 +378,11 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "subnet_emission_enabled": Hyperparam(
         "bool",
-        "Root-controlled pool-side TAO emission switch. False means the subnet "
-        "earns no TAO emission share — the pool-side alpha_in/tao_in/excess_tao "
-        "chain-buy paths are zeroed — even when subnet_is_active is true. Only "
-        "root (the chain sudo key) can flip it, via the "
-        "set_subnet_emission_enabled intent.",
+        "Root-controlled pool-side TAO emission switch. New registrations "
+        "start true. False means the subnet earns no TAO emission share — the "
+        "pool-side alpha_in/tao_in/excess_tao chain-buy paths are zeroed — "
+        "even when subnet_is_active is true. Only root (the chain sudo key) "
+        "can flip it, via the set_subnet_emission_enabled intent.",
         short="root switch for TAO emission share",
     ),
     "user_liquidity_enabled": Hyperparam(
@@ -384,8 +403,34 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "owner_cut_enabled": Hyperparam(
         "bool",
-        "Whether the subnet owner takes their emission cut.",
-        short="owner emission cut toggle",
+        "Whether the subnet owner takes any emission cut: true iff the owner slot of the "
+        "emission weight vector is non-zero. Derived, read-only; change the owner share "
+        "with `btcli subnets emission set-value --slot owner`.",
+        short="owner cut on? (derived, read-only)",
+    ),
+    "owner_emission": Hyperparam(
+        "u64",
+        "Owner slot of the emission weight vector: the share of block alpha emission paid "
+        "to the subnet owner (0 disables the cut; at most 0.33; lease-created subnets keep "
+        "at least the 0.18 launch default). Set via `btcli subnets emission`.",
+        short="owner share of emission (slot 2)",
+    ),
+    "validator_emission": Hyperparam(
+        "u64",
+        "Validator slot of the emission weight vector: the share of block alpha emission "
+        "that becomes validator dividends. At most 0.50. Root is paid its baseline share of "
+        "emission (what it earns with the default validator share and the global TaoWeight, "
+        "recomputed every block) off the top of this slot, capped at the slot; alpha "
+        "validators get the rest, so a change at or below the baseline is rejected. Set via "
+        "`btcli subnets emission`.",
+        short="validator share of emission (slot 3)",
+    ),
+    "miner_emission": Hyperparam(
+        "u64",
+        "Miner slot of the emission weight vector: the share of block alpha emission paid "
+        "as miner incentive (split across mechanisms). At least 0.33. Set via "
+        "`btcli subnets emission`.",
+        short="miner share of emission (slot 4)",
     ),
     "owner_cut_auto_lock_enabled": Hyperparam(
         "bool",
@@ -443,8 +488,13 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,
     "transfers_enabled": st.SubtensorModule.TransferToggle,
-    "owner_cut_enabled": st.SubtensorModule.OwnerCutEnabled,
     "owner_cut_auto_lock_enabled": st.SubtensorModule.OwnerCutAutoLockEnabled,
+    # The three emission slots live in one vector; owner_cut_enabled is derived
+    # from its owner slot.
+    "owner_cut_enabled": st.SubtensorModule.SubnetEmissionWeights,
+    "owner_emission": st.SubtensorModule.SubnetEmissionWeights,
+    "validator_emission": st.SubtensorModule.SubnetEmissionWeights,
+    "miner_emission": st.SubtensorModule.SubnetEmissionWeights,
 }
 
 # Unit-bearing type identities -> the unit kind they dictate. Ratio types are

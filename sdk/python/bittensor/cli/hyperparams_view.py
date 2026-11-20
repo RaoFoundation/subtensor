@@ -107,7 +107,7 @@ def _single(app_ctx: AppContext, netuid: int, name: str, raw: Any) -> None:
     settable = name in OWNER_HYPERPARAMETERS
     if settable:
         example = _example_value(kind, fraction, raw)
-        help_text = f"set it: `btcli sudo set --netuid {netuid} --name {name} --value {example}`"
+        help_text = f"set it: `btcli hparams set --netuid {netuid} --name {name} --value {example}`"
         note = f"--value takes {hp.value_forms(name)}"
     else:
         help_text = None

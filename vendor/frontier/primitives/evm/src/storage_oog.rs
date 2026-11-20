@@ -50,3 +50,71 @@ pub fn set_storage_oog() {
 		*storage_oog = true;
 	});
 }
+
+/// Whether the active execution has exhausted a transaction-wide resource limit.
+/// Unlike a child's ordinary gas failure, this cannot be caught to commit state.
+pub fn is_storage_oog() -> bool {
+	STORAGE_OOG::with(|storage_oog| *storage_oog).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{ExitSucceed, WeightInfo};
+	use frame_support::weights::Weight;
+
+	#[test]
+	fn nested_execution_preserves_global_exhaustion_until_outer_scope_ends() {
+		let success = ExitReason::Succeed(ExitSucceed::Stopped);
+		assert!(!is_storage_oog());
+		let (reason, value, _, gas) = handle_storage_oog(100, || {
+			let (reason, value, _, gas) = handle_storage_oog(50, || {
+				set_storage_oog();
+				(success.clone(), 1u8, 10, U256::from(10))
+			});
+			assert_eq!(reason, ExitError::OutOfGas.into());
+			assert_eq!(value, 0);
+			assert_eq!(gas, U256::from(50));
+			assert!(is_storage_oog());
+			(success.clone(), 1u8, 20, U256::from(20))
+		});
+		assert_eq!(reason, ExitError::OutOfGas.into());
+		assert_eq!(value, 0);
+		assert_eq!(gas, U256::from(100));
+		assert!(!is_storage_oog());
+		assert_eq!(
+			handle_storage_oog(100, || (success.clone(), 1u8, 20, U256::from(20))),
+			(success, 1u8, 20, U256::from(20))
+		);
+	}
+
+	#[test]
+	fn weight_counter_overflow_cannot_be_caught_as_a_local_failure() {
+		for proof_size in [false, true] {
+			let (reason, value, _, gas) = handle_storage_oog(100, || {
+				let mut info = WeightInfo::new_from_weight_limit(Some(Weight::MAX), Some(0))
+					.unwrap()
+					.unwrap();
+				let error = if proof_size {
+					info.try_record_proof_size_or_fail(u64::MAX).unwrap();
+					info.try_record_proof_size_or_fail(1)
+				} else {
+					info.try_record_ref_time_or_fail(u64::MAX).unwrap();
+					info.try_record_ref_time_or_fail(1)
+				};
+				assert_eq!(error, Err(ExitError::OutOfGas));
+				assert!(is_storage_oog());
+				// Simulate a parent catching the error and returning success.
+				(
+					ExitReason::Succeed(ExitSucceed::Stopped),
+					1u8,
+					10,
+					U256::from(10),
+				)
+			});
+			assert_eq!(reason, ExitError::OutOfGas.into());
+			assert_eq!(value, 0);
+			assert_eq!(gas, U256::from(100));
+		}
+	}
+}

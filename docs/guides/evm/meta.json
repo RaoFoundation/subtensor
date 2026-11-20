@@ -2,6 +2,8 @@
   "title": "EVM",
   "pages": [
     "index",
+    "precompiles",
+    "precompile-design",
     "deploy-a-contract",
     "read-chain-state",
     "stake-from-evm",

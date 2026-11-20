@@ -1,7 +1,6 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
 """
 from typing import Any, NamedTuple
 
@@ -24,10 +23,14 @@ BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
+ConsensusMode = Any
+DerivedDescriptor = Any
 Determinism = Any
+EpochConsensus = Any
 EquivocationProof = Any
 FixedI128 = Any
 FixedU128 = Any
+GammaBalance = Any
 H160 = Any
 H256 = Any
 MechId = Any
@@ -42,7 +45,7 @@ PrecompileEnum = Any
 ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
-RootClaimTypeEnum = Any
+RegistrationDescriptor = Any
 RuntimeCall = Any
 TaoBalance = Any
 TickIndex = Any
@@ -222,8 +225,13 @@ class SubtensorModule:
 
     @staticmethod
     def announce_coldkey_swap(new_coldkey_hash: 'H256') -> Call:
-        'Announces a coldkey swap using BlakeTwo256 hash of the new coldkey.  This is required before the coldkey swap can be performed after the delay period.  It can be reannounced after a delay of `ColdkeySwapReannouncementDelay` following the first valid execution block of the original announcement.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey_hash`: The hash of the new coldkey using BlakeTwo256.  The `ColdkeySwapAnnounced` event is emitted on successful announcement.'
+        'Announces a coldkey swap using the BlakeTwo256 hash of the new coldkey.  Legacy commitment path: keeps the destination secret until `swap_coldkey_announced` reveals it. Does **not** validate or reserve the destination (that requires cleartext — use [`Self::announce_coldkey_swap_v2`]). Prefer V2 for merges into already-used destinations and for pre-fee admission checks.  It can be reannounced after a delay of `ColdkeySwapReannouncementDelay` following the first valid execution block of the original announcement.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey_hash`: BlakeTwo256 hash of the destination coldkey.  The `ColdkeySwapAnnounced` event is emitted on successful announcement.'
         return Call('SubtensorModule', 'announce_coldkey_swap', {'new_coldkey_hash': new_coldkey_hash})
+
+    @staticmethod
+    def announce_coldkey_swap_v2(new_coldkey: 'AccountId32') -> Call:
+        'Announces a coldkey swap with the cleartext destination account.  Validates the destination (and combined swap work) before charging the announcement fee, then exclusively reserves that account for the delay so a third party cannot register it as a hotkey. The on-chain announcement stores a BlakeTwo256 commitment to the destination and its policy-import eligibility at announcement time. Every call creates or renews that reservation, so every call pays the key-swap cost, including reannouncements.  Prefer this over [`Self::announce_coldkey_swap`] when merging into an already-used coldkey or when pre-fee refusal of bad destinations matters.  * `new_coldkey`: Destination coldkey (validated before any fee).'
+        return Call('SubtensorModule', 'announce_coldkey_swap_v2', {'new_coldkey': new_coldkey})
 
     @staticmethod
     def associate_evm_key(netuid: 'NetUid', evm_key: 'H160', block_number: 'u64', signature: 'Any') -> Call:
@@ -257,13 +265,23 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
-        "Claims the root emissions for a coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
+        "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.  Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's slice of them stays in the fund. A claim that is admitted and then fails is charged the work it did, not the declared envelope; a claim refused at admission keeps the envelope.  # Arguments * `origin`: The signature of the caller's coldkey. * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey. * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.  # Errors * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
+
+    @staticmethod
+    def claim_root_with_hotkey(hotkey: 'AccountId32') -> Call:
+        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on root. The corresponding alpha fraction is sold; any concavity surplus over the NAV-priced entitlement remains in the basket as root TAO for the other holders. Other validators' accrued yield is left untouched.  Dust rows are not sold: a fund row worth less than `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one whose slice for this claimant is worth less than `BasketClaimSliceDustTao`, is skipped when that slice is also worth at most `BasketClaimForfeitCapTao` (all at the anchored mark, which decides dust only). The claim burns the full entitlement, so the claimant's slice of a skipped row — never more than the cap at the anchored mark — is left to the remaining holders (`BasketClaimDustSkipped` reports it). A claim that is admitted and then fails is charged the work it did, not the declared envelope; a claim refused at admission keeps the envelope.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey. * `BasketClaimDustSkipped`: When the claim left dust rows unsold.  # Errors * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim may walk."
+        return Call('SubtensorModule', 'claim_root_with_hotkey', {'hotkey': hotkey})
 
     @staticmethod
     def clear_coldkey_swap_announcement() -> Call:
         'Clears a coldkey swap announcement after the reannouncement delay if it has not been disputed.  The `ColdkeySwapCleared` event is emitted on successful clear.'
         return Call('SubtensorModule', 'clear_coldkey_swap_announcement', {})
+
+    @staticmethod
+    def close_gamma_deposit(hotkey: 'AccountId32', netuid: 'NetUid') -> Call:
+        "Closes the signer's empty gamma deposit at `hotkey`, releasing the hotkey."
+        return Call('SubtensorModule', 'close_gamma_deposit', {'hotkey': hotkey, 'netuid': netuid})
 
     @staticmethod
     def commit_crv3_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', commit: 'BoundedVec', reveal_round: 'u64') -> Call:
@@ -316,6 +334,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
 
     @staticmethod
+    def feed_tao_usd_price(price: 'u64') -> Call:
+        'Feeds the TAO/USD price in gamma units (10^9 per US dollar) per TAO, at most once per block. Signed by the oracle, which pays no fee when the feed succeeds.'
+        return Call('SubtensorModule', 'feed_tao_usd_price', {'price': price})
+
+    @staticmethod
     def increase_take(hotkey: 'AccountId32', take: 'PerU16') -> Call:
         "Allows delegates to increase its take value. This call is rate-limited.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).  * `take`: The new stake proportion that this hotkey takes from delegations. The new value can be between 0 and 11_796 parts and should be strictly greater than the previous value. T is the new value (rational number), the the parameter is calculated as [65535 * T]. For example, 1% would be [0.01 * 65535] = [655.35] = 655  # Events * `TakeIncreased`: On successfully setting a increased take for this hotkey.  # Errors * `NotRegistered`: The hotkey we are delegating is not registered on the network.  * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.  * `DelegateTakeTooHigh`: The delegate is setting a take which is not greater than the previous."
         return Call('SubtensorModule', 'increase_take', {'hotkey': hotkey, 'take': take})
@@ -326,14 +349,39 @@ class SubtensorModule:
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
+    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
+
+    @staticmethod
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
+
+    @staticmethod
+    def move_gamma(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to `destination_hotkey`: the whole balance, or at least 0.1 gamma leaving at least as much. A move that empties the origin closes it."
+        return Call('SubtensorModule', 'move_gamma', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
     def move_lock(destination_hotkey: 'AccountId32', netuid: 'NetUid') -> Call:
         'Moves an existing lock for a coldkey on a subnet from one hotkey to another.  The lock is rolled forward to the current block before switching the associated hotkey, preserving the decayed locked mass. The conviction is reset to zero.  # Arguments * `origin`: Must be signed by the coldkey that owns the lock. * `destination_hotkey`: The hotkey the lock should target after the move. * `netuid`: The subnet on which the lock exists. # Errors * `Error::<T>::NoExistingLock`: If no lock exists for the given coldkey and subnet.'
         return Call('SubtensorModule', 'move_lock', {'destination_hotkey': destination_hotkey, 'netuid': netuid})
 
     @staticmethod
     def move_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
-        "The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.  # Arguments * `origin`: The signature of the caller's coldkey.  * `origin_hotkey`: The hotkey account to move stake from.  * `destination_hotkey`: The hotkey account to move stake to.  * `origin_netuid`: The subnet ID to move stake from.  * `destination_netuid`: The subnet ID to move stake to.  * `alpha_amount`: The alpha stake amount to move."
+        "The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.  # Arguments * `origin`: The signature of the caller's coldkey.  * `origin_hotkey`: The hotkey account to move stake from.  * `destination_hotkey`: The hotkey account to move stake to.  * `origin_netuid`: The subnet ID to move stake from.  * `destination_netuid`: The subnet ID to move stake to.  * `alpha_amount`: The alpha stake amount to move. `AlphaBalance::MAX` means the live origin position at execution (so a preceding `claim_root_with_hotkey` in the same batch is included)."
         return Call('SubtensorModule', 'move_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
+
+    @staticmethod
+    def move_stake_limit(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance', limit_price: 'TaoBalance', allow_partial: 'bool') -> Call:
+        'Moves stake from one hotkey to another and, when the subnets differ, protects the swap with a relative price limit.  `limit_price` is the minimum acceptable destination-alpha per origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the call is fill-or-kill; otherwise it moves only the amount executable before the limit is crossed. `alpha_amount` of `AlphaBalance::MAX` means the live origin position at execution.'
+        return Call('SubtensorModule', 'move_stake_limit', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount, 'limit_price': limit_price, 'allow_partial': allow_partial})
+
+    @staticmethod
+    def pow_register(netuid: 'NetUid', work_block: 'u64', nonce: 'u64', work: 'Any', hotkey: 'AccountId32') -> Call:
+        'Register by owner-enabled PoW, without TAO burn, collateral purchase, or transaction fee. The signing coldkey is bound into the proof. Transaction validation verifies the proof before pool admission.'
+        return Call('SubtensorModule', 'pow_register', {'netuid': netuid, 'work_block': work_block, 'nonce': nonce, 'work': work, 'hotkey': hotkey})
 
     @staticmethod
     def recycle_alpha(hotkey: 'AccountId32', amount: 'AlphaBalance', netuid: 'NetUid') -> Call:
@@ -366,6 +414,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'register_network_with_identity', {'hotkey': hotkey, 'identity': identity})
 
     @staticmethod
+    def release_own_coldkey_swap_destination_reservation() -> Call:
+        "Destination-authorized release of a coldkey-swap destination reservation.  V2 announce takes the destination in cleartext and exclusively reserves it. The reserved account can free that hold so a third party cannot squat someone else's coldkey indefinitely. Reservations also expire after `when + ColdkeySwapReannouncementDelay`."
+        return Call('SubtensorModule', 'release_own_coldkey_swap_destination_reservation', {})
+
+    @staticmethod
     def remove_stake(hotkey: 'AccountId32', netuid: 'NetUid', amount_unstaked: 'AlphaBalance') -> Call:
         "Remove stake from the staking account. The call must be made from the coldkey account attached to the neuron metadata. Only this key has permission to make staking and unstaking requests.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  * `netuid`: Subnetwork UID.  * `amount_unstaked`: The amount of stake to be added to the hotkey staking account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount."
         return Call('SubtensorModule', 'remove_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount_unstaked': amount_unstaked})
@@ -386,6 +439,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'reset_coldkey_swap', {'coldkey': coldkey})
 
     @staticmethod
+    def reset_coldkey_swap_keep_locked(coldkey: 'AccountId32') -> Call:
+        'Reset a coldkey swap while retaining its recovery lock.  Clears the announcement and active dispute. The coldkey may announce again, dispute, execute the new swap, or submit an encrypted transaction, but cannot clear the announcement to unlock itself or make unrelated calls. Uses the existing dispute entry with block zero.  The dispatch origin of this call must be root.  * `coldkey`: The coldkey to reset the swap for while keeping it locked.'
+        return Call('SubtensorModule', 'reset_coldkey_swap_keep_locked', {'coldkey': coldkey})
+
+    @staticmethod
     def reveal_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
         'Used to reveal the weights for a previously committed hash for mechanisms.  # Arguments * `origin`: The signature of the revealing hotkey.  * `netuid`: The u16 network identifier.  * `mecid`: The u8 mechanism identifier.  * `uids`: The uids for the weights being revealed.  * `values`: The values of the weights being revealed.  * `salt`: The salt used to generate the commit hash.  * `version_key`: The network version key.  # Errors * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.  * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.  * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.  * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.  * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.'
         return Call('SubtensorModule', 'reveal_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
@@ -402,7 +460,7 @@ class SubtensorModule:
 
     @staticmethod
     def root_register(hotkey: 'AccountId32') -> Call:
-        'Register the hotkey to root network'
+        "Register the hotkey to root network.  Admission is burn-based: the coldkey pays the root burn price (demand-priced like subnet registration), recycled out of issuance. No prior stake is required. When the network is full, the lowest-staked non-immune member is pruned to make room.  After a successful registration, the hotkey is auto-childkeyed to every existing subnet owner unless the validator opted out of auto parent delegation. Pruning a seat clears that validator's protocol auto-parent edges.  Declared weight is `WeightInfo::root_register` plus the evicted hotkey's two possible pending-dividend flushes and a `TotalNetworks`-scaled `DbWeight` term for the per-subnet persist (and prune cleanup). Re-benchmark on reference hardware so the base measurement includes that work."
         return Call('SubtensorModule', 'root_register', {'hotkey': hotkey})
 
     @staticmethod
@@ -432,7 +490,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_auto_parent_delegation_enabled(hotkey: 'AccountId32', enabled: 'bool') -> Call:
-        'Allows a root validator to toggle auto parent delegation for new subnets owner hotkey'
+        "Allows a root validator to toggle auto parent delegation. When enabled (the default), the validator is childkeyed to subnet owners on new subnet registration and on this validator's own root registration."
         return Call('SubtensorModule', 'set_auto_parent_delegation_enabled', {'hotkey': hotkey, 'enabled': enabled})
 
     @staticmethod
@@ -449,6 +507,11 @@ class SubtensorModule:
     def set_coldkey_auto_stake_hotkey(netuid: 'NetUid', hotkey: 'AccountId32') -> Call:
         "Set the autostake destination hotkey for a coldkey.  The caller selects a hotkey where all future rewards will be automatically staked.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The hotkey account to designate as the autostake destination."
         return Call('SubtensorModule', 'set_coldkey_auto_stake_hotkey', {'netuid': netuid, 'hotkey': hotkey})
+
+    @staticmethod
+    def set_gamma_deposit_daily_spend_cap(hotkey: 'AccountId32', netuid: 'NetUid', daily_spend_cap: 'Any') -> Call:
+        "Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it. A changed cap keeps what the deposit can spend now, up to the new cap."
+        return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
     def set_identity(name: 'Any', url: 'Any', github_repo: 'Any', image: 'Any', discord: 'Any', description: 'Any', additional: 'Any') -> Call:
@@ -477,13 +540,18 @@ class SubtensorModule:
 
     @staticmethod
     def set_reject_locked_alpha(enabled: 'bool') -> Call:
-        'Sets or clears whether the caller rejects incoming locked alpha.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha from stake transfers or coldkey swaps.'
+        'Sets or clears whether the caller rejects incoming locked alpha payments.  Coldkeys reject locked alpha by default. Passing `false` opts the caller into receiving locked alpha through stake transfers.'
         return Call('SubtensorModule', 'set_reject_locked_alpha', {'enabled': enabled})
 
     @staticmethod
-    def set_root_claim_type(new_root_claim_type: 'RootClaimTypeEnum') -> Call:
-        "Sets the root claim type for the coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey."
-        return Call('SubtensorModule', 'set_root_claim_type', {'new_root_claim_type': new_root_claim_type})
+    def set_reject_staking_hotkey_growth(enabled: 'bool') -> Call:
+        'Opt out of staking-hotkey list growth caused by other accounts. Existing destinations and hotkeys owned by the recipient can still receive transfers.'
+        return Call('SubtensorModule', 'set_reject_staking_hotkey_growth', {'enabled': enabled})
+
+    @staticmethod
+    def set_service(netuid: 'NetUid', hotkey: 'AccountId32', url: 'BoundedVec') -> Call:
+        "Sets the service of the coldkey's hotkey on the subnet: the url where it describes its services. The hotkey must be registered on the subnet with a validator permit, or be the subnet owner's hotkey signed for by the subnet owner. An empty url removes the service."
+        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'hotkey': hotkey, 'url': url})
 
     @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
@@ -501,6 +569,16 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
+    def spend_gamma(service: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Spends `amount` of the signer's gamma deposit on `netuid` at `service`, a hotkey with a service on the subnet, and adds it to what the signer has spent there. The amount is at least 0.1 gamma unless it empties the deposit, and within the deposit's balance and what its daily spend cap allows. Pays no fee: an invalid spend is refused before it enters a block, and a valid one burns its amount."
+        return Call('SubtensorModule', 'spend_gamma', {'service': service, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
+    def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
+        "Stakes TAO from the caller's balance directly into a validator's basket.  The TAO enters by the fund's current holdings: it is split pro-rata across every holding by realizable value and buys each one, so the deposit acquires the exposure the fund already has and stays symmetric with claims (which redeem pro-rata of every holding). A deposit into a fund with no holdings is held as the fund's root (TAO cash) slot. Inflows never change a fund's composition; only the validator's [`Pallet::swap_basket`] trades do. The caller is credited a fund entitlement at the fund's pre-buy realizable NAV, priced against the realizable value the deposit added — the depositor bears their own entry slippage and swap fees. The credited entitlement is redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]); it does not require or affect root stake, and it does not change any staker's dividend accrual.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The root-registered validator whose basket to deposit into. * `amount_staked`: TAO to take from the caller's balance and deploy.  # Events * `BasketStakedIn`: On success, with the TAO taken, the realizable value added, and the entitlement credited.  # Errors * `HotKeyAccountNotExists`: The hotkey is not a registered account. * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on root. * `AmountTooLow`: Below the minimum stake, the deposit's realizable value rounds to zero entitlement, or a holding cannot be priced (or would receive a zero-TAO slice) so the deposit cannot buy every position its shares claim. * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`."
+        return Call('SubtensorModule', 'stake_into_basket', {'hotkey': hotkey, 'amount_staked': amount_staked})
+
+    @staticmethod
     def start_call(netuid: 'NetUid') -> Call:
         'Initiates a call on a subnet.  # Arguments * `origin`: The origin of the call, which must be signed by the subnet owner. * `netuid`: The unique identifier of the subnet on which the call is being initiated.  # Events Emits a `FirstEmissionBlockNumberSet` event on success.'
         return Call('SubtensorModule', 'start_call', {'netuid': netuid})
@@ -516,13 +594,8 @@ class SubtensorModule:
         return Call('SubtensorModule', 'sudo_set_min_childkey_take', {'take': take})
 
     @staticmethod
-    def sudo_set_num_root_claims(new_value: 'u64') -> Call:
-        'Sets root claim number (sudo extrinsic). Zero disables auto-claim.'
-        return Call('SubtensorModule', 'sudo_set_num_root_claims', {'new_value': new_value})
-
-    @staticmethod
     def sudo_set_root_claim_threshold(netuid: 'NetUid', new_value: 'u64') -> Call:
-        'Sets root claim threshold for subnet (sudo or owner origin).'
+        '--- Sets the root claim dust threshold (sudo). Basket redemption is fund-level, so only the `NetUid::ROOT` entry is meaningful; other netuids are rejected.'
         return Call('SubtensorModule', 'sudo_set_root_claim_threshold', {'netuid': netuid, 'new_value': new_value})
 
     @staticmethod
@@ -536,13 +609,23 @@ class SubtensorModule:
         return Call('SubtensorModule', 'sudo_set_voting_power_ema_alpha', {'netuid': netuid, 'alpha': alpha})
 
     @staticmethod
+    def swap_basket(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', amount: 'AlphaBalance', min_amount_out: 'u64') -> Call:
+        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price; the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the 2% protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within 2% of the moving price. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap."
+        return Call('SubtensorModule', 'swap_basket', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'amount': amount, 'min_amount_out': min_amount_out})
+
+    @staticmethod
+    def swap_basket_many(hotkey: 'AccountId32', legs: 'BoundedVec') -> Call:
+        'Rebalance several legs of one validator basket atomically.  Pending dividend deposits are flushed once and the basket is valued once. Each leg then applies the same ownership, availability, slippage, turnover, liquidity, concentration, and caller-floor checks as [`Pallet::swap_basket`]. A failed leg rolls back every trade leg in this call; the preceding dividend flush remains settled, matching the failure behavior of the single-leg call.  Each tuple is `(origin_netuid, destination_netuid, amount, min_amount_out)`.'
+        return Call('SubtensorModule', 'swap_basket_many', {'hotkey': hotkey, 'legs': legs})
+
+    @staticmethod
     def swap_coldkey(old_coldkey: 'AccountId32', new_coldkey: 'AccountId32', swap_cost: 'TaoBalance') -> Call:
         "Performs an arbitrary coldkey swap for any coldkey.  Only callable by root as it doesn't require an announcement and can be used to swap any coldkey."
         return Call('SubtensorModule', 'swap_coldkey', {'old_coldkey': old_coldkey, 'new_coldkey': new_coldkey, 'swap_cost': swap_cost})
 
     @staticmethod
     def swap_coldkey_announced(new_coldkey: 'AccountId32') -> Call:
-        'Performs a coldkey swap if an announcement has been made.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey`: The new coldkey to swap to. The BlakeTwo256 hash of the new coldkey must be the same as the announced coldkey hash.  The `ColdkeySwapped` event is emitted on successful swap.'
+        'Performs a coldkey swap if an announcement has been made.  The dispatch origin of this call must be the original coldkey that made the announcement.  * `new_coldkey`: The new coldkey to swap to. It must match the legacy destination hash or the V2 destination-and-policy commitment.  The `ColdkeySwapped` event is emitted on successful swap.'
         return Call('SubtensorModule', 'swap_coldkey_announced', {'new_coldkey': new_coldkey})
 
     @staticmethod
@@ -557,12 +640,12 @@ class SubtensorModule:
 
     @staticmethod
     def swap_stake(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
-        'Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`. * `hotkey`: The hotkey whose stake is being swapped. * `origin_netuid`: The network/subnet ID from which stake is removed. * `destination_netuid`: The network/subnet ID to which stake is added. * `alpha_amount`: The amount of stake to swap.  # Errors * `BadOrigin`: The transaction is not signed. * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeSwapped` event on success.'
+        'Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`. * `hotkey`: The hotkey whose stake is being swapped. * `origin_netuid`: The network/subnet ID from which stake is removed. * `destination_netuid`: The network/subnet ID to which stake is added. * `alpha_amount`: The amount of stake to swap. `AlphaBalance::MAX` means the live origin position at execution.  # Errors * `BadOrigin`: The transaction is not signed. * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeSwapped` event on success.'
         return Call('SubtensorModule', 'swap_stake', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
     def swap_stake_limit(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance', limit_price: 'TaoBalance', allow_partial: 'bool') -> Call:
-        'Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`. * `hotkey`: The hotkey whose stake is being swapped. * `origin_netuid`: The network/subnet ID from which stake is removed. * `destination_netuid`: The network/subnet ID to which stake is added. * `alpha_amount`: The amount of stake to swap. * `limit_price`: The limit price expressed in units of RAO per one Alpha. * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type of order.  # Errors * `BadOrigin`: The transaction is not signed. * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement. * `SlippageTooHigh`: `allow_partial` is false and the amount would cross the limit price. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeSwapped` event on success.'
+        'Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`. * `hotkey`: The hotkey whose stake is being swapped. * `origin_netuid`: The network/subnet ID from which stake is removed. * `destination_netuid`: The network/subnet ID to which stake is added. * `alpha_amount`: The amount of stake to swap. `AlphaBalance::MAX` means the live origin position at execution. * `limit_price`: The limit price expressed in units of RAO per one Alpha. * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type of order.  # Errors * `BadOrigin`: The transaction is not signed. * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement. * `SlippageTooHigh`: `allow_partial` is false and the amount would cross the limit price. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeSwapped` event on success.'
         return Call('SubtensorModule', 'swap_stake_limit', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount, 'limit_price': limit_price, 'allow_partial': allow_partial})
 
     @staticmethod
@@ -572,12 +655,12 @@ class SubtensorModule:
 
     @staticmethod
     def transfer_stake(destination_coldkey: 'AccountId32', hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
-        'Transfers a specified amount of stake from one coldkey to another, optionally across subnets, while keeping the same hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `hotkey`: The hotkey associated with the stake. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeTransferred` event on success.'
+        'Transfers a specified amount of stake from one coldkey to another, optionally across subnets, while keeping the same hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `hotkey`: The hotkey associated with the stake. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the live origin position at execution.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet. * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.  # Events May emit a `StakeTransferred` event on success.'
         return Call('SubtensorModule', 'transfer_stake', {'destination_coldkey': destination_coldkey, 'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
     def transfer_stake_and_hotkey(destination_coldkey: 'AccountId32', origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
-        'Transfers a specified amount of stake from one coldkey to another, landing it on a different hotkey, optionally across subnets.  This is `transfer_stake` generalized to a destination hotkey: it transfers ownership of the position and re-delegates it in one atomic call. Use `transfer_stake` when the hotkey stays the same, and `move_stake` when only the hotkey changes (ownership stays with the signing coldkey).  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `origin_hotkey`: The hotkey the stake currently sits on. * `destination_hotkey`: The hotkey the stake lands on. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `origin_hotkey` or `destination_hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, origin_hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeAndHotkeyTransferred` event on success.'
+        'Transfers a specified amount of stake from one coldkey to another, landing it on a different hotkey, optionally across subnets.  This is `transfer_stake` generalized to a destination hotkey: it transfers ownership of the position and re-delegates it in one atomic call. Use `transfer_stake` when the hotkey stays the same, and `move_stake` when only the hotkey changes (ownership stays with the signing coldkey).  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `origin_hotkey`: The hotkey the stake currently sits on. * `destination_hotkey`: The hotkey the stake lands on. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the live origin position at execution.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `origin_hotkey` or `destination_hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, origin_hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet. * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.  # Events May emit a `StakeAndHotkeyTransferred` event on success.'
         return Call('SubtensorModule', 'transfer_stake_and_hotkey', {'destination_coldkey': destination_coldkey, 'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
@@ -592,12 +675,12 @@ class SubtensorModule:
 
     @staticmethod
     def unstake_all(hotkey: 'AccountId32') -> Call:
-        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit."
+        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.  The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to the subnets actually visited and unstaked. Remaining positions stay for a later call so the envelope fits the normal-class block."
         return Call('SubtensorModule', 'unstake_all', {'hotkey': hotkey})
 
     @staticmethod
     def unstake_all_alpha(hotkey: 'AccountId32') -> Call:
-        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit."
+        "The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The associated hotkey account.  # Events * `StakeRemoved`: On the successfully removing stake from the hotkey account.  # Errors * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.  * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.  * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.  * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.  The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to the subnets actually visited and unstaked. Remaining positions stay for a later call so the envelope fits the normal-class block."
         return Call('SubtensorModule', 'unstake_all_alpha', {'hotkey': hotkey})
 
     @staticmethod
@@ -613,6 +696,16 @@ class Utility:
     def as_derivative(index: 'u16', call: 'RuntimeCall') -> Call:
         'Send a call through an indexed pseudonym of the sender.  Filter from origin are passed along. The call will be dispatched with an origin which use the same filter as the origin of this call.  NOTE: If you need to ensure that any account-based filtering is not honored (i.e. because you expect `proxy` to have been used prior in the call stack and you do not want the call restrictions to apply to any sub-accounts), then use `as_multi_threshold_1` in the Multisig pallet instead.  NOTE: Prior to version *12, this was called `as_limited_sub`.  The dispatch origin for this call must be _Signed_.'
         return Call('Utility', 'as_derivative', {'index': index, 'call': call})
+
+    @staticmethod
+    def as_protected_derivative(index: 'u16', call: 'RuntimeCall') -> Call:
+        'Dispatch from the ordinary derivative address after establishing its permanent protection. A failed inner call rolls back fresh registration and child state, while any previously registered protection remains.'
+        return Call('Utility', 'as_protected_derivative', {'index': index, 'call': call})
+
+    @staticmethod
+    def as_safe_derivative(index: 'u16', call: 'RuntimeCall') -> Call:
+        "Dispatch from a full-width off-curve derivative account.  This uses a separate address domain and preserves the incoming origin's call filters. It requires no registration or protection deposit; the parent's authorization and explicit delegations remain authoritative."
+        return Call('Utility', 'as_safe_derivative', {'index': index, 'call': call})
 
     @staticmethod
     def batch(calls: 'Any') -> Call:
@@ -688,9 +781,19 @@ class Multisig:
         return Call('Multisig', 'approve_as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call_hash': call_hash, 'max_weight': max_weight})
 
     @staticmethod
+    def approve_as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call_hash: 'Any', max_weight: 'Weight') -> Call:
+        'Approve a call hash for the same off-curve composite used by `as_multi_safe`.'
+        return Call('Multisig', 'approve_as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call_hash': call_hash, 'max_weight': max_weight})
+
+    @staticmethod
     def as_multi(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
         'Register approval for a dispatch to be made from a deterministic composite account if approved by a total of `threshold - 1` of `other_signatories`.  If there are enough, then dispatch the call.  Payment: `DepositBase` will be reserved if this is the first approval, plus `threshold` times `DepositFactor`. It is returned once this dispatch happens or is cancelled.  The dispatch origin for this call must be _Signed_.  - `threshold`: The total number of approvals for this dispatch before it is executed. - `other_signatories`: The accounts (other than the sender) who can approve this dispatch. May not be empty. - `maybe_timepoint`: If this is the first approval, then this must be `None`. If it is not the first approval, then it must be `Some`, with the timepoint (block number and transaction index) of the first approval transaction. - `call`: The call to be executed.  NOTE: Unless this is the final approval, you will generally want to use `approve_as_multi` instead, since it only requires a hash of the call.  Result is equivalent to the dispatched result if `threshold` is exactly `1`. Otherwise on success, result is `Ok` and the result from the interior call, if it was executed, may be found in the deposited `MultisigExecuted` event.  ## Complexity - `O(S + Z + Call)`. - Up to one balance-reserve or unreserve operation. - One passthrough operation, one insert, both `O(S)` where `S` is the number of signatories. `S` is capped by `MaxSignatories`, with weight being proportional. - One call encode & hash, both of complexity `O(Z)` where `Z` is tx-len. - One encode & hash, both of complexity `O(S)`. - Up to one binary search and insert (`O(logS + S)`). - I/O: 1 read `O(S)`, up to 1 mutate `O(S)`. Up to one remove. - One event. - The weight of the `call`. - Storage: inserts one item, value size bounded by `MaxSignatories`, with a deposit taken for its lifetime of `DepositBase + threshold * DepositFactor`.'
         return Call('Multisig', 'as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call': call, 'max_weight': max_weight})
+
+    @staticmethod
+    def as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
+        'Approve or execute a call using the registration-free off-curve derivation.'
+        return Call('Multisig', 'as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call': call, 'max_weight': max_weight})
 
     @staticmethod
     def as_multi_threshold_1(other_signatories: 'Any', call: 'RuntimeCall') -> Call:
@@ -698,14 +801,29 @@ class Multisig:
         return Call('Multisig', 'as_multi_threshold_1', {'other_signatories': other_signatories, 'call': call})
 
     @staticmethod
+    def as_multi_threshold_1_safe(other_signatories: 'Any', call: 'RuntimeCall') -> Call:
+        'Dispatch from a full-width off-curve composite. Delegation remains ordinary.'
+        return Call('Multisig', 'as_multi_threshold_1_safe', {'other_signatories': other_signatories, 'call': call})
+
+    @staticmethod
     def cancel_as_multi(threshold: 'u16', other_signatories: 'Any', timepoint: 'Timepoint', call_hash: 'Any') -> Call:
         'Cancel a pre-existing, on-going multisig transaction. Any deposit reserved previously for this operation will be unreserved on success.  The dispatch origin for this call must be _Signed_.  - `threshold`: The total number of approvals for this dispatch before it is executed. - `other_signatories`: The accounts (other than the sender) who can approve this dispatch. May not be empty. - `timepoint`: The timepoint (block number and transaction index) of the first approval transaction for this dispatch. - `call_hash`: The hash of the call to be executed.  ## Complexity - `O(S)`. - Up to one balance-reserve or unreserve operation. - One passthrough operation, one insert, both `O(S)` where `S` is the number of signatories. `S` is capped by `MaxSignatories`, with weight being proportional. - One encode & hash, both of complexity `O(S)`. - One event. - I/O: 1 read `O(S)`, one remove. - Storage: removes one item.'
         return Call('Multisig', 'cancel_as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'timepoint': timepoint, 'call_hash': call_hash})
 
     @staticmethod
+    def cancel_as_multi_safe(threshold: 'u16', other_signatories: 'Any', timepoint: 'Timepoint', call_hash: 'Any') -> Call:
+        'Cancel only an operation created with the off-curve derivation.'
+        return Call('Multisig', 'cancel_as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'timepoint': timepoint, 'call_hash': call_hash})
+
+    @staticmethod
     def poke_deposit(threshold: 'u16', other_signatories: 'Any', call_hash: 'Any') -> Call:
         'Poke the deposit reserved for an existing multisig operation.  The dispatch origin for this call must be _Signed_ and must be the original depositor of the multisig operation.  The transaction fee is waived if the deposit amount has changed.  - `threshold`: The total number of approvals needed for this multisig. - `other_signatories`: The accounts (other than the sender) who are part of the multisig. - `call_hash`: The hash of the call this deposit is reserved for.  Emits `DepositPoked` if successful.'
         return Call('Multisig', 'poke_deposit', {'threshold': threshold, 'other_signatories': other_signatories, 'call_hash': call_hash})
+
+    @staticmethod
+    def poke_deposit_safe(threshold: 'u16', other_signatories: 'Any', call_hash: 'Any') -> Call:
+        "Adjust an existing off-curve operation's ordinary multisig deposit."
+        return Call('Multisig', 'poke_deposit_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'call_hash': call_hash})
 
 
 class Preimage:
@@ -805,14 +923,29 @@ class Proxy:
         return Call('Proxy', 'announce', {'real': real, 'call_hash': call_hash})
 
     @staticmethod
+    def create_protected_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
+        'Create a pure proxy and its permanent protection in one transaction. Its address derivation is identical to `create_pure`.'
+        return Call('Proxy', 'create_protected_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
+
+    @staticmethod
     def create_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
         "Spawn a fresh new account that is guaranteed to be otherwise inaccessible, and initialize it with a proxy of `proxy_type` for `origin` sender.  Requires a `Signed` origin.  - `proxy_type`: The type of the proxy that the sender will be registered as over the new account. This will almost always be the most permissive `ProxyType` possible to allow for maximum flexibility. - `index`: A disambiguation index, in case this is called multiple times in the same transaction (e.g. with `utility::batch`). Unless you're using `batch` you probably just want to use `0`. - `delay`: The announcement period required of the initial proxy. Will generally be zero.  Fails with `Duplicate` if this has already been called in this transaction, from the same sender, with the same parameters.  Fails if there are insufficient funds to pay for deposit."
         return Call('Proxy', 'create_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
 
     @staticmethod
+    def create_safe_pure(proxy_type: 'ProxyType', delay: 'u32', index: 'u16') -> Call:
+        'Create a pure proxy with a full-width off-curve account identifier.  The ordinary proxy deposit applies. No account registration or protection deposit is created, and normal proxy permissions apply.'
+        return Call('Proxy', 'create_safe_pure', {'proxy_type': proxy_type, 'delay': delay, 'index': index})
+
+    @staticmethod
     def kill_pure(spawner: 'MultiAddress', proxy_type: 'ProxyType', index: 'u16', height: 'Any', ext_index: 'Any') -> Call:
         'Removes a previously spawned pure proxy.  WARNING: **All access to this account will be lost.** Any funds held in it will be inaccessible.  Requires a `Signed` origin, and the sender account must have been created by a call to `create_pure` with corresponding parameters.  - `spawner`: The account that originally called `create_pure` to create this account. - `index`: The disambiguation index originally passed to `create_pure`. Probably `0`. - `proxy_type`: The proxy type originally passed to `create_pure`. - `height`: The height of the chain when the call to `create_pure` was processed. - `ext_index`: The extrinsic index in which the call to `create_pure` was processed.  Fails with `NoPermission` in case the caller is not a previously created pure account whose `create_pure` call has corresponding parameters.'
         return Call('Proxy', 'kill_pure', {'spawner': spawner, 'proxy_type': proxy_type, 'index': index, 'height': height, 'ext_index': ext_index})
+
+    @staticmethod
+    def kill_safe_pure(spawner: 'MultiAddress', proxy_type: 'ProxyType', index: 'u16', height: 'Any', ext_index: 'Any') -> Call:
+        'Remove a safe pure proxy and refund its ordinary proxy deposit.  The supplied creation parameters must reconstruct the signed account. As with `kill_pure`, remaining funds become inaccessible after removal.'
+        return Call('Proxy', 'kill_safe_pure', {'spawner': spawner, 'proxy_type': proxy_type, 'index': index, 'height': height, 'ext_index': ext_index})
 
     @staticmethod
     def poke_deposit() -> Call:
@@ -874,7 +1007,7 @@ class AdminUtils:
 
     @staticmethod
     def schedule_grandpa_change(next_authorities: 'Any', in_blocks: 'u32', forced: 'Any') -> Call:
-        'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change will be applied at the end of execution of the block `in_blocks` after the current block. This value may be 0, in which case the change is applied at the end of the current block.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline and that after `in_blocks` the given change should be applied. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
+        'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change is applied at the end of the current block, so `in_blocks` must be 0. This keeps the authority set and its set ID consistent in every persisted block state.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
         return Call('AdminUtils', 'schedule_grandpa_change', {'next_authorities': next_authorities, 'in_blocks': in_blocks, 'forced': forced})
 
     @staticmethod
@@ -911,6 +1044,41 @@ class AdminUtils:
     def sudo_set_alpha_values(netuid: 'NetUid', alpha_low: 'u16', alpha_high: 'u16') -> Call:
         'Sets values for liquid alpha'
         return Call('AdminUtils', 'sudo_set_alpha_values', {'netuid': netuid, 'alpha_low': alpha_low, 'alpha_high': alpha_high})
+
+    @staticmethod
+    def sudo_set_basket_claim_dust(row_cap_rao: 'u64', row_bps: 'u16', slice_rao: 'u64', forfeit_cap_rao: 'u64') -> Call:
+        "Sets the four root-claim dust knobs at once. A claim does not sell a fund row whose whole holding is worth less than `min(row_cap_rao, row_bps × anchored NAV)` ([`pallet_subtensor::BasketClaimRowDustCapTao`], [`pallet_subtensor::BasketClaimRowDustBps`]), nor a row where the claimant's own slice is worth less than `slice_rao` ([`pallet_subtensor::BasketClaimSliceDustTao`]), provided that slice is worth at most `forfeit_cap_rao` ([`pallet_subtensor::BasketClaimForfeitCapTao`]) — all at the anchored mark; the skipped slices stay in the fund for the other holders. Zero turns the respective skip off (a zero cap turns every skip off). `row_bps` is at most 10_000 (100%). Declared at four times the sibling one-write basket setter's weight (four writes; a dedicated benchmark exists for CI to measure). Root-only."
+        return Call('AdminUtils', 'sudo_set_basket_claim_dust', {'row_cap_rao': row_cap_rao, 'row_bps': row_bps, 'slice_rao': slice_rao, 'forfeit_cap_rao': forfeit_cap_rao})
+
+    @staticmethod
+    def sudo_set_basket_concentration_cap(cap: 'u16') -> Call:
+        'Sets the basket concentration cap ([`pallet_subtensor::BasketConcentrationCap`]): the largest u16-normalized share (`u16::MAX` = 100%) of fund NAV any single holding may reach through a `swap_basket` buy. A cap of `u16::MAX / 16 + 1` forces traded funds to spread across at least 16 holdings. The check is skipped while fewer subnets exist on chain than the cap demands. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_concentration_cap', {'cap': cap})
+
+    @staticmethod
+    def sudo_set_basket_daily_turnover_cap(cap: 'u16') -> Call:
+        "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one capacity can be traded at any instant and about one per day sustained. Root-only."
+        return Call('AdminUtils', 'sudo_set_basket_daily_turnover_cap', {'cap': cap})
+
+    @staticmethod
+    def sudo_set_basket_liquidity_cap(cap: 'u16') -> Call:
+        "Sets the basket liquidity cap ([`pallet_subtensor::BasketLiquidityCap`]): the largest u16-normalized share of a subnet's alpha reserve (`u16::MAX` = 100%) a fund may hold on that subnet after a `swap_basket` buy. Bounds the fund's exposure to any one pool's liquidity: with cap `L` the value at risk on a pool with TAO reserve `R` is about `R × L² / (1 + L)`. Root-only."
+        return Call('AdminUtils', 'sudo_set_basket_liquidity_cap', {'cap': cap})
+
+    @staticmethod
+    def sudo_set_basket_min_trade_tao(min_trade_rao: 'u64') -> Call:
+        'Sets the minimum TAO value through each basket trade leg, in rao. Root-only. Zero disables this additional floor; the general staking minimum still applies.'
+        return Call('AdminUtils', 'sudo_set_basket_min_trade_tao', {'min_trade_rao': min_trade_rao})
+
+    @staticmethod
+    def sudo_set_basket_trading_enabled(enabled: 'bool') -> Call:
+        'Enables or disables validator basket trading (`swap_basket`) network-wide. Defaults OFF. Gates only the trade path: deposits, claims, dividend accrual, and reads are unaffected. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trading_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_basket_trading_frozen(hotkey: 'AccountId32', frozen: 'bool') -> Call:
+        'Freezes or unfreezes basket trading for one validator hotkey ([`pallet_subtensor::BasketTradingFrozen`]), e.g. after a suspected key compromise. A frozen fund still accepts deposits and pays claims. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trading_frozen', {'hotkey': hotkey, 'frozen': frozen})
 
     @staticmethod
     def sudo_set_bonds_moving_average(netuid: 'NetUid', bonds_moving_average: 'u64') -> Call:
@@ -1003,14 +1171,39 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_emission_bar_quantile', {'quantile': quantile})
 
     @staticmethod
+    def sudo_set_emission_bar_rank(rank: 'u16') -> Call:
+        'Sets the emission bar rank (N): when non-zero, the emission gate bar (theta) is pinned to the Nth-largest demand share instead of the q-mass quantile, so the eligible set tracks rank N as the demand distribution shifts. Setting 0 restores quantile mode. Also forces a bar recompute on the next block so the change takes effect immediately.'
+        return Call('AdminUtils', 'sudo_set_emission_bar_rank', {'rank': rank})
+
+    @staticmethod
     def sudo_set_emission_gate_exponent(exponent: 'FixedU128') -> Call:
         'Sets the emission gate Hill exponent (h): cliff sharpness at the bar.'
         return Call('AdminUtils', 'sudo_set_emission_gate_exponent', {'exponent': exponent})
 
     @staticmethod
+    def sudo_set_epoch_consensus(netuid: 'NetUid', mode: 'EpochConsensus') -> Call:
+        'Selects Yuma or Null reward calculation while preserving epoch scheduling.'
+        return Call('AdminUtils', 'sudo_set_epoch_consensus', {'netuid': netuid, 'mode': mode})
+
+    @staticmethod
     def sudo_set_evm_chain_id(chain_id: 'u64') -> Call:
         'Sets the EVM ChainID.  # Arguments * `origin`: The origin of the call, which must be the subnet owner or the root account. * `chainId`: The u64 chain ID  # Errors * `BadOrigin`: If the caller is neither the subnet owner nor the root account.  # Weight Weight is handled by the `#[pallet::weight]` attribute.'
         return Call('AdminUtils', 'sudo_set_evm_chain_id', {'chain_id': chain_id})
+
+    @staticmethod
+    def sudo_set_gamma_enabled(enabled: 'bool') -> Call:
+        'Enables or disables gamma minting network-wide; a subnet also needs its own flag. Root-only.'
+        return Call('AdminUtils', 'sudo_set_gamma_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_hashed_account_registration_deposit(value: 'TaoBalance') -> Call:
+        'Sets the permanent reserve for future classical, PQ, and protected derived account registrations. Existing reserves remain unchanged. Root-only; zero permits registration without a reserve.'
+        return Call('AdminUtils', 'sudo_set_hashed_account_registration_deposit', {'value': value})
+
+    @staticmethod
+    def sudo_set_hashed_accounts_enabled(enabled: 'bool') -> Call:
+        'Enables or disables registration and signing for all hashed SR/ED and fixed/rotating ML-DSA accounts. Ordinary SR/ED signing is unaffected. Root-only. Defaults off. Disabling pauses existing accounts too; their records, generations, EVM aliases and restrictions on alternate authority remain.'
+        return Call('AdminUtils', 'sudo_set_hashed_accounts_enabled', {'enabled': enabled})
 
     @staticmethod
     def sudo_set_immunity_period(netuid: 'NetUid', immunity_period: 'u16') -> Call:
@@ -1021,6 +1214,11 @@ class AdminUtils:
     def sudo_set_kappa(netuid: 'NetUid', kappa: 'u16') -> Call:
         'The extrinsic sets the kappa for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the kappa.'
         return Call('AdminUtils', 'sudo_set_kappa', {'netuid': netuid, 'kappa': kappa})
+
+    @staticmethod
+    def sudo_set_liquid_alpha_consensus_mode(netuid: 'NetUid', mode: 'ConsensusMode') -> Call:
+        'Sets which consensus values liquid alpha uses for a subnet.'
+        return Call('AdminUtils', 'sudo_set_liquid_alpha_consensus_mode', {'netuid': netuid, 'mode': mode})
 
     @staticmethod
     def sudo_set_liquid_alpha_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
@@ -1066,6 +1264,11 @@ class AdminUtils:
     def sudo_set_max_registrations_per_block(netuid: 'NetUid', max_registrations_per_block: 'u16') -> Call:
         'The extrinsic sets the maximum registrations per block for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the maximum registrations per block.'
         return Call('AdminUtils', 'sudo_set_max_registrations_per_block', {'netuid': netuid, 'max_registrations_per_block': max_registrations_per_block})
+
+    @staticmethod
+    def sudo_set_max_timelocked_commits_per_hotkey(netuid: 'NetUid', max_commits: 'u8') -> Call:
+        'Sets the maximum number of timelocked commitments a hotkey may queue in one Yuma subnet mechanism and commit epoch. Zero pauses new admissions; already queued commitments remain eligible to reveal. Root-only.'
+        return Call('AdminUtils', 'sudo_set_max_timelocked_commits_per_hotkey', {'netuid': netuid, 'max_commits': max_commits})
 
     @staticmethod
     def sudo_set_mechanism_count(netuid: 'NetUid', mechanism_count: 'MechId') -> Call:
@@ -1139,7 +1342,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_network_registration_allowed(netuid: 'NetUid', registration_allowed: 'bool') -> Call:
-        'The extrinsic sets the network registration allowed for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the network registration allowed.'
+        'Enable or disable burned registration independently of PoW. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the network registration allowed.'
         return Call('AdminUtils', 'sudo_set_network_registration_allowed', {'netuid': netuid, 'registration_allowed': registration_allowed})
 
     @staticmethod
@@ -1154,7 +1357,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_owner_cut_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
-        'Set whether the subnet owner cut is enabled for a subnet. It is only callable by root and subnet owner.'
+        'Deprecated. Owner cut on/off is now expressed by slot 2 (owner) of the per-subnet emission weight vector: set it to zero to disable the owner cut through [`Call::sudo_set_subnet_emission_weights`]. Always returns `Error::Deprecated`.'
         return Call('AdminUtils', 'sudo_set_owner_cut_enabled', {'netuid': netuid, 'enabled': enabled})
 
     @staticmethod
@@ -1208,6 +1411,26 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_subnet_emission_enabled', {'netuid': netuid, 'enabled': enabled})
 
     @staticmethod
+    def sudo_set_subnet_emission_weights(netuid: 'NetUid', uids: 'Any', values: 'Any') -> Call:
+        "Sets entries of a subnet's emission weight vector `[burn, recycle, owner, validator, miner]`, each a `u64` share of `u64::MAX`.  `uids` names the slots to write and `values` their new shares; slots that are not named keep their current value (burn and recycle are always zero in v1). The merged vector must satisfy every rule, each of which has its own error: burn = 0, recycle = 0, `0 ≤ owner ≤ 33%` (lease-created subnets `≥ 18%`), `validator ≤ 50%`, `miner ≥ 33%`, and the five slots must sum to exactly `u64::MAX`.  Root is paid its baseline share of the subnet's emission (what root earns with the default validator share and the global `TaoWeight`) off the top of the validator slot every block, capped at the slot; alpha validators get the rest. The call fails if the new validator share is at or below that baseline right now. Callable by the subnet owner (once per week per subnet; the first call is never rate-limited) or root (no rate limit). Both respect the admin freeze window."
+        return Call('AdminUtils', 'sudo_set_subnet_emission_weights', {'netuid': netuid, 'uids': uids, 'values': values})
+
+    @staticmethod
+    def sudo_set_subnet_emission_weights_v2(netuid: 'NetUid', split: 'BoundedVec') -> Call:
+        "Replaces a subnet's whole emission split: the burn, recycle, owner, validator and miner shares and the shares of whitelisted subnets' gamma, each a `u64` share of `u64::MAX`, slots in strictly ascending order. A slot left out is zero.  Every rule of [`Call::sudo_set_subnet_emission_weights`] applies, with the gamma shares counted in the sum. There are at most 16 gamma shares, each at most 10% to a whitelisted subnet with gamma enabled, other than this one. A gamma share that leaves the split moves its unconverted alpha to the subnet's miners. Callable by the subnet owner, under the same rate limit as [`Call::sudo_set_subnet_emission_weights`], or root; both respect the admin freeze window."
+        return Call('AdminUtils', 'sudo_set_subnet_emission_weights_v2', {'netuid': netuid, 'split': split})
+
+    @staticmethod
+    def sudo_set_subnet_gamma_emission_whitelisted(netuid: 'NetUid', whitelisted: 'bool') -> Call:
+        "Whitelists a subnet for gamma emission, so subnets may give it gamma shares, or removes it, which moves every share of it to its subnet's miner slot. Root-only."
+        return Call('AdminUtils', 'sudo_set_subnet_gamma_emission_whitelisted', {'netuid': netuid, 'whitelisted': whitelisted})
+
+    @staticmethod
+    def sudo_set_subnet_gamma_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
+        'Enables or disables gamma minting on a subnet. Callable by the subnet owner or root; the root subnet is refused.'
+        return Call('AdminUtils', 'sudo_set_subnet_gamma_enabled', {'netuid': netuid, 'enabled': enabled})
+
+    @staticmethod
     def sudo_set_subnet_limit(max_subnets: 'u16') -> Call:
         'The extrinsic sets the subnet limit for the network. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the subnet limit.'
         return Call('AdminUtils', 'sudo_set_subnet_limit', {'max_subnets': max_subnets})
@@ -1219,7 +1442,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_subnet_owner_cut(subnet_owner_cut: 'u16') -> Call:
-        'The extrinsic sets the subnet owner cut for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the subnet owner cut.'
+        'Deprecated. The global owner cut was replaced by the per-subnet emission weight vector; set slot 2 (owner) through [`Call::sudo_set_subnet_emission_weights`]. Always returns `Error::Deprecated`.'
         return Call('AdminUtils', 'sudo_set_subnet_owner_cut', {'subnet_owner_cut': subnet_owner_cut})
 
     @staticmethod
@@ -1241,6 +1464,11 @@ class AdminUtils:
     def sudo_set_tao_flow_smoothing_factor(smoothing_factor: 'u64') -> Call:
         'Sets TAO flow smoothing factor (alpha)'
         return Call('AdminUtils', 'sudo_set_tao_flow_smoothing_factor', {'smoothing_factor': smoothing_factor})
+
+    @staticmethod
+    def sudo_set_tao_usd_price_oracle(oracle: 'Any') -> Call:
+        'Sets the account that feeds the TAO/USD price; `None` removes it. The stored price is cleared, so the next feed is accepted as it is. Root-only.'
+        return Call('AdminUtils', 'sudo_set_tao_usd_price_oracle', {'oracle': oracle})
 
     @staticmethod
     def sudo_set_target_registrations_per_interval(netuid: 'NetUid', target_registrations_per_interval: 'u16') -> Call:
@@ -1291,6 +1519,11 @@ class AdminUtils:
     def sudo_toggle_evm_precompile(precompile_id: 'PrecompileEnum', enabled: 'bool') -> Call:
         'Toggles the enablement of an EVM precompile.  # Arguments * `origin`: The origin of the call, which must be the root account. * `precompile_id`: The identifier of the EVM precompile to toggle. * `enabled`: The new enablement state of the precompile.  # Errors * `BadOrigin`: If the caller is not the root account.  # Weight Weight is handled by the `#[pallet::weight]` attribute.'
         return Call('AdminUtils', 'sudo_toggle_evm_precompile', {'precompile_id': precompile_id, 'enabled': enabled})
+
+    @staticmethod
+    def sudo_trim_null_uids_batch(netuid: 'NetUid', target: 'u16') -> Call:
+        'Continue explicit Null pruning by at most 64 UID deletions. Every batch leaves the subnet usable. Only the same final target may continue the original operation without restarting its cooldown.'
+        return Call('AdminUtils', 'sudo_trim_null_uids_batch', {'netuid': netuid, 'target': target})
 
     @staticmethod
     def sudo_trim_to_max_allowed_uids(netuid: 'NetUid', max_n: 'u16') -> Call:
@@ -1361,7 +1594,7 @@ class EVM:
 
     @staticmethod
     def call(source: 'H160', target: 'H160', input: 'Any', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
-        'Issue an EVM call operation. This is similar to a message call transaction in Ethereum.'
+        'Issue an EVM call operation. This is similar to a message call transaction in Ethereum. The native origin lookup precedes gas admission, so charge it independently of gas on call/create/create2, including every error and weight refund.'
         return Call('EVM', 'call', {'source': source, 'target': target, 'input': input, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
 
     @staticmethod
@@ -1373,6 +1606,11 @@ class EVM:
     def create2(source: 'H160', init: 'Any', salt: 'H256', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
         'Issue an EVM create2 operation.'
         return Call('EVM', 'create2', {'source': source, 'init': init, 'salt': salt, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
+
+    @staticmethod
+    def deposit(address: 'H160', value: 'Any') -> Call:
+        'Transfer native currency to an EVM address using its mapping at execution. A missing value transfers all spendable currency while keeping the account alive. Resolving the address here avoids funding an obsolete backing account if a protected alias is established after transaction construction.'
+        return Call('EVM', 'deposit', {'address': address, 'value': value})
 
     @staticmethod
     def disable_whitelist(disabled: 'bool') -> Call:
@@ -1439,7 +1677,7 @@ class Crowdloan:
 
     @staticmethod
     def finalize(crowdloan_id: 'Any') -> Call:
-        'Finalize crowdloan that has reached the cap.  The call will either transfer the raised amount to the configured target address or dispatch the configured call using the creator origin. The stored crowdloan must contain exactly one of target address or call; if both or neither are set, finalization fails before transfer or dispatch.  When dispatching a call, the CurrentCrowdloanId will be set to the crowdloan id being finalized so the dispatched call can access it temporarily by accessing the `CurrentCrowdloanId` storage item.  The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.  Parameters: - `crowdloan_id`: The id of the crowdloan to finalize.'
+        'Finalize crowdloan that has reached the cap.  The call will either transfer the raised amount to the configured target address or dispatch the configured call using the creator origin. The stored crowdloan must contain exactly one of target address or call; if both or neither are set, finalization fails before transfer or dispatch.  When dispatching a call, the CurrentCrowdloanId will be set to the crowdloan id being finalized so the dispatched call can access it temporarily by accessing the `CurrentCrowdloanId` storage item. The call must spend the full raised amount from the funds account; otherwise finalization and any partial effects are rolled back.  The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.  Parameters: - `crowdloan_id`: The id of the crowdloan to finalize.'
         return Call('Crowdloan', 'finalize', {'crowdloan_id': crowdloan_id})
 
     @staticmethod
@@ -1604,19 +1842,29 @@ class LimitOrders:
     """Call builders for the LimitOrders pallet."""
 
     @staticmethod
+    def authorize_order(order: 'VersionedOrder') -> Call:
+        "Approve every economic term through the owner's normal origin. The owner must have a live System account and may hold eight live approvals. New nonces must increase. Terminal/expired slots are reclaimed here; account reaping removes all approvals without retaining any balance. The explicit Authorized order includes its replay-protection nonce."
+        return Call('LimitOrders', 'authorize_order', {'order': order})
+
+    @staticmethod
     def cancel_order(order: 'VersionedOrder') -> Call:
         "Register a cancellation intent for an order.  Must be called by the order's signer. The full `Order` payload is provided so the pallet can derive the `OrderId`. Once marked Cancelled, the order can never be executed."
         return Call('LimitOrders', 'cancel_order', {'order': order})
 
     @staticmethod
     def execute_batched_orders(netuid: 'NetUid', orders: 'BoundedVec') -> Call:
-        'Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates all orders (bad signature / expired / already processed / price-not-met orders are skipped and emit `OrderSkipped`). 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders in the batch must target `netuid`. Orders for a different subnet are skipped.'
+        "Execute a batch of signed limit orders for a single subnet using aggregated (netted) pool interaction.  Unlike `execute_orders`, which hits the pool once per order, this extrinsic:  1. Validates every order's authorization, expiry, status and price; any failure aborts the entire batch. 2. Fetches the current price once. 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha). 4. Nets the two sides: only the residual amount touches the pool in a single swap, minimising price impact. 5. Distributes outputs pro-rata: - Dominant-side orders split the pool output proportionally to their individual net amounts. - Offset-side orders are filled internally at the current price (no pool interaction for them). 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell orders) and routes them to `FeeCollector`.  All orders must target `netuid`; a mismatch aborts the batch. Classical and account-approved entries may be mixed, with at most eight entries using account approval."
         return Call('LimitOrders', 'execute_batched_orders', {'netuid': netuid, 'orders': orders})
 
     @staticmethod
     def execute_orders(orders: 'BoundedVec', should_fail: 'bool') -> Call:
-        'Execute a batch of signed limit orders. Admin-gated.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
+        'Execute classical and account-approved orders in one batch. Each order independently authenticates its owner and permitted relayer; at most eight entries may use account approval.  The `should_fail` flag controls how individual order failures are handled:  - When `false` (best-effort): orders whose price condition is not yet met are silently skipped so that a single stale order cannot block the rest of the batch. Orders that fail for any other reason (expired, bad signature, etc.) are also skipped; the admin is expected to filter these off-chain. - When `true` (all-or-nothing): the first order failure aborts the whole batch by returning the underlying error, reverting any orders already executed in this call.'
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
+
+    @staticmethod
+    def prune_linked_output(order_id: 'H256') -> Call:
+        'Remove a provider record. The signer may prune at any time; anyone may prune after `expires_at`. Moves no funds.'
+        return Call('LimitOrders', 'prune_linked_output', {'order_id': order_id})
 
     @staticmethod
     def set_pallet_status(enabled: 'bool') -> Call:
@@ -1624,3 +1872,33 @@ class LimitOrders:
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
 
 
+class HashedAccounts:
+    """Call builders for the HashedAccounts pallet."""
+
+    @staticmethod
+    def check_derived(descriptor: 'DerivedDescriptor') -> Call:
+        return Call('HashedAccounts', 'check_derived', {'descriptor': descriptor})
+
+    @staticmethod
+    def check_registered(descriptor: 'RegistrationDescriptor') -> Call:
+        "Check a recipient's registration without reserving funds or creating an account. An atomic payment must fail if a reorg removed its setup."
+        return Call('HashedAccounts', 'check_registered', {'descriptor': descriptor})
+
+    @staticmethod
+    def check_registration_deposit(max_deposit: 'TaoBalance') -> Call:
+        'Reject an atomic registration batch if its approved reserve is stale. This read-only guard remains available while registration is disabled.'
+        return Call('HashedAccounts', 'check_registration_deposit', {'max_deposit': max_deposit})
+
+    @staticmethod
+    def register(descriptor: 'RegistrationDescriptor') -> Call:
+        'Bind an account to its hidden initial key for the selected scheme. Anyone may sponsor the permanent deposit without gaining authority. Idempotent registration never changes an existing authorization.'
+        return Call('HashedAccounts', 'register', {'descriptor': descriptor})
+
+    @staticmethod
+    def register_derived(descriptor: 'DerivedDescriptor') -> Call:
+        return Call('HashedAccounts', 'register_derived', {'descriptor': descriptor})
+
+    @staticmethod
+    def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
+        "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
+        return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})

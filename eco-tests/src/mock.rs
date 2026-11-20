@@ -256,6 +256,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Test {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -339,6 +340,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
     type AlphaAssets = AlphaAssets;
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 // Swap-related parameter types
@@ -370,13 +372,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {
@@ -401,8 +405,10 @@ impl pallet_scheduler::Config for Test {
 }
 
 impl pallet_utility::Config for Test {
+    type SafeDerivationWeight = ();
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
+    type DerivedAccountPolicy = ();
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Test>;
 }
 
@@ -439,9 +445,17 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
-            proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
+            proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
         });
         Ok(())
+    }
+
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool {
+        PROXIES.with_borrow(|proxies| proxies.0.contains(&(*lease, *beneficiary)))
+    }
+
+    fn has_delegator_proxies(_delegator: &AccountId) -> bool {
+        false
     }
 }
 
@@ -486,6 +500,8 @@ parameter_types! {
 }
 
 impl pallet_proxy::Config for Test {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = subtensor_runtime_common::ProxyType;

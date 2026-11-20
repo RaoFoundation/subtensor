@@ -139,6 +139,15 @@ fn encrypt_at_round(py: Python, data: &[u8], reveal_round: u64) -> PyResult<(Py<
     Ok((PyBytes::new(py, &payload).into(), reveal_round))
 }
 
+/// Inner compressed TLE ciphertext from a `UserData` envelope.
+///
+/// Pass this to `Commitments.set_commitment` as `TimelockEncrypted.encrypted`.
+#[pyfunction]
+fn inner_ciphertext(py: Python, encrypted_data: &[u8]) -> PyResult<Py<PyBytes>> {
+    let inner = timelock::inner_ciphertext(encrypted_data).map_err(to_py_err)?;
+    Ok(PyBytes::new(py, &inner).into())
+}
+
 /// Attempts to decrypt data previously encrypted with Drand timelock encryption.
 ///
 /// Automatically extracts the reveal round from the encrypted message, fetches
@@ -234,6 +243,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_encrypted_commitment, m)?)?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
     m.add_function(wrap_pyfunction!(encrypt_at_round, m)?)?;
+    m.add_function(wrap_pyfunction!(inner_ciphertext, m)?)?;
     m.add_function(wrap_pyfunction!(decrypt, m)?)?;
     m.add_function(wrap_pyfunction!(decrypt_with_signature, m)?)?;
     m.add_function(wrap_pyfunction!(get_signature_for_round, m)?)?;

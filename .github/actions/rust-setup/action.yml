@@ -4,9 +4,6 @@ description: >-
   shared R2 sccache, and Cargo registry/git caching.
 
 inputs:
-  cache-key:
-    description: "Swatinem/rust-cache key for this job"
-    required: true
   components:
     description: "Comma-separated toolchain components (e.g. clippy,rustfmt)"
     default: ""
@@ -26,7 +23,7 @@ inputs:
     description: "Protected writer secret; used only for an authorized source"
     default: ""
   sccache-local-tier:
-    description: "auto to use a validated Fireactions host cache, or disabled for direct R2"
+    description: "Reader host-local tier: auto to use a validated Fireactions host cache, or disabled for direct R2 (writers always use direct R2)"
     default: "auto"
 
 runs:
@@ -110,13 +107,20 @@ runs:
 
     # Registry/git-dependency cache only. Target-dir caching is deliberately
     # off: compiled objects are shared per-crate through R2 sccache below.
+    # Every job needs the same registry, so one shared entry saved from main
+    # replaces per-job ~760 MB copies that exhausted the repository quota and
+    # evicted main's cache; pull requests restore main's entry.
     - name: Cargo registry cache
       uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
-        key: ${{ inputs.cache-key }}
+        shared-key: cargo-registry
         cache-targets: false
         cache-on-failure: true
+        save-if: ${{ github.ref == 'refs/heads/main' }}
 
+    # sccache hashes every inherited CARGO_* variable into Rust cache keys.
+    # Do not set cosmetic ones such as CARGO_TERM_COLOR in workflows: keys
+    # would stop matching the objects written by the warm and main jobs.
     - name: Shared R2 compiler cache
       uses: ./.github/actions/sccache-setup
       with:

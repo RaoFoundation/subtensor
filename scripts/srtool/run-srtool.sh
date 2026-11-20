@@ -14,6 +14,7 @@ docker run --rm --user root --platform=linux/amd64 \
     -e PACKAGE=node-subtensor-runtime \
     -e BUILD_OPTS="--features=metadata-hash" \
     -e PROFILE=production \
+    -e CONST_RANDOM_SEED=subtensor-runtime \
     -v $HOME/.cargo:/cargo-home \
     -v $(pwd):/build \
     -it srtool bash -c "git config --global --add safe.directory /build && \

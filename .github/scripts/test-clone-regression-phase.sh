@@ -35,6 +35,9 @@ EOF
 cat > "$tmp/bin/uv" <<'EOF'
 #!/usr/bin/env bash
 printf 'uv %s cwd=%s\n' "$*" "$PWD" >> "$HARNESS_LOG"
+if [[ -n "${MOCK_UV_FAIL:-}" && "$*" == *"$MOCK_UV_FAIL"* ]]; then
+  exit 1
+fi
 EOF
 chmod +x "$tmp/bin/npm" "$tmp/bin/sleep" "$tmp/bin/uv" "$tmp/repo/clones/scripts/run-clone-regression-phase.sh"
 
@@ -74,6 +77,19 @@ grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"
 RUN_SDK_DRIFT=true "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" remaining
 grep -Fq 'uv sync --locked --all-extras --dev' "$HARNESS_LOG"
 grep -Fq 'uv run python -m codegen.check --drift ws://127.0.0.1:9944' "$HARNESS_LOG"
+
+# The SDK sync runs in the background; its failure must still fail the gate
+# and must never let the drift check run against a broken environment.
+: > "$HARNESS_LOG"
+if MOCK_UV_FAIL=sync RUN_SDK_DRIFT=true \
+    "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" remaining >/dev/null 2>&1; then
+  echo "background SDK sync failure did not fail the phase" >&2
+  exit 1
+fi
+if grep -Fq 'codegen.check --drift' "$HARNESS_LOG"; then
+  echo "drift check ran after a failed SDK sync" >&2
+  exit 1
+fi
 
 : > "$HARNESS_LOG"
 rm -f "$MOCK_NPM_STATE"

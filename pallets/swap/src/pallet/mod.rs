@@ -1,6 +1,6 @@
 use core::num::NonZeroU64;
 
-use frame_support::{PalletId, pallet_prelude::*, traits::Get};
+use frame_support::{PalletId, pallet_macros::import_section, pallet_prelude::*, traits::Get};
 use frame_system::pallet_prelude::*;
 use subtensor_runtime_common::{
     AlphaBalance, BalanceOps, NetUid, SubnetInfo, TaoBalance, TokenReserve,
@@ -22,6 +22,7 @@ mod tests;
 type MigrationKeyMaxLen = ConstU32<128>;
 
 #[allow(clippy::module_inception)]
+#[import_section(hooks::hooks)]
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
 mod pallet {

@@ -134,6 +134,11 @@ Before signing, the SDK preflights the checks the chain would reject on — a
 rate-limited or unregistered submission fails fast with the same error the
 chain would return, and the rate-limit error says how many blocks to wait.
 
+To keep the validator hotkey off the machine that sets weights, grant an
+operations key a `Validate` or `Weights` proxy from the hotkey and submit
+with `--proxy-for <validator hotkey>` — see
+[validator operators](/docs/guides/proxies#validator-operators-specifically).
+
 Chain-side rules to know:
 
 - Submissions are rate-limited per UID by [`WeightsSetRateLimit`](/code/pallets/subtensor/src/lib.rs#L2097) (default 100
@@ -240,9 +245,13 @@ takes effect after a chain-defined cooldown. Inspect with
 
 ## Root and governance
 
-Register on the root network with [`root-register`](/docs/tx/root-register) —
-placement is stake-based, and joining a full root network evicts the member
-with the least stake. The legacy on-chain senate-vote extrinsic — and the
+Register on the root network with `btcli subnets register --netuid 0`
+([`root-register`](/docs/tx/root-register) under the hood) — admission is
+burn-based (the coldkey pays the demand-priced root burn; no prior stake
+required), and joining a full root network evicts the member with the least
+stake, so back your seat with stake to keep it. See
+[Root Reborn](/docs/guides/root-reborn#becoming-a-root-validator) for the
+full operator flow. The legacy on-chain senate-vote extrinsic — and the
 collective and membership pallets behind it — have been removed from the
 runtime, so top root members no longer form a voting senate. Privileged
 operations (runtime upgrades, protocol changes) are dispatched through sudo,

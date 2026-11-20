@@ -16,12 +16,14 @@ from ...extension import (
     run_bridge,
     stop_bridge_daemon,
 )
+from ...settings import guide_docs_url
 from ..context import AppContext, ctx_of
 from ..globals import with_extension_globals, with_globals
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Browser extension signing (auto-started by --signer extension).",
+    help="Browser extension signing (auto-started by --signer extension)."
+    f"\n\nGuide: {guide_docs_url('extension-signing')}",
 )
 
 

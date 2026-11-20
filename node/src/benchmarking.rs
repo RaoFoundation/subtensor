@@ -5,7 +5,9 @@
 use crate::client::FullClient;
 
 use node_subtensor_runtime as runtime;
-use node_subtensor_runtime::{check_mortality, check_nonce, transaction_payment_wrapper};
+use node_subtensor_runtime::{
+    check_mortality, check_nonce, check_nonzero_sender, transaction_payment_wrapper,
+};
 use node_subtensor_runtime::{pallet_subtensor, sudo_wrapper};
 use runtime::{BalancesCall, SystemCall};
 use sc_cli::Result;
@@ -127,7 +129,7 @@ pub fn create_benchmark_extrinsic(
     let era = sp_runtime::generic::Era::mortal(period, best_block.saturated_into());
     let extra: runtime::TxExtension = (
         (
-            frame_system::CheckNonZeroSender::<runtime::Runtime>::new(),
+            check_nonzero_sender::CheckNonZeroSender::<runtime::Runtime>::new(),
             frame_system::CheckSpecVersion::<runtime::Runtime>::new(),
             frame_system::CheckTxVersion::<runtime::Runtime>::new(),
             frame_system::CheckGenesis::<runtime::Runtime>::new(),

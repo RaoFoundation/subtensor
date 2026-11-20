@@ -19,12 +19,14 @@ from . import (  # noqa: F401  (imported for registration side effects)
     collateral,
     delegation,
     epochs,
+    gamma,
     hyperparameters,
     identity,
     leasing,
     locks,
     neurons,
     prices,
+    root,
     staking,
     subnets,
     weights,
@@ -36,7 +38,7 @@ from .identity import Commitment
 from .neurons import Neuron
 from .prices import SwapQuote
 from .staking import StakePosition, StakeValuation, stake, stake_for_coldkey
-from .subnets import SubnetInfo, token_symbols
+from .subnets import SubnetInfo, SubnetLifecycleState, token_symbols
 
 __all__ = [
     "REGISTRY",
@@ -50,6 +52,7 @@ __all__ = [
     "StakePosition",
     "StakeValuation",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "SwapQuote",
     "balance",
     "balances",

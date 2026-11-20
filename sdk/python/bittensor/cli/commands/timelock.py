@@ -1,4 +1,4 @@
-"""`btcli timelock`: seal data that anyone can open at a known future time.
+"""`btcli misc timelock`: seal data that anyone can open at a known future time.
 
 Drand timelock encryption as a standalone tool: encrypt to a moment (duration,
 absolute time, or beacon round), publish the ciphertext anywhere, and anyone
@@ -16,6 +16,7 @@ from typing import Optional
 
 import typer
 
+from ...settings import guide_docs_url
 from ...timelock import (
     Timelocked,
     TimelockError,
@@ -35,7 +36,8 @@ from ..prompt import PromptSpec, fill_missing
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Timelock encryption: seal data anyone can open at a set future time.",
+    help="Timelock encryption: seal data anyone can open at a set future time."
+    f"\n\nGuide: {guide_docs_url('timelock')}",
 )
 
 
@@ -163,7 +165,7 @@ def encrypt_cmd(
         )
         raise typer.Exit(1)
 
-    # A bare `btcli timelock encrypt` asks for what's missing (terminal
+    # A bare `btcli misc timelock encrypt` asks for what's missing (terminal
     # sessions only; scripts get the usual missing-option error).
     specs = []
     if data is None and file is None:

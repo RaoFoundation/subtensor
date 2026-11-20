@@ -13,6 +13,7 @@
       "**/target/**",
       "**/scripts/tmp/**",
       "**/node_modules/**",
+      "**/.papi/**",
       "**/.yarn/**",
       "test/tsconfig.json",
       "tmp",

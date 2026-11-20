@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: proxy_announce
+expression: fee
+---
+123687

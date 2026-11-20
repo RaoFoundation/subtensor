@@ -31,22 +31,32 @@ Prefer the narrowest type that covers the job:
 
 - **Any** — everything the account can do, including transfers. Avoid.
 - **NonTransfer** — everything *except* balance transfers, stake transfers,
-  and coldkey swaps. Notably it can manage the account's other proxies.
+  coldkey swaps, basket trading, gamma mints, moves, spends and daily spend
+  caps, and `set_service`. Notably it can manage the account's other proxies.
 - **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
-- **Staking** — stake operations only: add / remove / move / swap /
-  unstake-all and their limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). The
+- **Staking** — stake operations (add / remove / move / swap / unstake-all and
+  their limit variants) plus `claim_root` and `claim_root_with_hotkey`. The
   allowlist does **not** include `Utility.batch_all`, so batching staking
   calls through a Staking proxy fails with `CallFiltered` — use a NonTransfer
   proxy for batched staking.
 - **Registration** — neuron registration calls ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832),
   [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814), [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 - **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945).
-- **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1910-L1926) only.
+- **RootClaim** — only [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970); it is a strict subset of `Staking`.
+- **BasketTrading** — `swap_basket` and `swap_basket_many` only.
+- **Validate** — validator hotkey operations: all weights calls,
+  `serve_axon` / `serve_axon_tls` / `serve_prometheus`,
+  `associate_evm_key`,
+  and `Commitments.set_commitment`. Nothing that moves stake or TAO. The real
+  account is the hotkey, which signs the grant.
+- **Weights** — the weights calls only; a strict subset of
+  `Validate` for third-party weight setters.
 - **Owner** — subnet-owner admin calls; **NonCritical** — everything except
-  registrations, coldkey swaps, and subnet dissolution;
+  registrations, coldkey swaps, subnet dissolution, basket trading, and gamma
+  spends;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
 
 ### Deposits and limits
@@ -129,6 +139,19 @@ normally submitted extrinsic. The wrapper's acceptance is marked by the
 pallet's [`EncryptedSubmitted`](/code/pallets/shield/src/lib.rs#L206) event, and a successful submission carries
 `inner_extrinsic_hash` in the result data so the inner extrinsic can be
 located on chain.
+
+With `wait_for_finalization=True`, the SDK waits until the block containing
+the inner extrinsic is finalized, re-reads the canonical block hash at that
+height, and resumes the scan if a reorganization removed it. Finalized-head
+RPC failures and stalled finality are bounded; exhausting either retry budget
+raises a clear `ChainError` instead of waiting forever.
+
+Shield wraps the **already composed** call. `proxy_for=` / `--proxy-for`
+and a saved-multisig adapter are applied first; the encrypted inner
+extrinsic is `Proxy.proxy(...)` or `Multisig.as_multi(...)` when those
+are set. Vault, Ledger, and the browser extension each sign that inner
+call and then the carrier — two approvals, same 8-block era. The
+extension bridge labels them "1 of 2" and "2 of 2".
 
 Shielding is for coldkey-signed operations. The chain accepts a shielded
 wrapper from any signed origin, but the SDK and CLI refuse to shield

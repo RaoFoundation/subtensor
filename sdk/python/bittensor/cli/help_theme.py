@@ -22,7 +22,7 @@ except ImportError:  # older typer uses the external click package
 
 from .output import PASTEL_RED
 
-# Running a command group bare (e.g. `btcli addresses`) prints help via
+# Running a command group bare (e.g. `btcli addr`) prints help via
 # NoArgsIsHelpError, which inherits UsageError's exit code 2. That makes
 # terminals flag the block as a failed command; showing help on request is
 # informational, so exit 0. Genuine usage errors still exit 2.

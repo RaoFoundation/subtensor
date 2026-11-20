@@ -142,22 +142,27 @@ serving has its own code 12.
 
 ## Fees
 
-A fee-bearing extrinsic pays two components in TAO from the signer's free
-balance: a **weight fee**, linear in the call's dispatch weight, and a
-**length fee** of 1 rao per byte of the encoded extrinsic. Both are withdrawn
-up front, before the call runs — insufficient balance rejects the transaction
-outright, and a failed call does not refund them. The fee is paid to the
-block author, not recycled or burned (dropped in the edge case of a block
-with no author). `plan.fee` (and the `--dry-run` output) is this number,
-estimated from the chain before anything is signed.
+A fee-bearing extrinsic normally pays two components in TAO from the signer's
+free balance: a **weight fee**, linear in the call's dispatch weight, and a
+**length fee** of 1 rao per byte of the encoded extrinsic. The estimated fee is
+withdrawn before the call runs — insufficient balance rejects the transaction
+outright. After execution, TAO fees are corrected for actual dispatch weight
+where the call reports it; a failed call still pays its resulting fee. The
+final fee and any tip are **recycled** by reducing total issuance instead of
+being paid to the block author. `plan.fee` (and the `--dry-run` output) is the
+chain's estimate before anything is signed.
+
+EVM base and priority fees follow the same recycling path. For a small set of
+unstake-side calls (`remove_stake` and friends), a signer with no TAO can have
+the fee taken in alpha instead. The alpha is sold for TAO and the resulting TAO
+is recycled atomically; alpha-paid transaction fees are final rather than
+post-dispatch adjusted.
 
 The validator hot path is free: [`set-weights`](/docs/tx/set-weights),
 [`commit-weights`](/docs/tx/commit-weights),
 [`reveal-weights`](/docs/tx/reveal-weights) and their batch and timelocked
 variants pay no transaction fee, as do [`serve-axon`](/docs/tx/serve-axon)
-and take changes. For a small set of unstake-side calls (`remove_stake` and
-friends), a signer with no TAO can have the fee taken in alpha instead,
-converted at pool price; every other call simply requires TAO.
+and take changes. Calls outside the alpha-fee fallback set require TAO.
 
 Staking, unstaking, and stake moves additionally pay a pool swap fee on the
 amount transacted — a property of the swap, not the extrinsic; see

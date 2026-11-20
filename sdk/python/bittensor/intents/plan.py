@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from ..balance import Balance
 from ..settings import tx_docs_url
-from ._money import UNBOUNDED, Money, tao_amount
+from ._money import UNBOUNDED, Money, Spend, tao_amount
 from .base import Intent
 
 
@@ -48,7 +48,10 @@ class Policy:
             return []
         return ["raw call submission is disabled by policy (set allow_raw_calls=True)"]
 
-    def check(self, intent: Intent, fee: Optional[Balance]) -> list[str]:
+    def check(
+        self, intent: Intent, fee: Optional[Balance], *, additional_spend: Optional[Balance] = None
+    ) -> list[str]:
+        intent = intent.semantic_intent()
         violations: list[str] = []
         if self.max_fee_tao is not None:
             # A fee cap must not fail open: an unavailable estimate blocks
@@ -62,6 +65,8 @@ class Policy:
                 violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
         if self.max_spend_tao is not None:
             spend = intent.spend()
+            if spend is not UNBOUNDED and additional_spend is not None:
+                spend = (spend or Balance.from_rao(0)) + additional_spend
             if spend is UNBOUNDED:
                 violations.append(
                     f"{intent.op} spends an amount that cannot be bounded before "
@@ -86,18 +91,36 @@ class Policy:
 
 @dataclass
 class Plan:
-    """A previewed, not-yet-submitted intent."""
+    """A previewed, not-yet-submitted intent.
+
+    ``to_dict`` is the machine-readable pre-approval record: alongside the
+    fee, effects, warnings, and policy verdict it carries the exact spend
+    (``spend_tao``, or ``spend_unbounded`` when the amount cannot be bounded
+    before execution — full-balance sweeps and ownership transfers) and the
+    intent's exact parsed arguments, so an agent can verify precisely what
+    would run before anyone signs.
+    """
 
     op: str
     summary: str
     signer: str
     signer_address: Optional[str]
-    fee: Optional[Balance]
+    fee: Optional[Balance]  # total estimate, including Shield's carrier when selected
     effects: list[str]
     warnings: list[str]
     violations: list[str] = field(default_factory=list)
     call: Any = field(default=None, repr=False)  # built call; not serialized
     extras: dict[str, Any] = field(default_factory=dict)  # build-time data for the result
+    # TAO leaving the signer: a Balance when bounded, UNBOUNDED, or None.
+    spend: Spend = None
+    # The intent's own parameters, JSON-native (money as exact decimal strings).
+    args: Optional[dict[str, Any]] = None
+    # Structured, JSON-native counterpart of ``effects`` for intents whose
+    # preview has a fixed shape (e.g. a before/after vector). Empty when the
+    # intent only produces prose.
+    preview: dict[str, Any] = field(default_factory=dict)
+    # Route selected before quoting; execute must retain it.
+    shielded: bool = False
 
     @property
     def ok(self) -> bool:
@@ -110,10 +133,15 @@ class Plan:
             "summary": self.summary,
             "signer": self.signer,
             "signer_address": self.signer_address,
+            "args": self.args,
             "fee_tao": self.fee.tao if self.fee is not None else None,
+            "shielded": self.shielded,
+            "spend_tao": self.spend.tao if isinstance(self.spend, Balance) else None,
+            "spend_unbounded": self.spend is UNBOUNDED,
             "effects": self.effects,
             "warnings": self.warnings,
             "violations": self.violations,
             "ok": self.ok,
+            "preview": self.preview,
             "docs_url": tx_docs_url(self.op),
         }

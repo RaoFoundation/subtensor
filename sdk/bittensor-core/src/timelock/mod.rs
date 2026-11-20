@@ -64,6 +64,16 @@ pub struct UserData {
     pub reveal_round: u64,
 }
 
+fn decode_user_data(encrypted_data: &[u8]) -> Result<UserData, CoreError> {
+    let mut input = encrypted_data;
+    let user_data = UserData::decode(&mut input)
+        .map_err(|e| tl_err(format!("Error deserializing data: {e:?}")))?;
+    if !input.is_empty() {
+        return Err(tl_err("Error deserializing data: trailing bytes"));
+    }
+    Ok(user_data)
+}
+
 #[derive(Deserialize)]
 pub struct DrandResponse {
     pub round: u64,
@@ -75,9 +85,18 @@ pub struct DrandResponse {
 /// (e.g. a browser shell) extracts the round here, fetches the signature
 /// itself, and finishes with [`decrypt_with_signature`].
 pub fn reveal_round(encrypted_data: &[u8]) -> Result<u64, CoreError> {
-    let user_data = UserData::decode(&mut &encrypted_data[..])
-        .map_err(|e| tl_err(format!("Error deserializing data: {e:?}")))?;
+    let user_data = decode_user_data(encrypted_data)?;
     Ok(user_data.reveal_round)
+}
+
+/// Inner compressed TLE ciphertext from a `UserData` envelope.
+///
+/// `Commitments.set_commitment` stores this in `TimelockEncrypted.encrypted`
+/// and the reveal round as a separate field. `ciphertext` / `hex()` on the
+/// Python `Timelocked` object is the portable envelope, not this inner blob.
+pub fn inner_ciphertext(encrypted_data: &[u8]) -> Result<Vec<u8>, CoreError> {
+    let user_data = decode_user_data(encrypted_data)?;
+    Ok(user_data.encrypted_data)
 }
 
 /// Timelock-encrypt `serialized_data` to the drand quicknet round
@@ -277,10 +296,10 @@ pub fn get_reveal_round_signature(
 /// but wrong, which the caller should see).
 #[cfg(feature = "host")]
 pub fn decrypt(encrypted_data: &[u8], no_errors: bool) -> Result<Option<Vec<u8>>, CoreError> {
-    let user_data = match UserData::decode(&mut &encrypted_data[..]) {
+    let user_data = match decode_user_data(encrypted_data) {
         Ok(data) => data,
         Err(_) if no_errors => return Ok(None),
-        Err(e) => return Err(tl_err(format!("Error deserializing data: {e:?}"))),
+        Err(e) => return Err(e),
     };
 
     let Some(signature_hex) = get_reveal_round_signature(Some(user_data.reveal_round), no_errors)?
@@ -301,8 +320,7 @@ pub fn decrypt_with_signature(
     encrypted_data: &[u8],
     signature_hex: &str,
 ) -> Result<Vec<u8>, CoreError> {
-    let user_data = UserData::decode(&mut &encrypted_data[..])
-        .map_err(|e| tl_err(format!("Error deserializing data: {e:?}")))?;
+    let user_data = decode_user_data(encrypted_data)?;
     decrypt_with_signature_hex(&user_data.encrypted_data, signature_hex)
 }
 
@@ -356,6 +374,24 @@ mod tests {
         let (encrypted, round) = encrypt_commitment(data, 10, 12.0).expect("Encryption failed");
         assert!(!encrypted.is_empty());
         assert!(round > 0);
+    }
+
+    #[test]
+    fn inner_ciphertext_unwraps_user_data_envelope() {
+        let expected = b"chain submit bytes".to_vec();
+        let mut envelope = UserData {
+            encrypted_data: expected.clone(),
+            reveal_round: 30_000_000,
+        }
+        .encode();
+
+        assert_eq!(inner_ciphertext(&envelope).unwrap(), expected);
+
+        envelope.push(0);
+        assert!(
+            inner_ciphertext(&envelope).is_err(),
+            "trailing bytes must be rejected"
+        );
     }
 
     #[test]

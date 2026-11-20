@@ -107,14 +107,12 @@ async function main() {
     ownerHotkeyLockAmount,
     "non-owner coldkey lock to subnet owner hotkey should receive immediate owner conviction"
   );
-  const ownerAggregate = await requireAggregateLock("decayingOwnerLock", netuid, ownerHotkey, "default decaying owner aggregate lock");
+  const ownerAggregate = await requireAggregateLock("decayingHotkeyLock", netuid, ownerHotkey, "default decaying owner aggregate lock");
   assertConvictionAtLeast(
     ownerAggregate,
     ownerHotkeyLockAmount,
-    "DecayingOwnerLock should include immediate owner conviction"
+    "DecayingHotkeyLock should include immediate owner conviction"
   );
-  await assertNoAggregateLock("hotkeyLock", netuid, ownerHotkey, "owner-hotkey lock should not use general HotkeyLock");
-  await assertNoAggregateLock("decayingHotkeyLock", netuid, ownerHotkey, "owner-hotkey lock should not use general DecayingHotkeyLock");
   console.log("default decaying owner aggregate lock:", formatLock(ownerAggregate));
   console.log("passive owner-hotkey immediate conviction:", formatLock(ownerHotkeyLock));
 
@@ -126,7 +124,7 @@ async function main() {
   );
   await assertNoDecayingFlag(ownerHotkeySource.address, netuid);
   const decayingOwnerAggregate = await requireAggregateLock(
-    "decayingOwnerLock",
+    "decayingHotkeyLock",
     netuid,
     ownerHotkey,
     "decaying owner aggregate lock"
@@ -134,7 +132,7 @@ async function main() {
   assertConvictionAtLeast(
     decayingOwnerAggregate,
     ownerHotkeyLockAmount,
-    "DecayingOwnerLock should retain immediate owner conviction",
+    "DecayingHotkeyLock should retain immediate owner conviction",
     // The lock starts decaying the moment the perpetual flag is cleared, and
     // a couple of 12s blocks elapse before this read (observed on the CI
     // clone: ~2 blocks of decay, ~1.9M mass on a 583B lock). Allow 30 blocks
@@ -142,7 +140,6 @@ async function main() {
     // the failure mode this guards against (conviction ramping from zero).
     rates.unlockRate * 30n * 2n
   );
-  await assertNoAggregateLock("decayingHotkeyLock", netuid, ownerHotkey, "owner-hotkey lock should not use general DecayingHotkeyLock");
   console.log("decaying owner aggregate lock:", formatLock(decayingOwnerAggregate));
 
   await submitAndWait(
@@ -512,8 +509,6 @@ function assertLockMetadataAvailable() {
     ["SubtensorModule.Lock", api.query.subtensorModule?.lock],
     ["SubtensorModule.HotkeyLock", api.query.subtensorModule?.hotkeyLock],
     ["SubtensorModule.DecayingHotkeyLock", api.query.subtensorModule?.decayingHotkeyLock],
-    ["SubtensorModule.OwnerLock", api.query.subtensorModule?.ownerLock],
-    ["SubtensorModule.DecayingOwnerLock", api.query.subtensorModule?.decayingOwnerLock],
     ["SubtensorModule.DecayingLock", api.query.subtensorModule?.decayingLock],
     ["SubtensorModule.SubnetOwnerHotkey", api.query.subtensorModule?.subnetOwnerHotkey],
     ["SubtensorModule.Owner", api.query.subtensorModule?.owner],
@@ -646,16 +641,10 @@ async function assertAggregateMatchesLock(storageName, lock, netuid, hotkey, lab
 }
 
 function queryAggregateLock(storageName, netuid, hotkey) {
-  if (storageName === "ownerLock" || storageName === "decayingOwnerLock") {
-    return api.query.subtensorModule[storageName](netuid);
-  }
   return api.query.subtensorModule[storageName](netuid, hotkey);
 }
 
 function aggregateLabel(storageName, netuid, hotkey) {
-  if (storageName === "ownerLock" || storageName === "decayingOwnerLock") {
-    return `${storageName}(${netuid})`;
-  }
   return `${storageName}(${netuid}, ${hotkey})`;
 }
 

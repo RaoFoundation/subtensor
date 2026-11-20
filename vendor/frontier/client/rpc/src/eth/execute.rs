@@ -33,7 +33,7 @@ use sp_inherents::CreateInherentDataProviders;
 use sp_io::hashing::{blake2_128, twox_128};
 use sp_runtime::{
 	traits::{Block as BlockT, HashingFor},
-	DispatchError, SaturatedConversion,
+	DispatchError, SaturatedConversion, TransactionOutcome,
 };
 use sp_state_machine::OverlayedChanges;
 // Frontier
@@ -82,6 +82,7 @@ where
 		number_or_hash: Option<BlockNumberOrHash>,
 		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
 	) -> RpcResult<Bytes> {
+		let pending_request = request.clone();
 		let TransactionRequest {
 			from,
 			to,
@@ -106,6 +107,7 @@ where
 			)
 		};
 
+		let mut is_pending = false;
 		let (substrate_hash, mut api) = match frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),
 			self.backend.as_ref(),
@@ -121,6 +123,7 @@ where
 			}
 			None => {
 				// Not mapped in the db, assume pending.
+				is_pending = true;
 				let (hash, api) = self.pending_runtime_api().await.map_err(|err| {
 					internal_err(format!("Create pending runtime api error: {err}"))
 				})?;
@@ -176,6 +179,43 @@ where
 				Ok(_) => max_gas_limit,
 				_ => block_gas_limit,
 			},
+		};
+
+		let pending_overrides = is_pending
+			&& to.is_some()
+			&& api_version >= 4
+			&& state_overrides
+				.as_ref()
+				.is_some_and(|overrides| !overrides.is_empty());
+		if is_pending && !pending_overrides {
+			let (exit_reason, output, _) = Self::pending_simulation(
+				&mut api,
+				substrate_hash,
+				pending_request,
+				gas_limit,
+				api_version,
+				false,
+				gas_price,
+				max_fee_per_gas,
+				max_priority_fee_per_gas,
+			)?;
+			error_on_execution_failure(&exit_reason, &output)?;
+			return Ok(Bytes(output));
+		}
+
+		// Raw calls are needed for storage overrides. Preserve the complete
+		// reconstructed pending state underneath the caller's overrides.
+		let pending_overlay = if pending_overrides {
+			let backend = self
+				.client
+				.state_at(substrate_hash)
+				.map_err(|err| internal_err(format!("runtime error: {err}")))?;
+			let changes = api
+				.into_storage_changes(&backend, substrate_hash)
+				.map_err(|err| internal_err(format!("pending storage changes: {err}")))?;
+			Some(storage_changes_overlay::<B>(changes))
+		} else {
+			None
 		};
 
 		let data = data.into_bytes().map(|d| d.into_vec()).unwrap_or_default();
@@ -244,6 +284,7 @@ where
 						substrate_hash,
 						api_version,
 						state_overrides,
+						pending_overlay.unwrap_or_default(),
 					)?;
 
 					// Enable proof size recording
@@ -346,6 +387,7 @@ where
 						substrate_hash,
 						api_version,
 						state_overrides,
+						pending_overlay.unwrap_or_default(),
 					)?;
 
 					// Enable proof size recording
@@ -537,14 +579,12 @@ where
 		request: TransactionRequest,
 		number_or_hash: Option<BlockNumberOrHash>,
 	) -> RpcResult<U256> {
+		let mut is_pending = false;
 		let client = Arc::clone(&self.client);
 		let block_data_cache = Arc::clone(&self.block_data_cache);
 
-		// Define the lower bound of estimate
-		const MIN_GAS_PER_TX: U256 = U256([21_000, 0, 0, 0]);
-
 		// Get substrate hash and runtime api
-		let (substrate_hash, api) = match frontier_backend_client::native_block_id::<B, C>(
+		let (substrate_hash, mut api) = match frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),
 			self.backend.as_ref(),
 			number_or_hash,
@@ -559,6 +599,7 @@ where
 			}
 			None => {
 				// Not mapped in the db, assume pending.
+				is_pending = true;
 				let (hash, api) = self.pending_runtime_api().await.map_err(|err| {
 					internal_err(format!("Create pending runtime api error: {err}"))
 				})?;
@@ -569,22 +610,8 @@ where
 		// Adapt request for gas estimation.
 		let request = EC::EstimateGasAdapter::adapt_request(request);
 
-		// For simple transfer to simple account, return MIN_GAS_PER_TX directly
-		let is_simple_transfer = match &request.data() {
-			None => true,
-			Some(vec) => vec.0.is_empty(),
-		};
-		if is_simple_transfer {
-			if let Some(to) = request.to {
-				let to_code = api
-					.account_code_at(substrate_hash, to)
-					.map_err(|err| internal_err(format!("runtime error: {err}")))?;
-				if to_code.is_empty() {
-					return Ok(MIN_GAS_PER_TX);
-				}
-			}
-		}
-
+		// Runtime account mapping and EIP-7702 may add costs even for an
+		// empty-calldata transfer. Estimate against the active runtime.
 		let block_gas_limit = {
 			let block = block_data_cache.current_block(substrate_hash).await;
 			block
@@ -1091,20 +1118,46 @@ where
 			return Err(internal_err("failed to retrieve Runtime Api version"));
 		};
 
+		// Pending probes share the reconstructed overlay, but roll back every
+		// execution so one gas probe cannot alter the next probe's state.
+		let mut probe = |request, gas, api_version, estimate_mode| {
+			if is_pending {
+				Self::pending_simulation(
+					&mut api,
+					substrate_hash,
+					request,
+					gas,
+					api_version,
+					estimate_mode,
+					gas_price,
+					max_fee_per_gas,
+					max_priority_fee_per_gas,
+				)
+				.map(|(exit_reason, data, used_gas)| ExecutableResult {
+					exit_reason,
+					data,
+					used_gas,
+				})
+			} else {
+				executable(
+					request,
+					gas,
+					api_version,
+					client.runtime_api(),
+					estimate_mode,
+				)
+			}
+		};
+
 		// Verify that the transaction succeed with the highest capacity
 		let cap = highest;
+
 		let estimate_mode = !cfg!(feature = "rpc-binary-search-estimate");
 		let ExecutableResult {
 			data,
 			exit_reason,
 			used_gas,
-		} = executable(
-			request.clone(),
-			highest,
-			api_version,
-			client.runtime_api(),
-			estimate_mode,
-		)?;
+		} = probe(request.clone(), highest, api_version, estimate_mode)?;
 		match exit_reason {
 			ExitReason::Succeed(_) => (),
 			ExitReason::Error(ExitError::OutOfGas) => {
@@ -1125,13 +1178,7 @@ where
 						data,
 						exit_reason,
 						used_gas: _,
-					} = executable(
-						request.clone(),
-						max_gas_limit,
-						api_version,
-						client.runtime_api(),
-						estimate_mode,
-					)?;
+					} = probe(request.clone(), max_gas_limit, api_version, estimate_mode)?;
 					match exit_reason {
 						ExitReason::Succeed(_) => {
 							return Err(internal_err(format!(
@@ -1158,7 +1205,7 @@ where
 			// On binary search, evm estimate mode is disabled
 			let estimate_mode = false;
 			// Define the lower bound of the binary search
-			let mut lowest = MIN_GAS_PER_TX;
+			let mut lowest = U256::from(21_000);
 
 			// Start close to the used gas for faster binary search
 			let mut mid = std::cmp::min(used_gas * 3, (highest + lowest) / 2);
@@ -1170,13 +1217,7 @@ where
 					data,
 					exit_reason,
 					used_gas: _,
-				} = executable(
-					request.clone(),
-					mid,
-					api_version,
-					client.runtime_api(),
-					estimate_mode,
-				)?;
+				} = probe(request.clone(), mid, api_version, estimate_mode)?;
 				match exit_reason {
 					ExitReason::Succeed(_) => {
 						highest = mid;
@@ -1201,6 +1242,213 @@ where
 		}
 	}
 
+	/// Execute one pending simulation transactionally. Typed APIs retain the
+	/// initialized pending overlay and attach the proof-size extension to the
+	/// same recorder used by the runtime API instead of a fresh empty overlay.
+	#[allow(clippy::too_many_arguments, deprecated)]
+	fn pending_simulation(
+		api: &mut sp_api::ApiRef<'_, C::Api>,
+		at: B::Hash,
+		request: TransactionRequest,
+		gas_limit: U256,
+		version: u32,
+		estimate: bool,
+		gas_price: Option<U256>,
+		max_fee: Option<U256>,
+		priority_fee: Option<U256>,
+	) -> RpcResult<(ExitReason, Vec<u8>, U256)> {
+		api.record_proof();
+		if let Some(recorder) = api.proof_recorder() {
+			api.register_extension(sp_trie::proof_size_extension::ProofSizeExt::new(recorder));
+		}
+		api.execute_in_transaction(|api| {
+			TransactionOutcome::Rollback((|| {
+				let TransactionRequest {
+					from,
+					to,
+					gas,
+					value,
+					data,
+					nonce,
+					access_list,
+					authorization_list,
+					..
+				} = request;
+				let from = from.unwrap_or_default();
+				let value = value.unwrap_or_default();
+				let gas = gas.unwrap_or(gas_limit).min(gas_limit);
+				let data = data.into_bytes().map(|data| data.0).unwrap_or_default();
+				let access = Some(
+					access_list
+						.unwrap_or_default()
+						.into_iter()
+						.map(|item| (item.address, item.storage_keys))
+						.collect(),
+				);
+				macro_rules! info {
+                ($call:expr, $($used:ident).+) => {{
+                    let info = $call
+                        .map_err(|err| internal_err(format!("runtime error: {err}")))?
+                        .map_err(|err| internal_err(format!("execution fatal: {err:?}")))?;
+                    (info.exit_reason, info.value, info.$($used).+)
+                }};
+            }
+				match to {
+					Some(to) => Ok(match version {
+						1 => info!(
+							api.call_before_version_2(
+								at, from, to, data, value, gas, gas_price, nonce, estimate
+							),
+							used_gas
+						),
+						2 | 3 => info!(
+							api.call_before_version_4(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate
+							),
+							used_gas
+						),
+						4 => info!(
+							api.call_before_version_5(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate,
+								access
+							),
+							used_gas
+						),
+						5 => info!(
+							api.call_before_version_6(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate,
+								access
+							),
+							used_gas.effective
+						),
+						6 => info!(
+							api.call(
+								at,
+								from,
+								to,
+								data,
+								value,
+								gas,
+								max_fee,
+								priority_fee,
+								nonce,
+								estimate,
+								access,
+								authorization_list
+							),
+							used_gas.effective
+						),
+						_ => return Err(internal_err("unsupported pending runtime API version")),
+					}),
+					None => {
+						let (reason, address, used_gas) = match version {
+							1 => info!(
+								api.create_before_version_2(
+									at, from, data, value, gas, gas_price, nonce, estimate
+								),
+								used_gas
+							),
+							2 | 3 => info!(
+								api.create_before_version_4(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate
+								),
+								used_gas
+							),
+							4 => info!(
+								api.create_before_version_5(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate,
+									access
+								),
+								used_gas
+							),
+							5 => info!(
+								api.create_before_version_6(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate,
+									access
+								),
+								used_gas.effective
+							),
+							6 => info!(
+								api.create(
+									at,
+									from,
+									data,
+									value,
+									gas,
+									max_fee,
+									priority_fee,
+									nonce,
+									estimate,
+									access,
+									authorization_list
+								),
+								used_gas.effective
+							),
+							_ => {
+								return Err(internal_err("unsupported pending runtime API version"))
+							}
+						};
+						let code = api
+							.account_code_at(at, address)
+							.map_err(|err| internal_err(format!("runtime error: {err}")))?;
+						Ok((reason, code, used_gas))
+					}
+				}
+			})())
+		})
+	}
+
 	/// Given an address mapped `CallStateOverride`, creates `OverlayedChanges` to be used for
 	/// `CallApiAt` eth_call.
 	fn create_overrides_overlay(
@@ -1208,8 +1456,8 @@ where
 		block_hash: B::Hash,
 		api_version: u32,
 		state_overrides: Option<BTreeMap<H160, CallStateOverride>>,
+		mut overlayed_changes: OverlayedChanges<HashingFor<B>>,
 	) -> RpcResult<OverlayedChanges<HashingFor<B>>> {
-		let mut overlayed_changes = OverlayedChanges::default();
 		if let Some(state_overrides) = state_overrides {
 			for (address, state_override) in state_overrides {
 				if EC::RuntimeStorageOverride::is_enabled() {
@@ -1247,6 +1495,8 @@ where
 
 				// Use `state` first. If `stateDiff` is also present, it resolves consistently
 				if let Some(state) = &state_override.state {
+					// A full override also clears slots created by pending transactions.
+					clear_overlay_prefix::<B>(&mut overlayed_changes, &account_storage_key);
 					// clear all storage
 					if let Ok(all_keys) = self.client.storage_keys(
 						block_hash,
@@ -1280,6 +1530,34 @@ where
 		}
 
 		Ok(overlayed_changes)
+	}
+}
+
+/// Transfer pending changes into the raw-call overlay without losing child storage.
+fn storage_changes_overlay<B: BlockT>(
+	changes: sp_api::StorageChanges<B>,
+) -> OverlayedChanges<HashingFor<B>> {
+	let mut overlay = OverlayedChanges::default();
+	for (key, value) in changes.main_storage_changes {
+		overlay.set_storage(key, value);
+	}
+	for (child, changes) in changes.child_storage_changes {
+		let child = sp_storage::ChildInfo::new_default(&child);
+		for (key, value) in changes {
+			overlay.set_child_storage(&child, key, value);
+		}
+	}
+	overlay
+}
+
+fn clear_overlay_prefix<B: BlockT>(overlay: &mut OverlayedChanges<HashingFor<B>>, prefix: &[u8]) {
+	let keys: Vec<_> = overlay
+		.changes()
+		.filter(|(key, _)| key.starts_with(prefix))
+		.map(|(key, _)| key.clone())
+		.collect();
+	for key in keys {
+		overlay.set_storage(key, None);
 	}
 }
 
@@ -1373,5 +1651,81 @@ fn fee_details(
 			max_priority_fee_per_gas: Some(U256::zero()),
 			fee_cap: U256::zero(),
 		}),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_runtime::{
+		generic::{Block, Header},
+		traits::BlakeTwo256,
+		OpaqueExtrinsic,
+	};
+
+	type TestBlock = Block<Header<u64, BlakeTwo256>, OpaqueExtrinsic>;
+
+	#[test]
+	fn pending_override_overlay_preserves_main_and_child_changes() {
+		let changes = sp_api::StorageChanges::<TestBlock> {
+			main_storage_changes: vec![
+				(
+					b"pending-account".to_vec(),
+					Some(b"pending-balance".to_vec()),
+				),
+				(b"deleted-account".to_vec(), None),
+			],
+			child_storage_changes: vec![(
+				b"contract".to_vec(),
+				vec![
+					(b"pending-slot".to_vec(), Some(b"pending-value".to_vec())),
+					(b"deleted-slot".to_vec(), None),
+				],
+			)],
+			..Default::default()
+		};
+		let mut overlay = storage_changes_overlay::<TestBlock>(changes);
+		let child = sp_storage::ChildInfo::new_default(b"contract");
+		assert_eq!(
+			overlay.storage(b"pending-account"),
+			Some(Some(b"pending-balance".as_slice()))
+		);
+		assert_eq!(overlay.storage(b"deleted-account"), Some(None));
+		assert_eq!(
+			overlay.child_storage(&child, b"pending-slot"),
+			Some(Some(b"pending-value".as_slice()))
+		);
+		assert_eq!(overlay.child_storage(&child, b"deleted-slot"), Some(None));
+		// The explicit override wins while unrelated pending state stays present.
+		overlay.set_storage(
+			b"pending-account".to_vec(),
+			Some(b"override-balance".to_vec()),
+		);
+		assert_eq!(
+			overlay.storage(b"pending-account"),
+			Some(Some(b"override-balance".as_slice()))
+		);
+		assert_eq!(
+			overlay.child_storage(&child, b"pending-slot"),
+			Some(Some(b"pending-value".as_slice()))
+		);
+	}
+
+	#[test]
+	fn full_state_override_removes_pending_created_slots_only_for_that_account() {
+		let mut overlay = OverlayedChanges::default();
+		overlay.set_storage(b"account-a/slot".to_vec(), Some(vec![1]));
+		overlay.set_storage(b"account-b/slot".to_vec(), Some(vec![2]));
+		clear_overlay_prefix::<TestBlock>(&mut overlay, b"account-a/");
+		assert_eq!(overlay.storage(b"account-a/slot"), Some(None));
+		assert_eq!(
+			overlay.storage(b"account-b/slot"),
+			Some(Some([2].as_slice()))
+		);
+		overlay.set_storage(b"account-a/replacement".to_vec(), Some(vec![3]));
+		assert_eq!(
+			overlay.storage(b"account-a/replacement"),
+			Some(Some([3].as_slice()))
+		);
 	}
 }

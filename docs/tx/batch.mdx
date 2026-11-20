@@ -16,7 +16,7 @@ every child, and the transaction plan lists each child's effects.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Utility | [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | Utility | [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L345-L399) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("batch", {...}, wallet)
 
 ## On-chain implementation
 
-`Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
+`Utility.batch_all` — [`pallets/utility/src/lib.rs#L351`](/code/pallets/utility/src/lib.rs#L345-L399):
 
 ```rust
         #[pallet::call_index(2)]
@@ -124,5 +124,7 @@ result = sub.execute_tool("batch", {...}, wallet)
             Ok(Some(base_weight.saturating_add(weight)).into())
         }
 ```
+
+Delegates to [`batched_calls_limit`](/code/pallets/utility/src/lib.rs#L170).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

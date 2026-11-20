@@ -7,6 +7,7 @@ per read, so the SDK's reads and the CLI's queries can't drift.
 
 from __future__ import annotations
 
+import functools
 import inspect
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
@@ -18,10 +19,86 @@ from ..balance import Balance
 from ..reads import REGISTRY, Grouped, Matrix
 from ..settings import query_docs_url
 from . import globals as g
-from .context import address_cli_name, ctx_of, ss58_param_help
+from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from .output import Output
+from .prompt import PromptSpec, fill_missing
+from .stake_picker import required_address_spec
 
 _TYPES = {"string": str, "integer": int, "number": float, "boolean": bool}
+_TRUE = {"y", "yes", "true", "1"}
+_FALSE = {"n", "no", "false", "0"}
+_OWN_KEY = ("hotkey_ss58", "coldkey_ss58")
+
+
+def _cli_name(pname: str) -> str:
+    if pname.endswith("_ss58") or "_ss58" in pname:
+        return address_cli_name(pname)
+    return "--" + pname.replace("_", "-")
+
+
+def _fetch_default(pname: str, fetch_params: Any) -> Any:
+    if pname not in fetch_params:
+        return inspect.Parameter.empty
+    return fetch_params[pname].default
+
+
+def _is_required(pname: str, fetch_params) -> bool:
+    """True when omitting the param would fail the read.
+
+    Own-key params fall back to the wallet (or keep None for owner lookup).
+    A fetch default of ``None`` is not a usable value — those still fail
+    (hyperparameter reads declare ``netuid=None`` on the shared fetch).
+    A real default (``mechid=0``, ``lite=True``) is optional.
+    """
+    if pname in _OWN_KEY:
+        return False
+    default = _fetch_default(pname, fetch_params)
+    return default is inspect.Parameter.empty or default is None
+
+
+def _option_help(spec, pname: str, ptype: str, fetch_params) -> Optional[str]:
+    fetch_default = _fetch_default(pname, fetch_params)
+    has_fetch_default = fetch_default is not inspect.Parameter.empty
+    if pname.endswith("_ss58"):
+        input_note = ss58_param_help(pname)
+        if has_fetch_default and pname in _OWN_KEY:
+            input_note = input_note.split(" Defaults to your wallet")[0]
+    else:
+        input_note = None
+    if ptype == "array":
+        input_note = f"{input_note} Comma-separated." if input_note else "Comma-separated list."
+    declared = spec.param_docs.get(pname)
+    return " ".join(part for part in (declared, input_note) if part) or None
+
+
+def _query_placeholder(ptype: str) -> Optional[str]:
+    return {
+        "integer": "integer",
+        "number": "number",
+        "boolean": "y/n",
+        "array": "comma-separated",
+    }.get(ptype)
+
+
+def _parse_query_prompt(ptype: str, _app_ctx: AppContext, raw: str) -> Any:
+    if ptype == "integer":
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(f"expected an integer, got {raw!r}")
+    if ptype == "number":
+        try:
+            return float(raw)
+        except ValueError:
+            raise ValueError(f"expected a number, got {raw!r}")
+    if ptype == "boolean":
+        lowered = raw.lower()
+        if lowered in _TRUE:
+            return True
+        if lowered in _FALSE:
+            return False
+        raise ValueError(f"expected y or n, got {raw!r}")
+    return raw
 
 
 def _jsonable(obj: Any) -> Any:
@@ -62,6 +139,25 @@ def _make_command(name: str, spec):
     def command(ctx: typer.Context, **kwargs: Any) -> None:
         g.apply(ctx, kwargs)
         app_ctx = ctx_of(ctx)
+        missing: list[PromptSpec] = []
+        for pname, ptype in spec.params.items():
+            if not _is_required(pname, fetch_params) or kwargs.get(pname) is not None:
+                continue
+            richer = required_address_spec(pname)
+            if richer is not None:
+                missing.append(richer)
+                continue
+            missing.append(
+                PromptSpec(
+                    field=pname,
+                    flag=_cli_name(pname),
+                    help=_option_help(spec, pname, ptype, fetch_params),
+                    parse=functools.partial(_parse_query_prompt, ptype),
+                    placeholder=_query_placeholder(ptype),
+                )
+            )
+        if missing:
+            fill_missing(app_ctx, missing, kwargs)
         for pname in array_params:  # comma-separated on the CLI
             kwargs[pname] = [part.strip() for part in str(kwargs[pname]).split(",")]
         for pname in spec.params:
@@ -116,45 +212,27 @@ def _make_command(name: str, spec):
     ]
     annotations: dict[str, Any] = {"ctx": typer.Context}
     for pname, ptype in spec.params.items():
-        cli_name = (
-            address_cli_name(pname)
-            if pname.endswith("_ss58") or "_ss58" in pname
-            else "--" + pname.replace("_", "-")
-        )
+        cli_name = _cli_name(pname)
         # Own-key params may be omitted (fall back to the configured wallet);
         # all *_ss58 params also accept local wallet/hotkey names.
-        wallet_defaulted = pname in ("hotkey_ss58", "coldkey_ss58")
+        wallet_defaulted = pname in _OWN_KEY
         base_type = _TYPES.get(ptype, str)
         # A default on the fetch function (e.g. mechid=0) makes the option optional.
-        fetch_default = (
-            fetch_params[pname].default if pname in fetch_params else inspect.Parameter.empty
-        )
+        fetch_default = _fetch_default(pname, fetch_params)
         has_fetch_default = fetch_default is not inspect.Parameter.empty
-        # Declared meaning first, then the input-shape note (ss58 resolution,
-        # comma-separated lists) — same composition as the tx commands. Skip the
-        # wallet-default sentence when the read declares its own default
-        # (e.g. coldkey_ss58=None → hotkey owner).
-        if pname.endswith("_ss58"):
-            input_note = ss58_param_help(pname)
-            if has_fetch_default and pname in ("hotkey_ss58", "coldkey_ss58"):
-                input_note = input_note.split(" Defaults to your wallet")[0]
-        else:
-            input_note = None
-        if ptype == "array":
-            input_note = f"{input_note} Comma-separated." if input_note else "Comma-separated list."
-        declared = spec.param_docs.get(pname)
-        help_text = " ".join(part for part in (declared, input_note) if part) or None
+        help_text = _option_help(spec, pname, ptype, fetch_params)
         # Optional coldkey_ss58=None (owner lookup) is not a wallet default —
         # keep the option optional without implying the signing wallet coldkey.
-        if wallet_defaulted and not has_fetch_default:
-            option_default: Any = None
-            annotations[pname] = Optional[base_type]
-        elif has_fetch_default:
+        # Required params are Optional at the Click layer so a missing one
+        # reaches the command body, which prompts (same as generated tx).
+        if wallet_defaulted:
+            option_default: Any = fetch_default if has_fetch_default else None
+        elif not _is_required(pname, fetch_params):
             option_default = fetch_default
-            annotations[pname] = Optional[base_type]
         else:
-            option_default = ...
-            annotations[pname] = base_type
+            option_default = None
+            help_text = f"{help_text} (required)" if help_text else "(required)"
+        annotations[pname] = Optional[base_type]
         # Bool options get a negated twin (--flag/--no-flag) so default-True
         # fields (e.g. lite) can be turned off — same pattern as `tx.py`.
         flag_name = f"{cli_name}/--no-{cli_name[2:]}" if ptype == "boolean" else cli_name

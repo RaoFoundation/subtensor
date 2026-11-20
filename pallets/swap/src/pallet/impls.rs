@@ -11,7 +11,7 @@ use sp_runtime::traits::AccountIdConversion;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetInfo, TaoBalance, Token, TokenReserve};
 use subtensor_swap_interface::{
-    DefaultPriceLimit, Order as OrderT, SwapEngine, SwapHandler, SwapResult,
+    DefaultPriceLimit, Order as OrderT, SwapEngine, SwapFailureKind, SwapHandler, SwapResult,
 };
 
 use super::pallet::*;
@@ -104,10 +104,16 @@ impl<T: Config> Pallet<T> {
         // Get reserves
         let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
         let tao_reserve = T::TaoReserve::reserve(netuid.into());
-        let balancer = SwapBalancer::<T>::get(netuid);
-
-        let pending_tao = BalancerTaoReservoir::<T>::get(netuid).saturating_add(tao_delta);
-        let pending_alpha = BalancerAlphaReservoir::<T>::get(netuid).saturating_add(alpha_delta);
+        let current_balancer = SwapBalancer::<T>::try_get(netuid).ok();
+        let balancer = current_balancer.clone().unwrap_or_default();
+        let current_tao_reservoir = BalancerTaoReservoir::<T>::try_get(netuid).ok();
+        let current_alpha_reservoir = BalancerAlphaReservoir::<T>::try_get(netuid).ok();
+        let pending_tao = current_tao_reservoir
+            .unwrap_or(TaoBalance::ZERO)
+            .saturating_add(tao_delta);
+        let pending_alpha = current_alpha_reservoir
+            .unwrap_or(AlphaBalance::ZERO)
+            .saturating_add(alpha_delta);
 
         if let Some(new_balancer) = Self::try_update_balancer(
             &balancer,
@@ -116,9 +122,9 @@ impl<T: Config> Pallet<T> {
             pending_tao,
             pending_alpha,
         ) {
-            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::ZERO);
-            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::ZERO);
-            SwapBalancer::<T>::insert(netuid, new_balancer);
+            Self::update_tao_reservoir(netuid, current_tao_reservoir, TaoBalance::ZERO);
+            Self::update_alpha_reservoir(netuid, current_alpha_reservoir, AlphaBalance::ZERO);
+            Self::update_balancer(netuid, current_balancer.as_ref(), new_balancer);
             return (pending_tao, pending_alpha);
         }
 
@@ -129,9 +135,9 @@ impl<T: Config> Pallet<T> {
             TaoBalance::ZERO,
             pending_alpha,
         ) {
-            BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::ZERO);
-            SwapBalancer::<T>::insert(netuid, new_balancer);
+            Self::update_tao_reservoir(netuid, current_tao_reservoir, pending_tao);
+            Self::update_alpha_reservoir(netuid, current_alpha_reservoir, AlphaBalance::ZERO);
+            Self::update_balancer(netuid, current_balancer.as_ref(), new_balancer);
             return (TaoBalance::ZERO, pending_alpha);
         }
 
@@ -142,14 +148,14 @@ impl<T: Config> Pallet<T> {
             pending_tao,
             AlphaBalance::ZERO,
         ) {
-            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::ZERO);
-            BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
-            SwapBalancer::<T>::insert(netuid, new_balancer);
+            Self::update_tao_reservoir(netuid, current_tao_reservoir, TaoBalance::ZERO);
+            Self::update_alpha_reservoir(netuid, current_alpha_reservoir, pending_alpha);
+            Self::update_balancer(netuid, current_balancer.as_ref(), new_balancer);
             return (pending_tao, AlphaBalance::ZERO);
         }
 
-        BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-        BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
+        Self::update_tao_reservoir(netuid, current_tao_reservoir, pending_tao);
+        Self::update_alpha_reservoir(netuid, current_alpha_reservoir, pending_alpha);
         if pending_tao > TaoBalance::ZERO || pending_alpha > AlphaBalance::ZERO {
             log::warn!(
                 "Reserves are out of range for emission: netuid = {}, tao = {}, alpha = {}, tao_delta = {}, alpha_delta = {}, tao_reservoir = {}, alpha_reservoir = {}",
@@ -164,6 +170,33 @@ impl<T: Config> Pallet<T> {
         }
 
         (TaoBalance::ZERO, AlphaBalance::ZERO)
+    }
+
+    fn update_tao_reservoir(netuid: NetUid, current: Option<TaoBalance>, new: TaoBalance) {
+        if new.is_zero() {
+            if current.is_some() {
+                BalancerTaoReservoir::<T>::remove(netuid);
+            }
+        } else if current != Some(new) {
+            BalancerTaoReservoir::<T>::insert(netuid, new);
+        }
+    }
+
+    fn update_alpha_reservoir(netuid: NetUid, current: Option<AlphaBalance>, new: AlphaBalance) {
+        if new.is_zero() {
+            if current.is_some() {
+                BalancerAlphaReservoir::<T>::remove(netuid);
+            }
+        } else if current != Some(new) {
+            BalancerAlphaReservoir::<T>::insert(netuid, new);
+        }
+    }
+
+    fn update_balancer(netuid: NetUid, current: Option<&Balancer>, new: Balancer) {
+        // An absent ValueQuery key must still be materialized, matching the previous behavior.
+        if current != Some(&new) {
+            SwapBalancer::<T>::insert(netuid, new);
+        }
     }
 
     fn try_update_balancer(
@@ -220,6 +253,21 @@ impl<T: Config> Pallet<T> {
         Order: OrderT,
         BasicSwapStep<T, Order::PaidIn, Order::PaidOut>: SwapStep<T, Order::PaidIn, Order::PaidOut>,
     {
+        // Simulations on an initialized pool are pure reads: `maybe_initialize_palswap`
+        // early-returns, and the swap step only computes. Skip the transactional overlay,
+        // whose open/rollback cost dominates when valuation paths (basket NAV sweeps,
+        // RPC quotes) issue thousands of sim swaps per block. An uninitialized pool falls
+        // through to the transactional dry-run so its one-time init write still rolls back.
+        if simulate && PalSwapInitialized::<T>::get(netuid) {
+            return Self::ensure_swap_input_within_reserve_limit::<Order>(
+                netuid,
+                order.amount(),
+                drop_fees,
+            )
+            .and_then(|_| Self::swap_inner::<Order>(netuid, order, limit_price, drop_fees))
+            .map_err(Into::into);
+        }
+
         transactional::with_transaction(|| {
             let reserve = Order::ReserveOut::reserve(netuid.into());
 
@@ -535,6 +583,23 @@ impl<T: Config> SwapHandler for Pallet<T> {
 
             // Static subnet, alpha == tao
             _ => u64::from(tao_amount).into(),
+        }
+    }
+
+    fn max_swap_input<O: OrderT>(netuid: NetUid) -> O::PaidIn
+    where
+        Self: SwapEngine<O>,
+    {
+        O::ReserveIn::reserve(netuid).saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER.into())
+    }
+
+    fn classify_failure(error: &DispatchError) -> SwapFailureKind {
+        if *error == Error::<T>::SwapInputTooLarge.into() {
+            SwapFailureKind::InputTooLarge
+        } else if *error == Error::<T>::ReservesTooLow.into() {
+            SwapFailureKind::TerminalLiquidity
+        } else {
+            SwapFailureKind::Other
         }
     }
 }

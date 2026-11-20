@@ -3,6 +3,20 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "SafeDerivationFailed": (
+        "The canonical bounded search could not derive an off-curve composite account. "
+        "No fallback account was created. Choose a different signer manifest or derivation "
+        "index for a new account; retain the original mode and parameters when restoring one."
+    ),
+    "InvalidSafeAccountId": (
+        "The safe composite hash could not decode to the runtime account type without "
+        "changing its 32-byte identity. This runtime account type is incompatible with "
+        "safe composite derivation; the call made no account."
+    ),
+    "ThresholdTooHigh": (
+        "The safe multisig threshold exceeds the full signatory count, including the sender. "
+        "Use a threshold no greater than the number of distinct group members."
+    ),
     "AlreadyApproved": (
         "The sender has already approved this multisig call, so a repeat approval is redundant. "
         "Check the `Multisigs` entry for the call hash: the sender's account already appears in "

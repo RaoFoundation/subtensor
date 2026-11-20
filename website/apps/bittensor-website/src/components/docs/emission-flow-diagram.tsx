@@ -75,11 +75,11 @@ export function EmissionFlowDiagram() {
       </div>
 
       <div className="mt-8 space-y-5 border-t border-line pt-4">
-        <FlowBar label="Subnet owner" pct={segments.owner} detail="SubnetOwnerCut ≈ 18%" />
-        <FlowBar label="Miners" pct={segments.miner} detail="50% of remainder → Yuma incentive" />
-        <FlowBar label="Validators + stakers" pct={segments.validators} detail="Validator half minus root slice" />
+        <FlowBar label="Subnet owner" pct={segments.owner} detail="owner emission slot, default ≈ 18%" />
+        <FlowBar label="Miners" pct={segments.miner} detail="miner slot (default 41%) → Yuma incentive" />
+        <FlowBar label="Validators + stakers" pct={segments.validators} detail="validator slot (default 41%) minus root slice" />
         {rootGateOpen ? (
-          <FlowBar label="Root TAO stakers" pct={segments.root} detail="root_proportion × validator half" />
+          <FlowBar label="Root TAO stakers" pct={segments.root} detail="root_proportion × validator slot" />
         ) : (
           <FlowBar
             label="Recycled (gate closed)"

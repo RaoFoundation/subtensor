@@ -1,0 +1,787 @@
+[
+  {
+    "inputs": [
+
+    ],
+    "name": "getEvmChainId",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getTransactionRateLimit",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorEconomicConstants",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "initialIssuance",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialRaoRecycledForRegistration",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialBurn",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialMinBurn",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialMaxBurn",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialMinStake",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialMinTransfer",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minBurnUpperBound",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxBurnLowerBound",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialNetworkMinLockCost",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keySwapCost",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keySwapOnSubnetCost",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minBalanceToPerformColdkeySwap",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorSubnetConstants",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "initialTempo",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "minTempo",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxTempo",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMinAllowedUids",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMaxAllowedUids",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMaxAllowedValidators",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialImmunityPeriod",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialActivityCutoff",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint32",
+        "name": "minActivityCutoffFactorMilli",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxActivityCutoffFactorMilli",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint8",
+        "name": "maxImmuneUidsPercentage",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialSubnetOwnerCut",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "initialMaxEpochsPerBlock",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorConsensusConstants",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "initialMinAllowedWeights",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialEmissionValue",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialRho",
+        "type": "uint16"
+      },
+      {
+        "internalType": "int16",
+        "name": "initialAlphaSigmoidSteepness",
+        "type": "int16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialKappa",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialBondsMovingAverage",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialBondsPenalty",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "initialBondsResetOn",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialValidatorPruneLen",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialScalingLawPower",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialPruningScore",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialWeightsVersionKey",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialTaoWeight",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorRegistrationConstants",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "initialDifficulty",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialMinDifficulty",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialMaxDifficulty",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialAdjustmentInterval",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialAdjustmentAlpha",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMaxRegistrationsPerBlock",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialTargetRegistrationsPerInterval",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialNetworkRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialNetworkImmunityPeriod",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialNetworkLockReductionInterval",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialEmaPriceHalvingPeriod",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorDelegationConstants",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "initialDefaultDelegateTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMinDelegateTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialDefaultChildKeyTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMinChildKeyTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "initialMaxChildKeyTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "alphaHigh",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "alphaLow",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "liquidAlphaOn",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "yuma3On",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorRateLimitConstants",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "initialServingRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialTxRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialTxDelegateTakeRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialTxChildKeyTakeRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "evmKeyAssociateRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialColdkeySwapAnnouncementDelay",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialColdkeySwapReannouncementDelay",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialDissolveNetworkScheduleDuration",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "initialStartCallDelay",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "hotkeySwapOnSubnetInterval",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "leaseDividendsDistributionInterval",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorProtocolConstants",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "maxCrv3CommitSizeBytes",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxAssociatedUidsPerEvmAddress",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxColdkeyCollateralHotkeys",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint128",
+        "name": "accountFlagsAcceptLockedAlpha",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint64",
+        "name": "minCommitRevealPeriods",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxCommitRevealPeriods",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "globalMaxSubnetCount",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "maxMechanismCountPerSubnet",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint64",
+        "name": "votingPowerDisableGracePeriodBlocks",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxVotingPowerEmaAlpha",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "emissionBarUpdateInterval",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "stakingLockDuration",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint256",
+        "name": "lockStateZeroThreshold",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint32",
+        "name": "initialActivityCutoffFactorMilli",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxTaoIssuance",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSubtensorSystemAccounts",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "subtensorPalletAccount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "burnAccount",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getBalancesConstants",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "existentialDeposit",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxLocks",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxReserves",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxFreezes",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getProxyConstants",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "proxyDepositBase",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "proxyDepositFactor",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxProxies",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxPending",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "announcementDepositBase",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "announcementDepositFactor",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSchedulerConstants",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "maximumWeightRefTime",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maximumWeightProofSize",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxScheduledPerBlock",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getDrandConstants",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "quicknetChainHash",
+        "type": "string"
+      },
+      {
+        "internalType": "uint64",
+        "name": "unsignedPriority",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "httpFetchTimeout",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxPulsesToFetch",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxKeptPulses",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxRemovedPulses",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getCrowdloanConstants",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "minimumDeposit",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "absoluteMinimumContribution",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint64",
+        "name": "minimumBlockDuration",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maximumBlockDuration",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "refundContributorsLimit",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "maxContributors",
+        "type": "uint32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "palletAccount",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getSwapConstants",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "maxFeeRate",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minimumLiquidity",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minimumReserve",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "protocolAccount",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getTimestampConstants",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "minimumPeriod",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+
+    ],
+    "name": "getAdminConstants",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "maxAuthorities",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

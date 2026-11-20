@@ -1,31 +1,30 @@
 ---
 title: owner_cut_enabled
-description: Per-subnet toggle for the subnet owner's 18% share of alpha emission.
+description: Derived flag — whether the subnet owner takes any share of alpha emission (true iff the owner emission slot is non-zero).
 ---
 
-Controls whether the subnet owner receives their cut of the subnet's alpha
-emission. Owners care because it is their revenue; stakers and miners care
+Read-only since the per-subnet [emission weight
+vector](/docs/concepts/emission-weights) replaced the global owner cut. The
+flag is `true` exactly when the subnet's
+[`owner_emission`](/docs/hyperparameters/owner-emission) slot is greater than
+zero. Owners care because the cut is their revenue; stakers and miners care
 because whatever the owner does not take is redistributed to them.
 
 ## How it works
 
-The cut percentage itself is a **global, root-set** value
-([`SubnetOwnerCut`](/code/pallets/subtensor/src/lib.rs#L1780),
-11796/65535 ≈ 18%). This flag only decides, per subnet, whether the deduction
-happens at all. It defaults to **true**.
-
-Every block, when the chain accrues the subnet's `alpha_out`, it
-[multiplies it by the cut percentage](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L302-L312),
-subtracts that from the amount destined for
-participants, and accumulates it in a pending bucket. At the next epoch the
-pending cut is staked directly to the subnet owner's hotkey and coldkey, while
-the remainder goes through Yuma Consensus to miners, validators, and stakers
-(see [the per-tempo split](/docs/concepts/emissions#the-per-tempo-split)).
-
-When the flag is off, no deduction happens: the full `alpha_out` flows to
-participants and the owner receives nothing — the forgone cut is not stashed
-or paid retroactively. Blocks are settled as they accrue, so flipping the flag
+Every block, the chain accrues `alpha_out × owner_emission` to a pending
+owner bucket; at the next epoch that alpha is staked directly to the subnet
+owner's hotkey and coldkey, while the validator and miner slots go through
+Yuma Consensus (see [the per-tempo
+split](/docs/concepts/emissions#the-per-tempo-split)). With the owner slot at
+zero no deduction happens: the full `alpha_out` flows to participants and the
+owner receives nothing — the forgone cut is not stashed or paid
+retroactively. Blocks are settled as they accrue, so changing the slot
 mid-tempo affects only the blocks after the change.
+
+Subnets that never set a vector keep the historical 18% default
+(`11796/65535`). Lease-created subnets may not drop the owner slot below
+that default, so on those subnets this flag cannot become `false`.
 
 <HyperparamOwnerCut focus="owner_cut_enabled" />
 
@@ -33,15 +32,19 @@ mid-tempo affects only the blocks after the change.
 
 ```bash
 btcli sudo get --netuid 12 --name owner_cut_enabled
-btcli sudo set --netuid 12 --name owner_cut_enabled --value false
+btcli subnets emission set-value --netuid 12 --slot owner --value 0      # disable
+btcli subnets emission set-value --netuid 12 --slot owner --value 0.18   # restore
 ```
 
-Settable by the subnet owner or root; booleans take `true` or `false`. Not
-permitted on the root subnet.
+The former `sudo_set_owner_cut_enabled` and `sudo_set_subnet_owner_cut`
+calls are deprecated and always fail with `Deprecated`; set the owner slot
+through [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights)
+instead (subnet owner, once per week per subnet, or root). Not permitted on
+the root subnet.
 
 ## Related
 
+- [`owner_emission`](/docs/hyperparameters/owner-emission) — the share itself
 - [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled)
   — lock the cut as it arrives
-- [`transfers_enabled`](/docs/hyperparameters/transfers-enabled)
-- [Emissions](/docs/concepts/emissions) — the full per-tempo split
+- [Emission weights](/docs/concepts/emission-weights)

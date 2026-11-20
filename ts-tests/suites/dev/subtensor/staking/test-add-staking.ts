@@ -1,3 +1,5 @@
+import type { Vec } from "@polkadot/types-codec";
+import type { EventRecord } from "@polkadot/types/interfaces";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
 import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
@@ -33,12 +35,12 @@ describeSuite({
                 let tx = polkadotJs.tx.subtensorModule.registerNetwork(bob.address);
                 await context.createBlock([await tx.signAsync(alice)]);
 
-                let events = await polkadotJs.query.system.events();
+                let events = await polkadotJs.query.system.events<Vec<EventRecord>>();
                 const event = events.filter((a) => {
                     return a.event.method === "NetworkAdded";
                 });
                 expect(event.length).to.be.equal(1);
-                netuid1 = event[0].event.data[0];
+                netuid1 = Number(event[0].event.data[0].toString());
 
                 // Enabling subtokens
                 const tx1 = polkadotJs.tx.adminUtils.sudoSetSubtokenEnabled(netuid1, true);
@@ -48,7 +50,7 @@ describeSuite({
                 tx = polkadotJs.tx.subtensorModule.addStake(bob.address, netuid1, 1000_000_000);
                 await context.createBlock([await tx.signAsync(alice)]);
 
-                events = await polkadotJs.query.system.events();
+                events = await polkadotJs.query.system.events<Vec<EventRecord>>();
                 const stakeAddedEvent = events.filter((a) => {
                     return a.event.method === "StakeAdded";
                 });
@@ -65,7 +67,7 @@ describeSuite({
                 const tx = polkadotJs.tx.subtensorModule.removeStake(bob.address, netuid1, 500_000_000);
                 await context.createBlock([await tx.signAsync(alice)]);
 
-                const events = await polkadotJs.query.system.events();
+                const events = await polkadotJs.query.system.events<Vec<EventRecord>>();
                 const removeAddedEvent = events.filter((a) => {
                     return a.event.method === "StakeRemoved";
                 });

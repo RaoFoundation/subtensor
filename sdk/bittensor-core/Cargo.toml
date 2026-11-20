@@ -24,6 +24,7 @@ test = false
 ansible-vault = { version = "0.2.1", optional = true }
 base64 = "0.22.1"
 bip39 = { version = "2.0", default-features = false, features = ["std", "rand"] }
+ed25519-zebra = { version = "4.0", default-features = false }
 fernet = { version = "=0.2.1", optional = true }
 # Not used directly: fernet needs openssl, and "vendored" makes openssl-sys
 # compile and statically link its own OpenSSL. Without it the wheel links the
@@ -31,6 +32,10 @@ fernet = { version = "=0.2.1", optional = true }
 # Homebrew-pathed on macOS runners (broken wheel for anyone without it).
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 hex = "0.4.3"
+hkdf = "0.12.4"
+subtensor-hashed = { path = "../../primitives/hashed", default-features = false, features = ["signing"] }
+# OpenCL is loaded only when GPU mining is requested; wheels need no GPU SDK.
+libloading = { version = "0.8.9", optional = true }
 pbkdf2 = { version = "0.12.2", optional = true }
 schnorrkel = "0.11.5"
 scrypt = { version = "0.11.0", optional = true }
@@ -112,6 +117,7 @@ default = ["host"]
 host = [
     "dep:ansible-vault",
     "dep:fernet",
+    "dep:libloading",
     "dep:openssl",
     "dep:pbkdf2",
     "dep:rayon",
@@ -119,6 +125,7 @@ host = [
     "dep:scrypt",
     "dep:sodiumoxide",
     "sp-core/std",
+    "subtensor-hashed/std",
 ]
 ledger = ["dep:ledger-apdu", "dep:hidapi"]
 

@@ -460,7 +460,12 @@ def seal_bundle(
     if archive.exists():
         raise BundleError(f"archive already exists: {archive}")
     try:
-        with tarfile.open(archive, mode="w:gz", dereference=True) as bundle:
+        with tarfile.open(
+            archive,
+            mode="w:gz",
+            dereference=True,
+            compresslevel=1,
+        ) as bundle:
             bundle.add(output, arcname=".vercel/output", recursive=True)
     except (OSError, tarfile.TarError) as error:
         archive.unlink(missing_ok=True)

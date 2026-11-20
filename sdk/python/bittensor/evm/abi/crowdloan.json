@@ -255,5 +255,28 @@
         "outputs": [],
         "stateMutability": "payable",
         "type": "function"
-    }
+    },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "crowdloanId",
+        "type": "uint32"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasMaxContribution",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxContribution",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMaxContribution",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
 ]

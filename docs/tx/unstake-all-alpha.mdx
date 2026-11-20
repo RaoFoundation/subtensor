@@ -16,7 +16,7 @@ incur slippage.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L1235-L1239) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L1316-L1335) |
 
 ## Parameters
 
@@ -65,16 +65,31 @@ result = sub.execute_tool("unstake_all_alpha", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1237`](/code/pallets/subtensor/src/macros/dispatches.rs#L1235-L1239):
+`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1318`](/code/pallets/subtensor/src/macros/dispatches.rs#L1316-L1335):
 
 ```rust
 #[pallet::call_index(84)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
-pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-    Self::do_unstake_all_alpha(origin, hotkey)
+#[pallet::weight(Pallet::<T>::unstake_all_alpha_declared_weight_for(&hotkey))]
+pub fn unstake_all_alpha(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+) -> DispatchResultWithPostInfo {
+    let coldkey = ensure_signed(origin.clone())?;
+    let work =
+        Self::do_unstake_all_alpha_tracked(origin, hotkey).map_err(|(done, error)| {
+            Self::fail_with_weight(
+                error,
+                Self::unstake_all_alpha_actual_weight(&coldkey, done),
+            )
+        })?;
+    Ok((
+        Some(Self::unstake_all_alpha_actual_weight(&coldkey, work)),
+        Pays::Yes,
+    )
+        .into())
 }
 ```
 
-Delegates to [`do_unstake_all_alpha`](/code/pallets/subtensor/src/staking/remove_stake.rs#L188).
+Delegates to [`do_unstake_all_alpha_tracked`](/code/pallets/subtensor/src/staking/remove_stake.rs#L360), [`fail_with_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1790), [`unstake_all_alpha_actual_weight`](/code/pallets/subtensor/src/staking/remove_stake.rs#L324).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

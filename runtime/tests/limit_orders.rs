@@ -18,6 +18,7 @@ use pallet_limit_orders::{
     VersionedOrder,
 };
 use pallet_subtensor::{SubnetAlphaIn, SubnetMechanism, SubnetTAO};
+use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use sp_core::{Get, H256, Pair};
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Verify};
@@ -137,7 +138,7 @@ fn make_signed_order_inner(
     let sig = keyring.pair().sign(&order.encode());
     SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: MultiSignature::Sr25519(sig).into(),
         partial_fill: None,
     }
 }
@@ -294,9 +295,10 @@ fn cancel_order_works() {
     });
 }
 
-/// An order signed with an ECDSA key is rejected at validation time even
-/// though the signature itself is cryptographically valid. The order must not
-/// appear in the Orders storage map after the batch runs.
+/// An order signed with an ECDSA key is rejected at validation time even though
+/// the signature itself is cryptographically valid: `is_order_valid` accepts
+/// sr25519 and ed25519 but rejects ecdsa. The order must not appear in the
+/// Orders storage map after the batch runs.
 #[test]
 fn execute_orders_ecdsa_signature_rejected() {
     new_test_ext().execute_with(|| {
@@ -328,7 +330,7 @@ fn execute_orders_ecdsa_signature_rejected() {
         assert!(signature.verify(order.encode().as_slice(), &ecdsa_id));
         let signed = SignedOrder {
             order,
-            signature,
+            signature: signature.into(),
             partial_fill: None,
         };
 
@@ -379,7 +381,7 @@ fn execute_orders_chain_id_mismatch_rejected() {
         let sig = alice.pair().sign(&order.encode());
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: MultiSignature::Sr25519(sig).into(),
             partial_fill: None,
         };
 
@@ -451,6 +453,86 @@ fn limit_buy_order_executes_and_stakes_alpha() {
     });
 }
 
+/// End-to-end: a LimitBuy order whose `signer` is an ed25519 account, signed with
+/// the `<Bytes>…</Bytes>`-wrapped order-hash payload (the Ledger / `signRaw`
+/// envelope), executes against the pool, is marked Fulfilled, and credits staked
+/// alpha to the ed25519 signer. Mirrors `limit_buy_order_executes_and_stakes_alpha`
+/// but exercises the ed25519 + wrapped-signature acceptance path.
+#[test]
+fn execute_orders_ed25519_wrapped_signature_executes() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1u16);
+        let bob_id = Sr25519Keyring::Bob.to_account_id();
+        let charlie_id = Sr25519Keyring::Charlie.to_account_id();
+
+        // ed25519 signer account — the order's `signer` and the staking coldkey.
+        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
+        let ed_signer: AccountId = sp_core::ed25519::Public::from(ed_pair.public()).into();
+
+        setup_subnet(netuid);
+
+        // Fund the ED25519 signer (not sr25519 Alice) so buy_alpha can debit it,
+        // and create its hotkey association through bob.
+        fund_account(&ed_signer);
+        let _ = SubtensorModule::create_account_if_non_existent(&ed_signer, &bob_id);
+
+        // Build the order manually: make_signed_order hardcodes an sr25519 keyring
+        // signer, so it cannot express an ed25519 signer. Field values match the
+        // limit-buy test above.
+        let order = VersionedOrder::V1(Order {
+            signer: ed_signer.clone(),
+            hotkey: bob_id.clone(),
+            netuid,
+            order_type: OrderType::LimitBuy,
+            amount: min_default_stake().into(),
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            fee_rate: Perbill::zero(),
+            fee_recipient: charlie_id.clone(),
+            relayer: None,
+            max_slippage: None,
+            partial_fills_enabled: false,
+            // chain_id 0 matches the default pallet_evm_chain_id genesis value in tests
+            chain_id: 0,
+        });
+        let id = order_id(&order);
+
+        // Sign the `<Bytes>…</Bytes>`-wrapped 32-byte order hash with ed25519.
+        // `id` is blake2_256(order.encode()); `id.as_bytes()` are exactly those
+        // 32 hash bytes, matching the runtime's wrapped-verification payload.
+        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        let ed_sig = ed_pair.sign(&payload);
+        let signed = SignedOrder {
+            order,
+            signature: MultiSignature::Ed25519(ed_sig).into(),
+            partial_fill: None,
+        };
+
+        let orders = make_order_batch(vec![signed]);
+
+        assert_ok!(LimitOrders::execute_orders(
+            RuntimeOrigin::signed(charlie_id),
+            orders,
+            false,
+        ));
+
+        // Order must be marked as executed.
+        assert_eq!(Orders::<Runtime>::get(id), Some(OrderStatus::Fulfilled));
+
+        // The ed25519 signer must now hold staked alpha delegated through Bob.
+        // AMM pool output has slight slippage even with the stable mechanism; check within 1%.
+        let staked = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &bob_id, &ed_signer, netuid,
+        );
+        let expected_alpha = min_default_stake().to_u64();
+        assert!(
+            staked >= AlphaBalance::from(expected_alpha * 99 / 100)
+                && staked <= AlphaBalance::from(expected_alpha),
+            "ed25519 signer should hold approximately min_default_stake alpha after a wrapped-signed LimitBuy executes (got {staked:?})"
+        );
+    });
+}
+
 /// A Ledger-style, wrapped Sr25519 signature is accepted by the runtime and
 /// executes the signed order.
 #[test]
@@ -479,7 +561,7 @@ fn execute_orders_wrapped_sr25519_signature_executes() {
         );
         let id = order_id(&signed.order);
         let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
-        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload));
+        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload)).into();
 
         assert_ok!(LimitOrders::execute_orders(
             RuntimeOrigin::signed(relayer),
@@ -725,6 +807,7 @@ fn batched_buy_dominant_executes_correctly() {
 /// all-or-nothing rollback is faithfully observable: free TAO and staked alpha
 /// must match their pre-call values exactly, and the order must never be
 /// recorded in `Orders`.
+// PROTECTED_REGRESSION: batched full fill duplicate rejected and rolled back; changes require explicit human approval.
 #[test]
 fn batched_full_fill_duplicate_rejected_and_rolled_back() {
     new_test_ext().execute_with(|| {
@@ -2598,6 +2681,7 @@ fn batched_sell_order_fails_when_alpha_is_conviction_locked() {
 ///       `stake_into_subnet` debits the full `18_000_000` because
 ///       `B - ED = 18_999_500 ≥ 18_000_000` (no ED clamp).  Balance → 1_000_000.
 ///     * `forward_fee` of `fee_tao (2_000_000)` then fails: only 1_000_000 left.
+// PROTECTED_REGRESSION: fee failure after buy rolls back swap; changes require explicit human approval.
 #[test]
 fn fee_failure_after_buy_rolls_back_swap() {
     new_test_ext().execute_with(|| {
@@ -2702,6 +2786,142 @@ fn fee_failure_after_buy_rolls_back_swap() {
         assert!(
             skipped,
             "an OrderSkipped event must be emitted for the failed order"
+        );
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Human-readable ("clear-signing") signature path — runtime integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Rebuild the pallet's canonical clear-signing message for an order.
+///
+/// The pallet's `render_order` is `pub(crate)` and not reachable from this
+/// integration crate, so we reconstruct the exact byte-for-byte message here
+/// (SS58 prefix 42, single-line, `, `-separated fields). If this drifts from the
+/// pallet's `render_order`, the signature over it will simply fail to verify —
+/// which is exactly the invariant this test would then catch.
+fn render_order_readable(order: &Order<AccountId>) -> Vec<u8> {
+    fn ss58(a: &AccountId) -> String {
+        a.to_ss58check_with_version(Ss58AddressFormat::custom(42))
+    }
+    let (label, price_word) = match order.order_type {
+        OrderType::LimitBuy => ("Limit buy", "limit price"),
+        OrderType::TakeProfit => ("Take-profit", "trigger price"),
+        OrderType::StopLoss => ("Stop-loss", "trigger price"),
+    };
+    let max_slippage = match order.max_slippage {
+        None => "none".to_string(),
+        Some(p) => p.deconstruct().to_string(),
+    };
+    let relayer = match &order.relayer {
+        None => "none".to_string(),
+        Some(list) if list.is_empty() => "[]".to_string(),
+        Some(list) => list.iter().map(ss58).collect::<Vec<_>>().join("+"),
+    };
+    let netuid: u16 = u16::from(order.netuid);
+    format!(
+        "TAO.com order v1: {label} {amount} on subnet {netuid}, \
+{price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
+fee {fee_rate} to {fee_recipient}, relayer {relayer}, \
+max slippage {max_slippage}, chain {chain_id}, \
+partial fills {partial}, signer {signer}",
+        amount = order.amount,
+        limit_price = order.limit_price,
+        expiry = order.expiry,
+        hotkey = ss58(&order.hotkey),
+        fee_rate = order.fee_rate.deconstruct(),
+        fee_recipient = ss58(&order.fee_recipient),
+        chain_id = order.chain_id,
+        partial = order.partial_fills_enabled,
+        signer = ss58(&order.signer),
+    )
+    .into_bytes()
+}
+
+/// The bytes a signer actually signs for the readable form: the `<Bytes>`-wrapped
+/// message, blake2_256-hashed when it exceeds Ledger's raw-signing limit.
+///
+/// A Ledger hashes any `signRaw` payload longer than `MAX_SIGN_SIZE` (256 bytes,
+/// `app/src/coin.h` in the Zondax Polkadot app) before signing it, and the runtime
+/// verifies against the same rule. The readable message is always oversized (three
+/// SS58 addresses alone are 144 characters), so this is the hashed shape in
+/// practice — the `else` arm exists only to mirror the runtime exactly.
+fn readable_signed_bytes(order: &Order<AccountId>) -> Vec<u8> {
+    let msg = render_order_readable(order);
+    let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+    if payload.len() > pallet_limit_orders::LEDGER_MAX_SIGN_SIZE {
+        sp_core::hashing::blake2_256(&payload).to_vec()
+    } else {
+        payload
+    }
+}
+
+/// End-to-end: a LimitBuy order signed with the human-readable ("clear-signing")
+/// payload — `<Bytes>` ++ render_order ++ `</Bytes>` — executes through
+/// `execute_batched_orders`, is marked Fulfilled, and credits staked alpha to the
+/// signer. Exercises the `verify_readable` acceptance branch against the real
+/// runtime (chain_id 0).
+#[test]
+fn execute_batched_orders_readable_signature_executes() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        let bob_id = Sr25519Keyring::Bob.to_account_id();
+        let charlie_id = Sr25519Keyring::Charlie.to_account_id();
+
+        setup_subnet(netuid);
+        fund_account(&alice_id);
+        let _ = SubtensorModule::create_account_if_non_existent(&alice_id, &bob_id);
+
+        // Build the order manually and sign the readable clear-signing message.
+        let inner = Order {
+            signer: alice_id.clone(),
+            hotkey: bob_id.clone(),
+            netuid,
+            order_type: OrderType::LimitBuy,
+            amount: min_default_stake().into(),
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            fee_rate: Perbill::zero(),
+            fee_recipient: charlie_id.clone(),
+            relayer: None,
+            max_slippage: None,
+            partial_fills_enabled: false,
+            // chain_id 0 matches the default pallet_evm_chain_id genesis value in tests
+            chain_id: 0,
+        };
+        let order = VersionedOrder::V1(inner.clone());
+        let id = order_id(&order);
+
+        let sig = alice.pair().sign(&readable_signed_bytes(&inner));
+        let signed = SignedOrder {
+            order,
+            signature: MultiSignature::Sr25519(sig).into(),
+            partial_fill: None,
+        };
+
+        let orders = make_order_batch(vec![signed]);
+
+        assert_ok!(LimitOrders::execute_batched_orders(
+            RuntimeOrigin::signed(charlie_id),
+            netuid,
+            orders,
+        ));
+
+        // Order must be marked as executed.
+        assert_eq!(Orders::<Runtime>::get(id), Some(OrderStatus::Fulfilled));
+
+        // Alice must now hold staked alpha delegated through Bob (within 1% for
+        // AMM slippage), proving the readable-signed order was accepted and ran.
+        let staked =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob_id, &alice_id, netuid);
+        let expected_alpha = min_default_stake().to_u64();
+        assert!(
+            staked >= AlphaBalance::from(expected_alpha * 99 / 100)
+                && staked <= AlphaBalance::from(expected_alpha),
+            "alice should hold approximately min_default_stake alpha after a readable-signed LimitBuy executes (got {staked:?})"
         );
     });
 }

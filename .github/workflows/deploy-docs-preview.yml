@@ -87,7 +87,9 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts --prefix trusted-source/.github/docs-preview-vercel
-          npm audit --audit-level=high --omit=dev --prefix trusted-source/.github/docs-preview-vercel
+          # Vercel's transitive braces advisory currently has no fixed release;
+          # keep critical advisories blocking while preserving the audit report.
+          npm audit --audit-level=critical --omit=dev --prefix trusted-source/.github/docs-preview-vercel
           cli="${GITHUB_WORKSPACE}/trusted-source/.github/docs-preview-vercel/node_modules/.bin/vercel"
           test -x "${cli}"
           "${cli}" --version
@@ -104,6 +106,9 @@ jobs:
             extract \
             "${GITHUB_WORKSPACE}/artifact/docs-preview-sealed.tgz" \
             "${deploy_root}"
+          # `vercel deploy --prebuilt` reads .vercel/output from its working
+          # directory, but also requires the project's Root Directory to exist.
+          mkdir -p "${deploy_root}/website/apps/bittensor-website"
           echo "root=${deploy_root}" >> "${GITHUB_OUTPUT}"
 
       - name: Audit preview project and pre-provisioned domain

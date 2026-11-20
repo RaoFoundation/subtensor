@@ -20,7 +20,7 @@ use frame_support::{
 };
 use scale_info::TypeInfo;
 use sp_core::Get;
-use sp_runtime::{DispatchError, PerU16};
+use sp_runtime::{DispatchError, PerU16, Perbill};
 use sp_std::marker::PhantomData;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenReserve};
 
@@ -50,6 +50,34 @@ use macros::{config, dispatches, errors, events, genesis, hooks};
 
 pub use extensions::*;
 pub use guards::*;
+pub use subnets::emission_weights::{
+    EMISSION_WEIGHT_ONE, EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionIndex,
+    EmissionSlot, EmissionSplit, EmissionWeights, EmissionWeightsVec, EmissionWeightsView,
+    GammaEmission, MAX_BURN_RECYCLE_EMISSION, MAX_EMISSION_SLOTS, MAX_GAMMA_EMISSION,
+    MAX_GAMMA_SHARES, MAX_OWNER_EMISSION, MAX_VALIDATOR_EMISSION, MIN_MINER_EMISSION,
+    emission_fraction, emission_share_to_parts, normalize_tao_weight, root_emission_share,
+};
+
+/// Prevent an owner relationship from weakening a hotkey's authorization.
+/// `allows_coldkey_swap` must preserve the invariant established by
+/// `allows_owner`: swapping a coldkey must not weaken any of its hotkeys.
+pub trait HotkeyOwnerPolicy<AccountId> {
+    fn allows_owner(coldkey: &AccountId, hotkey: &AccountId) -> bool;
+    fn allows_coldkey_swap(old: &AccountId, new: &AccountId) -> bool;
+    fn weight() -> Weight;
+}
+
+impl<AccountId> HotkeyOwnerPolicy<AccountId> for () {
+    fn allows_owner(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn allows_coldkey_swap(_: &AccountId, _: &AccountId) -> bool {
+        true
+    }
+    fn weight() -> Weight {
+        Weight::zero()
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -59,21 +87,154 @@ extern crate alloc;
 
 pub type OriginFor<T> = <T as frame_system::Config>::RuntimeOrigin;
 
-pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 5000;
+/// SCALE bound includes room for a full 4,096-entry encrypted weight row.
+pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 32 * 1024;
+pub const YUMA_COMMIT_SIZE_BYTES: u32 = 5000;
+/// Existing per-hotkey, per-mechanism, per-epoch Yuma timelock admission limit.
+pub const DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY: u8 = 10;
+/// Bound ciphertext storage and decryption work per Null subnet epoch,
+/// shared across all emission mechanisms.
+pub const NULL_COMMIT_QUEUE_BYTES: usize = 64 * 1024;
+pub const NULL_COMMIT_QUEUE_COUNT: usize = 64;
 
 pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
-pub const MAX_NUM_ROOT_CLAIMS: u64 = 50;
+/// Maximum bonds moving average allowed for subnet owners.
+pub const MAX_BONDS_MOVING_AVERAGE: u64 = 975_000;
 
-pub const MAX_SUBNET_CLAIMS: usize = 5;
-
-/// Maximum hotkeys that a manual root claim may process for one coldkey.
-///
-/// The resulting worst-case claim weight, including production transaction
-/// extensions, fits within the normal-extrinsic limit.
-pub const MAX_ROOT_CLAIM_HOTKEYS: usize = 256;
+/// Smallest u16 alpha encoding that is not below `1 - MAX_BONDS_MOVING_AVERAGE / 1_000_000`.
+pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
+
+/// Benchmark and admission ceiling for coldkey-wide root claims and scans
+/// (`Linear<1, N>`). Weight calculation cannot inspect the signer, so this path
+/// reserves the full envelope and refunds unused weight after dispatch.
+pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Single-hotkey quote: one validator, the current maximum 128 non-root subnet slots,
+/// and the root/TAO slot. Raise this in the same runtime upgrade that raises the subnet
+/// limit. The single-hotkey gate and declared weight must use this bound, not
+/// [`MAX_ROOT_CLAIM_WORK`], so a full 129-row basket has a 130-unit declaration.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 130;
+/// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
+/// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
+/// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
+pub const MAX_THIRD_PARTY_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK / 2;
+/// Longest `StakingHotkeys` list a coldkey may hold in total. Every stake exit walks this
+/// list (lock and collateral availability), so its length is a weight dimension of every
+/// unstake-side call; bounding it keeps [`Pallet::staking_hotkeys_walk_bound`] finite. Equal
+/// to the root-claim admission budget, so any coldkey that can stake can also claim
+/// coldkey-wide. A coldkey at the cap keeps operating its existing hotkeys and may only add
+/// a new one after consolidating.
+pub const MAX_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK;
+/// Storage reads one `StakingHotkeys` entry costs on an unstake-side call: the position quote
+/// (legacy and current share rows, pool value, both denominator maps, epoch) taken twice
+/// (validation and the debit path).
+pub const STAKING_HOTKEYS_WALK_READS_PER_ENTRY: u64 = 14;
+/// Most hotkeys (source ∪ destination staking lists plus claim-only basket credits) a
+/// coldkey swap admits in one call. Sized from the production distribution: the 99.9th
+/// percentile list is under 100 entries and four coldkeys exceed this value; they
+/// consolidate before swapping. Merges into an already-used destination count both sides.
+pub const MAX_COLDKEY_SWAP_HOTKEYS: u32 = MAX_STAKING_HOTKEYS;
+/// Most stake positions `(hotkey, netuid)` a coldkey swap moves in one call. Each position is
+/// one `transfer_stake` worth of work; the declared weight reserves this many (about three
+/// quarters of the normal block budget) and refunds the rest post-dispatch. Four production
+/// coldkeys exceed it today.
+pub const MAX_COLDKEY_SWAP_POSITIONS: u32 = 1024;
+/// Most destination `Lock` rows a coldkey swap may scan/purge. Sized so the
+/// declared swap envelope still fits the normal-class `max_extrinsic` after
+/// charging the full per-row admission + re-check + purge + aggregate path
+/// (independent of source positions). See `coldkey_swap_weight`.
+pub const MAX_COLDKEY_SWAP_DEST_LOCKS: u32 = 128;
+/// Most pending network-registration queue rows one coldkey swap rewrites.
+/// Escrow is updated only via those queue `lock_id`s (no global escrow scan).
+pub const MAX_COLDKEY_SWAP_PENDING_REGISTRATIONS: u32 = 32;
+/// Most `NetworkRegistrationQueue` entries a coldkey swap may scan or rewrite.
+/// The queue is a single unbounded `Vec`; visiting beyond this fails closed so
+/// work cannot grow with unrelated accounts' registrations outside the weight
+/// envelope.
+pub const MAX_COLDKEY_SWAP_REGISTRATION_QUEUE_SCAN: u32 = 256;
+/// Most subnet legs one `unstake_all` / `unstake_all_alpha` call will validate or
+/// unstake. Each successful leg is one `remove_stake` plus a [`MAX_STAKING_HOTKEYS`]
+/// walk (~9.3e10 ref-time at RocksDbWeight). The normal-class `max_extrinsic` is
+/// 75% of the 4e12 block = 3e12; ~33 uncapped legs already exceed that, so a live
+/// walk of ~568 subnets cannot be submitted. 16 legs is ~1.5e12 — half the
+/// normal class — and remaining positions stay for a later call.
+pub const MAX_UNSTAKE_ALL_LEGS: u32 = 16;
+
+/// Default [`BasketConcentrationCap`]: the largest u16-normalized share of a fund's NAV a
+/// single holding may reach through a `swap_basket` buy. `u16::MAX / 16 + 1` (= 4096) is
+/// the smallest cap that admits a 16-way equal split, so a traded fund must spread across
+/// at least 16 holdings.
+pub const DEFAULT_BASKET_CONCENTRATION_CAP: u16 = u16::MAX / 16 + 1;
+
+/// Default [`BasketDailyTurnoverCap`]: the `swap_basket` turnover bucket holds 10% of fund
+/// NAV (u16-normalized).
+pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
+
+/// Blocks for an empty `swap_basket` turnover bucket to refill completely (one day at 12s
+/// blocks). The bucket refills continuously at `budget / BASKET_TRADE_REFILL_BLOCKS` per
+/// block, so at any instant at most one full budget can be spent.
+pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
+
+/// Most legs accepted by one [`Pallet::swap_basket_many`] call. The call values the
+/// basket and flushes queued dividends once, then updates the two affected marks after
+/// each leg. This bound keeps encoded calls plus dispatch and transaction-validation
+/// weights below the normal-class maximum extrinsic weight.
+pub const MAX_BASKET_SWAP_LEGS: u32 = 64;
+
+/// Default [`BasketLiquidityCap`]: a fund's holding on a subnet may not exceed 10% of that
+/// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
+pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
+
+/// Default [`BasketClaimRowDustCapTao`]: the row-dust floor of a root claim is at most 1 TAO.
+/// A claim does not sell a fund row whose whole holding is worth less than
+/// `min(cap, bps × anchored NAV)` at the anchored mark ([`Pallet::anchored_basket_holding_value`]);
+/// the claimant's slice of such a row stays in the fund for the remaining holders (see
+/// [`Pallet::root_claim_for_hotkey`]).
+pub const DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO: u64 = 1_000_000_000;
+
+/// Default [`BasketClaimRowDustBps`]: the row-dust floor is 0.1% of the fund's anchored NAV
+/// (10 basis points), capped at [`DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO`]. Relative so a
+/// small validator's fund — where every row may be under 1 TAO — still redeems its rows.
+pub const DEFAULT_BASKET_CLAIM_ROW_DUST_BPS: u16 = 10;
+
+/// Default [`BasketClaimSliceDustTao`]: a root claim does not sell a fund row when the
+/// claimant's own slice of it is worth less than 0.0001 TAO at the anchored mark. The slice
+/// is forfeited to the fund, so the floor is set where the forfeit is rounding-sized: on
+/// finney's claim flow it removes about a fifth of the swaps while a median claim leaves
+/// under 1% of its value behind (a 0.001 TAO floor would remove half the swaps but leave 12%).
+pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 100_000;
+
+/// Default [`BasketClaimForfeitCapTao`]: whatever rule marks a row as dust, a claim skips it
+/// only if the claimant's own slice of it is worth at most 0.01 TAO at the anchored mark.
+/// This is the hard bound on what any one skipped slice can leave in the fund; a bigger slice
+/// of a small row is sold as before.
+pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
+
+/// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
+/// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
+/// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
+/// fast anchor defeats a same-block (or short-held) pump or dump, the slow anchor caps how
+/// far a held pump can carry the fund, and the spot anchor caps the trade's own price
+/// impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
+/// `price_limit`; a leg that cannot fill fully within the bound fails.
+pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
+
+/// Maximum basket NAV impact of out-of-band prices on dividend share minting (0.1%).
+/// The per-pool 2% band still defines which prices require an anchored comparison.
+pub const BASKET_DIVIDEND_PRICE_IMPACT_BPS: u64 = 10;
+
+/// Gross incoming-dividend and combined mint-ratio impact budget (2%). This preserves
+/// the existing price-band tolerance at the batch level while allowing small outliers.
+pub const BASKET_DIVIDEND_MINT_IMPACT_BPS: u64 = 200;
+
+/// Half-life, in blocks, of the fast subnet price EMA ([`SubnetFastMovingPrice`]) that
+/// anchors `swap_basket` price bounds: 600 blocks (about two hours at 12s blocks). Short
+/// enough that honest trading self-heals after a real price move within hours; long enough
+/// that pulling the anchor toward a manipulated price requires holding that price — and
+/// the capital behind it — against arbitrage for several half-lives.
+pub const BASKET_FAST_EMA_HALF_LIFE_BLOCKS: u64 = 600;
 
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
@@ -107,8 +268,35 @@ pub const MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS: u32 = 32;
 /// `StakingHotkeys` / `OwnedHotkeys` association vectors.
 pub const MAX_COLDKEY_COLLATERAL_HOTKEYS: u32 = 32;
 
+/// Maximum number of gamma deposits one coldkey holds on a single subnet.
+pub const MAX_GAMMA_DEPOSITS: u32 = 64;
+
+/// Maximum number of gamma deposits one coldkey swap admits, counting both coldkeys.
+pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
+
+/// Blocks over which a daily spend cap refills in full: one day.
+pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
+
+/// Smallest gamma a mint credits, and a spend or move takes, or a move leaves, unless it empties
+/// the deposit: 0.1 gamma.
+pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
+
+/// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
+pub const GAMMA_EMISSION_MAX_SLIPPAGE_BPS: u64 = 200;
+
+/// Oldest TAO/USD feed, in blocks, a mint accepts: one hour.
+pub const TAO_USD_PRICE_MAX_AGE: u64 = 300;
+
+/// Largest rise per block of the accepted TAO/USD price toward the feed: about 2% per hour.
+pub const TAO_USD_PRICE_MAX_STEP: Perbill = Perbill::from_parts(66_000);
+
+/// Longest service url, in bytes.
+pub const MAX_SERVICE_URL_LEN: u32 = 256;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
+/// Refuse staking-list growth initiated by another coldkey.
+pub const ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH: u128 = 1u128 << 1;
 
 #[allow(deprecated)]
 #[deny(missing_docs)]
@@ -124,11 +312,13 @@ pub mod pallet {
     use crate::migrations;
     use crate::staking::lock::LockState;
     use crate::subnets::dissolution::DissolveCleanupStatus;
+    use crate::subnets::emission_weights::{EmissionWeightsVec, GammaEmission};
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
     use crate::{
-        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, RateLimitKey,
+        DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY, MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS,
+        MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS, MAX_SERVICE_URL_LEN, RateLimitKey,
     };
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -149,13 +339,14 @@ pub mod pallet {
     use sp_runtime::traits::{Dispatchable, TrailingZeroInput};
     use sp_std::collections::btree_map::BTreeMap;
     use sp_std::collections::btree_set::BTreeSet;
+
     use sp_std::collections::vec_deque::VecDeque;
     use sp_std::vec;
     use sp_std::vec::Vec;
     use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
     use subtensor_macros::freeze_struct;
     use subtensor_runtime_common::{
-        AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance, Token,
+        AlphaBalance, GammaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance, Token,
     };
 
     /// Origin for the pallet
@@ -213,6 +404,38 @@ pub mod pallet {
         pub placeholder2: u8,
     }
 
+    /// User-visible lifecycle state of a subnet.
+    ///
+    /// This state is deliberately separate from [`NetworksAdded`]. The latter remains the
+    /// authority for whether runtime operations may target a subnet, while this state keeps a
+    /// dissolved subnet visible to reporting APIs until its deferred cleanup has settled stake.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        TypeInfo,
+        MaxEncodedLen,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+    )]
+    pub enum SubnetLifecycleState {
+        /// The subnet exists but its start call has not completed.
+        #[codec(index = 0)]
+        Registered,
+        /// The subnet's start call has completed.
+        #[codec(index = 1)]
+        Started,
+        /// The subnet has left the active set and is waiting for cleanup.
+        #[codec(index = 2)]
+        PendingDissolution,
+        /// The subnet is currently being cleaned up by `on_idle`.
+        #[codec(index = 3)]
+        Dissolving,
+    }
+
     /// Struct for NeuronCertificate.
     pub type NeuronCertificateOf = NeuronCertificate;
     /// Data structure for NeuronCertificate information.
@@ -260,6 +483,14 @@ pub mod pallet {
         pub port: u16,
         /// Prometheus ip type, 4 for ipv4 and 6 for ipv6.
         pub ip_type: u8,
+    }
+
+    /// Data structure for a hotkey's service.
+    #[crate::freeze_struct("202c7e535885758")]
+    #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug)]
+    pub struct ServiceInfo {
+        /// Url of the document describing the hotkey's services.
+        pub url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
     }
 
     ///  Struct for ChainIdentities. (DEPRECATED for V2)
@@ -377,6 +608,54 @@ pub mod pallet {
         Recycle,
     }
 
+    /// Selects the subnet's epoch reward algorithm.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum EpochConsensus {
+        /// Run the configured Yuma algorithm.
+        #[default]
+        #[codec(index = 0)]
+        Yuma,
+        /// Use the largest-stake validator's weights and stake-proportional dividends.
+        #[codec(index = 1)]
+        Null,
+    }
+
+    /// Selects which consensus values liquid alpha uses.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum ConsensusMode {
+        /// Use consensus calculated in the current epoch.
+        Current,
+        /// Use consensus persisted by the previous epoch.
+        Previous,
+        /// Use previous consensus at maximum bond penalty, otherwise current consensus.
+        #[default]
+        Auto,
+    }
+
     /// Miner registration collateral for a `(hotkey, coldkey)` stake position
     /// on a subnet.
     ///
@@ -406,24 +685,142 @@ pub mod pallet {
         pub earned: AlphaBalance,
     }
 
-    // Staking + Accounts
-
-    #[derive(
-        Encode, Decode, Default, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking,
-    )]
-    /// Enum for the per-coldkey root claim setting.
-    pub enum RootClaimTypeEnum {
-        /// Swap any alpha emission for TAO.
-        #[default]
-        Swap,
-        /// Keep all alpha emission.
-        Keep,
-        /// Keep all alpha emission for specified subnets.
-        KeepSubnets {
-            /// Subnets to keep alpha emissions (swap everything else).
-            subnets: BTreeSet<NetUid>,
-        },
+    /// A coldkey's gamma on one subnet, held at a hotkey.
+    #[crate::freeze_struct("adba87f00d4f97af")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct GammaDeposit<AccountId> {
+        /// The coldkey that owns the deposit.
+        pub coldkey: AccountId,
+        /// The gamma held.
+        pub balance: GammaBalance,
+        /// The deposit's daily spend cap; `None` is no cap.
+        pub daily_spend_cap: Option<GammaDailySpendCap>,
     }
+
+    /// The gamma a deposit's hotkey may spend per day, and what it allows as of a block.
+    #[crate::freeze_struct("b0a2e67c2cd32b3")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct GammaDailySpendCap {
+        /// The gamma the hotkey may spend per day.
+        pub cap: GammaBalance,
+        /// What the cap allows, and its block.
+        pub bucket: (GammaBalance, u64),
+    }
+
+    /// The TAO/USD price, in gamma units per TAO.
+    #[crate::freeze_struct("f3a5e8bdbc1b7763")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct TaoUsdPriceState {
+        /// The accepted price at `fed_at`.
+        pub accepted: u64,
+        /// The oracle's latest feed.
+        pub feed: u64,
+        /// The block of the latest feed.
+        pub fed_at: u64,
+    }
+
+    /// A beta-basket fund's frozen display baseline, stamped once at the fund's first
+    /// share mint (its "first sighting") and never rewritten.
+    ///
+    /// Raw beta prices (`spot NAV / shares`) carry arbitrary historical baselines, so
+    /// levels are not comparable across funds of different ages. The baseline splices
+    /// every fund onto two common index lines at birth — the way a new share class of a
+    /// fund launches at the master fund's current NAV rather than at $1:
+    ///
+    /// * display (bag) price = `raw_price / price_divisor` — starts at the basket
+    ///   index level of the stamp block (both sides marked at realizable quotes, so
+    ///   a stamp cannot be poisoned by a spot-price push);
+    /// * total-return stake price = `tr_splice * BasketTwr` — the wealth of τ1 staked
+    ///   at the stamp block under the claim-and-restake convention, compounding only
+    ///   with dividends actually minted to stakers since then, each locked at its
+    ///   deposit-time pricing.
+    ///
+    /// See `staking/beta_pricing.rs` for the index and pricing math built on this.
+    #[crate::freeze_struct("e48f71fa685b45cf")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaBaselineOf {
+        /// Divisor splicing the raw beta price onto the basket index: the fund's raw
+        /// price at the stamp block over the index level at that block.
+        pub price_divisor: U64F64,
+        /// The fund's `BasketRate` at the stamp block. The pending-entitlement mark
+        /// (`staker_yield`) only counts rate accrued past this, so pre-period (e.g.
+        /// migration-seeded legacy) history is excluded from every fund's figure the
+        /// same way.
+        pub rate0: I96F32,
+        /// Splice factor for the staker total-return series: `tr_splice * BasketTwr`
+        /// is the fund's stake price. Stamped as the stake-index level at the stamp
+        /// block divided by the fund's TWR at that block (dividends can predate a
+        /// deferred stamp), so the stake price starts exactly on the index line. The
+        /// seed migration additionally folds the fund's pre-upgrade entitlement into
+        /// this factor (see `migrate_stamp_beta_baselines`).
+        pub tr_splice: U64F64,
+        /// Block at which this baseline was stamped.
+        pub first_block: u64,
+    }
+
+    /// A published beta-index snapshot: the chained `(bag, stake)` index levels, marked at
+    /// realizable quotes. Each completed sweep pass multiplies the previous levels by the
+    /// prior-NAV-weighted mean of per-fund price relatives, so capital flows never move
+    /// the index — only fund returns do. Baseline stamps and the pricing runtime APIs
+    /// splice onto / read the latest snapshot instead of sweeping inline, which is what
+    /// keeps their work bounded (see `advance_beta_index_sweep`).
+    #[crate::freeze_struct("dab9adbdbe9f4ef4")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaIndexSnapshotOf {
+        /// Chained NAV-weighted display-price index level (realizable mark).
+        pub bag_level: U64F64,
+        /// Chained NAV-weighted total-return stake index level.
+        pub stake_level: U64F64,
+        /// Block at which the sweep that produced these levels completed.
+        pub block: u64,
+    }
+
+    /// One fund's sample from the last completed index-sweep pass: the start-of-period
+    /// state the next pass chains against. The fund's next price relative is
+    /// `display_now / display`, weighted by `nav` (start-of-period size), so deposits and
+    /// redemptions between passes change the *weight* but never fabricate a return.
+    /// Scoped to one fund life, like `BetaBaseline`: moved on hotkey swap and removed on
+    /// retirement, so a revived fund never chains across lives.
+    #[crate::freeze_struct("9adef5cfda198dd3")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaIndexFundSampleOf {
+        /// Realizable NAV (rao) at the sample; the fund's weight in the next relative.
+        pub nav: u64,
+        /// Display price at the sample (denominator of the next bag relative).
+        pub display: U64F64,
+        /// Total-return stake price at the sample (denominator of the next stake relative).
+        pub stake: U64F64,
+    }
+
+    /// In-progress state of the paged beta-index sweep: partial sums of the chained-index
+    /// relatives plus the raw storage key to resume iteration from. One bounded page
+    /// advances per block; when the pass completes, the previous snapshot levels are
+    /// multiplied by the aggregate relatives and published as a [`BetaIndexSnapshotOf`].
+    #[crate::freeze_struct("9b6150dad57406fa")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct BetaIndexSweepOf {
+        /// Raw storage key of the last `BetaBaseline` entry processed; empty means the
+        /// pass starts from the top of the map.
+        pub cursor: Vec<u8>,
+        /// Σ previous-pass nav (rao) across funds with samples at both ends of the period.
+        pub weight_sum: u128,
+        /// Σ previous nav × (display now / display previous) so far.
+        pub rel_bag_sum: U64F64,
+        /// Σ previous nav × (stake now / stake previous) so far.
+        pub rel_stake_sum: U64F64,
+    }
+
+    // ============================
+    // ==== Staking + Accounts ====
+    // ============================
 
     /// The Max Burn HalfLife Settable
     #[pallet::type_value]
@@ -486,23 +883,6 @@ pub mod pallet {
         500_000u64.into()
     }
 
-    /// Default root claim type.
-    /// This is the type of root claim that will be made.
-    /// This is set by the user. Either swap to TAO or keep as alpha.
-    #[pallet::type_value]
-    pub fn DefaultRootClaimType<T: Config>() -> RootClaimTypeEnum {
-        RootClaimTypeEnum::default()
-    }
-
-    /// Default number of root claims per claim call.
-    /// Ideally this is calculated using the number of staking coldkey
-    /// and the block time.
-    #[pallet::type_value]
-    pub fn DefaultNumRootClaim<T: Config>() -> u64 {
-        // once per week (+ spare keys for skipped tries)
-        5
-    }
-
     /// Default value for zero.
     #[pallet::type_value]
     pub fn DefaultZeroU64<T: Config>() -> u64 {
@@ -513,6 +893,16 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultZeroI64<T: Config>() -> i64 {
         0
+    }
+    /// Default value for zero fixed-point I96F32.
+    #[pallet::type_value]
+    pub fn DefaultZeroI96F32<T: Config>() -> I96F32 {
+        I96F32::saturating_from_num(0)
+    }
+    /// Default one for U64F64 accumulators (multiplicative identity).
+    #[pallet::type_value]
+    pub fn DefaultOneU64F64<T: Config>() -> U64F64 {
+        U64F64::saturating_from_num(1)
     }
     /// Default value for Alpha currency.
     #[pallet::type_value]
@@ -855,6 +1245,12 @@ pub mod pallet {
         100
     }
 
+    /// Default maximum Yuma timelocked commits per hotkey, mechanism, and epoch.
+    #[pallet::type_value]
+    pub fn DefaultMaxTimelockedCommitsPerHotkey<T: Config>() -> u8 {
+        DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY
+    }
+
     /// Default block number at registration.
     #[pallet::type_value]
     pub fn DefaultBlockAtRegistration<T: Config>() -> u64 {
@@ -1099,6 +1495,12 @@ pub mod pallet {
         (45875, 58982)
     }
 
+    /// Default consensus mode for liquid alpha.
+    #[pallet::type_value]
+    pub fn DefaultConsensusMode<T: Config>() -> ConsensusMode {
+        ConsensusMode::Auto
+    }
+
     /// Default value for coldkey swap announcement delay.
     #[pallet::type_value]
     pub fn DefaultColdkeySwapAnnouncementDelay<T: Config>() -> BlockNumberFor<T> {
@@ -1259,6 +1661,24 @@ pub mod pallet {
         DefaultZeroU64<T>,
     >;
 
+    /// DMap ( netuid, hotkey ) --> blocknumber | block at which alpha moved into this
+    /// hotkey may be moved again by an owner-driven hotkey swap.
+    ///
+    /// Unlike [`LastHotkeySwapOnNetuid`], this is bound to the stake position rather
+    /// than its current owner, so changing the owning coldkey cannot reset the recovery
+    /// window. Delegator withdrawals do not consult this map.
+    #[pallet::storage]
+    pub type StakeMoveCooldownUntil<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        u64,
+        ValueQuery,
+        DefaultZeroU64<T>,
+    >;
+
     /// DMap ( netuid, old_hotkey ) --> new_hotkey | hotkey swap successor on a subnet.
     ///
     /// Written on each successful hotkey swap so watchers can follow identity
@@ -1358,6 +1778,20 @@ pub mod pallet {
     pub type AccountFlags<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
 
+    /// Claim-only fund associations created when a root swap leaves a staker's stake
+    /// behind. These never grow StakingHotkeys or the work of a stake exit. Claims and
+    /// coldkey swaps bound their selection before admitting work.
+    #[pallet::storage]
+    pub type HotkeySwapBasketCredits<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        (),
+        OptionQuery,
+    >;
+
     /// MAP ( hot ) --> take | Returns the hotkey delegation take. And signals that this key is open for delegation
     #[pallet::storage]
     pub type Delegates<T: Config> =
@@ -1374,6 +1808,20 @@ pub mod pallet {
         PerU16, // Value: take
         ValueQuery,
     >;
+
+    /// MAP ( parent ) --> () | Parents with live child relations whose stake just changed.
+    /// Drained in `on_idle`, where each parent's total stake is re-checked against
+    /// `StakeThreshold` and `ChildkeyThresholdSuspended` is set or cleared.
+    #[pallet::storage]
+    pub type ChildkeyThresholdChecks<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    /// MAP ( parent ) --> () | Parents whose total stake is below `StakeThreshold`. Their child
+    /// relations stay stored but are inert (hidden from `get_children` / `get_parents`)
+    /// except on subnets they own, until they qualify again.
+    #[pallet::storage]
+    pub type ChildkeyThresholdSuspended<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
     /// DMAP ( netuid, parent ) --> (Vec<(proportion,child)>, cool_down_block)
     #[pallet::storage]
@@ -1440,6 +1888,105 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
+    /// DMAP ( hotkey, netuid ) --> alpha | Root dividend credits waiting to enter the
+    /// validator's beta basket. Epochs enqueue here instead of depositing inline (a deposit
+    /// prices a share mint against the fund's full NAV — one AMM quote per holding — so
+    /// running one per validator inside the epoch made epoch blocks scale with
+    /// `validators x holdings`). Credits merge per (hotkey, origin subnet) and are flushed
+    /// as a single batched deposit per hotkey: by the one-hotkey-per-block round-robin
+    /// drain (`flush_pending_basket_deposits_block`), or eagerly whenever the hotkey's claimant
+    /// base or basket is touched (claims, basket stakes, root stake changes, hotkey swaps),
+    /// so stake added after an epoch can never capture dividends earned before it arrived.
+    /// Credits whose spot value is below `RootClaimableThreshold[ROOT]` stay queued and
+    /// keep merging until they are worth a deposit, which is what keeps dust from ever
+    /// becoming a basket holding row. Hotkeys deregistered from root have their remaining
+    /// queued credits recycled and purged (pending only — basket holdings are untouched).
+    #[pallet::storage]
+    pub type PendingBasketDeposits<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// ITEM ( raw storage key ) | Round-robin cursor of the per-block pending-basket-deposit
+    /// flush over [`PendingBasketDeposits`]: the drain flushes one hotkey per block and
+    /// resumes here, so every queued hotkey gets its turn even when some entries are
+    /// deferred dust that stays in the map after its hotkey's visit.
+    #[pallet::storage]
+    pub type PendingBasketFlushCursor<T: Config> = StorageValue<_, Vec<u8>, OptionQuery>;
+
+    /// Alpha-per-root-stake entitlement for a dividend batch whose valuation is deferred.
+    #[pallet::storage]
+    pub type DeferredBasketRates<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        crate::staking::DeferredBasketState,
+        OptionQuery,
+    >;
+
+    /// Monotone identifier, retained across subnet reuse and pending-batch completion.
+    #[pallet::storage]
+    pub type DeferredBasketGeneration<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// Stake-change corrections. One bounded row per coldkey, like BasketClaimed.
+    #[pallet::storage]
+    pub type DeferredBasketDebts<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        frame_support::BoundedBTreeMap<
+            NetUid,
+            crate::staking::DeferredBasketDebt,
+            ConstU32<{ crate::MAX_ROOT_CLAIM_WORK }>,
+        >,
+        ValueQuery,
+    >;
+
+    /// Final share/alpha conversion retained only until all stake-change corrections use it.
+    #[pallet::storage]
+    pub type DeferredBasketConversions<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, NetUid>,
+            NMapKey<Identity, u64>,
+        ),
+        crate::staking::DeferredBasketConversion,
+        OptionQuery,
+    >;
+
+    /// TAO-per-root-stake accumulator for deferred credits sold during subnet dissolution.
+    #[pallet::storage]
+    pub type DeferredBasketCashRate<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, I64F64, ValueQuery>;
+
+    #[pallet::storage]
+    pub type DeferredBasketCashClaimed<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        i128,
+        ValueQuery,
+    >;
+
+    /// Sold deferred dividends held in the root reserves, outside the basket NAV.
+    #[pallet::storage]
+    pub type DeferredBasketCashReserve<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
     // Coinbase
     /// ITEM ( global_block_emission )
     #[deprecated(note = "Use calculate_block_emission() or the block emission RPC instead.")]
@@ -1488,6 +2035,18 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, I96F32, ValueQuery, DefaultMovingPrice<T>>;
+
+    /// MAP ( netuid ) --> fast moving price | A fast EMA of the subnet's spot price
+    /// (TAO per alpha, unclamped) with a [`BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] half-life,
+    /// updated once per block right after [`SubnetMovingPrice`] from the spot at the end of
+    /// the previous block, so no extrinsic in the current block can move it. It is a trading
+    /// anchor only — `swap_basket` bounds every leg to within
+    /// [`BASKET_TRADE_MAX_SLIPPAGE_BPS`] of the strictest of this, the slow EMA, and spot —
+    /// and plays no part in emission. Absent until the subnet's first update after the
+    /// upgrade (trading on it is refused until then).
+    #[pallet::storage]
+    pub type SubnetFastMovingPrice<T: Config> =
+        StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
 
     /// MAP ( netuid ) --> root_prop | The subnet root proportion.
     #[pallet::storage]
@@ -1605,8 +2164,26 @@ pub mod pallet {
     pub type ColdkeySwapAnnouncements<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, (BlockNumberFor<T>, T::Hash), OptionQuery>;
 
+    /// Destination account reserved by an in-flight coldkey-swap announcement.
+    ///
+    /// Announce takes the destination in cleartext so it can be validated before
+    /// the fee; without a reservation a third party could register that address
+    /// as their hotkey during the delay and force `NewColdKeyIsHotkey` at execute,
+    /// repeatedly delaying recovery while the source stays announcement-restricted.
+    #[pallet::storage]
+    pub type ColdkeySwapDestinationReservations<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, T::AccountId, OptionQuery>;
+
+    /// Reverse index of [`ColdkeySwapDestinationReservations`]: announcer → reserved
+    /// destination, so reannounce / clear / execute can free the prior reservation
+    /// without scanning.
+    #[pallet::storage]
+    pub type ColdkeySwapReservedDestination<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, T::AccountId, OptionQuery>;
+
     /// A map of the coldkey swap disputes from a coldkey to the
-    /// block number the coldkey swap was disputed.
+    /// block number the coldkey swap was disputed. Zero means root cleared the
+    /// dispute but retained the recovery lock; a successful swap or full root reset releases it.
     #[pallet::storage]
     pub type ColdkeySwapDisputes<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, BlockNumberFor<T>, OptionQuery>;
@@ -1624,6 +2201,11 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
+    /// MAP ( netuid ) --> alpha | Returns the total alpha staked across all hotkeys on a subnet.
+    #[pallet::storage]
+    pub type TotalAlphaStaked<T: Config> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
     /// DMAP ( hot, netuid ) --> alpha | Returns the total amount of alpha a hotkey owned in the last epoch.
     #[pallet::storage]
     pub type TotalHotkeyAlphaLastEpoch<T: Config> = StorageDoubleMap<
@@ -1635,32 +2217,6 @@ pub mod pallet {
         AlphaBalance,
         ValueQuery,
         DefaultZeroAlpha<T>,
-    >;
-
-    /// DMAP ( hot, netuid ) --> total_alpha_shares | Returns the number of alpha shares for a hotkey on a subnet.
-    #[pallet::storage]
-    pub type TotalHotkeyShares<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Identity,
-        NetUid,
-        U64F64,
-        ValueQuery,
-        DefaultSharePoolZero<T>,
-    >;
-
-    /// NMAP ( hot, cold, netuid ) --> alpha | Returns the alpha shares for a hotkey, coldkey, netuid triplet.
-    #[pallet::storage]
-    pub type Alpha<T: Config> = StorageNMap<
-        _,
-        (
-            NMapKey<Blake2_128Concat, T::AccountId>, // hot
-            NMapKey<Blake2_128Concat, T::AccountId>, // cold
-            NMapKey<Identity, NetUid>,               // subnet
-        ),
-        U64F64, // Shares
-        ValueQuery,
     >;
 
     /// DMAP ( hot, netuid ) --> total_alpha_shares | Returns the number of alpha shares for a hotkey on a subnet, stores SafeFloat.
@@ -1685,6 +2241,35 @@ pub mod pallet {
             NMapKey<Identity, NetUid>,               // subnet
         ),
         SafeFloat, // Shares in unlimited precision
+        ValueQuery,
+    >;
+
+    /// DMAP ( hot, netuid ) --> epoch | Generation of the hotkey's alpha share pool on a subnet.
+    /// Incremented each time the pool is closed (its share denominator is written to zero
+    /// because the pool holds no value). Share rows stamped with an older epoch belong to a
+    /// closed pool and are read as absent, so they can never claim value deposited later.
+    #[pallet::storage]
+    pub type AlphaSharePoolEpoch<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId, // hot
+        Identity,
+        NetUid, // subnet
+        u64,
+        ValueQuery,
+    >;
+
+    /// NMAP ( hot, cold, netuid ) --> epoch | Pool epoch in which an `AlphaV2` (or legacy
+    /// `Alpha`) share row was last written. Absent means epoch 0.
+    #[pallet::storage]
+    pub type AlphaShareEpoch<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, T::AccountId>, // hot
+            NMapKey<Blake2_128Concat, T::AccountId>, // cold
+            NMapKey<Identity, NetUid>,               // subnet
+        ),
+        u64,
         ValueQuery,
     >;
 
@@ -1726,7 +2311,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// DMAP ( netuid, hotkey ) --> LockState | Total decaying non-owner lock per hotkey per subnet.
+    /// DMAP ( netuid, hotkey ) --> LockState | Total decaying lock per hotkey per subnet.
     #[pallet::storage]
     pub type DecayingHotkeyLock<T: Config> = StorageDoubleMap<
         _,
@@ -1737,14 +2322,6 @@ pub mod pallet {
         LockState,    // Total merged decaying lock
         OptionQuery,
     >;
-
-    /// MAP ( netuid ) --> LockState | Total perpetual lock to the owner hotkey for a subnet.
-    #[pallet::storage]
-    pub type OwnerLock<T: Config> = StorageMap<_, Identity, NetUid, LockState, OptionQuery>;
-
-    /// MAP ( netuid ) --> LockState | Total decaying lock to the owner hotkey for a subnet.
-    #[pallet::storage]
-    pub type DecayingOwnerLock<T: Config> = StorageMap<_, Identity, NetUid, LockState, OptionQuery>;
 
     /// DMAP ( coldkey, netuid ) --> false | When present and false, this coldkey's lock is perpetual.
     /// Missing entries mean the lock decays by default.
@@ -1783,11 +2360,6 @@ pub mod pallet {
     /// ITEM( unlock_rate ) | Decay timescale in blocks for locked mass.
     #[pallet::storage]
     pub type UnlockRate<T: Config> = StorageValue<_, u64, ValueQuery, DefaultUnlockRate<T>>;
-
-    /// Contains last Alpha storage map key to iterate (check first)
-    #[pallet::storage]
-    pub type AlphaMapLastKey<T: Config> =
-        StorageValue<_, Option<Vec<u8>>, ValueQuery, DefaultAlphaIterationLastKey<T>>;
 
     /// Contains last AlphaV2 storage map key to iterate (check first)
     #[pallet::storage]
@@ -1858,6 +2430,21 @@ pub mod pallet {
     /// ITEM --> Emission Bar Quantile (q)
     pub type EmissionBarQuantile<T: Config> =
         StorageValue<_, U64F64, ValueQuery, DefaultEmissionBarQuantile<T>>;
+
+    #[pallet::type_value]
+    /// Default emission bar rank (N). N > 0 pins theta to the Nth-largest
+    /// demand share, so the eligible set tracks rank N as the distribution
+    /// shifts instead of drifting with a fixed q. 0 disables rank mode and
+    /// the bar falls back to the q-mass quantile.
+    pub fn DefaultEmissionBarRank<T: Config>() -> u16 {
+        // Near the pre-upgrade q=0.75 crossing (~rank 28 on current demand) so the
+        // upgrade does not shift the emission curve; rank mode then tracks N=32.
+        32
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission Bar Rank (N). When non-zero, overrides the quantile.
+    pub type EmissionBarRank<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultEmissionBarRank<T>>;
 
     #[pallet::type_value]
     /// Default emission gate Hill exponent (h). Controls cliff sharpness at the bar.
@@ -1933,6 +2520,10 @@ pub mod pallet {
         StorageValue<_, u64, ValueQuery, DefaultNetworkLockReductionInterval<T>>;
 
     /// ITEM( subnet_owner_cut )
+    ///
+    /// Deprecated: superseded by the owner slot of [`SubnetEmissionWeights`]. Kept as the
+    /// seed for `migrate_seed_subnet_emission_weights` and for legacy global views; no
+    /// emission path reads it.
     #[pallet::storage]
     pub type SubnetOwnerCut<T> = StorageValue<_, u16, ValueQuery, DefaultSubnetOwnerCut<T>>;
 
@@ -1943,9 +2534,36 @@ pub mod pallet {
     }
 
     /// MAP ( netuid ) --> owner_cut_enabled
+    ///
+    /// Deprecated: an owner slot of zero in [`SubnetEmissionWeights`] now means "disabled".
+    /// Kept only as the seed for `migrate_seed_subnet_emission_weights`.
     #[pallet::storage]
     pub type OwnerCutEnabled<T> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultOwnerCutEnabled<T>>;
+
+    /// Canonical emission vector for subnets that have never set one.
+    #[pallet::type_value]
+    pub fn DefaultSubnetEmissionWeights<T: Config>() -> EmissionWeightsVec {
+        Pallet::<T>::emission_weights_to_vec(Pallet::<T>::default_emission_weights())
+    }
+
+    /// MAP ( netuid ) --> `[burn, recycle, owner, validator, miner]` in `u64::MAX` parts,
+    /// summing to exactly one. See `subnets::emission_weights`.
+    #[pallet::storage]
+    pub type SubnetEmissionWeights<T: Config> = StorageMap<
+        _,
+        Identity,
+        NetUid,
+        EmissionWeightsVec,
+        ValueQuery,
+        DefaultSubnetEmissionWeights<T>,
+    >;
+
+    /// MAP ( netuid ) --> true when the subnet was registered through a lease. Persists after
+    /// the lease ends; such subnets may not lower their owner cut below the launch default.
+    #[pallet::storage]
+    pub type SubnetCreatedViaLease<T: Config> =
+        StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultFalse<T>>;
 
     /// ITEM( network_rate_limit )
     #[pallet::storage]
@@ -2051,6 +2669,14 @@ pub mod pallet {
     pub type NetworksAdded<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultNeworksAdded<T>>;
 
+    /// MAP (netuid) --> user-visible subnet lifecycle state.
+    ///
+    /// Absence means that the netuid is neither an existing subnet nor one whose deferred
+    /// dissolution cleanup is still in progress.
+    #[pallet::storage]
+    pub type SubnetState<T: Config> =
+        StorageMap<_, Identity, NetUid, SubnetLifecycleState, OptionQuery>;
+
     /// DMAP ( hotkey, netuid ) --> bool
     #[pallet::storage]
     pub type IsNetworkMember<T: Config> = StorageDoubleMap<
@@ -2072,7 +2698,13 @@ pub mod pallet {
     /// MAP ( netuid ) --> network_pow_allowed
     #[pallet::storage]
     pub type NetworkPowRegistrationAllowed<T: Config> =
-        StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultRegistrationAllowed<T>>;
+        StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// Last accepted PoW challenge block per hotkey. Keeping one watermark
+    /// prevents recent proof replay without an ever-growing used-seal list.
+    #[pallet::storage]
+    pub type LastPowRegistrationBlock<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
 
     /// MAP ( netuid ) --> block_created
     #[pallet::storage]
@@ -2111,6 +2743,16 @@ pub mod pallet {
     pub type PendingOwnerCut<T> =
         StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
 
+    /// MAP ( netuid ) --> cumulative alpha accrued to the owner slot since the subnet was
+    /// registered (seeded at migration from the legacy global cut; written as an explicit
+    /// zero at registration). The legacy lock refund on dissolution deducts this history,
+    /// so it must not depend on the owner's current, adjustable share. An absent entry
+    /// means the subnet pre-dates the seed migration; the refund then falls back to the
+    /// legacy `issuance × SubnetOwnerCut` deduction (`owner_cut_alpha_for_lock_refund`).
+    #[pallet::storage]
+    pub type SubnetOwnerCutAccrued<T> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
     /// Default miner-burned proportion.
     #[pallet::type_value]
     pub fn DefaultMinerBurned<T: Config>() -> U96F32 {
@@ -2134,6 +2776,18 @@ pub mod pallet {
     #[pallet::storage]
     pub type LastMechansimStepBlock<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultLastMechanismStepBlock<T>>;
+
+    /// Last epoch that actually updated bonds. Frozen while Null consensus runs.
+    #[pallet::storage]
+    pub type LastYumaStepBlock<T> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
+
+    /// Explicit Null pruning continuation. Every completed batch leaves a usable subnet.
+    #[pallet::storage]
+    pub type NullPruningTarget<T> = StorageMap<_, Identity, NetUid, u16, OptionQuery>;
+
+    /// Restore the Yuma validator capacity when leaving sole-permit Null mode.
+    #[pallet::storage]
+    pub type SavedYumaMaxAllowedValidators<T> = StorageMap<_, Identity, NetUid, u16, OptionQuery>;
 
     /// MAP ( netuid ) --> subnet_owner
     #[pallet::storage]
@@ -2254,6 +2908,11 @@ pub mod pallet {
     pub type WeightsSetRateLimit<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultWeightsSetRateLimit<T>>;
 
+    /// MAP ( netuid ) --> maximum Yuma timelocked commits per hotkey and queue epoch.
+    #[pallet::storage]
+    pub type MaxTimelockedCommitsPerHotkey<T> =
+        StorageMap<_, Identity, NetUid, u8, ValueQuery, DefaultMaxTimelockedCommitsPerHotkey<T>>;
+
     /// MAP ( netuid ) --> validator_prune_len
     #[pallet::storage]
     pub type ValidatorPruneLen<T> =
@@ -2366,6 +3025,15 @@ pub mod pallet {
     pub type AlphaValues<T> =
         StorageMap<_, Identity, NetUid, (u16, u16), ValueQuery, DefaultAlphaValues<T>>;
 
+    /// Consensus mode used by liquid alpha for each subnet.
+    #[pallet::storage]
+    pub type LiquidAlphaConsensusMode<T> =
+        StorageMap<_, Identity, NetUid, ConsensusMode, ValueQuery, DefaultConsensusMode<T>>;
+
+    /// Epoch reward algorithm per subnet. Existing and new subnets default to Yuma.
+    #[pallet::storage]
+    pub type SubnetEpochConsensus<T> = StorageMap<_, Identity, NetUid, EpochConsensus, ValueQuery>;
+
     /// MAP ( netuid ) --> If subtoken trading enabled
     #[pallet::storage]
     pub type SubtokenEnabled<T> =
@@ -2388,6 +3056,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworkRegistrationLockId<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// Escrow-backed queue entries. Absence denotes a pre-upgrade balance lock.
+    /// Keep the existing queue encoding unchanged so pending registrations remain decodable.
+    #[pallet::storage]
+    pub type NetworkRegistrationEscrow<T: Config> =
+        StorageMap<_, Identity, u32, (AccountIdOf<T>, TaoBalance), OptionQuery>;
+
     // =======================================
     // ==== VotingPower Storage  ====
     // =======================================
@@ -2409,6 +3083,12 @@ pub mod pallet {
     /// Used by smart contracts to determine validator voting power for subnet governance.
     pub type VotingPower<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    #[pallet::storage]
+    /// MAP ( netuid ) --> total_voting_power | Sum of all validator voting-power
+    /// entries on the subnet. Kept in sync with `VotingPower` so consumers can
+    /// read the aggregate without iterating the complete validator map.
+    pub type TotalVotingPower<T: Config> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
 
     #[pallet::storage]
     /// MAP ( netuid ) --> bool | Whether voting power tracking is enabled for this subnet.
@@ -2493,6 +3173,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type Consensus<T: Config> =
         StorageMap<_, Identity, NetUid, Vec<PerU16>, ValueQuery, EmptyPerU16Vec<T>>;
+
+    /// MAP ( netuid storage index ) --> previous epoch consensus for each mechanism
+    #[pallet::storage]
+    pub type ConsensusByMechanism<T: Config> =
+        StorageMap<_, Identity, NetUidStorageIndex, Vec<PerU16>, ValueQuery, EmptyPerU16Vec<T>>;
 
     /// MAP ( netuid ) --> incentive
     #[pallet::storage]
@@ -2595,6 +3280,18 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         PrometheusInfoOf,
+        OptionQuery,
+    >;
+
+    /// MAP ( netuid, hotkey ) --> service_info
+    #[pallet::storage]
+    pub type Services<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        ServiceInfo,
         OptionQuery,
     >;
 
@@ -2716,7 +3413,9 @@ pub mod pallet {
     pub type RevealPeriodEpochs<T: Config> =
         StorageMap<_, Twox64Concat, NetUid, u64, ValueQuery, DefaultRevealPeriodEpochs<T>>;
 
-    /// Map (coldkey, hotkey) --> u64 the last block at which stake was added/removed.
+    /// Map (coldkey, hotkey) --> u64 the last block at which **root** stake was
+    /// added/removed/claimed for that pair. Used solely as the age basis for
+    /// `RootStakeUnlockInterval`. Non-root stake ops must not write this map.
     #[pallet::storage]
     pub type LastColdkeyHotkeyStakeBlock<T: Config> = StorageDoubleMap<
         _,
@@ -2728,11 +3427,200 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Minimum number of blocks root (netuid 0) stake must be held before it can be
+    /// removed from root (via `remove_stake`, move/swap/transfer off root, etc.),
+    /// keyed off `LastColdkeyHotkeyStakeBlock`. `0` disables the hold (default),
+    /// preserving legacy behaviour. When set >= one tempo it neutralises epoch-boundary
+    /// "just-in-time" dividend sniping: root stake is 1:1 TAO with no AMM slippage, so
+    /// without this friction a sniper can stake right before a boundary, capture a full
+    /// tempo's root dividend pro-rata to instantaneous stake, and exit immediately.
+    #[pallet::storage]
+    pub type RootStakeUnlockInterval<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// Master switch for `swap_basket` (validator-directed basket rebalancing). Defaults to
+    /// OFF. Flipped on via `AdminUtils::sudo_set_basket_trading_enabled`. Gates only the
+    /// trade path: deposits, claims, dividend accrual, and all read paths are unaffected.
+    #[pallet::storage]
+    pub type BasketTradingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// --- SET ( validator_hotkey ) --> basket trading frozen for this fund.
+    ///
+    /// Per-fund kill switch set by governance (`AdminUtils::sudo_set_basket_trading_frozen`),
+    /// e.g. after a suspected key compromise. A frozen fund still accepts deposits and pays
+    /// claims; only `swap_basket` is refused. Follows the fund on hotkey swap.
+    #[pallet::storage]
+    pub type BasketTradingFrozen<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    #[pallet::type_value]
+    /// Default daily turnover budget for basket trading: a bucket of 10% of fund NAV that
+    /// refills over one day (u16-normalized; 6553/65535).
+    pub fn DefaultBasketDailyTurnoverCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+    }
+
+    /// --- ITEM --> capacity of a fund's `swap_basket` turnover bucket as a u16-normalized
+    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills at
+    /// `capacity / BASKET_TRADE_REFILL_BLOCKS` per block, so at most one capacity can be
+    /// pushed through the fund at any instant and about one per day sustained. Each leg is
+    /// also bounded to [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price
+    /// and the spot price. Set via `AdminUtils::sudo_set_basket_daily_turnover_cap`.
+    #[pallet::storage]
+    pub type BasketDailyTurnoverCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
+
+    #[pallet::type_value]
+    /// Default minimum basket trade value: 0.5 TAO, in rao.
+    pub fn DefaultBasketMinTradeTao<T: Config>() -> u64 {
+        crate::MIN_BASKET_TRADE_TAO
+    }
+
+    /// Minimum TAO value, in rao, through the middle of each basket trade leg.
+    /// Defaults to 0.5 TAO. Set via `AdminUtils::sudo_set_basket_min_trade_tao`.
+    /// The effective minimum is also bounded below by `DefaultMinStake`.
+    #[pallet::storage]
+    pub type BasketMinTradeTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketMinTradeTao<T>>;
+
+    #[pallet::type_value]
+    /// Default liquidity cap for basket trading: a holding may not exceed 10% of the
+    /// destination pool's alpha reserve (u16-normalized; 6553/65535).
+    pub fn DefaultBasketLiquidityCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_LIQUIDITY_CAP
+    }
+
+    /// --- ITEM --> max share of a subnet's alpha reserve (`SubnetAlphaIn`) a fund may hold
+    /// on that subnet after a `swap_basket` buy (u16-normalized, `u16::MAX` = 100%).
+    ///
+    /// The concentration cap ([`BasketConcentrationCap`]) marks holdings at realizable value, which
+    /// is bounded by the pool's TAO reserve, so on a thin pool a fund could keep buying while
+    /// counterparties sell back into its own price support and the realizable share never
+    /// grows. This cap bounds the fund's exposure to any one pool's liquidity instead: with
+    /// cap `L` the value at risk on a pool with TAO reserve `R` is about `R × L² / (1 + L)`
+    /// (≈ 1% of `R` at 10%). Set via `AdminUtils::sudo_set_basket_liquidity_cap`.
+    #[pallet::storage]
+    pub type BasketLiquidityCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketLiquidityCap<T>>;
+
+    #[pallet::type_value]
+    /// Default cap of the row-dust floor for root claims: 1 TAO (in rao).
+    pub fn DefaultBasketClaimRowDustCapTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_ROW_DUST_CAP_TAO
+    }
+
+    /// --- ITEM --> cap, in rao, of the row-dust floor of a root claim. A claim skips a fund
+    /// row entirely when the fund's whole holding on that subnet is worth less than
+    /// `min(this cap, BasketClaimRowDustBps × anchored NAV)` at the anchored mark: the row is
+    /// neither sold nor paid, and the claimant's slice of it (below the floor by
+    /// construction) stays in the fund for the remaining holders. `0` disables the row skip.
+    /// Set via `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimRowDustCapTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimRowDustCapTao<T>>;
+
+    #[pallet::type_value]
+    /// Default relative row-dust floor for root claims: 10 bps (0.1%) of guarded NAV.
+    pub fn DefaultBasketClaimRowDustBps<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_CLAIM_ROW_DUST_BPS
+    }
+
+    /// --- ITEM --> relative part of the row-dust floor, in basis points of the fund's
+    /// anchored NAV (see [`BasketClaimRowDustCapTao`]). Keeps the floor proportionate for
+    /// small funds. `0` disables the row skip. Set via `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimRowDustBps<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketClaimRowDustBps<T>>;
+
+    #[pallet::type_value]
+    /// Default slice-dust floor for root claims: 0.0001 TAO (in rao).
+    pub fn DefaultBasketClaimSliceDustTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO
+    }
+
+    /// --- ITEM --> rao value below which a root claim skips a fund row for this claimant:
+    /// when the claimant's pro-rata slice of the row is worth less than this at the anchored
+    /// mark, the row is neither sold nor paid and the slice stays in the fund for the
+    /// remaining holders. `0` disables the skip. Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimSliceDustTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimSliceDustTao<T>>;
+
+    #[pallet::type_value]
+    /// Default forfeit cap for root-claim dust skips: 0.01 TAO (in rao).
+    pub fn DefaultBasketClaimForfeitCapTao<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO
+    }
+
+    /// --- ITEM --> rao value a claimant's slice of a row may be worth, at the anchored
+    /// mark, and still be skipped by either dust rule. A row the rules mark as dust whose
+    /// slice for this claimant is worth more than this is sold as before, so no single
+    /// skipped slice ever leaves more than this in the fund. `0` turns every skip off (a
+    /// slice can only be skipped if it is worth nothing). Set via
+    /// `AdminUtils::sudo_set_basket_claim_dust`.
+    #[pallet::storage]
+    pub type BasketClaimForfeitCapTao<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketClaimForfeitCapTao<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
+    /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).
+    /// On each trade the bucket is refilled for the blocks elapsed since `last_refill_block`
+    /// at `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamped to one budget (NAV at
+    /// that moment), then the TAO through the middle of the swap is taken out. Follows the
+    /// fund on hotkey swap (lower level, later refill block).
+    #[pallet::storage]
+    pub type BasketTradeBucket<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
+
+    /// --- MAP ( validator_hotkey, netuid ) --> `(alpha_bought, last_block)` of
+    /// destination-pool flow used by `swap_basket` in the current refill window.
+    ///
+    /// The standing-position liquidity cap resets when the fund sells the holding
+    /// back to zero. This map does not: it accumulates alpha bought into `netuid`
+    /// and decays to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`], so
+    /// accumulate/unwind cycles cannot spend the turnover budget as band slack.
+    /// Follows the fund on hotkey swap (higher used, later block).
+    #[pallet::storage]
+    pub type BasketLiquidityUsed<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        (u64, u64),
+        OptionQuery,
+    >;
+
+    #[pallet::type_value]
+    /// Default concentration cap for a single basket holding: 1/16 of fund NAV
+    /// (u16-normalized; 4096/65535 admits exactly 16 equal holdings).
+    pub fn DefaultBasketConcentrationCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_CONCENTRATION_CAP
+    }
+
+    /// --- ITEM --> max share of a fund's NAV one holding may reach through a `swap_basket`
+    /// buy, u16-normalized (`u16::MAX` = 100%). Holdings are marked at realizable value. A
+    /// cap of 1/16 forces a traded fund to spread across at least 16 holdings, so trading
+    /// cannot recreate single-subnet concentration. Only buys are checked: a holding that
+    /// grows past the cap through price appreciation or in-place dividends is left alone
+    /// (it can be sold down, not topped up). Skipped at check time while fewer subnets
+    /// exist than the cap demands (young chains, tests). Set via
+    /// `AdminUtils::sudo_set_basket_concentration_cap`.
+    #[pallet::storage]
+    pub type BasketConcentrationCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketConcentrationCap<T>>;
+
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
+    /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is
+    /// consulted: a claim below `RootClaimableThreshold[ROOT]` TAO is skipped as dust. Other
+    /// entries are inert.
     pub type RootClaimableThreshold<T: Config> =
         StorageMap<_, Blake2_128Concat, NetUid, I96F32, ValueQuery, DefaultMinRootClaimAmount<T>>;
 
-    #[pallet::storage] // --- MAP ( hot ) --> MAP(netuid ) --> claimable_dividends | Root claimable dividends.
+    /// --- MAP ( hot ) --> MAP(netuid ) --> claimable_dividends | LEGACY per-subnet root
+    /// claimable rates. Superseded by the unified [`BasketRate`]; only read (and drained) by
+    /// `migrate_seed_beta_basket`. Do not use in runtime logic.
+    #[pallet::storage]
     pub type RootClaimable<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
@@ -2742,7 +3630,8 @@ pub mod pallet {
         DefaultRootClaimable<T>,
     >;
 
-    // Already claimed root alpha.
+    /// LEGACY per-subnet claimed watermarks. Superseded by the unified [`BasketClaimed`]; only
+    /// read (and drained) by `migrate_seed_beta_basket`. Do not use in runtime logic.
     #[pallet::storage]
     pub type RootClaimed<T: Config> = StorageNMap<
         _,
@@ -2754,15 +3643,140 @@ pub mod pallet {
         u128,
         ValueQuery,
     >;
-    #[pallet::storage] // -- MAP ( cold ) --> root_claim_type enum
-    pub type RootClaimType<T: Config> = StorageMap<
+
+    /// --- MAP ( validator_hotkey ) --> total outstanding basket fund shares `P`.
+    ///
+    /// A validator's beta basket is a single fund: its holdings are the escrow stake positions
+    /// `(hotkey, escrow, netuid)` across subnets (the root slot is the fund's TAO/cash position),
+    /// and its net asset value `N` is the realizable (slippage-aware) TAO value of those
+    /// holdings. Stakers' entitlements are denominated in *fund shares*, never in any particular
+    /// subnet's alpha: dividend deposits mint `value_added * P / N` shares, where `value_added`
+    /// is the realizable NAV the deposit actually added, and redemption pays the staker's owed
+    /// share fraction `owed / P` of every holding, sold pro-rata. Direct `stake_into_basket`
+    /// deposits additionally cap that NAV-priced mint by the fraction of every existing holding
+    /// actually acquired, so their proportional redemption cannot sell more units than they
+    /// bought. Their shares are credited through the signed [`BasketClaimed`] watermark. Because
+    /// entitlement is decoupled from composition, holdings can be rebalanced (validator-directed
+    /// trading, dissolution conversions) without touching any staker's claim.
+    #[pallet::storage]
+    pub type BasketShares<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery, DefaultZeroU64<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> cumulative fund-shares-per-root-stake accumulator.
+    ///
+    /// Each dividend deposit increments this by `minted_shares / total_root_stake`. A staker's
+    /// gross entitlement is `BasketRate * root_stake`; net owed subtracts their
+    /// [`BasketClaimed`] watermark. Stake additions/removals rebase the watermark by
+    /// `rate * delta` so changing root stake never retroactively grants or removes accrued
+    /// claimable.
+    #[pallet::storage]
+    pub type BasketRate<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, I96F32, ValueQuery, DefaultZeroI96F32<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's frozen display baseline (see
+    /// [`BetaBaselineOf`]).
+    ///
+    /// Stamped once at the fund's first share mint (or seeded from the frozen SDK table by
+    /// `migrate_stamp_beta_baselines` for funds that predate on-chain stamping) and never
+    /// rewritten, so the spliced display/stake prices stay continuous for the fund's whole
+    /// life. Scoped to one fund *life*: follows the fund on hotkey swap, and is retired
+    /// when the last share is claimed or a dust revival starts a new life (see
+    /// `retire_beta_display_state`), so an entry exists only while the fund has
+    /// outstanding shares. Also absent for funds born before this storage existed that
+    /// have not minted since; such funds price provisionally at the live index level
+    /// until their next mint stamps them.
+    #[pallet::storage]
+    pub type BetaBaseline<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BetaBaselineOf, OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's staker total-return accumulator.
+    ///
+    /// The one canonical root-staker return series. Starts at 1.0 and multiplies by
+    /// `1 + stakers_value / total_root_stake` on every dividend share mint — the value that
+    /// deposit actually added per rao of claimant root stake, locked in at the deposit's own
+    /// (realizable) pricing. Flows never move it; only dividends do. The staker return of
+    /// τ1 staked over any window (claim-and-restake convention) is `Twr(t1) / Twr(t0) - 1`,
+    /// so any two archive samples agree for every consumer. Everything staker-facing
+    /// derives from it: `stake_price` is this accumulator spliced onto the stake index
+    /// (`tr_splice × Twr`), and the index chains its relatives. The rate-delta figure
+    /// `(BasketRate - rate0) * price` is *not* an alternative return series — it is the
+    /// pending-entitlement mark (`staker_yield`), which re-values all accrued β at today's
+    /// price. Accumulates from the upgrade that introduced it; earlier history lives in the
+    /// seeded `tr_splice` (see `migrate_stamp_beta_baselines`). Like [`BetaBaseline`],
+    /// scoped to one fund life: moves on hotkey swap and is retired when the fund drains or
+    /// a dust revival starts a new life.
+    #[pallet::storage]
+    pub type BasketTwr<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, U64F64, ValueQuery, DefaultOneU64F64<T>>;
+
+    /// --- ITEM --> the latest published beta-index snapshot (see [`BetaIndexSnapshotOf`]).
+    ///
+    /// Refreshed by the paged background sweep in block processing; read by baseline stamps
+    /// so no state-changing path ever sweeps every fund inline. Absent until the first
+    /// pass after genesis (or the runtime upgrade that introduced it) completes; stamps
+    /// simply wait for the next mint while it is absent.
+    #[pallet::storage]
+    pub type BetaIndexSnapshot<T: Config> = StorageValue<_, BetaIndexSnapshotOf, OptionQuery>;
+
+    /// --- ITEM --> in-progress paged beta-index sweep (see [`BetaIndexSweepOf`]).
+    ///
+    /// Present only mid-pass. `advance_beta_index_sweep` processes one strictly bounded
+    /// page per block and clears this on completion.
+    #[pallet::storage]
+    pub type BetaIndexSweep<T: Config> = StorageValue<_, BetaIndexSweepOf, OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's last completed index-sweep sample
+    /// (see [`BetaIndexFundSampleOf`]).
+    ///
+    /// Written by the sweep as it visits each fund (the current pass's sample replaces the
+    /// previous pass's in the same visit) and consumed as the start-of-period state of the
+    /// next pass's price relative. Removed when the fund becomes unpriceable, retires, or
+    /// starts a new life, so no relative ever chains across a gap in the fund's history.
+    #[pallet::storage]
+    pub type BetaIndexFundSample<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BetaIndexFundSampleOf, OptionQuery>;
+
+    /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
+    ///
+    /// Signed on purpose, for two reasons. First, stake-change rebasing
+    /// (`claimed ± rate * delta`) must be exact in both directions: with an unsigned floor,
+    /// unstaking root before claiming would clip the rebase at zero, silently forfeiting the
+    /// staker's accrued entitlement and permanently stranding the matching shares (and their
+    /// escrow value) in the fund. Second, this map doubles as the grant ledger for direct
+    /// deposits: `stake_into_basket` credits its minted shares by *decrementing* the watermark
+    /// (`owed = rate * root_stake - claimed`), so a persistent negative value is an intentional
+    /// unconditional share grant, not a rebasing artifact.
+    #[pallet::storage]
+    pub type BasketClaimed<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        RootClaimTypeEnum,
+        Blake2_128Concat,
+        T::AccountId,
+        i128,
         ValueQuery,
-        DefaultRootClaimType<T>,
     >;
+
+    /// --- MAP ( validator_hotkey ) --> lifetime realizable TAO value deposited into the basket.
+    ///
+    /// Cumulative sum of every deposit's `value_added`: the realizable NAV the deposit actually
+    /// added (net of buy slippage and fees), deliberately less than the raw TAO deployed. Both
+    /// dividend deposits and direct `stake_into_basket` deposits accumulate here, and dividend
+    /// deposits add their full `value_added` even though only the stakers' attribution fraction
+    /// mints shares. Together with [`BasketRedeemedTao`] this makes lifetime fund performance
+    /// (`(NAV + redeemed) / deposited`) and deposit-rate metrics computable from two storage
+    /// reads, with no event indexing. Follows the fund across hotkey swaps.
+    #[pallet::storage]
+    pub type BasketDepositedTao<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> lifetime TAO redeemed (claimed) out of the basket.
+    ///
+    /// Cumulative sum of every claim's realized payout. See [`BasketDepositedTao`].
+    #[pallet::storage]
+    pub type BasketRedeemedTao<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
+
     #[pallet::storage] // --- MAP ( u64 ) --> coldkey | Maps coldkeys that have stake to an index
     pub type StakingColdkeysByIndex<T: Config> =
         StorageMap<_, Identity, u64, T::AccountId, OptionQuery>;
@@ -2772,8 +3786,6 @@ pub mod pallet {
 
     #[pallet::storage] // --- Value --> num_staking_coldkeys
     pub type NumStakingColdkeys<T: Config> = StorageValue<_, u64, ValueQuery, DefaultZeroU64<T>>;
-    #[pallet::storage] // --- Value --> num_root_claim | Number of coldkeys to claim each auto-claim.
-    pub type NumRootClaim<T: Config> = StorageValue<_, u64, ValueQuery, DefaultNumRootClaim<T>>;
 
     // EVM related storage
     /// DMAP (netuid, uid) --> (H160, last_block_where_ownership_was_proven)
@@ -2799,6 +3811,12 @@ pub mod pallet {
     pub type SubnetLeases<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, SubnetLeaseOf<T>, OptionQuery>;
 
+    /// Internal settlement marker: a formally terminated lease's residual payout hotkey.
+    /// Kept only while a contributor debt or residual stake remains; the frozen lease layout is unchanged.
+    #[pallet::storage]
+    pub type SubnetLeaseTerminationHotkey<T: Config> =
+        StorageMap<_, Twox64Concat, LeaseId, T::AccountId, OptionQuery>;
+
     /// DMAP ( lease_id, contributor ) --> shares | The shares of a contributor for a given lease.
     #[pallet::storage]
     pub type SubnetLeaseShares<T: Config> =
@@ -2817,6 +3835,21 @@ pub mod pallet {
     #[pallet::storage]
     pub type AccumulatedLeaseDividends<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
+    /// DMAP ( lease_id, contributor ) --> alpha | A contributor's dividend slices that could not
+    /// be transferred yet. The alpha stays in the lease position and is retried, for that
+    /// contributor only, at the next distribution.
+    #[pallet::storage]
+    pub type SubnetLeaseUnpaidDividends<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        LeaseId,
+        Identity,
+        T::AccountId,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
 
     /// ITEM ( CommitRevealWeightsVersion )
     #[pallet::storage]
@@ -2866,6 +3899,14 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn MechanismEmissionRateLimit<T: Config>() -> u64 {
         prod_or_fast!(7_200, 1)
+    }
+
+    /// ITEM (Rate limit for subnet emission weight vector updates: once a week at 12 s
+    /// blocks, keyed per subnet. Root is exempt; a subnet's first call is always allowed,
+    /// and dissolution clears the key so a reused netuid starts fresh.)
+    #[pallet::type_value]
+    pub fn SubnetEmissionWeightsRateLimit<T: Config>() -> u64 {
+        prod_or_fast!(50_400, 1)
     }
 
     /// MAP ( netuid ) --> Current number of subnet mechanisms
@@ -2959,9 +4000,104 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// ITEM ( enabled ) | Whether gamma can be minted at all; a subnet also needs
+    /// [`SubnetGammaEnabled`].
+    #[pallet::storage]
+    pub type GammaEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// MAP ( netuid ) --> enabled | Whether gamma can be minted on the subnet.
+    #[pallet::storage]
+    pub type SubnetGammaEnabled<T: Config> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// DMAP ( netuid, hotkey ) --> deposit | The gamma held at a hotkey on the subnet.
+    #[pallet::storage]
+    pub type GammaDeposits<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        GammaDeposit<T::AccountId>,
+        OptionQuery,
+    >;
+
+    /// DMAP ( netuid, coldkey ) --> hotkeys | The hotkeys holding the coldkey's gamma
+    /// deposits on the subnet.
+    #[pallet::storage]
+    pub type ColdkeyGammaHotkeys<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::AccountId, ConstU32<MAX_GAMMA_DEPOSITS>>,
+        ValueQuery,
+    >;
+
+    /// NMAP ( netuid, service, hotkey ) --> gamma | The gamma the hotkey has spent at the
+    /// service on the subnet.
+    #[pallet::storage]
+    pub type GammaSpent<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        GammaBalance,
+        ValueQuery,
+    >;
+
+    /// MAP ( netuid ) --> gamma_price | The highest price a subnet's alpha mints gamma at: set to the
+    /// median subnet alpha price at registration, each block it falls to the spot price at once
+    /// and rises toward it by [`SubnetFastMovingPrice`]'s weight of the gap, at most of itself.
+    #[pallet::storage]
+    pub type SubnetGammaPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, ValueQuery>;
+
+    /// MAP ( netuid ) --> gamma shares | The subnet's shares of its alpha emission to other
+    /// subnets' gamma, in `u64::MAX` parts, in ascending target order.
+    #[pallet::storage]
+    pub type SubnetGammaEmission<T: Config> =
+        StorageMap<_, Identity, NetUid, GammaEmission, ValueQuery>;
+
+    /// MAP ( netuid ) --> alpha | The subnet's emission accrued to its gamma shares since they
+    /// were last allotted it.
+    #[pallet::storage]
+    pub type PendingGammaEmission<T> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
+    /// DMAP ( netuid, target ) --> alpha | Alpha allotted to the subnet's gamma share of the
+    /// target and not yet converted.
+    #[pallet::storage]
+    pub type UnconvertedGammaEmission<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Identity,
+        NetUid,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// MAP ( netuid ) --> whitelisted | Whether subnets may give the subnet gamma shares.
+    #[pallet::storage]
+    pub type SubnetGammaEmissionWhitelisted<T: Config> =
+        StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+
+    /// ITEM ( oracle ) | The account that feeds the TAO/USD price.
+    #[pallet::storage]
+    pub type TaoUsdPriceOracle<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
+
+    /// ITEM ( state ) | The TAO/USD price, once fed.
+    #[pallet::storage]
+    pub type TaoUsdPrice<T: Config> = StorageValue<_, TaoUsdPriceState, OptionQuery>;
+
     /// MAP ( hotkey ) --> parent_delegation_enabled
     ///
-    /// When `true`, this root validator allows auto parent delegation.
+    /// When `true`, this root validator allows auto parent delegation:
+    /// new subnets childkey existing root validators to the new owner,
+    /// and a new root validator childkeys to all current subnet owners.
     /// Defaults to `true`; validators can opt out at any time
     /// by calling `set_auto_parent_delegation_enabled(false)`.
     #[pallet::storage]
@@ -2990,6 +4126,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type PendingChildKeyCooldown<T: Config> =
         StorageValue<_, u64, ValueQuery, DefaultPendingChildKeyCooldown<T>>;
+
+    /// V2 announcement-time decision for ignoring unsolicited destination balance
+    /// when deciding whether to import the source auto-stake policy. The privilege
+    /// is honored only while the matching destination reservation remains live.
+    /// Legacy hash-only announcements have no entry.
+    #[pallet::storage]
+    pub type ColdkeySwapV2PolicySnapshots<T: Config> =
+        StorageMap<_, Twox64Concat, T::AccountId, bool, OptionQuery>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
@@ -3174,6 +4318,7 @@ impl<T: Config + pallet_balances::Config<Balance = TaoBalance>>
         );
 
         // Increse alpha out counter
+        Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
         SubnetAlphaOut::<T>::mutate(netuid, |total| {
             *total = total.saturating_add(alpha);
         });
@@ -3241,6 +4386,10 @@ pub trait ProxyInterface<AccountId> {
     fn add_lease_beneficiary_proxy(beneficiary: &AccountId, lease: &AccountId) -> DispatchResult;
     fn remove_lease_beneficiary_proxy(beneficiary: &AccountId, lease: &AccountId)
     -> DispatchResult;
+    /// Whether `delegator` already holds any proxy grants (including reserved deposit).
+    fn has_delegator_proxies(delegator: &AccountId) -> bool;
+    /// Whether the exact zero-delay lease-beneficiary grant is still installed.
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool;
 }
 
 impl<T> ProxyInterface<T> for () {
@@ -3251,9 +4400,26 @@ impl<T> ProxyInterface<T> for () {
     fn remove_lease_beneficiary_proxy(_: &T, _: &T) -> DispatchResult {
         Ok(())
     }
+
+    fn has_lease_beneficiary_proxy(_: &T, _: &T) -> bool {
+        // No-op backends accept grants without storing them; the explicit marker tracks termination.
+        true
+    }
+
+    fn has_delegator_proxies(_: &T) -> bool {
+        false
+    }
 }
 
-/// Pallets that hold per-subnet commitments implement this to purge all state for `netuid`.
-pub trait CommitmentsInterface {
+/// Interface for purging commitment state when subnets or neurons are removed.
+pub trait CommitmentsInterface<AccountId> {
     fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId);
 }
+
+/// Default minimum TAO value through the middle of a `swap_basket` trade. The call costs
+/// about 0.006 TAO at current fee calibration, so admitting every few blocks' worth of a
+/// refilling turnover bucket can spend more on transaction fees than it rebalances. Half a TAO
+/// keeps the trade well above its fee while still allowing modest funds to rebalance incrementally.
+pub const MIN_BASKET_TRADE_TAO: u64 = 500_000_000;

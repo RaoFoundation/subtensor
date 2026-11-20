@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: drand_write_pulse
+expression: fee
+---
+1423835

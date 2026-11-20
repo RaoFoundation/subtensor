@@ -10,13 +10,16 @@ themselves) and dissolves the loan. Amounts are TAO.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from functools import partial
+from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from ._money import Money, Spend, tao_amount
-from .base import BuiltCall, Intent
+from .._pinned import compose_pinned_call
+from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
+from .base import Intent
 from .registry import build as build_intent
 from .registry import register
+from .staking import _stakeable_rao
 
 CROWDLOAN_ID_HELP = "Identifier of the crowdloan, assigned when it was created."
 
@@ -92,8 +95,22 @@ class CreateCrowdloan(Intent):
             op = args.pop("op", None)
             if not op:
                 raise ValueError("crowdloan 'call' needs an 'op' key")
-            built = await build_intent(op, args).build(substrate, wallet)
-            inner = built.call if isinstance(built, BuiltCall) else built
+            from ..executor import _compose_nested_intent_call, _OriginView
+            from ..receiving import account_for_read
+            from ..signing import public_view
+
+            origin = _OriginView(
+                await account_for_read(substrate, self.coldkey_address(wallet)), wallet=wallet
+            )
+            # Finalization dispatches as this same creator. Preserve its public
+            # scheme and derivation mode when selecting nested composite calls.
+            origin.crypto_type = getattr(public_view(wallet, "coldkey"), "crypto_type", None)
+            origin.account_mode = getattr(wallet, "account_mode", None)
+            # Creation stores this call; it does not dispatch it under the
+            # current origin's batch filter. Its guards execute on finalization.
+            inner, _ = await _compose_nested_intent_call(
+                substrate, build_intent(op, args), origin, wrapper="crowdloan"
+            )
         return await substrate.compose(
             calls.Crowdloan.create(
                 deposit=self.deposit_tao.rao,
@@ -124,32 +141,52 @@ class ContributeCrowdloan(Intent):
     back when the creator calls ``refund_crowdloan``, or the contributor can
     ``withdraw_crowdloan`` themselves any time before finalization. On
     success, the funds go to the loan's target or fund its inner call.
+    Pass ``all`` to contribute the whole free balance minus the existential
+    deposit and a small fee headroom.
     """
 
     op = "contribute_crowdloan"
     signer = "coldkey"
     wraps = (("Crowdloan", "contribute"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
     crowdloan_id: int = field(metadata={"help": CROWDLOAN_ID_HELP})
     amount_tao: Money = field(
         metadata={
-            "help": "Amount to contribute; moved into the crowdloan's pot. Recoverable "
-            "via refund or withdraw while the loan is not finalized."
+            "help": "Amount to contribute, or ``all``. Moved into the crowdloan's "
+            "pot. Recoverable via refund or withdraw while the loan is not finalized."
         }
     )
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Crowdloan.contribute(crowdloan_id=self.crowdloan_id, amount=self.amount_tao.rao)
+        params = {"crowdloan_id": self.crowdloan_id}
+        derived = {}
+        if self.amount_tao == ALL:
+            derived["amount"] = partial(_stakeable_rao, substrate, wallet)
+        else:
+            params["amount"] = self.amount_tao.rao
+        return await compose_pinned_call(
+            substrate, "Crowdloan", "contribute", params, derived=derived
         )
 
     def summary(self) -> str:
-        return f"contribute {self.amount_tao} to crowdloan {self.crowdloan_id}"
+        amount = "ALL free TAO" if self.amount_tao == ALL else str(self.amount_tao)
+        return f"contribute {amount} to crowdloan {self.crowdloan_id}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_tao == ALL:
+            return [
+                "contributes the entire free balance "
+                "(minus the existential deposit and fee headroom)"
+            ]
+        return []
 
     def spend(self) -> Spend:
+        if self.amount_tao == ALL:
+            return UNBOUNDED
         return self.amount_tao
 
 

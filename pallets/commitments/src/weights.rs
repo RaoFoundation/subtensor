@@ -66,11 +66,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Skipped::Metadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn reveal_timelocked_commitments() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `635`
-		//  Estimated: `635`
-		// Minimum execution time: 16_019_697_000 picoseconds.
-		Weight::from_parts(16_052_505_000, 635)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
+		//  Measured:  `681`
+		//  Estimated: `681`
+		// Minimum execution time: 10_995_683_000 picoseconds.
+		Weight::from_parts(11_055_697_000, 681)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 }
@@ -106,11 +106,11 @@ impl WeightInfo for () {
 	/// Proof: `Skipped::Metadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn reveal_timelocked_commitments() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `635`
-		//  Estimated: `635`
-		// Minimum execution time: 16_019_697_000 picoseconds.
-		Weight::from_parts(16_052_505_000, 635)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
+		//  Measured:  `681`
+		//  Estimated: `681`
+		// Minimum execution time: 10_995_683_000 picoseconds.
+		Weight::from_parts(11_055_697_000, 681)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 }

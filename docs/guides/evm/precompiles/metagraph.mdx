@@ -1,0 +1,45 @@
+---
+title: Metagraph
+description: Reference for the deployed MetagraphPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `MetagraphPrecompile` |
+| Solidity interface | `IMetagraph` |
+| Address | `0x0000000000000000000000000000000000000802` |
+| Status | Deployed |
+
+Provides typed views of per-neuron metagraph values.
+
+## Functions
+
+All functions are `view`:
+
+```text
+getUidCount(uint16)
+getStake(uint16,uint16)
+getRank(uint16,uint16)
+getTrust(uint16,uint16)
+getConsensus(uint16,uint16)
+getIncentive(uint16,uint16)
+getDividends(uint16,uint16)
+getEmission(uint16,uint16)
+getVtrust(uint16,uint16)
+getValidatorStatus(uint16,uint16)
+getLastUpdate(uint16,uint16)
+getIsActive(uint16,uint16)
+getAxon(uint16,uint16)
+getHotkey(uint16,uint16)
+getColdkey(uint16,uint16)
+```
+
+## Proposed bulk runtime API
+
+`SubnetInfoRuntimeApi.get_all_metagraphs` remains proposed. Its current result
+can grow with the number and size of subnets, so no Solidity selector is
+assigned in this change. Before implementation, it needs a bounded
+cursor-based or indexed interface with stable typed metadata. The deployed
+per-subnet and per-UID views above are unchanged.
+
+Source: [`metagraph.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/metagraph.sol)

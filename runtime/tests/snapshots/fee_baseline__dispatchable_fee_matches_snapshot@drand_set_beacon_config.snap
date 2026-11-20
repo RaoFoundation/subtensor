@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: drand_set_beacon_config
+expression: fee
+---
+94280

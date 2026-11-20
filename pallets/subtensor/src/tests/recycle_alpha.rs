@@ -53,6 +53,7 @@ fn test_recycle_success() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid)
                 < initial_alpha
         );
+        assert_total_alpha_staked_invariant(netuid);
 
         assert!(System::events().iter().any(|e| {
             matches!(
@@ -113,6 +114,7 @@ fn test_recycle_two_stakers() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid)
                 < stake.into()
         );
+        assert_total_alpha_staked_invariant(netuid);
         // Make sure the other coldkey has no change
         assert_abs_diff_eq!(
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -252,6 +254,8 @@ fn test_burn_success() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid)
                 < stake.into()
         );
+
+        assert_total_alpha_staked_invariant(netuid);
 
         assert!(System::events().iter().any(|e| {
             matches!(

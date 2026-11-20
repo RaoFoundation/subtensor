@@ -1,119 +1,127 @@
-# .github/workflows/apply-benchmark-patch.yml
+# The workflow definition and privileged tooling must come from trusted code.
 name: Apply-Benchmark-Patch
 
 on:
-  pull_request:
+  pull_request_target:
     types: [labeled]
 
 permissions:
-  contents: write
-  pull-requests: write
-  actions: read  # required to list & download artifacts across workflows
+  contents: read
 
 jobs:
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   apply:
-    needs: trusted-pr
-    if: ${{ github.event.label.name == 'apply-benchmark-patch' }}
-    runs-on: Benchmarking
+    if: >-
+      github.event.label.name == 'apply-benchmark-patch' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # PR tests live in the read-only Validate-Benchmarks workflow. Never execute
+    # PR code or restore its caches on this fresh privileged runner.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    concurrency:
+      group: apply-benchmark-patch-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 
     steps:
-      - name: Check out PR branch
-        uses: actions/checkout@v4
+      - name: Check out tooling from the trusted workflow commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          repository: ${{ github.repository }}
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          persist-credentials: false
+          sparse-checkout: scripts
 
-      - name: Install GitHub CLI
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
-
-      - name: Download latest bench patch artifact from heavy workflow
-        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
-        with:
-          workflow: run-benchmarks.yml
-          pr: ${{ github.event.pull_request.number }}
-          name: bench-patch
-          path: .
-          allow_forks: false
-          check_artifacts: true
-          search_artifacts: true
-          workflow_conclusion: ""
-          if_no_artifact_found: warn
-
-      - name: Extract bench patch archive
+      - name: Require trusted apply tooling
         run: |
           set -euo pipefail
-          if [ -f "bench-patch.tgz" ]; then
-            tar -xzf bench-patch.tgz
-          elif [ -f "bench-patch/bench-patch.tgz" ]; then
-            tar -xzf bench-patch/bench-patch.tgz
-          else
-            echo "No bench-patch.tgz found after download."
-            exit 0
-          fi
-          ls -la .bench_patch || true
-
-      - name: Apply and commit patch
-        run: |
-          set -euo pipefail
-
-          if [ ! -d ".bench_patch" ]; then
-            echo "No .bench_patch directory found after extraction."
-            exit 0
-          fi
-
-          if [ -f ".bench_patch/summary.txt" ]; then
-            echo "==== summary.txt ===="
-            sed -n '1,200p' .bench_patch/summary.txt || true
-            echo "====================="
-          fi
-
-          if [ ! -f ".bench_patch/benchmark_patch.diff" ]; then
-            echo "No benchmark_patch.diff found (no auto-patch created)."
-            exit 0
-          fi
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if ! git apply --index --3way .bench_patch/benchmark_patch.diff; then
-            echo "Patch failed to apply cleanly. Please re-run Validate-Benchmarks to regenerate."
+          test "$(git -C trusted rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
+          if [[ ! -f trusted/scripts/apply_benchmark_patch.py ]]; then
+            echo "The benchmark apply helper must be deployed with the trusted workflow before using this label." >&2
             exit 1
           fi
 
-          if git diff --cached --quiet; then
-            echo "Patch applied but produced no changes (already up to date)."
-            exit 0
-          fi
+      - name: Check out exact PR commit as patch data
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: source
+          persist-credentials: false
 
-          echo "==== diff preview ===="
-          git diff --cached --stat
-          git diff --cached | head -n 120 || true
-          echo "======================"
+      - name: Verify source commit and prepare output directory
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PR_HEAD_SHA"
+          git check-ref-format "refs/heads/$PR_HEAD_BRANCH"
+          echo "BENCH_PATCH_DIR=$RUNNER_TEMP/benchmark-patch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
-          branch=$(git symbolic-ref --quiet --short HEAD || true)
-          if [ -z "$branch" ]; then
-            echo "Not on a branch - cannot push" >&2
-            exit 1
-          fi
-
-          git commit -m "auto-update benchmark weights"
-          git push origin "HEAD:${branch}"
-
-      - name: Remove apply-benchmark-patch label
-        if: ${{ success() }}
+      - name: Download and stage validated weights with trusted tooling
+        working-directory: trusted
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo "${{ github.repository }}" \
-            --remove-label "apply-benchmark-patch" || true
+          set -euo pipefail
+          # Isolated mode excludes PR paths, PYTHONPATH and user site packages.
+          python3 -I scripts/apply_benchmark_patch.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch "$PR_HEAD_BRANCH" \
+            --sha "$PR_HEAD_SHA" \
+            --output-dir "$BENCH_PATCH_DIR" \
+            --apply-to "$GITHUB_WORKSPACE/source"
+          {
+            echo '### Selected benchmark results'
+            echo '```text'
+            cat "$BENCH_PATCH_DIR/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and publish only to the unchanged PR branch
+        working-directory: trusted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '[.state, .head.repo.full_name, .head.ref, .head.sha] | @tsv')
+          expected=$(printf 'open\t%s\t%s\t%s' "$GITHUB_REPOSITORY" "$PR_HEAD_BRANCH" "$PR_HEAD_SHA")
+          if [[ "$current" != "$expected" ]]; then
+            echo "The PR changed after labeling. Benchmark its current commit and reapply the label." >&2
+            exit 1
+          fi
+
+          source="$GITHUB_WORKSPACE/source"
+          if git -C "$source" diff --cached --quiet; then
+            echo "The latest benchmark run found no weight drift; nothing to apply."
+            published_sha="$PR_HEAD_SHA"
+          else
+            git -C "$source" -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+              -c commit.gpgsign=false \
+              -c user.name='github-actions[bot]' \
+              -c user.email='github-actions[bot]@users.noreply.github.com' \
+              commit -m "auto-update benchmark weights"
+            # The explicit lease rejects any ref change, including a rewind.
+            # Requiring this sole parent makes our update a fast-forward only.
+            test "$(git -C "$source" show -s --format=%P HEAD)" = "$PR_HEAD_SHA"
+            git -C "$source" -c core.hooksPath=/dev/null \
+              -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+              push --force-with-lease="refs/heads/$PR_HEAD_BRANCH:$PR_HEAD_SHA" \
+              "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$PR_HEAD_BRANCH"
+            published_sha=$(git -C "$source" rev-parse HEAD)
+          fi
+
+          # Leave the label in place if someone updates the PR after our write.
+          current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '[.state, .head.repo.full_name, .head.ref, .head.sha] | @tsv')
+          expected=$(printf 'open\t%s\t%s\t%s' "$GITHUB_REPOSITORY" "$PR_HEAD_BRANCH" "$published_sha")
+          if [[ "$current" == "$expected" ]]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --remove-label "apply-benchmark-patch"
+          fi

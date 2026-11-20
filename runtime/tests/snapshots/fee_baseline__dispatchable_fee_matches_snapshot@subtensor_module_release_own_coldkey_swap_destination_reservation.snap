@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_release_own_coldkey_swap_destination_reservation
+expression: fee
+---
+119589

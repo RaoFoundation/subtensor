@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: sudo_sudo
+expression: fee
+---
+65723

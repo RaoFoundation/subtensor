@@ -62,6 +62,37 @@ where
         + pallet_subtensor_swap::Config,
     T::AccountId: Clone,
 {
+    /// Weight charged up front for a stake exit signed by `origin`: the benchmarked `unit`
+    /// plus the `StakingHotkeys` walk sized to the signer's current list and the read that
+    /// sizes it. The environment cannot refund, and the call runs right after the charge,
+    /// so the list cannot grow in between (see
+    /// `pallet_subtensor::Pallet::staking_hotkeys_walk_immediate_bound`).
+    fn stake_exit_weight(unit: Weight, origin: &RawOrigin<T::AccountId>) -> Weight {
+        let walk = match origin {
+            RawOrigin::Signed(coldkey) => T::DbWeight::get().reads(1).saturating_add(
+                pallet_subtensor::Pallet::<T>::staking_hotkeys_walk_immediate_bound(coldkey),
+            ),
+            _ => pallet_subtensor::Pallet::<T>::staking_hotkeys_walk_bound(),
+        };
+        unit.saturating_add(walk)
+    }
+
+    /// Weight charged up front for an `unstake_all*` signed by `origin`: the declared worst
+    /// case (a position on every envelope slot) with each slot's `StakingHotkeys` walk sized
+    /// to the signer's current list, plus the read that sizes it. The environment cannot
+    /// refund, so the slots stay at their worst case.
+    fn unstake_all_exit_weight(declared: Weight, origin: &RawOrigin<T::AccountId>) -> Weight {
+        match origin {
+            RawOrigin::Signed(coldkey) => declared
+                .saturating_sub(pallet_subtensor::Pallet::<T>::staking_hotkeys_walk_unused(
+                    coldkey,
+                    pallet_subtensor::Pallet::<T>::unstake_all_declared_walks(),
+                ))
+                .saturating_add(T::DbWeight::get().reads(1)),
+            _ => declared,
+        }
+    }
+
     fn dispatch_add_stake_v1<Env>(
         env: &mut Env,
         origin: RawOrigin<T::AccountId>,
@@ -103,9 +134,10 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        // weight for remove_stake is not defined in the Subtensor pallet's WeightInfo
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::remove_stake();
+        let weight = Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::remove_stake(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -119,7 +151,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -137,8 +169,12 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all();
+        // The contract environment cannot refund, so charge the worst case (a position on
+        // every envelope slot), never the benchmarked empty-loop constant.
+        let weight = Self::unstake_all_exit_weight(
+            pallet_subtensor::Pallet::<T>::unstake_all_declared_weight(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -147,7 +183,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -165,9 +201,11 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha(
-            );
+        // See `dispatch_unstake_all_v1`: charge the worst case.
+        let weight = Self::unstake_all_exit_weight(
+            pallet_subtensor::Pallet::<T>::unstake_all_alpha_declared_weight(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -176,7 +214,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -200,8 +238,10 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::move_stake();
+        let weight = Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::move_stake(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -217,9 +257,60 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
+        }
+    }
+
+    fn dispatch_move_stake_limit_v1<Env>(
+        env: &mut Env,
+        origin: RawOrigin<T::AccountId>,
+    ) -> Result<RetVal, DispatchError>
+    where
+        Env: SubtensorExtensionEnv<T>,
+        <<T as SysConfig>::Lookup as StaticLookup>::Source: From<<T as SysConfig>::AccountId>,
+    {
+        let (
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            limit_price,
+            allow_partial,
+        ): (
+            T::AccountId,
+            T::AccountId,
+            NetUid,
+            NetUid,
+            AlphaBalance,
+            TaoBalance,
+            bool,
+        ) = env
+            .read_as()
+            .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
+
+        env.charge_weight(Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::move_stake_limit(
+            ),
+            &origin,
+        ))?;
+
+        let call_result = pallet_subtensor::Pallet::<T>::move_stake_limit(
+            origin.into(),
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            limit_price,
+            allow_partial,
+        );
+
+        match call_result {
+            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
+            Err(e) => Ok(RetVal::Converging(Output::from(e.error) as u32)),
         }
     }
 
@@ -241,8 +332,10 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::transfer_stake();
+        let weight = Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::transfer_stake(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -258,7 +351,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -281,8 +374,10 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::swap_stake();
+        let weight = Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::swap_stake(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -297,7 +392,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -362,8 +457,10 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::remove_stake_limit();
+        let weight = Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::remove_stake_limit(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -379,7 +476,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -404,9 +501,11 @@ where
             env.read_as()
                 .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight =
+        let weight = Self::stake_exit_weight(
             <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::swap_stake_limit(
-            );
+            ),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -423,7 +522,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -441,7 +540,10 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight = <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::remove_stake_full_limit();
+        let weight = Self::stake_exit_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::remove_stake_full_limit(),
+            &origin,
+        );
 
         env.charge_weight(weight)?;
 
@@ -455,7 +557,7 @@ where
         match call_result {
             Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
             Err(e) => {
-                let error_code = Output::from(e) as u32;
+                let error_code = Output::from(e.error) as u32;
                 Ok(RetVal::Converging(error_code))
             }
         }
@@ -632,9 +734,23 @@ where
                 Ok(RetVal::Converging(Output::Success as u32))
             }
             FunctionId::GetStakeAvailabilityV1 => {
+                // Reserve fixed input/output work and the list-length read before touching
+                // contract memory or runtime storage.
+                env.charge_weight(T::DbWeight::get().reads(1))?;
+
                 let (coldkey, netuid): (T::AccountId, NetUid) = env
                     .read_as()
                     .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
+
+                // This getter is synchronous and read-only, so the current list cannot grow
+                // before the walk. Add one entry's conservative allowance for fixed getter work,
+                // without clamping restored historical rows that exceed the admission cap.
+                let walk = pallet_subtensor::Pallet::<T>::staking_hotkeys_walk_actual(&coldkey)
+                    .saturating_add(
+                        T::DbWeight::get()
+                            .reads(pallet_subtensor::STAKING_HOTKEYS_WALK_READS_PER_ENTRY),
+                    );
+                env.charge_weight(walk)?;
 
                 let (total, locked, available) =
                     pallet_subtensor::Pallet::<T>::stake_availability(&coldkey, netuid);
@@ -655,113 +771,77 @@ where
                 Self::dispatch_add_stake_v1(env, origin)
             }
 
-            FunctionId::CallerAddStakeV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_add_stake_v1(env, origin)
-            }
+            // Calling a contract does not authorize it to act as its caller.
+            FunctionId::CallerAddStakeV1
+            | FunctionId::CallerRemoveStakeV1
+            | FunctionId::CallerUnstakeAllV1
+            | FunctionId::CallerUnstakeAllAlphaV1
+            | FunctionId::CallerMoveStakeV1
+            | FunctionId::CallerMoveStakeLimitV1
+            | FunctionId::CallerTransferStakeV1
+            | FunctionId::CallerSwapStakeV1
+            | FunctionId::CallerAddStakeLimitV1
+            | FunctionId::CallerRemoveStakeLimitV1
+            | FunctionId::CallerSwapStakeLimitV1
+            | FunctionId::CallerRemoveStakeFullLimitV1
+            | FunctionId::CallerSetColdkeyAutoStakeHotkeyV1
+            | FunctionId::CallerAddProxyV1
+            | FunctionId::CallerRemoveProxyV1 => Err(DispatchError::BadOrigin),
 
             FunctionId::RemoveStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_remove_stake_v1(env, origin)
-            }
-            FunctionId::CallerRemoveStakeV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_remove_stake_v1(env, origin)
             }
             FunctionId::UnstakeAllV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_unstake_all_v1(env, origin)
             }
-            FunctionId::CallerUnstakeAllV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_unstake_all_v1(env, origin)
-            }
             FunctionId::UnstakeAllAlphaV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_unstake_all_alpha_v1(env, origin)
-            }
-            FunctionId::CallerUnstakeAllAlphaV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_unstake_all_alpha_v1(env, origin)
             }
             FunctionId::MoveStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_move_stake_v1(env, origin)
             }
-            FunctionId::CallerMoveStakeV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_move_stake_v1(env, origin)
+            FunctionId::MoveStakeLimitV1 => {
+                let origin = RawOrigin::Signed(env.caller());
+                Self::dispatch_move_stake_limit_v1(env, origin)
             }
             FunctionId::TransferStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_transfer_stake_v1(env, origin)
-            }
-            FunctionId::CallerTransferStakeV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_transfer_stake_v1(env, origin)
             }
             FunctionId::SwapStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_swap_stake_v1(env, origin)
             }
-            FunctionId::CallerSwapStakeV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_swap_stake_v1(env, origin)
-            }
             FunctionId::AddStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_add_stake_limit_v1(env, origin)
-            }
-            FunctionId::CallerAddStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_add_stake_limit_v1(env, origin)
             }
             FunctionId::RemoveStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_remove_stake_limit_v1(env, origin)
             }
-            FunctionId::CallerRemoveStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_remove_stake_limit_v1(env, origin)
-            }
             FunctionId::SwapStakeLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_swap_stake_limit_v1(env, origin)
-            }
-            FunctionId::CallerSwapStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_swap_stake_limit_v1(env, origin)
             }
             FunctionId::RemoveStakeFullLimitV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_remove_stake_full_limit_v1(env, origin)
             }
-            FunctionId::CallerRemoveStakeFullLimitV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_remove_stake_full_limit_v1(env, origin)
-            }
             FunctionId::SetColdkeyAutoStakeHotkeyV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_set_coldkey_auto_stake_hotkey_v1(env, origin)
-            }
-            FunctionId::CallerSetColdkeyAutoStakeHotkeyV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_set_coldkey_auto_stake_hotkey_v1(env, origin)
             }
             FunctionId::AddProxyV1 => {
                 let origin = RawOrigin::Signed(env.caller());
                 Self::dispatch_add_proxy_v1(env, origin)
             }
-            FunctionId::CallerAddProxyV1 => {
-                let origin = convert_origin(env.origin());
-                Self::dispatch_add_proxy_v1(env, origin)
-            }
             FunctionId::RemoveProxyV1 => {
                 let origin = RawOrigin::Signed(env.caller());
-                Self::dispatch_remove_proxy_v1(env, origin)
-            }
-            FunctionId::CallerRemoveProxyV1 => {
-                let origin = convert_origin(env.origin());
                 Self::dispatch_remove_proxy_v1(env, origin)
             }
             FunctionId::GetAlphaPriceV1 => {
@@ -910,17 +990,6 @@ where
     }
 }
 
-// Convert from the contract origin to the raw origin
-fn convert_origin<T>(origin: pallet_contracts::Origin<T>) -> RawOrigin<T::AccountId>
-where
-    T: pallet_contracts::Config,
-{
-    match origin {
-        pallet_contracts::Origin::Signed(caller) => RawOrigin::Signed(caller),
-        pallet_contracts::Origin::Root => RawOrigin::Root,
-    }
-}
-
 trait SubtensorExtensionEnv<T>
 where
     T: pallet_contracts::Config,
@@ -929,9 +998,8 @@ where
     fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError>;
     fn read_as<U: Decode + MaxEncodedLen>(&mut self) -> Result<U, DispatchError>;
     fn write_output(&mut self, data: &[u8]) -> Result<(), DispatchError>;
+    /// The executing contract's account, never its caller or transaction origin.
     fn caller(&mut self) -> T::AccountId;
-    #[allow(dead_code)]
-    fn origin(&mut self) -> pallet_contracts::Origin<T>;
 }
 
 struct ContractsEnvAdapter<'a, 'b, T, E>
@@ -981,9 +1049,5 @@ where
 
     fn caller(&mut self) -> T::AccountId {
         self.env.ext().address().clone()
-    }
-
-    fn origin(&mut self) -> pallet_contracts::Origin<T> {
-        self.env.ext().caller()
     }
 }

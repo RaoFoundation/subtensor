@@ -291,6 +291,8 @@ pub mod pallet {
         MaximumContributionTooLow,
         /// The minimum contribution is too high.
         MinimumContributionTooHigh,
+        /// The finalization call did not spend the full amount raised.
+        FundsNotSettled,
     }
 
     #[pallet::hooks]
@@ -601,6 +603,8 @@ pub mod pallet {
         /// When dispatching a call, the CurrentCrowdloanId will be set to the crowdloan id
         /// being finalized so the dispatched call can access it temporarily by accessing
         /// the `CurrentCrowdloanId` storage item.
+        /// The call must spend the full raised amount from the funds account; otherwise
+        /// finalization and any partial effects are rolled back.
         ///
         /// The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.
         ///
@@ -612,7 +616,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             #[pallet::compact] crowdloan_id: CrowdloanId,
         ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
+            let who = ensure_signed(origin.clone())?;
 
             let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
 
@@ -625,6 +629,11 @@ pub mod pallet {
                 CurrentCrowdloanId::<T>::get().is_none(),
                 Error::<T>::AlreadyFinalizing
             );
+
+            // Exclude unsolicited deposits from the amount the finalizer must spend.
+            let remaining_balance = CurrencyOf::<T>::balance(&crowdloan.funds_account)
+                .checked_sub(&crowdloan.raised)
+                .ok_or(Error::<T>::InsufficientBalance)?;
 
             crowdloan.finalized = true;
             Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
@@ -646,9 +655,11 @@ pub mod pallet {
                         }
                     };
 
-                    // Dispatch the call with creator origin
+                    // Keep the creator's inherited filters (for example, proxy permissions).
+                    // Reconstructing a signed origin would authorize the stored call more broadly
+                    // than the account that is finalizing the crowdloan is allowed to act.
                     stored_call
-                        .dispatch(frame_system::RawOrigin::Signed(who).into())
+                        .dispatch(origin)
                         .map(|_| ())
                         .map_err(|e| e.error)?;
 
@@ -667,6 +678,13 @@ pub mod pallet {
                     return Err(Error::<T>::InvalidFinalizationConfig)?;
                 }
             }
+
+            // Wrappers such as utility::batch can return Ok after a child fails. Do not
+            // commit finalization (or partial child effects) while raised funds remain.
+            ensure!(
+                CurrencyOf::<T>::balance(&crowdloan.funds_account) <= remaining_balance,
+                Error::<T>::FundsNotSettled
+            );
 
             Self::deposit_event(Event::<T>::Finalized { crowdloan_id });
 

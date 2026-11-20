@@ -32,6 +32,9 @@ RUN chmod +x /target/fast-runtime/release/node-subtensor /scripts/localnet.sh
 
 ENV BUILD_BINARY=0
 ENV RUN_IN_DOCKER=1
+# The node may come from the PR's base commit; `local` and `dev` chains always
+# boot the runtime built from the PR.
+ENV SUBTENSOR_LOCALNET_RUNTIME_WASM=/target/fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
 
 EXPOSE 30334 30335 9944 9945
 

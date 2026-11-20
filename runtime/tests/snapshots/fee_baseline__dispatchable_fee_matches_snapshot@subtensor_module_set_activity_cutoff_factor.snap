@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_set_activity_cutoff_factor
+expression: fee
+---
+42521

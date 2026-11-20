@@ -9,19 +9,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  trusted-pr:
-    name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
-
   cargo-audit:
     name: cargo audit
-    needs: trusted-pr
     runs-on: [self-hosted, fireactions-turbo-8]
+    # PR HEAD executes here; never attach sccache-writer or pass R2 write keys.
     environment:
-      name: sccache-writer
+      name: sccache-reader
       deployment: false
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cargo-audit') }}
     steps:
@@ -29,10 +22,7 @@ jobs:
 
       - uses: ./.github/actions/rust-setup
         with:
-          cache-key: cargo-audit
-          sccache-credential-mode: auto
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+          sccache-credential-mode: reader
 
       - name: Ensure cargo-audit
         run: |
@@ -52,19 +42,61 @@ jobs:
             cargo install --force --locked cargo-audit --version 0.22.2
           fi
 
+      - name: Verify feature-dependent advisory exclusions
+        run: |
+          python3 .github/scripts/test_audit_feature_exclusions.py
+          python3 .github/scripts/check-audit-feature-exclusions.py
+
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
         # polkadot-sdk since most originate in the patched fork's tree.
         run: |
-          # RUSTSEC-2026-0020/0021/0085..0096: wasmtime 8.0.1, pinned by the
-          #   polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
+          # RUSTSEC-2026-0020/0021/0085..0096/0222: wasmtime 8.0.1, pinned by
+          #   the polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
           # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
           #   libp2p networking stack.
           # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
           # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
-          # RUSTSEC-2025-0137: ruint via the frontier/EVM fork tree.
+          # RUSTSEC-2025-0137 / RUSTSEC-2026-0220: ruint via the frontier/EVM
+          #   fork tree; 0220 needs >=1.20.0, pinned below that by frontier.
           # RUSTSEC-2025-0020 / RUSTSEC-2026-0177: pyo3 0.23 in
           #   bittensor-core-py; ours — revisit when pyo3 >=0.29 is adopted.
+          # RUSTSEC-2026-0235: rkyv 0.7.x OOB via Rc/Arc metadata; 0.7 unsupported
+          #   upstream (fix is >=0.8.17). Pinned by the polkadot-sdk / wasmtime
+          #   tree — revisit on the next major SDK bump.
+          # RUSTSEC-2026-0258: h2 unbounded empty DATA frames. Fix is
+          #   >=0.4.16; we still carry 0.3.27 (no 0.3 patch) via hyper in the
+          #   fork tree — revisit when that stack moves off h2 0.3.
+          # RUSTSEC-2026-0269: wasmtime 8.0.1 filesystem sandbox escape via
+          #   trailing slashes in WASI paths. We never expose a filesystem to
+          #   the runtime WASM; same pin as the wasmtime entries above.
+          # RUSTSEC-2026-0316 / RUSTSEC-2026-0424: wasmtime 8.0.1 is pinned by
+          #   the polkadot-sdk fork's sc-executor. Both affect component-model
+          #   APIs, while this node executes core Wasm and does not compile the
+          #   `component-model` feature. check-audit-feature-exclusions.py checks
+          #   every workspace feature/target and fails if that changes. 0424
+          #   needs >=36 / >=48 / >=49.0.5 / >=50.0.1; revisit on SDK bump.
+          # RUSTSEC-2026-0387: crypto-bigint 0.5.5 timing variability. Host-side
+          #   sp-core ECDSA signing uses secp256k1, not k256/crypto-bigint; the
+          #   no-std runtime path only verifies/recovers public signatures and
+          #   Subtensor session keys are Aura sr25519 + Grandpa ed25519. Thus no
+          #   production path applies the affected arithmetic to a secret. Do
+          #   not add runtime ECDSA secret operations before upgrading to >=0.7.6;
+          #   elliptic-curve 0.13 currently pins ^0.5 through the SDK fork.
+          # RUSTSEC-2026-0403: only zstd's streaming write Decoder / zstd-safe
+          #   DCtx::decompress_stream is affected. The pinned consumers use
+          #   zstd::Decoder (the unaffected read decoder) in
+          #   sp-maybe-compressed-blob and zstd::decode_all (also explicitly
+          #   unaffected) in wasmtime-cache; no affected decoder is called.
+          #   Fixing the versions still requires the next polkadot-sdk bump.
+          # RUSTSEC-2026-0459: SQLite is opened only by the opt-in Frontier SQL
+          #   backend; KeyValue is the default and never opens it. Exploitation
+          #   additionally requires a crafted local database + sibling WAL.
+          #   docs/guides/running-a-node.mdx requires SQL operators to keep both
+          #   files in a private trusted data directory. libsqlite3-sys >=0.39
+          #   requires moving Frontier off sqlx 0.8.6; revisit with that bump.
+          # RUSTSEC-2026-0418 (libz-sys build-script env leak) was resolved by
+          #   bumping libz-sys 1.1.22 → 1.1.32 in Cargo.lock (no ignore).
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \
                       --ignore RUSTSEC-2025-0009 \
@@ -90,6 +122,16 @@ jobs:
                       --ignore RUSTSEC-2026-0118 \
                       --ignore RUSTSEC-2026-0119 \
                       --ignore RUSTSEC-2026-0204 \
+                      --ignore RUSTSEC-2026-0220 \
+                      --ignore RUSTSEC-2026-0222 \
                       --ignore RUSTSEC-2025-0137 \
                       --ignore RUSTSEC-2025-0020 \
-                      --ignore RUSTSEC-2026-0177
+                      --ignore RUSTSEC-2026-0177 \
+                      --ignore RUSTSEC-2026-0235 \
+                      --ignore RUSTSEC-2026-0258 \
+                      --ignore RUSTSEC-2026-0269 \
+                      --ignore RUSTSEC-2026-0316 \
+                      --ignore RUSTSEC-2026-0387 \
+                      --ignore RUSTSEC-2026-0403 \
+                      --ignore RUSTSEC-2026-0424 \
+                      --ignore RUSTSEC-2026-0459

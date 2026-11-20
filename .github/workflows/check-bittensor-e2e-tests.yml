@@ -7,6 +7,8 @@ permissions:
   # Fork PRs never reach the image jobs (they need the trusted-pr gate), so
   # this is non-fork only.
   packages: write
+  # The localnet image build downloads the base commit's node artifact.
+  actions: read
 
 concurrency:
   group: e2e-cli-${{ github.ref }}
@@ -28,7 +30,6 @@ on:
         default: ""
 
 env:
-  CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
   # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment. Test
   # jobs retag the CI image to this compatibility name locally; it is
@@ -59,6 +60,7 @@ jobs:
       run_e2e: ${{ steps.filter.outputs.e2e }}
       build_image: ${{ steps.image.outputs.build_image }}
       base_image_ref: ${{ steps.image.outputs.base_image_ref }}
+      node_reuse: ${{ steps.filter.outputs.node_reuse }}
       test_count: ${{ steps.matrix.outputs.test_count }}
       shard_count: ${{ steps.matrix.outputs.shard_count }}
       test_matrix: ${{ steps.matrix.outputs.test_matrix }}
@@ -73,6 +75,7 @@ jobs:
             .github/scripts/classify-bittensor-e2e-changes.sh
             .github/scripts/build-bittensor-e2e-matrix.py
             .github/scripts/extract-pull-file-paths.sh
+            .github/scripts/classify-node-changes.sh
           path: .trusted-rust-sdk-e2e
           persist-credentials: false
 
@@ -130,7 +133,7 @@ jobs:
             exit 0
           fi
 
-          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate); then
+          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --paginate); then
             echo "changed-file lookup failed; running the full Rust SDK E2E suite" >&2
             select_full_suite
             exit 0
@@ -147,6 +150,19 @@ jobs:
             echo "trusted Rust SDK E2E classifier failed or emitted invalid outputs; running the full suite" >&2
             select_full_suite
           fi
+
+          # The image may carry the base commit's node only when the trusted
+          # node classifier finds no natively compiled change.
+          node_output=$(mktemp)
+          node_classifier=.trusted-rust-sdk-e2e/.github/scripts/classify-node-changes.sh
+          if [[ -x "$node_classifier" ]] &&
+             printf '%s\n' "$paths" | "$node_classifier" "$node_output" >/dev/null &&
+             grep -qx 'node_reuse=true' "$node_output"; then
+            echo "node_reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_reuse=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$node_output"
 
       - name: Check out proposed E2E manifest
         if: steps.filter.outputs.e2e == 'true'
@@ -239,7 +255,6 @@ jobs:
       - name: Set up cached Rust build environment
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: rust-sdk-e2e-test-binary
           sccache-credential-mode: reader
 
       - name: Compile once and prove manifest completeness
@@ -310,25 +325,21 @@ jobs:
       - name: Set up cached Rust build environment
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: rust-sdk-localnet-fast
           fast-linker: "false"
           sccache-credential-mode: reader
 
-      - name: Ensure native target is installed
-        run: rustup target add "$BUILD_TRIPLE"
+      - name: Fetch base commit's fast-runtime node
+        id: base-node
+        if: github.event_name == 'pull_request' && needs.plan.outputs.node_reuse == 'true'
+        uses: ./.github/actions/fetch-base-node
+        with:
+          runtime: fast-runtime
 
-      - name: Patch limits for local run
-        run: ./scripts/localnet_patch.sh
-
+      # The daily sccache warm job runs the same script so this build hits.
       - name: Build only the fast-runtime node
-        run: |
-          CARGO_TARGET_DIR="target/$RUNTIME" cargo build \
-            --locked \
-            --profile release \
-            --features "pow-faucet metadata-hash fast-runtime" \
-            --package node-subtensor \
-            --package node-subtensor-runtime \
-            --target "$BUILD_TRIPLE"
+        env:
+          BASE_NODE: ${{ steps.base-node.outputs.node }}
+        run: .github/scripts/build-localnet-fast-node.sh
 
       - name: Report localnet compiler cache
         if: always()
@@ -426,7 +437,7 @@ jobs:
       - build-rust-e2e-test-binary
       - build-localnet-image
     if: >-
-      always() &&
+      !cancelled() &&
       needs.plan.outputs.run_e2e == 'true' &&
       needs.build-rust-e2e-test-binary.result == 'success' &&
       (needs.build-localnet-image.result == 'success' || needs.build-localnet-image.result == 'skipped')
@@ -442,17 +453,53 @@ jobs:
       IMAGE_REF: ${{ needs.build-localnet-image.outputs.image_ref || needs.plan.outputs.base_image_ref }}
     steps:
       - name: Download compiled Rust e2e binary
+        id: download-rust-e2e
+        # The artifact service can return an intermediary 403 to individual shards.
+        # Retry the pinned action, but keep a persistent download failure fatal.
+        continue-on-error: true
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: bittensor-core-e2e
+          path: rust-e2e
+
+      - name: Wait before retrying Rust e2e artifact download
+        if: steps.download-rust-e2e.outcome == 'failure'
+        run: sleep 10
+
+      - name: Retry compiled Rust e2e binary download
+        id: download-rust-e2e-retry
+        if: steps.download-rust-e2e.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: bittensor-core-e2e
+          path: rust-e2e
+
+      - name: Wait before final Rust e2e artifact download
+        if: steps.download-rust-e2e-retry.outcome == 'failure'
+        run: sleep 20
+
+      - name: Final compiled Rust e2e binary download
+        if: steps.download-rust-e2e-retry.outcome == 'failure'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: bittensor-core-e2e
           path: rust-e2e
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            if printf '%s' "$GHCR_TOKEN" \
+              | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin; then
+              exit 0
+            fi
+            echo "GHCR login failed (attempt $i), retrying in $((i * 15))s..."
+            sleep $((i * 15))
+          done
+          printf '%s' "$GHCR_TOKEN" \
+            | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
       - name: Pull Docker Image
         # GHCR intermittently returns permission_denied/timeouts under the

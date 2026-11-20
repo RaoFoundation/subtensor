@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Optional
 
 from .._generated import calls
+from .._pinned import compose_staking_call
 from ._money import Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
+from .staking import DEFAULT_RATE_TOLERANCE, _check_rate_tolerance, _stake_limit_price_rao
 
 
 @register
@@ -29,6 +32,9 @@ class TrimSubnet(Intent):
     before shrinking a live subnet. To simply cap future growth without
     evicting anyone, set the ``max_allowed_uids`` hyperparameter to a value
     at or above the current UID count instead.
+
+    For Null consensus, this legacy atomic operation can remove at most one
+    pruning batch. Use ``TrimNullSubnetBatch`` repeatedly for a larger shrink.
     """
 
     op = "trim_subnet"
@@ -54,6 +60,38 @@ class TrimSubnet(Intent):
 
 @register
 @dataclass
+class TrimNullSubnetBatch(Intent):
+    """Execute one bounded Null subnet pruning batch toward ``target``.
+
+    Cancels pending weight commits before moving UIDs, then removes at most
+    the runtime's batch size (currently 64). A large legacy commit backlog
+    can produce a cleanup-only batch. Read ``NullPruningTarget`` and
+    ``SubnetworkN`` after inclusion: a successful transaction does not imply
+    the final target has been reached. Continue with the same target until
+    the pending target is absent. Each batch is owner-authorized and respects
+    the admin freeze window. Only the first batch starts the trimming cooldown;
+    changing the target is a new operation. Survivor UID values can change.
+    """
+
+    op = "trim_null_subnet_batch"
+    signer = "coldkey"
+    origin = "subnet_owner"
+    wraps = (("AdminUtils", "sudo_trim_null_uids_batch"),)
+
+    netuid: int = field(metadata={"help": "Null subnet owned by the signer."})
+    target: int = field(metadata={"help": "Final UID count, shared by every continuation."})
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.AdminUtils.sudo_trim_null_uids_batch(netuid=self.netuid, target=self.target)
+        )
+
+    def summary(self) -> str:
+        return f"prune one Null batch on netuid {self.netuid} toward {self.target} UIDs"
+
+
+@register
+@dataclass
 class StakeBurn(Intent):
     """Buy back / burn stake via the stake-burn extrinsic.
 
@@ -63,25 +101,35 @@ class StakeBurn(Intent):
     so this is not an investment call; use a regular add-stake intent to
     acquire a position. Fails on the root subnet
     (``CannotBurnOrRecycleOnRootSubnet``). The chain accepts an optional
-    limit (omitted = market order), but this intent always requires
-    ``limit_price`` and executes all-or-nothing: the swap fails instead of
-    partially filling at a worse rate. Counts against a configured spend
-    cap.
+    limit (omitted = market order), but this intent always submits one and
+    executes all-or-nothing: the swap fails instead of partially filling at
+    a worse rate. When ``limit_price`` is omitted, the limit is derived from
+    the current pool price plus ``rate_tolerance`` (5% by default). Counts
+    against a configured spend cap.
     """
 
     op = "stake_burn"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_stake_burn"),)
+    mev_shield_default = True
 
     netuid: int = field(metadata={"help": "Subnet whose alpha is bought and burned."})
     amount_tao: Money = field(
         metadata={"help": "Spent from the coldkey to buy alpha that is then burned."}
     )
-    limit_price: int = field(
+    limit_price: Optional[int] = field(
+        default=None,
         metadata={
             "help": "Worst acceptable price in rao per alpha; the call fails rather than "
-            "filling beyond it."
-        }
+            "filling beyond it. Defaults to the current pool price plus `rate_tolerance`."
+        },
+    )
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE,
+        metadata={
+            "help": "Maximum price move accepted when `limit_price` is omitted, as a "
+            "fraction (0.05 = 5%). Ignored when `limit_price` is given."
+        },
     )
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -90,17 +138,19 @@ class StakeBurn(Intent):
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.add_stake_burn(
-                hotkey=hotkey,
-                netuid=self.netuid,
-                amount=self.amount_tao.rao,
-                limit=self.limit_price,
+        params = dict(hotkey=hotkey, netuid=self.netuid, amount=self.amount_tao.rao)
+        derived = {}
+        if self.limit_price is not None:
+            params["limit"] = self.limit_price
+        else:
+            derived["limit"] = partial(
+                _stake_limit_price_rao, substrate, self.netuid, 1 + self.rate_tolerance
             )
-        )
+        return await compose_staking_call(substrate, "add_stake_burn", params, derived=derived)
 
     def summary(self) -> str:
         return f"stake burn {self.amount_tao} on netuid {self.netuid}"

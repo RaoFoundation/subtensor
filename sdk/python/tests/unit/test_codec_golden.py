@@ -44,6 +44,15 @@ def test_composed_calls_are_byte_identical():
         )
 
 
+@pytest.mark.parametrize("value", [[(7, 11)], [[7, 11]], [[[7, 11]]]])
+def test_singleton_bounded_tuple_sequence(value):
+    # Golden metadata type 249 is BoundedVec<(u16, u64)>. The single
+    # tuple/list is one element, not an extra legacy newtype wrapper.
+    c = codec()
+    expected = b"\x04" + (7).to_bytes(2, "little") + (11).to_bytes(8, "little")
+    assert c.encode("scale_info::249", value) == expected
+
+
 def test_signature_payloads_match():
     g = golden()
     c = codec()
@@ -189,20 +198,45 @@ def test_metadata_ir_shape():
     subtensor_pallet = next(p for p in ir.pallets if p.name == "SubtensorModule")
     add_stake = next(call for call in subtensor_pallet.calls if call.name == "add_stake")
     assert [a.name for a in add_stake.args] == ["hotkey", "netuid", "amount_staked"]
-    # Type identity per arg: named registry types by path, primitives by name.
+    # Type identity per arg: named registry types by path (including the
+    # NetUid/TaoBalance newtypes the runtime carries), primitives by name.
     assert add_stake.args[0].type_ident == "AccountId32"
     assert add_stake.args[1].type_ident == "NetUid"
     assert add_stake.args[2].type_ident == "TaoBalance"
+    admin_pallet = next(p for p in ir.pallets if p.name == "AdminUtils")
+    set_consensus_mode = next(
+        call for call in admin_pallet.calls if call.name == "sudo_set_liquid_alpha_consensus_mode"
+    )
+    assert [(arg.name, arg.type_ident) for arg in set_consensus_mode.args] == [
+        ("netuid", "NetUid"),
+        ("mode", "ConsensusMode"),
+    ]
     assert [e.index for e in subtensor_pallet.errors] == list(range(len(subtensor_pallet.errors)))
     storage_by_name = {s.name: s for s in subtensor_pallet.storage}
     assert "Tempo" in storage_by_name
     # Storage entries carry their VALUE's type identity (map storages: the
-    # value after all keys).
+    # value after all keys), including the PerU16/TaoBalance newtypes.
     assert storage_by_name["Tempo"].value_type_ident == "u16"
     assert storage_by_name["Delegates"].value_type_ident == "PerU16"
     assert storage_by_name["MinBurn"].value_type_ident == "TaoBalance"
+    assert storage_by_name["LiquidAlphaConsensusMode"].value_type_ident == "ConsensusMode"
+    assert storage_by_name["ConsensusByMechanism"].value_type_ident == "Vec<PerU16>"
     assert any(api.name == "NeuronInfoRuntimeApi" for api in ir.runtime_apis)
     assert ir.to_dict()["spec_version"] == ir.spec_version  # JSON-serializable
+
+
+def test_liquid_alpha_consensus_mode_enum_is_in_metadata():
+    consensus_mode = next(
+        entry
+        for entry in codec().registry_types()
+        if entry["type"].get("path", [])[-1:] == ["ConsensusMode"]
+    )
+    variants = consensus_mode["type"]["def"]["variant"]["variants"]
+    assert [(variant["name"], variant["index"]) for variant in variants] == [
+        ("Current", 0),
+        ("Previous", 1),
+        ("Auto", 2),
+    ]
 
 
 def test_emitted_storage_descriptors_carry_value_idents():

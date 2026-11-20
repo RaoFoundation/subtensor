@@ -229,6 +229,7 @@ parameter_types! {
 }
 
 impl crate::Config for Test {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -312,6 +313,7 @@ impl crate::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<true>;
 }
 
 // Swap-related parameter types
@@ -345,13 +347,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {
@@ -430,6 +434,8 @@ parameter_types! {
 }
 
 impl pallet_proxy::Config for Test {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = subtensor_runtime_common::ProxyType;

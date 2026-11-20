@@ -17,6 +17,7 @@ from dataclasses import MISSING, asdict, dataclass, field, fields
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
 from ..balance import Balance
+from ..registration_sponsorship import RegistrationSponsorship
 from ..result import BittensorError
 from ._money import Spend
 
@@ -106,6 +107,43 @@ def _json_type(annotation: str) -> dict[str, Any]:
 
 
 @dataclass
+class IntentPreflight:
+    """Context-aware intent preview assembled before signing.
+
+    ``dispatch_origin`` and the account paying the outer extrinsic fee are the
+    same for direct calls, but differ for proxy and multisig wrappers.  The
+    executor passes both through :meth:`Intent.preflight` so state reads and
+    affordability checks do not have to guess which account an address names.
+    """
+
+    effects: list[str]
+    warnings: list[str]
+    blocks: list[str]
+    # Minimum free TAO needed by the composed call itself. Shielded execution
+    # adds its carrier fee to this before any signature is requested.
+    required_free: Optional[Balance] = None
+    available_free: Optional[Balance] = None
+    # Exact fee estimate already obtained from the fully composed call. The
+    # executor reuses it; conservative fallbacks stay out of this field.
+    estimated_fee: Optional[Balance] = None
+    # The same information as ``effects``, as (label, value) pairs, for
+    # renderers that lay the preview out structurally (the CLI's pre-sign
+    # review). Optional: intents that only produce prose leave it empty.
+    facts: list[tuple[str, str]] = field(default_factory=list)
+    # Stage heading for ``facts`` in the review card: "Fees" for cost
+    # breakdowns, "Quote" for simulated swap outcomes (what you receive).
+    facts_title: str = "Fees"
+    # Structured, JSON-native counterpart of ``effects`` (``Plan.preview``)
+    # for intents whose preview has a fixed shape. Optional.
+    preview: dict[str, Any] = field(default_factory=dict)
+    # Explicit approval is required if execution adds recipient registration.
+    # Planning itself never prompts or authorizes a future composition.
+    registration_sponsorship: RegistrationSponsorship | None = None
+    # The composed call establishes a protected account, including derived accounts.
+    account_registration: bool = False
+
+
+@dataclass
 class Intent(ABC):
     """Base class for all state-changing operations.
 
@@ -167,6 +205,54 @@ class Intent(ABC):
     async def warnings(self, substrate: "Substrate", signer_address: str) -> list[str]:
         """Non-fatal cautions surfaced by ``plan`` (e.g. dust amounts)."""
         return []
+
+    async def blocks(self, substrate: "Substrate", signer_address: str) -> list[str]:
+        """Hard stops merged into ``Plan.violations`` (dry-run shows them; execute refuses)."""
+        return []
+
+    async def preflight(
+        self,
+        substrate: "Substrate",
+        dispatch_origin: str,
+        fee_payer: str,
+        *,
+        call: Any = None,
+    ) -> IntentPreflight:
+        """Return effects, warnings, and hard stops for the actual call context.
+
+        Existing intent hooks describe state relative to the dispatch origin.
+        Context-sensitive intents may override this method when an outer signer
+        pays fees for another account, or when the fully wrapped ``call`` is
+        needed for an accurate fee estimate.  Keeping this as a separate hook
+        preserves compatibility with third-party intents that override the
+        original two-argument preview methods.
+        """
+        del fee_payer, call
+        return IntentPreflight(
+            effects=list(await self.effects(substrate, dispatch_origin)),
+            warnings=list(await self.warnings(substrate, dispatch_origin)),
+            blocks=list(await self.blocks(substrate, dispatch_origin)),
+        )
+
+    async def wrap_call(self, substrate: "Substrate", wallet: "Any", call: Any):
+        """Apply an execution wrapper around an already composed semantic call.
+
+        The executor calls this after root and proxy composition. Ordinary
+        intents leave the call unchanged; execution adapters such as saved
+        multisigs add their transport wrapper here.
+        """
+        return call
+
+    def origin_view(self, substrate: "Substrate", wallet: "Any") -> "Any":
+        """The account view the semantic call builds against.
+
+        Ordinary intents dispatch as the signing wallet, so this is ``wallet``.
+        Execution adapters whose inner call runs from a different origin (a
+        saved multisig) return that account instead, so origin-derived lookups
+        in the semantic build — hotkey/coldkey defaults, registration and
+        balance preflights — see the account that will actually dispatch.
+        """
+        return wallet
 
     # Key views ----------------------------------------------------------------
     #
@@ -243,6 +329,18 @@ class Intent(ABC):
     def affects_all_subnets(self) -> bool:
         """True if the intent acts across every subnet (so any allowlist must fail it)."""
         return False
+
+    def requires_build_for_policy(self) -> bool:
+        """Whether pinned approvals must rebuild dynamic spending metadata."""
+        return False
+
+    def semantic_intent(self) -> "Intent":
+        """Intent whose safety contract governs this submission.
+
+        Execution adapters may wrap a call without changing the spend, subnet,
+        or MEV requirements of the operation being dispatched.
+        """
+        return self
 
     # Introspection ----------------------------------------------------------
 

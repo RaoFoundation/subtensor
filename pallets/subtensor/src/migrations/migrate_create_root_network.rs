@@ -61,9 +61,6 @@ pub fn migrate_create_root_network<T: Config>() -> Weight {
     // Set the maximum number of validators to all members
     MaxAllowedValidators::<T>::insert(NetUid::ROOT, 64);
 
-    // Set the minimum allowed weights to zero (no weight restrictions)
-    MinAllowedWeights::<T>::insert(NetUid::ROOT, 0);
-
     // Set default root tempo
     Tempo::<T>::insert(NetUid::ROOT, 100);
 
@@ -72,9 +69,6 @@ pub fn migrate_create_root_network<T: Config>() -> Weight {
 
     // Set target registrations for validators as 1 per block
     TargetRegistrationsPerInterval::<T>::insert(NetUid::ROOT, 1);
-
-    // TODO: Consider if WeightsSetRateLimit should be set
-    // WeightsSetRateLimit::<T>::insert(NetUid::ROOT, 7200);
 
     // Accrue weight for database writes
     weight.saturating_accrue(T::DbWeight::get().writes(7));

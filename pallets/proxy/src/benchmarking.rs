@@ -309,6 +309,80 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn create_protected_pure() -> Result<(), BenchmarkError> {
+        let caller: T::AccountId = whitelisted_caller();
+        let caller = T::AccountPolicy::setup_protected_benchmark(&caller)?;
+        T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(caller.clone()),
+            T::ProxyType::default(),
+            BlockNumberFor::<T>::zero(),
+            0,
+        );
+        let pure = Pallet::<T>::pure_account(&caller, &T::ProxyType::default(), 0, None)?;
+        assert!(Proxies::<T>::contains_key(pure));
+        Ok(())
+    }
+
+    #[benchmark]
+    fn create_safe_pure() -> Result<(), BenchmarkError> {
+        let caller: T::AccountId = whitelisted_caller();
+        if caller.encode().len() != 32 {
+            return Err(BenchmarkError::Skip);
+        }
+        T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(caller.clone()),
+            T::ProxyType::default(),
+            BlockNumberFor::<T>::zero(),
+            0,
+        );
+        let pure = Pallet::<T>::safe_pure_account(&caller, &T::ProxyType::default(), 0, None)?;
+        assert_last_event::<T>(
+            Event::PureCreated {
+                pure,
+                who: caller,
+                proxy_type: T::ProxyType::default(),
+                disambiguation_index: 0,
+            }
+            .into(),
+        );
+        Ok(())
+    }
+
+    #[benchmark]
+    fn kill_safe_pure(p: Linear<0, { T::MaxProxies::get() - 2 }>) -> Result<(), BenchmarkError> {
+        let caller: T::AccountId = whitelisted_caller();
+        if caller.encode().len() != 32 {
+            return Err(BenchmarkError::Skip);
+        }
+        T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        Pallet::<T>::create_safe_pure(
+            RawOrigin::Signed(caller.clone()).into(),
+            T::ProxyType::default(),
+            BlockNumberFor::<T>::zero(),
+            0,
+        )?;
+        let height = T::BlockNumberProvider::current_block_number();
+        let ext_index = frame_system::Pallet::<T>::extrinsic_index().unwrap_or_default();
+        let pure = Pallet::<T>::safe_pure_account(&caller, &T::ProxyType::default(), 0, None)?;
+        add_proxies::<T>(p, Some(pure.clone()))?;
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(pure.clone()),
+            T::Lookup::unlookup(caller),
+            T::ProxyType::default(),
+            0,
+            height,
+            ext_index,
+        );
+        assert!(!Proxies::<T>::contains_key(pure));
+        Ok(())
+    }
+
+    #[benchmark]
     fn create_pure(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
         add_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();

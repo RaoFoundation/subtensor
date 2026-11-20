@@ -7,6 +7,7 @@ from typing import Optional
 
 from .._generated import constants
 from .._generated import storage as st
+from .._transport.errors import StorageFunctionNotFound
 from ..balance import Balance
 from .base import read
 
@@ -69,29 +70,75 @@ async def proxies(view, coldkey_ss58: str) -> dict:
 
 
 @read(
+    "proxy_announcements",
+    {"delegate_ss58": "string"},
+    category="Accounts & keys",
+    param_docs={
+        "delegate_ss58": "Delegate whose pending Proxy.announce entries to list "
+        "(announcements are keyed by the announcing delegate)."
+    },
+)
+async def proxy_announcements(view, delegate_ss58: str) -> dict:
+    """Pending delayed-proxy announcements made by a delegate, plus reserved deposit."""
+    value = await view.query(st.Proxy.Announcements, [delegate_ss58])
+    pending, deposit = value or ([], 0)
+    return {
+        "announcements": [
+            {
+                "real": str(item["real"]),
+                "call_hash": str(item["call_hash"]),
+                "height": int(item["height"]),
+            }
+            for item in pending
+        ],
+        "deposit": Balance.from_rao(int(deposit)),
+    }
+
+
+@read(
     "coldkey_swap_announcement",
     {"coldkey_ss58": "string"},
     category="Accounts & keys",
     param_docs={"coldkey_ss58": "Coldkey whose pending swap announcement to check."},
 )
 async def coldkey_swap_announcement(view, coldkey_ss58: str) -> Optional[dict]:
-    """A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.
+    """A coldkey's swap state (execute block, new-key hash, dispute, recovery lock), or None.
 
     This is the ``swap-check`` status: ``ColdkeySwapAnnouncements`` stores the block
     at which the swap becomes executable and the BlakeTwo256 hash committed to.
+    ``import_source_policies`` is the V2 policy snapshot committed with the
+    destination: True or False for V2, None for a legacy announcement. The hash,
+    snapshot and dispute state are read at the same block.
+    ``recovery_locked`` is true after root ``reset_coldkey_swap_keep_locked`` (stored
+    dispute block 0): the coldkey can only make swap calls until a successful swap or
+    a full reset, even when no announcement is pending.
     """
-    value, disputed = await asyncio.gather(
+    view = await view.at()
+
+    async def _policy_snapshot():
+        try:
+            return await view.query(st.SubtensorModule.ColdkeySwapV2PolicySnapshots, [coldkey_ss58])
+        except StorageFunctionNotFound:
+            # Older runtimes support only the legacy destination hash. Network
+            # and decoding failures must still propagate instead of implying it.
+            return None
+
+    value, dispute, policy = await asyncio.gather(
         view.query(st.SubtensorModule.ColdkeySwapAnnouncements, [coldkey_ss58]),
         view.query(st.SubtensorModule.ColdkeySwapDisputes, [coldkey_ss58]),
+        _policy_snapshot(),
     )
-    if not value:
+    recovery_locked = dispute is not None and int(dispute) == 0
+    if not value and not recovery_locked:
         return None
-    execute_block, new_coldkey_hash = value
+    execute_block, new_coldkey_hash = value if value else (None, None)
     return {
-        "execute_block": int(execute_block),
-        "new_coldkey_hash": str(new_coldkey_hash),
-        "disputed": bool(disputed),
-        "dispute_block": int(disputed) if disputed else None,
+        "execute_block": int(execute_block) if execute_block is not None else None,
+        "new_coldkey_hash": str(new_coldkey_hash) if new_coldkey_hash is not None else None,
+        "import_source_policies": policy,
+        "disputed": bool(dispute),
+        "dispute_block": int(dispute) if dispute else None,
+        "recovery_locked": recovery_locked,
     }
 
 

@@ -93,7 +93,8 @@ where
 				.pending_runtime_api()
 				.await
 				.map_err(|err| internal_err(format!("Create pending runtime api error: {err}")))?;
-			Ok(api.storage_at(hash, address, index).unwrap_or_default())
+			api.storage_at(hash, address, index)
+				.map_err(|err| internal_err(format!("Fetch pending storage failed: {err}")))
 		} else if let Ok(Some(id)) = frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),
 			self.backend.as_ref(),
@@ -180,7 +181,7 @@ where
 				.map_err(|err| internal_err(format!("Create pending runtime api error: {err}")))?;
 			Ok(api
 				.account_code_at(hash, address)
-				.unwrap_or_default()
+				.map_err(|err| internal_err(format!("Fetch pending code failed: {err}")))?
 				.into())
 		} else if let Ok(Some(id)) = frontier_backend_client::native_block_id::<B, C>(
 			self.client.as_ref(),

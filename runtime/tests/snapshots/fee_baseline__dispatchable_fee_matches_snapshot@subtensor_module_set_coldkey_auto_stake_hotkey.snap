@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_set_coldkey_auto_stake_hotkey
+expression: fee
+---
+121339

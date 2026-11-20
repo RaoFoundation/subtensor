@@ -25,7 +25,7 @@ describeSuite({
                 log(`Last finalized block was ${diff / 1000} seconds ago`);
 
                 expect(diff).to.be.lessThanOrEqual(10 * 60 * 1000); // 10 minutes in milliseconds
-                expect(api.consts.system.version.specVersion.toNumber()).to.be.greaterThan(0);
+                expect(api.runtimeVersion.specVersion.toNumber()).to.be.greaterThan(0);
             },
         });
     },

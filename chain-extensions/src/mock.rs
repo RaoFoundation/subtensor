@@ -160,6 +160,7 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for subtensor_runtime_co
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake { .. })
+                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
             ),
             _ => false,
@@ -175,6 +176,8 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for subtensor_runtime_co
 }
 
 impl pallet_proxy::Config for Test {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = subtensor_runtime_common::ProxyType;
@@ -361,6 +364,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Test {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -444,6 +448,7 @@ impl pallet_subtensor::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 // Swap-related parameter types
@@ -477,13 +482,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {
@@ -508,8 +515,10 @@ impl pallet_scheduler::Config for Test {
 }
 
 impl pallet_utility::Config for Test {
+    type SafeDerivationWeight = ();
     type RuntimeCall = RuntimeCall;
     type PalletsOrigin = OriginCaller;
+    type DerivedAccountPolicy = ();
     type WeightInfo = pallet_utility::weights::SubstrateWeight<Test>;
 }
 
@@ -546,9 +555,17 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
-            proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
+            proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
         });
         Ok(())
+    }
+
+    fn has_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> bool {
+        PROXIES.with_borrow(|proxies| proxies.0.contains(&(*lease, *beneficiary)))
+    }
+
+    fn has_delegator_proxies(_delegator: &AccountId) -> bool {
+        false
     }
 }
 
@@ -706,13 +723,13 @@ pub fn register_ok_neuron(
     let result = SubtensorModule::burned_register(origin.clone(), netuid, hotkey_account_id);
 
     match result {
-        Ok(()) => {
+        Ok(_) => {
             // success
         }
         Err(e)
-            if e == Error::<Test>::TooManyRegistrationsThisInterval.into()
-                || e == Error::<Test>::NotEnoughBalanceToStake.into()
-                || e == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
+            if e.error == Error::<Test>::TooManyRegistrationsThisInterval.into()
+                || e.error == Error::<Test>::NotEnoughBalanceToStake.into()
+                || e.error == Error::<Test>::ZeroBalanceAfterWithdrawn.into() =>
         {
             // Re-top-up and retry once (burn can be state-dependent).
             top_up_for_burn(netuid, coldkey_account_id);
@@ -748,7 +765,10 @@ pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(
+        coldkey,
+        ExistentialDeposit::get().saturating_add(lock_cost.into()),
+    );
 
     assert_ok!(SubtensorModule::register_network(
         RawOrigin::Signed(*coldkey).into(),

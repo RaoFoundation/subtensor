@@ -238,6 +238,14 @@ def get_address(name: str) -> Optional[str]:
     return None
 
 
+def get_address_entry(name_or_address: str) -> Optional[dict[str, Any]]:
+    """The address-book row for a contact name or ss58, if one exists."""
+    for entry in load_addresses():
+        if entry.get("name") == name_or_address or entry.get("address") == name_or_address:
+            return entry
+    return None
+
+
 def add_address(entry: dict[str, Any]) -> dict[str, Any]:
     name = entry.get("name")
     address = entry.get("address")
@@ -301,6 +309,9 @@ def add_multisig(entry: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("multisig entry requires threshold >= 1")
     if not isinstance(signatories, list) or not signatories:
         raise ValueError("multisig entry requires a non-empty signatories list")
+    from .account_mode import validate_account_mode
+
+    validate_account_mode(entry.get("account_mode", "legacy"))
     entries = [e for e in load_multisigs() if e.get("name") != name]
     entries.append(entry)
     save_multisigs(entries)

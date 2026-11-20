@@ -1,12 +1,40 @@
 use super::*;
+use crate::migrations::migrate_alpha_v2::retired::{Alpha, TotalHotkeyShares};
 use crate::subnets::dissolution::DissolveCleanupStatus;
-use frame_support::weights::WeightMeter;
+use crate::weights::WeightInfo;
+use frame_support::weights::{Weight, WeightMeter};
 use num_traits::ToPrimitive;
+use sp_core::Get;
+use sp_runtime::DispatchError;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
+
+/// Storage reads spent on a subnet that `unstake_all` visits but does not unstake from: the
+/// subtoken flag, the position quote, pool value, denominator and the subnet-existence
+/// check in `validate_remove_stake`. Keep the historical conservative allowance used
+/// by migration test runtimes.
+const UNSTAKE_ALL_SKIPPED_SUBNET_READS: u64 = 8;
+
+/// Work done by one `unstake_all` / `unstake_all_alpha` dispatch, reported so the call can
+/// refund its declared worst-case weight down to what it really did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UnstakeAllWork {
+    /// Subnets the loop visited.
+    pub scanned: u32,
+    /// Subnets where a position was unstaked (each is a full `remove_stake` worth of work).
+    pub legs: u32,
+    /// Subnets where `validate_remove_stake` ran. That path walks `StakingHotkeys`
+    /// (lock / collateral), so a locked skip still costs the walk, not just the
+    /// cheap quote reads.
+    pub validated: u32,
+    /// Whether the pending-root-dividend settlement point was reached.
+    pub root_checked: bool,
+    /// Pending-dividend settlement work actually performed.
+    pub flush: crate::staking::basket_flush::BasketFlushWork,
+}
 
 impl<T: Config> Pallet<T> {
     /// The implementation for the extrinsic remove_stake: Removes stake from a hotkey account and adds it onto a coldkey.
@@ -72,17 +100,16 @@ impl<T: Config> Pallet<T> {
             alpha_unstaked,
             T::SwapInterface::min_price(),
             false,
+            true,
         )?;
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 6. Check if stake lowered below MinStake and remove Pending children if it did
-        if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
-            Self::get_all_subnet_netuids().iter().for_each(|netuid| {
-                PendingChildKeys::<T>::remove(netuid, &hotkey);
-            })
-        }
+        // 6. Queue the live child relations for the threshold re-check in on_idle. Pending
+        // (not yet matured) schedules are re-checked against the threshold when they mature
+        // (`do_set_pending_children`), so no all-subnet valuation runs inside this call.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
         Ok(())
@@ -107,7 +134,31 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
-    pub fn do_unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> dispatch::DispatchResult {
+    /// Returns the work performed so the dispatch can report its actual weight.
+    pub fn do_unstake_all(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+    ) -> Result<UnstakeAllWork, DispatchError> {
+        Self::do_unstake_all_tracked(origin, hotkey).map_err(|(_, err)| err)
+    }
+
+    /// [`Self::do_unstake_all`] that, on failure, also returns the work done up to the
+    /// failing subnet so the dispatcher charges that instead of the declared envelope.
+    pub fn do_unstake_all_tracked(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+    ) -> Result<UnstakeAllWork, (UnstakeAllWork, DispatchError)> {
+        let mut work = UnstakeAllWork::default();
+        Self::do_unstake_all_into(origin, hotkey, &mut work)
+            .map(|()| work)
+            .map_err(|err| (work, err))
+    }
+
+    fn do_unstake_all_into(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        work: &mut UnstakeAllWork,
+    ) -> DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
@@ -122,32 +173,18 @@ impl<T: Config> Pallet<T> {
         let netuids = Self::get_all_subnet_netuids();
         log::debug!("All subnet netuids: {netuids:?}");
 
-        // 4. Iterate through all subnets and remove stake.
+        // 4. Iterate through subnets and remove stake, stopping at the admission
+        // envelope so the declared weight stays under the normal-class block.
         for netuid in netuids.into_iter() {
-            if !SubtokenEnabled::<T>::get(netuid) {
-                continue;
+            if work.validated >= crate::MAX_UNSTAKE_ALL_LEGS {
+                break;
             }
-            // Ensure that the hotkey has enough stake to withdraw.
-            let alpha_unstaked =
-                Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
-
-            if Self::validate_remove_stake(
-                &coldkey,
-                &hotkey,
-                netuid,
-                alpha_unstaked,
-                alpha_unstaked,
-                false,
-            )
-            .is_err()
+            if let Some(alpha_unstaked) =
+                Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
             {
-                // Don't unstake from this netuid
-                continue;
-            }
-
-            if !alpha_unstaked.is_zero() {
-                // Swap the alpha to tao and update counters for this subnet.
-                Self::unstake_from_subnet(
+                work.legs = work.legs.saturating_add(1);
+                work.root_checked |= netuid.is_root();
+                let (_, flush) = Self::unstake_from_subnet_with_flush_work(
                     &hotkey,
                     &coldkey,
                     &coldkey,
@@ -155,15 +192,141 @@ impl<T: Config> Pallet<T> {
                     alpha_unstaked,
                     T::SwapInterface::min_price(),
                     false,
+                    true,
                 )?;
-
-                // If the stake is below the minimum, we clear the nomination from storage.
+                work.flush = work.flush.saturating_add(flush);
                 Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
             }
         }
 
-        // 5. Done and ok.
+        // 5. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
+
+        // 6. Done and ok.
         Ok(())
+    }
+
+    /// Decide whether one subnet in an `unstake_all*` loop is a cheap skip, a
+    /// validated skip (locked / failed), or a position to unstake. Empty and
+    /// subtoken-disabled subnets do not consume the admission envelope, so a
+    /// later call can keep walking leftover positions.
+    fn unstake_all_consider_subnet(
+        work: &mut UnstakeAllWork,
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> Option<AlphaBalance> {
+        work.scanned = work.scanned.saturating_add(1);
+        if !SubtokenEnabled::<T>::get(netuid) {
+            return None;
+        }
+        let alpha = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
+        if alpha.is_zero() {
+            return None;
+        }
+        work.validated = work.validated.saturating_add(1);
+        if Self::validate_remove_stake(coldkey, hotkey, netuid, alpha, alpha, false).is_err() {
+            return None;
+        }
+        Some(alpha)
+    }
+
+    /// Weight of an `unstake_all`-style dispatch over `base` (the benchmarked fixed part of
+    /// the call) plus the per-subnet loop: every subnet where a position was unstaked costs
+    /// a full `remove_stake` (the same validation, swap, transfer and event work). A
+    /// validated-but-skipped subnet (locked, liquidity) still walked `StakingHotkeys`
+    /// and is charged that walk. Cheap skips (disabled / empty) cost only the quote
+    /// reads that decided to skip them.
+    /// `walk` is the `StakingHotkeys` walk every validated subnet performs, which the
+    /// `remove_stake` benchmark does not include.
+    fn unstake_all_weight(base: Weight, work: UnstakeAllWork, walk: Weight) -> Weight {
+        let cheap = u64::from(work.scanned.saturating_sub(work.validated));
+        let expensive_skips = u64::from(work.validated.saturating_sub(work.legs));
+        // Pending settlement is intentionally excluded from stake-call pricing,
+        // as in the pre-487 schedule. The work still runs synchronously.
+        base.saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                .saturating_add(walk)
+                .saturating_mul(u64::from(work.legs)),
+        )
+        .saturating_add(walk.saturating_mul(expensive_skips))
+        .saturating_add(
+            T::DbWeight::get().reads(UNSTAKE_ALL_SKIPPED_SUBNET_READS.saturating_mul(cheap)),
+        )
+    }
+
+    /// Worst case one call will admit: a full unstake on every envelope slot,
+    /// after cheap-skipping every other live subnet. The loop walks
+    /// `get_all_subnet_netuids()` and only stops once `validated` hits the
+    /// 16-leg envelope, so `scanned` can be `TotalNetworks`, not `min(16, TotalNetworks)`.
+    fn unstake_all_worst_case_work() -> UnstakeAllWork {
+        let networks = u32::from(TotalNetworks::<T>::get());
+        let cap = networks.min(crate::MAX_UNSTAKE_ALL_LEGS);
+        UnstakeAllWork {
+            scanned: networks,
+            legs: cap,
+            validated: cap,
+            root_checked: true,
+            flush: crate::staking::basket_flush::BasketFlushWork::new(
+                crate::staking::basket_flush::MAX_BASKET_ROWS.saturating_mul(6),
+                crate::staking::basket_flush::MAX_BASKET_ROWS,
+            ),
+        }
+    }
+
+    /// `StakingHotkeys` walks the declared weight of `unstake_all` and `unstake_all_alpha`
+    /// reserves: one per validated envelope slot ([`Self::unstake_all_weight`] charges a
+    /// walk for every unstaked leg and every validated skip).
+    pub fn unstake_all_declared_walks() -> u64 {
+        u64::from(Self::unstake_all_worst_case_work().validated)
+    }
+
+    /// Pre-dispatch weight of `unstake_all`: the benchmarked fixed part plus, per
+    /// envelope slot, one `remove_stake` and a `StakingHotkeys` walk at the cap,
+    /// plus cheap-skip reads for every live subnet the loop can visit
+    /// (`scanned = TotalNetworks`). Refunded to the actual work post-dispatch.
+    pub fn unstake_all_declared_weight() -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            Self::unstake_all_worst_case_work(),
+            Self::staking_hotkeys_walk_bound(),
+        )
+    }
+
+    pub fn unstake_all_declared_weight_for(_hotkey: &T::AccountId) -> Weight {
+        Self::unstake_all_declared_weight()
+    }
+
+    /// Post-dispatch weight of `unstake_all` for the work it really did.
+    pub fn unstake_all_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all(),
+            work,
+            Self::staking_hotkeys_walk_actual(coldkey),
+        )
+    }
+
+    /// Pre-dispatch weight of `unstake_all_alpha`: the benchmarked fixed part (which already
+    /// includes the final root restake) plus one `remove_stake` per envelope slot.
+    pub fn unstake_all_alpha_declared_weight() -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            Self::unstake_all_worst_case_work(),
+            Self::staking_hotkeys_walk_bound(),
+        )
+    }
+
+    pub fn unstake_all_alpha_declared_weight_for(_hotkey: &T::AccountId) -> Weight {
+        Self::unstake_all_alpha_declared_weight()
+    }
+
+    /// Post-dispatch weight of `unstake_all_alpha` for the work it really did.
+    pub fn unstake_all_alpha_actual_weight(coldkey: &T::AccountId, work: UnstakeAllWork) -> Weight {
+        Self::unstake_all_weight(
+            <T as crate::pallet::Config>::WeightInfo::unstake_all_alpha(),
+            work,
+            Self::staking_hotkeys_walk_actual(coldkey),
+        )
     }
 
     /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -188,9 +351,30 @@ impl<T: Config> Pallet<T> {
     pub fn do_unstake_all_alpha(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
-    ) -> dispatch::DispatchResult {
+    ) -> Result<UnstakeAllWork, DispatchError> {
+        Self::do_unstake_all_alpha_tracked(origin, hotkey).map_err(|(_, err)| err)
+    }
+
+    /// [`Self::do_unstake_all_alpha`] that, on failure, also returns the work done up to the
+    /// failing subnet so the dispatcher charges that instead of the declared envelope.
+    pub fn do_unstake_all_alpha_tracked(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+    ) -> Result<UnstakeAllWork, (UnstakeAllWork, DispatchError)> {
+        let mut work = UnstakeAllWork::default();
+        Self::do_unstake_all_alpha_into(origin, hotkey, &mut work)
+            .map(|()| work)
+            .map_err(|err| (work, err))
+    }
+
+    fn do_unstake_all_alpha_into(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        work: &mut UnstakeAllWork,
+    ) -> DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
+        Self::ensure_beta_basket_seed_idle()?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 
         // 2. Ensure that the hotkey account exists this is only possible through registration.
@@ -203,54 +387,41 @@ impl<T: Config> Pallet<T> {
         let netuids = Self::get_all_subnet_netuids();
         log::debug!("All subnet netuids: {netuids:?}");
 
-        // 4. Iterate through all subnets and remove stake.
+        // 4. Iterate through non-root subnets and remove stake, stopping at the
+        // admission envelope so the declared weight stays under the normal-class block.
         let mut total_tao_unstaked = TaoBalance::ZERO;
         for netuid in netuids.into_iter() {
-            if !SubtokenEnabled::<T>::get(netuid) {
+            if work.validated >= crate::MAX_UNSTAKE_ALL_LEGS {
+                break;
+            }
+            if netuid.is_root() {
+                work.scanned = work.scanned.saturating_add(1);
                 continue;
             }
-            // If not Root network.
-            if !netuid.is_root() {
-                // Ensure that the hotkey has enough stake to withdraw.
-                let alpha_unstaked =
-                    Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
-
-                if Self::validate_remove_stake(
-                    &coldkey,
+            if let Some(alpha_unstaked) =
+                Self::unstake_all_consider_subnet(work, &coldkey, &hotkey, netuid)
+            {
+                work.legs = work.legs.saturating_add(1);
+                let tao_unstaked = Self::unstake_from_subnet(
                     &hotkey,
+                    &coldkey,
+                    &coldkey,
                     netuid,
                     alpha_unstaked,
-                    alpha_unstaked,
+                    T::SwapInterface::min_price(),
                     false,
-                )
-                .is_err()
-                {
-                    // Don't unstake from this netuid
-                    continue;
-                }
-
-                if !alpha_unstaked.is_zero() {
-                    // Swap the alpha to tao and update counters for this subnet.
-                    let tao_unstaked = Self::unstake_from_subnet(
-                        &hotkey,
-                        &coldkey,
-                        &coldkey,
-                        netuid,
-                        alpha_unstaked,
-                        T::SwapInterface::min_price(),
-                        false,
-                    )?;
-
-                    // Increment total
-                    total_tao_unstaked = total_tao_unstaked.saturating_add(tao_unstaked);
-
-                    // If the stake is below the minimum, we clear the nomination from storage.
-                    Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
-                }
+                    true,
+                )?;
+                total_tao_unstaked = total_tao_unstaked.saturating_add(tao_unstaked);
+                Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
             }
         }
 
         // Stake into root.
+        work.root_checked = true;
+        let (flush, _, completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        work.flush = work.flush.saturating_add(flush);
+        ensure!(completed, Error::<T>::BasketDepositPending);
         Self::stake_into_subnet(
             &hotkey,
             &coldkey,
@@ -260,7 +431,10 @@ impl<T: Config> Pallet<T> {
             false,
         )?;
 
-        // 5. Done and ok.
+        // 5. Queue the live child relations for the threshold re-check in on_idle.
+        Self::queue_childkey_threshold_check(&hotkey);
+
+        // 6. Done and ok.
         Ok(())
     }
 
@@ -337,17 +511,16 @@ impl<T: Config> Pallet<T> {
             possible_alpha,
             limit_price,
             false,
+            true,
         )?;
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 6. Check if stake lowered below MinStake and remove Pending children if it did
-        if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
-            Self::get_all_subnet_netuids().iter().for_each(|netuid| {
-                PendingChildKeys::<T>::remove(netuid, &hotkey);
-            })
-        }
+        // 6. Queue the live child relations for the threshold re-check in on_idle. Pending
+        // (not yet matured) schedules are re-checked against the threshold when they mature
+        // (`do_set_pending_children`), so no all-subnet valuation runs inside this call.
+        Self::queue_childkey_threshold_check(&hotkey);
 
         // Done and ok.
         Ok(())
@@ -450,33 +623,24 @@ impl<T: Config> Pallet<T> {
         let pot_u128: u128 = pot_tao.into();
 
         // Compute owner's received emission in TAO at current price (ONLY if we may refund).
-        // We:
-        //      - get the current alpha issuance,
-        //      - apply owner fraction to get owner α,
-        //      - price that α using a *simulated* AMM swap.
+        // The owner α is the cumulative owner cut accrued over the subnet's life
+        // (`SubnetOwnerCutAccrued`), not `issuance × current owner share`: the share is
+        // owner-adjustable, so pricing history with it would let an owner zero the
+        // deduction right before dissolving. A subnet with no accrued entry at all
+        // falls back to the legacy `issuance × SubnetOwnerCut` deduction, never to zero.
         let mut owner_emission_tao = TaoBalance::ZERO;
         if should_refund_owner && !lock_cost.is_zero() {
-            let total_emitted_alpha_u128: u128 = Self::get_alpha_issuance(netuid).to_u64() as u128;
+            let owner_alpha_u64: u64 = Self::owner_cut_alpha_for_lock_refund(netuid).to_u64();
 
-            if total_emitted_alpha_u128 > 0 {
-                let owner_fraction: U96F32 = Self::get_float_subnet_owner_cut();
-                let owner_alpha_u64 = U96F32::from_num(total_emitted_alpha_u128)
-                    .saturating_mul(owner_fraction)
+            if owner_alpha_u64 > 0 {
+                let cur_price: U96F32 = U96F32::saturating_from_num(
+                    T::SwapInterface::current_alpha_price(netuid.into()),
+                );
+                let val_u64 = U96F32::from_num(owner_alpha_u64)
+                    .saturating_mul(cur_price)
                     .floor()
                     .saturating_to_num::<u64>();
-
-                owner_emission_tao = if owner_alpha_u64 > 0 {
-                    let cur_price: U96F32 = U96F32::saturating_from_num(
-                        T::SwapInterface::current_alpha_price(netuid.into()),
-                    );
-                    let val_u64 = U96F32::from_num(owner_alpha_u64)
-                        .saturating_mul(cur_price)
-                        .floor()
-                        .saturating_to_num::<u64>();
-                    val_u64.into()
-                } else {
-                    TaoBalance::ZERO
-                };
+                owner_emission_tao = val_u64.into();
             }
         }
 
@@ -608,13 +772,21 @@ impl<T: Config> Pallet<T> {
             }
 
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if weight_meter.can_consume(r) {
-                    weight_meter.consume(r);
+                // Row read plus the pool/row epoch reads of the retirement check.
+                let inner_reads = r.saturating_mul(3_u64);
+                if weight_meter.can_consume(inner_reads) {
+                    weight_meter.consume(inner_reads);
                 } else {
                     exhausted = true;
                 }
 
                 if this_netuid != netuid {
+                    continue;
+                }
+
+                // Rows left behind by a closed pool are worth nothing; never let the raw
+                // share fallback below revive them.
+                if Self::alpha_share_is_retired(&hot, &cold, netuid) {
                     continue;
                 }
 
@@ -697,13 +869,21 @@ impl<T: Config> Pallet<T> {
             // Drain the whole hotkey prefix once started. Weight is accounted when it
             // still fits; overshoot is allowed so the cursor can advance past this hotkey.
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                let inner_reads = r.saturating_mul(2_u64);
+                // Row read, pool valuation read, and the pool/row epoch reads of the
+                // retirement check.
+                let inner_reads = r.saturating_mul(4_u64);
                 if weight_meter.can_consume(inner_reads) {
                     weight_meter.consume(inner_reads);
                 } else {
                     exhausted = true;
                 }
                 if this_netuid != netuid {
+                    continue;
+                }
+
+                // Rows left behind by a closed pool are worth nothing; never let the raw
+                // share fallback below revive them.
+                if Self::alpha_share_is_retired(&hot, &cold, netuid) {
                     continue;
                 }
 
@@ -875,7 +1055,11 @@ impl<T: Config> Pallet<T> {
                 coldkeys.push(cold.clone());
             }
 
-            let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
+            // AlphaV2 and AlphaShareEpoch removals per coldkey. The third write
+            // covers legacy migration test runtimes.
+            let weight_for_all_remove = w
+                .saturating_mul(3_u64)
+                .saturating_mul(coldkeys.len() as u64);
             if weight_meter.can_consume(weight_for_all_remove) {
                 weight_meter.consume(weight_for_all_remove);
             } else {
@@ -885,8 +1069,11 @@ impl<T: Config> Pallet<T> {
             last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
 
             for cold in coldkeys {
-                Alpha::<T>::remove((&hot, &cold, netuid));
+                if T::LegacyAlphaCompatibility::get() {
+                    Alpha::<T>::remove((&hot, &cold, netuid));
+                }
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
+                AlphaShareEpoch::<T>::remove((&hot, &cold, netuid));
             }
 
             if exhausted {
@@ -903,23 +1090,53 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         last_key: Option<Vec<u8>>,
     ) -> (bool, Option<Vec<u8>>) {
+        let iter_read = T::DbWeight::get().reads(1);
+        // Updating TotalAlphaStaked reads and writes the aggregate; clearing a
+        // hotkey also removes TotalHotkeyAlpha, the AlphaV2 share denominator and
+        // the share-pool epoch. One legacy-denominator write remains in the
+        // conservative allowance for migration test runtimes.
+        let removal_weight = T::DbWeight::get().reads_writes(1, 5);
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
             None => TotalHotkeyAlpha::<T>::iter(),
         };
 
-        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
-            weight_meter,
-            iter,
-            |(_, nu, _)| *nu == netuid,
-            |(hotkey, _, _)| hotkey,
-            |hotkey| {
-                TotalHotkeyAlpha::<T>::remove(hotkey, netuid);
-                TotalHotkeyShares::<T>::remove(hotkey, netuid);
-                TotalHotkeySharesV2::<T>::remove(hotkey, netuid);
-            },
-            3,
-        );
+        let mut read_all = true;
+        let mut last_item = None;
+        let mut to_remove = Vec::new();
+
+        for item @ (_, this_netuid, _) in iter {
+            if !weight_meter.can_consume(iter_read) {
+                read_all = false;
+                break;
+            }
+            weight_meter.consume(iter_read);
+
+            if this_netuid == netuid {
+                if !weight_meter.can_consume(removal_weight) {
+                    read_all = false;
+                    break;
+                }
+                weight_meter.consume(removal_weight);
+                to_remove.push((item.0.clone(), item.2));
+            }
+            last_item = Some(item);
+        }
+
+        for (hotkey, alpha) in to_remove {
+            crate::migrations::migrate_total_alpha_staked::apply_live_delta::<T>(
+                &hotkey,
+                netuid,
+                alpha,
+                AlphaBalance::ZERO,
+            );
+            TotalHotkeyAlpha::<T>::remove(&hotkey, netuid);
+            if T::LegacyAlphaCompatibility::get() {
+                TotalHotkeyShares::<T>::remove(&hotkey, netuid);
+            }
+            TotalHotkeySharesV2::<T>::remove(&hotkey, netuid);
+            AlphaSharePoolEpoch::<T>::remove(&hotkey, netuid);
+        }
 
         (
             read_all,

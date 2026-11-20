@@ -435,10 +435,12 @@ fn validate_and_classify_stores_effective_swap_limit_for_buy() {
             o
         };
         let versioned = crate::VersionedOrder::V1(new_inner.clone());
-        let sig = AccountKeyring::Alice.pair().sign(&versioned.encode());
+        let sig = AccountKeyring::Alice
+            .pair()
+            .sign(&order_signing_payload(&versioned));
         let signed_with_slippage = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
 
@@ -478,10 +480,12 @@ fn validate_and_classify_stores_effective_swap_limit_for_sell() {
             partial_fills_enabled: false,
         };
         let versioned = crate::VersionedOrder::V1(new_inner);
-        let sig = AccountKeyring::Alice.pair().sign(&versioned.encode());
+        let sig = AccountKeyring::Alice
+            .pair()
+            .sign(&order_signing_payload(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
-            signature: sp_runtime::MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
 
@@ -649,6 +653,7 @@ fn make_buy_entry(
 ) -> OrderEntry<AccountId> {
     OrderEntry {
         order_id,
+        authorization_nonce: None,
         signer,
         hotkey,
         side: OrderType::LimitBuy,
@@ -659,6 +664,8 @@ fn make_buy_entry(
         fee_recipient,
         effective_swap_limit: u64::MAX, // no slippage constraint
         partial_fill: None,
+        has_linked_order: false,
+        provider: None,
     }
 }
 
@@ -669,9 +676,80 @@ fn bounded_buy_entries(
 }
 
 fn bounded_sell_entries(
-    v: Vec<OrderEntry<AccountId>>,
+    mut v: Vec<OrderEntry<AccountId>>,
 ) -> BoundedVec<OrderEntry<AccountId>, ConstU32<64>> {
+    for entry in &mut v {
+        entry.side = OrderType::TakeProfit;
+        entry.effective_swap_limit = 0; // an unconstrained seller has no floor
+    }
     BoundedVec::try_from(v).unwrap()
+}
+
+// PROTECTED_REGRESSION: rounded allocations enforce each price limit before fees and partial fill bookkeeping; changes require explicit human approval.
+#[test]
+fn rounded_allocations_enforce_each_price_limit_before_fees_and_partial_fill_bookkeeping() {
+    for buy in [false, true] {
+        for below_limit in [false, true] {
+            new_test_ext().execute_with(|| {
+                let pallet_acct = PalletHotkeyAccount::get();
+                let mut entry = make_buy_entry(
+                    H256::repeat_byte(90),
+                    alice(),
+                    bob(),
+                    10_000,
+                    if buy { 9_900 } else { 10_000 },
+                    Perbill::from_percent(1),
+                    fee_recipient(),
+                );
+                entry.order_amount = 20_000;
+                entry.partial_fill = Some(10_000);
+                entry.effective_swap_limit = if buy { 1_000_000_000 } else { 990_000_000 };
+                if !buy {
+                    entry.side = OrderType::StopLoss;
+                }
+                let id = entry.order_id;
+                let entries = bounded_buy_entries(vec![entry]);
+                let output = if below_limit { 9_899 } else { 9_900 };
+                let result = if buy {
+                    LimitOrders::<Test>::distribute_alpha_pro_rata(
+                        &entries,
+                        output,
+                        9_900,
+                        0,
+                        &OrderSide::Buy,
+                        U64F64::from_num(1),
+                        &pallet_acct,
+                        &pallet_acct,
+                        netuid(),
+                    )
+                } else {
+                    LimitOrders::<Test>::distribute_tao_pro_rata(
+                        &entries,
+                        output,
+                        0,
+                        10_000,
+                        &OrderSide::Sell,
+                        U64F64::from_num(1),
+                        &pallet_acct,
+                        netuid(),
+                    )
+                    .map(|fees| assert_eq!(fees, vec![(fee_recipient(), 99)]))
+                };
+                if below_limit {
+                    assert_eq!(
+                        result,
+                        Err(crate::Error::<Test>::PriceConditionNotMet.into())
+                    );
+                    assert!(MockSwap::alpha_transfers().is_empty());
+                    assert!(MockSwap::tao_transfers().is_empty());
+                    assert!(!Orders::<Test>::contains_key(id));
+                } else {
+                    assert_ok!(result);
+                    assert!(Orders::<Test>::contains_key(id));
+                }
+            });
+        }
+    }
 }
 
 #[test]
@@ -1409,10 +1487,6 @@ fn collect_fees_no_transfer_when_zero_fees() {
 use crate::Error;
 use codec::Encode;
 use sp_core::Pair;
-use sp_runtime::{
-    MultiSignature, MultiSigner,
-    traits::{IdentifyAccount, Verify},
-};
 use subtensor_swap_interface::OrderSwapInterface;
 
 fn make_valid_signed_order() -> (crate::SignedOrder<AccountId>, sp_core::H256) {
@@ -1433,10 +1507,10 @@ fn make_valid_signed_order() -> (crate::SignedOrder<AccountId>, sp_core::H256) {
         partial_fills_enabled: false,
     });
     let id = H256(sp_io::hashing::blake2_256(&order.encode()));
-    let sig = keyring.pair().sign(&order.encode());
+    let sig = keyring.pair().sign(&order_signing_payload(&order));
     let signed = crate::SignedOrder {
         order,
-        signature: MultiSignature::Sr25519(sig),
+        signature: crate::OrderSignature::Sr25519(sig),
         partial_fill: None,
     };
     (signed, id)
@@ -1465,9 +1539,11 @@ fn is_order_valid_invalid_signature_returns_error() {
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
         let (mut signed, id) = make_valid_signed_order();
-        // Replace with a signature from a different key.
-        let wrong_sig = AccountKeyring::Bob.pair().sign(&signed.order.encode());
-        signed.signature = MultiSignature::Sr25519(wrong_sig);
+        // Replace with a signature over the correct payload but from a different key.
+        let wrong_sig = AccountKeyring::Bob
+            .pair()
+            .sign(&order_signing_payload(&signed.order));
+        signed.signature = crate::OrderSignature::Sr25519(wrong_sig);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
             LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
@@ -1477,23 +1553,39 @@ fn is_order_valid_invalid_signature_returns_error() {
 }
 
 #[test]
-fn is_order_valid_accepts_raw_ed25519_signature() {
+fn is_order_valid_accepts_ed25519_signature() {
     new_test_ext().execute_with(|| {
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
-        let (signed, _) = make_valid_signed_order();
+
+        // The `signer` field must match the ed25519 public key, so derive the
+        // AccountId from the ed25519 pair rather than reusing Alice's sr25519 key.
         let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
+        let ed_signer = AccountId::from(ed_pair.public());
+
         let order = crate::VersionedOrder::V1(crate::Order {
-            signer: AccountId::from(ed_pair.public()),
-            ..signed.order.inner().clone()
+            signer: ed_signer,
+            hotkey: AccountKeyring::Bob.to_account_id(),
+            netuid: netuid(),
+            order_type: OrderType::LimitBuy,
+            amount: 1_000,
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            fee_rate: Perbill::zero(),
+            fee_recipient: fee_recipient(),
+            relayer: None,
+            max_slippage: None,
+            chain_id: 945,
+            partial_fills_enabled: false,
         });
         let id = H256(sp_io::hashing::blake2_256(&order.encode()));
-        let signature = ed_pair.sign(&order.encode());
+        let ed_sig = ed_pair.sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(signature),
+            signature: crate::OrderSignature::Ed25519(ed_sig),
             partial_fill: None,
         };
+
         let price = MockSwap::current_alpha_price(netuid());
         assert_ok!(LimitOrders::<Test>::is_order_valid(
             &signed,
@@ -1506,73 +1598,25 @@ fn is_order_valid_accepts_raw_ed25519_signature() {
 }
 
 #[test]
-fn is_order_valid_accepts_wrapped_sr25519_signature() {
+fn is_order_valid_rejects_ecdsa_signature() {
     new_test_ext().execute_with(|| {
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
-        let (mut signed, id) = make_valid_signed_order();
-        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
-        signed.signature = MultiSignature::Sr25519(AccountKeyring::Alice.pair().sign(&payload));
-        let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
-    });
-}
 
-#[test]
-fn is_order_valid_accepts_wrapped_ed25519_signature() {
-    new_test_ext().execute_with(|| {
-        MockTime::set(1_000_000);
-        MockSwap::set_price(1.0);
-        let (signed, _) = make_valid_signed_order();
-        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
-        let order = crate::VersionedOrder::V1(crate::Order {
-            signer: AccountId::from(ed_pair.public()),
-            ..signed.order.inner().clone()
-        });
-        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
-        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        // Even a valid ecdsa signature over the correct payload must be rejected:
+        // only sr25519 and ed25519 are accepted.
+        let (order, id) = {
+            let (signed, id) = make_valid_signed_order();
+            (signed.order, id)
+        };
+        let ecdsa_pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
+        let ecdsa_sig = ecdsa_pair.sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_pair.sign(&payload)),
+            signature: crate::OrderSignature::Ecdsa(ecdsa_sig),
             partial_fill: None,
         };
-        let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
-    });
-}
 
-#[test]
-fn is_order_valid_ecdsa_signature_returns_error() {
-    new_test_ext().execute_with(|| {
-        MockTime::set(1_000_000);
-        MockSwap::set_price(1.0);
-        let (signed, _) = make_valid_signed_order();
-        let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
-        let signer = MultiSigner::from(pair.public()).into_account();
-        let order = crate::VersionedOrder::V1(crate::Order {
-            signer,
-            ..signed.order.inner().clone()
-        });
-        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
-        let signature = MultiSignature::Ecdsa(pair.sign(&order.encode()));
-        assert!(signature.verify(order.encode().as_slice(), &order.inner().signer));
-        let signed = crate::SignedOrder {
-            order,
-            signature,
-            partial_fill: None,
-        };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
             LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
@@ -1609,10 +1653,10 @@ fn is_order_valid_expired_order_returns_error() {
             ..signed.order.inner().clone()
         });
         let id2 = H256(sp_io::hashing::blake2_256(&order.encode()));
-        let sig = keyring.pair().sign(&order.encode());
+        let sig = keyring.pair().sign(&order_signing_payload(&order));
         let signed2 = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
         let price = MockSwap::current_alpha_price(netuid());
@@ -1646,10 +1690,10 @@ fn is_order_valid_price_condition_not_met_returns_error() {
             partial_fills_enabled: false,
         });
         let id = H256(sp_io::hashing::blake2_256(&order.encode()));
-        let sig = keyring.pair().sign(&order.encode());
+        let sig = keyring.pair().sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
         let price = MockSwap::current_alpha_price(netuid());
@@ -1672,16 +1716,164 @@ fn is_order_valid_wrong_chain_id_returns_error() {
             ..make_valid_signed_order().0.order.inner().clone()
         });
         let id = H256(sp_io::hashing::blake2_256(&order.encode()));
-        let sig = keyring.pair().sign(&order.encode());
+        let sig = keyring.pair().sign(&order_signing_payload(&order));
         let signed = crate::SignedOrder {
             order,
-            signature: MultiSignature::Sr25519(sig),
+            signature: crate::OrderSignature::Sr25519(sig),
             partial_fill: None,
         };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
             LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::ChainIdMismatch
+        );
+    });
+}
+
+#[test]
+fn is_order_valid_accepts_raw_sr25519_signature() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+
+        // Legacy raw form: sign the SCALE-encoded order directly (NOT the
+        // `<Bytes>…</Bytes>`-wrapped hash). This exercises the `verify_order`
+        // branch of the `verify_order(..) || verify_wrapped(..)` check.
+        let keyring = AccountKeyring::Alice;
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer: keyring.to_account_id(),
+            hotkey: AccountKeyring::Bob.to_account_id(),
+            netuid: netuid(),
+            order_type: OrderType::LimitBuy,
+            amount: 1_000,
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            fee_rate: Perbill::zero(),
+            fee_recipient: fee_recipient(),
+            relayer: None,
+            max_slippage: None,
+            chain_id: 945,
+            partial_fills_enabled: false,
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        // Sign the raw encoded order, not the wrapped payload.
+        let sig = keyring.pair().sign(&order.encode());
+        let signed = crate::SignedOrder {
+            order,
+            signature: crate::OrderSignature::Sr25519(sig),
+            partial_fill: None,
+        };
+
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
+fn is_order_valid_accepts_raw_ed25519_signature() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+
+        // ed25519 signer over the RAW encoded order (legacy form). The `signer`
+        // field must be the ed25519 public key for verification to succeed.
+        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
+        let ed_signer = AccountId::from(ed_pair.public());
+
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer: ed_signer,
+            hotkey: AccountKeyring::Bob.to_account_id(),
+            netuid: netuid(),
+            order_type: OrderType::LimitBuy,
+            amount: 1_000,
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            fee_rate: Perbill::zero(),
+            fee_recipient: fee_recipient(),
+            relayer: None,
+            max_slippage: None,
+            chain_id: 945,
+            partial_fills_enabled: false,
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        // Sign the raw encoded order, not the wrapped payload.
+        let ed_sig = ed_pair.sign(&order.encode());
+        let signed = crate::SignedOrder {
+            order,
+            signature: crate::OrderSignature::Ed25519(ed_sig),
+            partial_fill: None,
+        };
+
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
+fn verify_order_and_verify_wrapped_unit() {
+    new_test_ext().execute_with(|| {
+        let keyring = AccountKeyring::Alice;
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer: keyring.to_account_id(),
+            hotkey: AccountKeyring::Bob.to_account_id(),
+            netuid: netuid(),
+            order_type: OrderType::LimitBuy,
+            amount: 1_000,
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            fee_rate: Perbill::zero(),
+            fee_recipient: fee_recipient(),
+            relayer: None,
+            max_slippage: None,
+            chain_id: 945,
+            partial_fills_enabled: false,
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+
+        // Raw-signed order: signature over `order.encode()`.
+        // verify_order must accept it; verify_wrapped must reject it.
+        let raw_sig = keyring.pair().sign(&order.encode());
+        let raw_signed = crate::SignedOrder {
+            order: order.clone(),
+            signature: crate::OrderSignature::Sr25519(raw_sig),
+            partial_fill: None,
+        };
+        assert!(
+            LimitOrders::<Test>::verify_order(&raw_signed),
+            "raw-signed order must pass verify_order"
+        );
+        assert!(
+            !LimitOrders::<Test>::verify_wrapped(&raw_signed, id),
+            "raw-signed order must NOT pass verify_wrapped"
+        );
+
+        // Wrapped-signed order: signature over the `<Bytes>…</Bytes>` payload.
+        // verify_wrapped must accept it; verify_order must reject it.
+        let wrapped_sig = keyring.pair().sign(&order_signing_payload(&order));
+        let wrapped_signed = crate::SignedOrder {
+            order,
+            signature: crate::OrderSignature::Sr25519(wrapped_sig),
+            partial_fill: None,
+        };
+        assert!(
+            !LimitOrders::<Test>::verify_order(&wrapped_signed),
+            "wrapped-signed order must NOT pass verify_order"
+        );
+        assert!(
+            LimitOrders::<Test>::verify_wrapped(&wrapped_signed, id),
+            "wrapped-signed order must pass verify_wrapped"
         );
     });
 }
@@ -1695,7 +1887,7 @@ fn compute_order_status_no_partial_fill_returns_fulfilled() {
     new_test_ext().execute_with(|| {
         let id = H256::repeat_byte(1);
         // No existing state, no partial fill → Fulfilled immediately.
-        let status = LimitOrders::<Test>::compute_order_status(id, None, 1_000);
+        let status = LimitOrders::<Test>::compute_order_status(&alice(), None, id, None, 1_000);
         assert_eq!(status, OrderStatus::Fulfilled);
     });
 }
@@ -1705,7 +1897,8 @@ fn compute_order_status_partial_fill_below_total_returns_partially_filled() {
     new_test_ext().execute_with(|| {
         let id = H256::repeat_byte(2);
         // First partial fill of 400 on a 1000-unit order → PartiallyFilled(400).
-        let status = LimitOrders::<Test>::compute_order_status(id, Some(400), 1_000);
+        let status =
+            LimitOrders::<Test>::compute_order_status(&alice(), None, id, Some(400), 1_000);
         assert_eq!(status, OrderStatus::PartiallyFilled(400));
     });
 }
@@ -1715,7 +1908,8 @@ fn compute_order_status_partial_fill_exact_total_returns_fulfilled() {
     new_test_ext().execute_with(|| {
         let id = H256::repeat_byte(3);
         // Single partial fill that equals the full order amount → Fulfilled.
-        let status = LimitOrders::<Test>::compute_order_status(id, Some(1_000), 1_000);
+        let status =
+            LimitOrders::<Test>::compute_order_status(&alice(), None, id, Some(1_000), 1_000);
         assert_eq!(status, OrderStatus::Fulfilled);
     });
 }
@@ -1728,7 +1922,8 @@ fn compute_order_status_accumulates_previous_partial_fill() {
         Orders::<Test>::insert(id, OrderStatus::PartiallyFilled(300));
 
         // Second fill of 400 → 300 + 400 = 700, still below 1000.
-        let status = LimitOrders::<Test>::compute_order_status(id, Some(400), 1_000);
+        let status =
+            LimitOrders::<Test>::compute_order_status(&alice(), None, id, Some(400), 1_000);
         assert_eq!(status, OrderStatus::PartiallyFilled(700));
     });
 }
@@ -1740,7 +1935,8 @@ fn compute_order_status_completes_order_when_accumulated_total_reaches_amount() 
         Orders::<Test>::insert(id, OrderStatus::PartiallyFilled(600));
 
         // Fill the remaining 400 → 600 + 400 = 1000 = order_amount → Fulfilled.
-        let status = LimitOrders::<Test>::compute_order_status(id, Some(400), 1_000);
+        let status =
+            LimitOrders::<Test>::compute_order_status(&alice(), None, id, Some(400), 1_000);
         assert_eq!(status, OrderStatus::Fulfilled);
     });
 }
@@ -1752,7 +1948,7 @@ fn compute_order_status_ignores_fulfilled_storage_when_no_partial_fill() {
         // If somehow called with no partial_fill regardless of what's in storage
         // (should not happen in practice) it still returns Fulfilled.
         Orders::<Test>::insert(id, OrderStatus::PartiallyFilled(500));
-        let status = LimitOrders::<Test>::compute_order_status(id, None, 1_000);
+        let status = LimitOrders::<Test>::compute_order_status(&alice(), None, id, None, 1_000);
         assert_eq!(status, OrderStatus::Fulfilled);
     });
 }

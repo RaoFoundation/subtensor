@@ -44,7 +44,7 @@ mod errors {
         /// Unsuccessfully withdraw, balance could be zero (can not make account exist) after
         /// withdrawal.
         ZeroBalanceAfterWithdrawn,
-        /// The caller is attempting to set non-self weights without being a permitted validator.
+        /// The caller is setting non-self weights or a service without being a permitted validator.
         NeuronNoValidatorPermit,
         /// The caller is attempting to set the weight keys and values but these vectors have
         /// different size.
@@ -105,7 +105,8 @@ mod errors {
         NotSubnetOwner,
         /// Operation is not permitted on the root subnet.
         RegistrationNotPermittedOnRootSubnet,
-        /// A hotkey with too little stake is attempting to join the root subnet.
+        /// A root registrant must hold at least as much root stake as the seat it
+        /// would evict.
         StakeTooLowForRoot,
         /// All subnets are in the immunity period.
         AllNetworksInImmunity,
@@ -136,7 +137,8 @@ mod errors {
         AlphaHighTooLow,
         /// Alpha low is out of range: alpha_low > 0 && alpha_low < 0.8
         AlphaLowOutOfRange,
-        /// The coldkey has already been swapped
+        /// Retired: coldkey swaps into an already-used destination now merge.
+        /// Kept for SCALE error-index stability; never returned by current runtimes.
         ColdKeyAlreadyAssociated,
         /// The coldkey balance is not enough to pay for the swap
         NotEnoughBalanceToPaySwapColdKey,
@@ -271,12 +273,8 @@ mod errors {
         TrimmingWouldExceedMaxImmunePercentage,
         /// Violating the rules of Childkey-Parentkey consistency
         ChildParentInconsistency,
-        /// Invalid number of root claims
-        InvalidNumRootClaim,
         /// Invalid value of root claim threshold
         InvalidRootClaimThreshold,
-        /// Exceeded subnet limit number or zero.
-        InvalidSubnetNumber,
         /// The maximum allowed UIDs times mechanism count should not exceed 256.
         TooManyUIDsPerMechanism,
         /// Voting power tracking is not enabled for this subnet.
@@ -346,7 +344,164 @@ mod errors {
         /// with miner collateral on the subnet
         /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
         ColdkeyCollateralPositionsFull,
-        /// The coldkey has too many staking hotkeys for a single manual root claim.
-        TooManyRootClaimHotkeys,
+        /// Retired (kept for SCALE index stability): direct basket deposits into a fund
+        /// with no holdings are held as the fund's root (TAO cash) slot instead of
+        /// erroring.
+        BasketHasNoWeights,
+        /// Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window
+        /// (measured from the last root stake add/remove/claim for that coldkey/hotkey) and
+        /// cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.
+        RootStakeLocked,
+        /// The `migrate_seed_beta_basket_v2` seed has not completed. Basket deposits, claims,
+        /// coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are
+        /// paused until it finishes so snapshotted conversion cannot desync from live stake
+        /// (`Σ owed == BasketShares`).
+        BetaBasketSeedInProgress,
+        /// Retired (kept for SCALE index stability): the `set_root_weights` extrinsic and
+        /// its network-wide gate were removed. Funds have no target vector; dividends
+        /// accumulate in place and composition changes only through `swap_basket`.
+        RootWeightSettingDisabled,
+        /// A root claim would process more root hotkeys and basket rows than the
+        /// fixed admission envelope. Use
+        /// `claim_root_with_hotkey` per validator so admission weight matches
+        /// the holdings actually walked.
+        RootClaimTooHeavy,
+        /// Retired (kept for SCALE index stability on the 463 testnet/devnet runtime):
+        /// `set_root_weights` concentration cap. The live guard is
+        /// [`Error::BasketConcentrationCapExceeded`].
+        RootWeightCapExceeded,
+        /// A queued root-dividend deposit could not be settled. Operations which change
+        /// the hotkey's root claimant base must retry after the deposit becomes executable.
+        BasketDepositPending,
+        /// A per-subnet weight batch is empty or has more items than there are networks.
+        InvalidBatchLength,
+        /// The destination coldkey already stakes through the maximum number of hotkeys
+        /// that third-party transfers may add, or the signer's own `StakingHotkeys` list is
+        /// at its cap. Staking to a hotkey the coldkey already stakes through is still
+        /// accepted.
+        TooManyStakingHotkeys,
+        /// The coldkey stakes through more hotkeys, holds more stake positions, or with the destination
+        /// holds more gamma deposits, than a coldkey swap can move in one call. Consolidate first.
+        ColdkeySwapTooHeavy,
+        /// A `swap_basket` buy would leave the destination holding above
+        /// [`crate::BasketConcentrationCap`] of fund NAV (holdings marked at realizable
+        /// value). With the cap at 1/16 a traded fund must spread across at least 16
+        /// holdings. Not enforced while the chain has fewer subnets than the cap demands.
+        BasketConcentrationCapExceeded,
+        /// `swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).
+        BasketTradingDisabled,
+        /// Basket trading is frozen for this validator hotkey by governance
+        /// ([`crate::BasketTradingFrozen`]).
+        BasketTradingFrozen,
+        /// The trade would push more TAO through the fund than its turnover bucket holds
+        /// ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over
+        /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade
+        /// a smaller amount.
+        BasketTurnoverBudgetExceeded,
+        /// `swap_basket` origin and destination are the same subnet.
+        BasketSameSubnet,
+        /// The trade would leave the fund holding more of the destination subnet than
+        /// [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve.
+        /// Trade a smaller amount or pick a deeper pool.
+        BasketLiquidityCapExceeded,
+        /// The `swap_basket` buy leg credited less than the caller's `min_amount_out`
+        /// (destination alpha, or TAO when the destination is root). The trade rolled
+        /// back. Re-quote and retry, or lower the floor.
+        BasketMinOutNotMet,
+        /// A `swap_basket_many` call contained no trade legs. Submit at least one leg;
+        /// the bounded call argument enforces the maximum at decode time.
+        BasketSwapBatchEmpty,
+        /// Ciphertext exceeds the selected consensus mode's payload limit.
+        CommitPayloadTooLarge,
+        /// The subnet's shared Null timelock queue has reached its byte or count budget.
+        CommitQueueFull,
+        /// The recipient refuses a new staking hotkey introduced by another account.
+        AccountRejectsStakingHotkeyGrowth,
+        /// `set_subnet_emission_weights`: `uids` and `values` must have the same length;
+        /// each uid names the slot the matching value sets.
+        EmissionWeightsLengthMismatch,
+        /// `set_subnet_emission_weights`: valid slots are 0 burn, 1 recycle, 2 owner,
+        /// 3 validator, 4 miner. Higher (gamma) slots are reserved and not yet settable.
+        EmissionWeightIndexOutOfRange,
+        /// `set_subnet_emission_weights`: each slot may appear at most once per call.
+        EmissionWeightIndexDuplicated,
+        /// `set_subnet_emission_weights`: after merging with the current vector the five
+        /// slots must sum to exactly one (`u64::MAX` parts). Renormalize before resubmitting;
+        /// `btcli subnets emission set-value` does this automatically.
+        EmissionWeightsDoNotSumToOne,
+        /// Deprecated: burn may be non-zero; the combined burn+recycle cap is
+        /// [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable.
+        BurnEmissionMustBeZero,
+        /// Deprecated: recycle may be non-zero; the combined burn+recycle cap is
+        /// [`Error::BurnRecycleEmissionAboveMaximum`]. Kept so SCALE error indices stay stable.
+        RecycleEmissionMustBeZero,
+        /// `set_subnet_emission_weights`: the owner cut (slot 2) may be at most 33% of
+        /// emission.
+        OwnerEmissionAboveMaximum,
+        /// `set_subnet_emission_weights`: this subnet was created through a lease, so its
+        /// owner cut (slot 2) may not drop below the launch default (18%) and squeeze lease
+        /// dividends. Root is bound by this rule too.
+        LeasedSubnetOwnerCutBelowMinimum,
+        /// `set_subnet_emission_weights`: the validator share (slot 3) may be at most 50% of
+        /// emission.
+        ValidatorEmissionAboveMaximum,
+        /// `set_subnet_emission_weights`: root is paid its baseline share of this subnet's
+        /// emission (what root earns here with the default validator share and the global
+        /// `TaoWeight`) off the top of the validator slot every block, and alpha validators
+        /// get the rest. The requested validator share (slot 3) is at or below root's
+        /// baseline share right now, so validators would receive nothing. Raise the
+        /// validator share above the baseline and resubmit.
+        ValidatorEmissionTooLowToPreserveRoot,
+        /// `set_subnet_emission_weights`: the miner share (slot 4) must be at least 33% of
+        /// emission.
+        MinerEmissionBelowMinimum,
+        /// `set_subnet_emission_weights`: the root subnet has no emission vector.
+        EmissionWeightsNotSettableOnRoot,
+        /// This account is reserved as the destination of an in-flight coldkey-swap
+        /// announcement, so it cannot be registered as a hotkey (and another coldkey
+        /// cannot announce to it) until that announcement is executed, cleared,
+        /// released by the destination, reset, or the reservation TTL expires.
+        /// Prevents recovery-delay griefing after announce reveals the dest.
+        ColdkeySwapDestinationReserved,
+        /// No live coldkey-swap destination reservation exists for this account.
+        ColdkeySwapDestinationReservationNotFound,
+        /// An ownership change would weaken a protected account's authorization.
+        HotkeyOwnerPolicyViolation,
+        /// Minting gamma needs a TAO/USD feed at most 300 blocks old.
+        TaoUsdPriceUnavailable,
+        /// Gamma minting is disabled network-wide or on this subnet.
+        GammaDisabled,
+        /// The coldkey would hold more than 64 gamma deposits on this subnet.
+        TooManyGammaDeposits,
+        /// The hotkey holds no gamma deposit on this subnet.
+        GammaDepositDoesNotExist,
+        /// A gamma deposit with a balance cannot be closed.
+        GammaDepositNotEmpty,
+        /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
+        GammaDepositSpenderMismatch,
+        /// A mint named a daily spend cap other than its gamma deposit's.
+        GammaDepositDailySpendCapMismatch,
+        /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
+        NotGammaDepositSpender,
+        /// The gamma deposit's balance is below the amount.
+        InsufficientGammaBalance,
+        /// The amount is above what the gamma deposit's daily spend cap allows now.
+        GammaDepositDailySpendCapExceeded,
+        /// `set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be
+        /// at most 33% of emission.
+        BurnRecycleEmissionAboveMaximum,
+        /// `set_subnet_emission_weights_v2`: the split's slots are not in strictly ascending order.
+        EmissionSlotsNotAscending,
+        /// `set_subnet_emission_weights_v2`: a gamma share may be at most 10% of emission.
+        GammaEmissionAboveMaximum,
+        /// `set_subnet_emission_weights_v2`: a gamma share names a subnet that is not whitelisted
+        /// for gamma emission.
+        GammaEmissionTargetNotWhitelisted,
+        /// `set_subnet_emission_weights_v2`: a split may have at most 16 gamma shares.
+        TooManyGammaShares,
+        /// `set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.
+        GammaEmissionNotSettableOnLeasedSubnet,
+        /// The hotkey has no service on this subnet.
+        ServiceDoesNotExist,
     }
 }

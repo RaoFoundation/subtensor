@@ -14,6 +14,7 @@ Storage model:
 - unseeded items fall back to ``DEFAULT_STORAGE`` (permissive values chosen so
   intent pre-flight checks pass: the hotkey is registered, no rate limits,
   commit-reveal off), then to ``None`` — exactly what a miss decodes to.
+- unseeded entries in ``missing_storage`` model absent runtime metadata.
 
 Writes are recorded, never applied: ``submit`` appends to ``submissions`` and
 returns the next queued :class:`ExtrinsicResult` (default: success). Chain
@@ -27,9 +28,11 @@ from hashlib import blake2b
 from typing import Any, AsyncIterator, Optional
 
 from bittensor._transport import codec as codec_mod
-from bittensor._transport.contract import MultisigAccount
+from bittensor._transport.contract import HashedSigningSnapshot, MultisigAccount
+from bittensor._transport.errors import StorageFunctionNotFound
 from bittensor.balance import Balance
 from bittensor.result import ExtrinsicResult
+from bittensor.settings import DEFAULT_ERA_PERIOD
 
 # Value returned for storage items not seeded by the test. Keyed by
 # (module, item); chosen so intent build/warnings pre-flight checks pass.
@@ -47,12 +50,15 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "NetworksAdded"): True,
     ("SubtensorModule", "BlocksSinceLastStep"): 0,
     ("SubtensorModule", "Burn"): 10**9,
+    ("SubtensorModule", "TotalAlphaStaked"): 0,
     ("SubtensorModule", "Difficulty"): 10**7,
     ("SubtensorModule", "ImmunityPeriod"): 4096,
     ("SubtensorModule", "SubnetworkN"): 0,
     ("SubtensorModule", "NetworkRegisteredAt"): 0,
     ("SubtensorModule", "SubnetLocked"): 10**9,
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
+    ("SubtensorModule", "SubnetGammaEmissionWhitelisted"): False,
+    ("SubtensorModule", "GammaSpent"): 0,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
 }
@@ -60,6 +66,8 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
 DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Aura", "SlotDuration"): 12_000,
     ("Balances", "ExistentialDeposit"): 500,
+    ("Multisig", "DepositBase"): 132_000_000,
+    ("Multisig", "DepositFactor"): 32_000_000,
     ("SubtensorModule", "InitialStartCallDelay"): 100,
 }
 
@@ -69,13 +77,28 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
 DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
+    ("BetaBasketRuntimeApi", "get_validator_basket"): [],
+    # 1 TAO buys 1 alpha worth 1 TAO, minting 400 gamma.
+    ("GammaRuntimeApi", "sim_mint_gamma"): {"Ok": (10**9, 10**9, 400 * 10**9)},
+    ("GammaRuntimeApi", "sim_mint_gamma_with_stake"): {"Ok": (10**9, 10**9, 400 * 10**9)},
+    # 1 alpha staked, for the mint_gamma_with_stake sample.
+    ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**9},
 }
 
 GENESIS_HASH = "0x" + "00" * 32
 
 
+def _freeze(value: Any) -> Any:
+    """Hashable stand-in for a storage key part; enum keys arrive as dicts."""
+    if isinstance(value, dict):
+        return tuple((k, _freeze(v)) for k, v in value.items())
+    if isinstance(value, list):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
 def _key(params: Optional[list]) -> tuple:
-    return tuple(params or [])
+    return tuple(_freeze(p) for p in (params or []))
 
 
 class ComposedCall:
@@ -129,12 +152,22 @@ class FakeSubstrate:
         self.connected = False
         self.closed = False
         self.block = 100
+        self.finalized = 100
         self.runtime_spec_version = 300
 
         # (module, item) -> {params-tuple: value}
         self._storage: dict[tuple[str, str], dict[tuple, Any]] = defaultdict(dict)
         # (module, item) -> value answering any key
         self._storage_defaults: dict[tuple[str, str], Any] = {}
+        # Default fixtures model the legacy deposit constants; seeding this
+        # storage item opts into the configurable runtime's metadata.
+        # The owner lock aggregates exist only in older runtimes' metadata;
+        # seeding one opts into that layout.
+        self.missing_storage = {
+            ("HashedAccounts", "HashedAccountRegistrationDeposit"),
+            ("SubtensorModule", "OwnerLock"),
+            ("SubtensorModule", "DecayingOwnerLock"),
+        }
         # (module, item) -> [(key, value)] for query_map
         self._maps: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
         self._constants: dict[tuple[str, str], Any] = dict(DEFAULT_CONSTANTS)
@@ -151,6 +184,9 @@ class FakeSubstrate:
         # Results handed out by submit/submit_signed/submit_multisig, FIFO;
         # empty -> a fresh success result.
         self.pending_results: list[ExtrinsicResult] = []
+        # Receipts handed out by find_extrinsic (the decrypted inner extrinsic
+        # of a shielded submission), FIFO; empty -> a fresh success result.
+        self.inner_results: list[ExtrinsicResult] = []
         # block number -> decoded System.Events records, for event-driven waits.
         self._events: dict[int, list[dict]] = {}
 
@@ -204,6 +240,9 @@ class FakeSubstrate:
     async def block_number(self) -> int:
         return self.block
 
+    async def finalized_block_number(self) -> int:
+        return self.finalized
+
     async def block_time(self) -> float:
         # Same derivation as production: the chain's Aura.SlotDuration constant.
         return int(await self.constant("Aura", "SlotDuration")) / 1000.0
@@ -235,7 +274,34 @@ class FakeSubstrate:
             return entries[key]
         if item in self._storage_defaults:
             return self._storage_defaults[item]
+        if item in self.missing_storage:
+            raise StorageFunctionNotFound(f"{module}.{storage_function}")
         return DEFAULT_STORAGE.get(item)
+
+    async def storage_exists(
+        self,
+        module: str,
+        storage_function: str,
+        params: Optional[list] = None,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        item = (module, storage_function)
+        if item in self.missing_storage:
+            raise StorageFunctionNotFound(f"{module}.{storage_function}")
+        return self._storage.get(item, {}).get(_key(params)) is not None
+
+    async def map_has_entries(
+        self,
+        module: str,
+        storage_function: str,
+        params: list,
+        block_hash: Optional[str] = None,
+    ) -> bool:
+        item = (module, storage_function)
+        prefix = _key(params)
+        return bool(self._maps.get(item)) or any(
+            key[: len(prefix)] == prefix for key in self._storage.get(item, {})
+        )
 
     async def query_map(
         self,
@@ -268,7 +334,7 @@ class FakeSubstrate:
         value = self._runtime.get((api, method))
         return value(params) if callable(value) else value
 
-    async def constant(self, module: str, name: str) -> Any:
+    async def constant(self, module: str, name: str, block_hash: Optional[str] = None) -> Any:
         return self._constants.get((module, name))
 
     async def decode_scale(self, type_string: str, data: Any) -> Any:
@@ -295,8 +361,20 @@ class FakeSubstrate:
         module, function, params = call
         return ComposedCall(module, function, params)
 
-    async def estimate_fee(self, call, keypair) -> Balance:
+    async def estimate_fee(self, call, keypair, *, period=DEFAULT_ERA_PERIOD) -> Balance:
         return self.fee
+
+    async def estimate_shielded_carrier_fee(self, call, keypair, *, period: int) -> Balance:
+        from bittensor._transport.extrinsics import shielded_ciphertext_size
+
+        # Mirror this fake's sign_extrinsic representation without asking a signer.
+        inner = repr((call, keypair.ss58_address, self._nonces[keypair.ss58_address] + 1)).encode()
+        carrier = ComposedCall(
+            "MevShield",
+            "submit_encrypted",
+            {"ciphertext": bytes(shielded_ciphertext_size(len(inner)))},
+        )
+        return await self.estimate_fee(carrier, keypair)
 
     async def estimate_weight(self, call, keypair) -> dict:
         return dict(self.weight)
@@ -309,9 +387,63 @@ class FakeSubstrate:
     async def mev_next_key(self) -> Optional[bytes]:
         return self.mev_key
 
-    async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
+    async def prepare_hashed_snapshot(
+        self, keypair, *, reserve_nonces=False
+    ) -> HashedSigningSnapshot:
+        from bittensor.hashed import descriptor_bytes, raw_bytes
+        from bittensor.sp_core import PQ_CRYPTO_TYPES, is_stateless_pq
+
+        if is_stateless_pq(keypair):
+            descriptor = bytes(keypair.hashed_descriptor)
+            return HashedSigningSnapshot(
+                await self.block_hash(self.finalized),
+                keypair.ss58_address,
+                keypair.crypto_type,
+                descriptor,
+                0,
+                descriptor[2:],
+                self._nonces[keypair.ss58_address],
+            )
+        registry = "MlDsaAccounts" if keypair.crypto_type in PQ_CRYPTO_TYPES else "Accounts"
+        record = await self.query("HashedAccounts", registry, [keypair.ss58_address])
+        generation = int(record["generation"]) if record else keypair.hashed_generation
+        return HashedSigningSnapshot(
+            await self.block_hash(self.finalized),
+            keypair.ss58_address,
+            keypair.crypto_type,
+            descriptor_bytes(record["descriptor"]) if record else bytes(keypair.hashed_descriptor),
+            generation,
+            raw_bytes(record["commitment"]) if record else bytes(keypair.hashed_current_commitment),
+            self._nonces[keypair.ss58_address],
+        )
+
+    def release_nonce_reservation(self, address: str, first: int, count: int) -> None:
+        pass
+
+    async def sign_extrinsic(
+        self,
+        call,
+        keypair,
+        *,
+        nonce: int,
+        period: int,
+        hashed_generation_offset: int = 0,
+        hashed_signing_snapshot: Optional[HashedSigningSnapshot] = None,
+    ) -> tuple[bytes, str]:
+        if hashed_signing_snapshot is not None:
+            if self._nonces[keypair.ss58_address] != hashed_signing_snapshot.nonce:
+                raise ValueError("hashed signing snapshot has a stale nonce")
+            if nonce != hashed_signing_snapshot.nonce + hashed_generation_offset:
+                raise ValueError("hashed signing snapshot nonce does not match the inner offset")
         payload = repr((call, keypair.ss58_address, nonce)).encode()
         return payload, "0x" + payload.hex()[:64].ljust(64, "0")
+
+    async def find_extrinsic(self, extrinsic_hash: str, block_hash: str):
+        """Shielded inner receipts: pop a queued inner result, else succeed
+        immediately (the decrypted inner extrinsic lands in the carrier's block)."""
+        if self.inner_results:
+            return self.inner_results.pop(0)
+        return success_result(self.block)
 
     def _next_result(self) -> ExtrinsicResult:
         if self.pending_results:
@@ -325,10 +457,19 @@ class FakeSubstrate:
         *,
         nonce: Optional[int] = None,
         period: Optional[int] = None,
+        hashed_signing_snapshot: Optional[HashedSigningSnapshot] = None,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
     ) -> ExtrinsicResult:
-        self.submissions.append((call, keypair.ss58_address, {"nonce": nonce, "period": period}))
+        options = {"nonce": nonce, "period": period}
+        if hashed_signing_snapshot is not None:
+            if (
+                self._nonces[keypair.ss58_address] != hashed_signing_snapshot.nonce
+                or nonce != hashed_signing_snapshot.nonce
+            ):
+                raise ValueError("hashed signing snapshot has a stale nonce")
+            options["hashed_signing_snapshot"] = hashed_signing_snapshot
+        self.submissions.append((call, keypair.ss58_address, options))
         self._nonces[keypair.ss58_address] += 1
         self.block += 1
         return self._next_result()
@@ -347,9 +488,11 @@ class FakeSubstrate:
 
     # -- multisig -------------------------------------------------------------------
 
-    def multisig_account(self, signatories: list[str], threshold: int) -> MultisigAccount:
+    def multisig_account(
+        self, signatories: list[str], threshold: int, *, account_mode="legacy"
+    ) -> MultisigAccount:
         # Real derivation — pure local crypto, no chain involved.
-        return codec_mod.multisig_account(signatories, threshold)
+        return codec_mod.multisig_account(signatories, threshold, account_mode=account_mode)
 
     async def submit_multisig(
         self,

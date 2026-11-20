@@ -77,7 +77,9 @@ after every successful registration, so a rush gets expensive fast. The cost
 floats and is only known at execution time, so a configured `Policy` spend cap
 blocks this call until raised.
 
-Confirm with [`uid`](/docs/query/uid) or
+Confirm with `btcli wallet registrations` (every local hotkey and its UIDs,
+including zero-stake registrations), or the single-key reads
+[`uid`](/docs/query/uid) and
 [`netuids-for-hotkey`](/docs/query/netuids-for-hotkey). One hotkey can hold
 UIDs on multiple subnets simultaneously, but only one UID per subnet.
 

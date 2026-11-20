@@ -105,9 +105,27 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 121,
-          "url": "/code/pallets/commitments/src/lib.rs#L121",
+          "line": 132,
+          "url": "/code/pallets/commitments/src/lib.rs#L132",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
+    "AccountPolicyViolation": {
+      "code": "not_authorized",
+      "description": "This proxy delegation would weaken the protected account's authorization. Use a compatible hashed delegate; a classical proxy cannot bypass hashed authorization.",
+      "docs_url": "/docs/errors/chain/AccountPolicyViolation",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AccountPolicyViolation/content.md",
+      "pallets": [
+        "Proxy"
+      ],
+      "sources": [
+        {
+          "pallet": "Proxy",
+          "path": "pallets/proxy/src/lib.rs",
+          "line": 924,
+          "url": "/code/pallets/proxy/src/lib.rs#L924",
+          "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
     },
@@ -123,8 +141,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 333,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L333",
+          "line": 331,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L331",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "AccountRejectsStakingHotkeyGrowth": {
+      "code": "policy_violation",
+      "description": "The receiving coldkey opted out of staking-list growth caused by other accounts. Transfer onto a hotkey the receiver already lists or owns, or have the receiver voluntarily establish the destination through its own staking action. Contracts can check getRejectStakingHotkeyGrowth before transferring to avoid a refused precompile call.",
+      "docs_url": "/docs/errors/chain/AccountRejectsStakingHotkeyGrowth",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AccountRejectsStakingHotkeyGrowth/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 419,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L419",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -141,8 +177,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 311,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L311",
+          "line": 309,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L309",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -159,15 +195,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 321,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L321",
+          "line": 319,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L319",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "ActivityCutoffTooLow": {
       "code": "invalid_argument",
-      "description": "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli sudo get --netuid <n>`.",
+      "description": "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli hparams get --netuid <n>`.",
       "docs_url": "/docs/errors/chain/ActivityCutoffTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/ActivityCutoffTooLow/content.md",
       "pallets": [
@@ -177,8 +213,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 196,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L196",
+          "line": 198,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L198",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -195,8 +231,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 293,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L293",
+          "line": 291,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L291",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -213,9 +249,27 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 243,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L243",
+          "line": 245,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L245",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "AliasCollision": {
+      "code": "already_exists",
+      "description": "The derived EVM alias is already bound to another account. This descriptor cannot be registered safely; create a new hashed wallet and use its new descriptor.",
+      "docs_url": "/docs/errors/chain/AliasCollision",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AliasCollision/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 277,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L277",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -231,8 +285,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 111,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L111",
+          "line": 112,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L112",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -249,8 +303,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 136,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L136",
+          "line": 137,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L137",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -267,8 +321,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 138,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L138",
+          "line": 139,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L139",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -347,7 +401,7 @@
     },
     "AmountTooLow": {
       "code": "limit_exceeded",
-      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
+      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend cap was between 0 and 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
@@ -357,8 +411,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 188,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L188",
+          "line": 190,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L190",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -375,8 +429,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 160,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L160",
+          "line": 162,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L162",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -393,8 +447,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 795,
-          "url": "/code/pallets/proxy/src/lib.rs#L795",
+          "line": 920,
+          "url": "/code/pallets/proxy/src/lib.rs#L920",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -411,10 +465,37 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 352,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L352",
+          "line": 517,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L517",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
+      ]
+    },
+    "AuthenticationKindConflict": {
+      "code": "policy_violation",
+      "description": "The account already has a different permanent authorization kind. Direct and derived authorities cannot replace one another; check the registered account and descriptor.",
+      "docs_url": "/docs/errors/chain/AuthenticationKindConflict",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AuthenticationKindConflict/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 279,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L279",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "AuthorizationListTooLarge": {
+      "code": "limit_exceeded",
+      "description": "The EIP-7702 authorization list exceeds the maximum of 255 entries. Split the authorizations across transactions; oversized lists are rejected before signature recovery.",
+      "docs_url": "/docs/errors/chain/AuthorizationListTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AuthorizationListTooLarge/content.md",
+      "pallets": [
+        "EVM"
       ]
     },
     "AutoEpochAlreadyImminent": {
@@ -429,8 +510,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 327,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L327",
+          "line": 325,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L325",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -447,8 +528,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 234,
-          "url": "/code/pallets/shield/src/lib.rs#L234",
+          "line": 238,
+          "url": "/code/pallets/shield/src/lib.rs#L238",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -480,6 +561,186 @@
         }
       ]
     },
+    "BasketConcentrationCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The `swap_basket` buy would leave the destination holding above the `BasketConcentrationCap` share of fund NAV (holdings marked at realizable value; the cap is u16-normalized, so 4096 means 1/16). Buy less, or spread the fund across more holdings \u2014 at the 1/16 cap a traded fund needs at least 16. Query `BasketConcentrationCap` for the live cap. Not enforced while the chain has fewer subnets than the cap demands.",
+      "docs_url": "/docs/errors/chain/BasketConcentrationCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketConcentrationCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 390,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L390",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketDepositPending": {
+      "code": "too_early",
+      "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the claimant base or basket was refused. Wait for the block queue processor to settle the dividend, then retry. Settlement also requires the affected basket prices to be within their fast-EMA band; user calls cannot force a dividend mint between pool swaps.",
+      "docs_url": "/docs/errors/chain/BasketDepositPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 375,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L375",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketHasNoWeights": {
+      "code": "invalid_argument",
+      "description": "Retired on current runtimes: a basket deposit into a fund with no holdings is held as the fund's root (TAO cash) slot instead of erroring, and root weight vectors no longer exist. Seeing this error means the chain is running an older runtime.",
+      "docs_url": "/docs/errors/chain/BasketHasNoWeights",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketHasNoWeights/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 350,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L350",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketLiquidityCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The trade would leave the fund holding more of the destination subnet than `BasketLiquidityCap` allows as a share of that subnet's alpha reserve (u16-normalized, default 10%). This bounds the fund's exposure to any one pool's liquidity. Trade a smaller amount, or pick a deeper pool; query `validator_basket` for the current holding and `subnet` for the pool's alpha reserve.",
+      "docs_url": "/docs/errors/chain/BasketLiquidityCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketLiquidityCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 406,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L406",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketMinOutNotMet": {
+      "code": "insufficient_liquidity",
+      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the 2% protocol band still applies.",
+      "docs_url": "/docs/errors/chain/BasketMinOutNotMet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketMinOutNotMet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 410,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L410",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketSameSubnet": {
+      "code": "invalid_argument",
+      "description": "`swap_basket` was called with the same origin and destination netuid. A basket trade sells one holding to buy another; pick two different subnets (netuid 0 is the fund's TAO cash slot).",
+      "docs_url": "/docs/errors/chain/BasketSameSubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketSameSubnet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 402,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L402",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketSwapBatchEmpty": {
+      "code": "invalid_argument",
+      "description": "`swap_basket_many` was submitted without any trade legs. Include at least one origin/destination/amount leg; one call accepts at most 128 legs.",
+      "docs_url": "/docs/errors/chain/BasketSwapBatchEmpty",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketSwapBatchEmpty/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 413,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L413",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketTradingDisabled": {
+      "code": "disabled",
+      "description": "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, claims, and dividend deployment are unaffected.",
+      "docs_url": "/docs/errors/chain/BasketTradingDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketTradingDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 392,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L392",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketTradingFrozen": {
+      "code": "disabled",
+      "description": "Governance froze basket trading for this validator hotkey (`BasketTradingFrozen[hotkey]`), typically after a suspected key compromise. The fund still accepts deposits and pays claims; only `swap_basket` is refused until `AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`.",
+      "docs_url": "/docs/errors/chain/BasketTradingFrozen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketTradingFrozen/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 395,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L395",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BasketTurnoverBudgetExceeded": {
+      "code": "rate_limited",
+      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over 7200 blocks and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
+      "docs_url": "/docs/errors/chain/BasketTurnoverBudgetExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketTurnoverBudgetExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 400,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L400",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
       "description": "When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns.",
@@ -492,8 +753,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 239,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L239",
+          "line": 241,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L241",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BetaBasketSeedInProgress": {
+      "code": "too_early",
+      "description": "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes inside the upgrade block, so this only appears if that run was interrupted). Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes. Wait until the migration cursor clears (`HasMigrationRun` for the seed) and retry.",
+      "docs_url": "/docs/errors/chain/BetaBasketSeedInProgress",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BetaBasketSeedInProgress/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 359,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L359",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -546,9 +825,45 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 149,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L149",
+          "line": 252,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L252",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
+    "BurnEmissionMustBeZero": {
+      "code": "policy_violation",
+      "description": "Deprecated. Slot 0 (burn) may now be non-zero; burn and recycle together may be at most 33% (`BurnRecycleEmissionAboveMaximum`).",
+      "docs_url": "/docs/errors/chain/BurnEmissionMustBeZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BurnEmissionMustBeZero/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 434,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L434",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BurnRecycleEmissionAboveMaximum": {
+      "code": "policy_violation",
+      "description": "Slots 0 (burn) and 1 (recycle) of the emission weight vector together exceed the 33% ceiling. Burn destroys alpha but still counts toward issuance; recycle removes alpha from `SubnetAlphaOut` and `TotalAlphaIssuance`. Lower burn and/or recycle so their sum is at most 0.33.",
+      "docs_url": "/docs/errors/chain/BurnRecycleEmissionAboveMaximum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BurnRecycleEmissionAboveMaximum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 492,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L492",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
@@ -564,8 +879,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 198,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L198",
+          "line": 200,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L200",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -599,7 +914,7 @@
     },
     "CanNotSetRootNetworkWeights": {
       "code": "invalid_argument",
-      "description": "`set_weights` was called with netuid 0, the root network, where normal weight setting is not allowed. Use a non-root `netuid` argument; root weights are handled by a separate mechanism.",
+      "description": "`set_weights` was called with netuid 0, the root network, where weight setting is not allowed: root validators do not set weights at all. Use a non-root `netuid` argument.",
       "docs_url": "/docs/errors/chain/CanNotSetRootNetworkWeights",
       "markdown_url": "/llms.mdx/docs/errors/chain/CanNotSetRootNetworkWeights/content.md",
       "pallets": [
@@ -609,8 +924,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 117,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L117",
+          "line": 118,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L118",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -636,8 +951,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 261,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L261",
+          "line": 263,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L263",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -654,8 +969,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 206,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L206",
+          "line": 208,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L208",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -699,8 +1014,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 313,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L313",
+          "line": 311,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L311",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -771,8 +1086,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 346,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L346",
+          "line": 511,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L511",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -798,8 +1113,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 273,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L273",
+          "line": 275,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L275",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -851,7 +1166,7 @@
     },
     "ColdKeyAlreadyAssociated": {
       "code": "already_exists",
-      "description": "The destination coldkey of a coldkey swap already has staking hotkeys associated with it, so it cannot receive the swapped identity. Check the `StakingHotkeys` storage for the new coldkey and swap to a fresh, unused coldkey instead.",
+      "description": "Retired error: coldkey swaps into an already-used destination now merge assets into that coldkey. Current runtimes never return this code; if you still see it, you are on a pre-merge runtime \u2014 upgrade, or use a destination without staking hotkeys on the older chain.",
       "docs_url": "/docs/errors/chain/ColdKeyAlreadyAssociated",
       "markdown_url": "/llms.mdx/docs/errors/chain/ColdKeyAlreadyAssociated/content.md",
       "pallets": [
@@ -861,8 +1176,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 140,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L140",
+          "line": 142,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L142",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -879,8 +1194,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 344,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L344",
+          "line": 342,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L342",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -897,8 +1212,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 348,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L348",
+          "line": 346,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L346",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -915,8 +1230,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 162,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L162",
+          "line": 164,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L164",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -933,8 +1248,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 295,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L295",
+          "line": 293,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L293",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -951,8 +1266,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 154,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L154",
+          "line": 156,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L156",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -969,8 +1284,44 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 299,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L299",
+          "line": 297,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L297",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ColdkeySwapDestinationReservationNotFound": {
+      "code": "not_found",
+      "description": "No live coldkey-swap destination reservation exists for this account, so `release_own_coldkey_swap_destination_reservation` has nothing to free. Confirm the account is the reserved destination of an in-flight announcement.",
+      "docs_url": "/docs/errors/chain/ColdkeySwapDestinationReservationNotFound",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapDestinationReservationNotFound/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 467,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L467",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ColdkeySwapDestinationReserved": {
+      "code": "already_exists",
+      "description": "This account is reserved as the destination of an in-flight coldkey-swap announcement, so it cannot be registered as a hotkey and another coldkey cannot announce to it until that announcement is executed, cleared, released by the destination, reset by root, or the reservation TTL expires. Wait for the reservation to clear, have the destination call `release_own_coldkey_swap_destination_reservation`, or choose a different account.",
+      "docs_url": "/docs/errors/chain/ColdkeySwapDestinationReserved",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapDestinationReserved/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 465,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L465",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -987,8 +1338,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 297,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L297",
+          "line": 295,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L295",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1005,8 +1356,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 158,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L158",
+          "line": 160,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L160",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1023,8 +1374,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 156,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L156",
+          "line": 158,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L158",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ColdkeySwapTooHeavy": {
+      "code": "limit_exceeded",
+      "description": "The coldkey stakes through more hotkeys, or holds more stake positions, than one coldkey swap can move, or the two coldkeys together hold more than 128 gamma deposits. Unstake from or move stake off unused hotkeys and subnets, or move gamma into fewer deposits and close empty ones, to consolidate, then retry the swap.",
+      "docs_url": "/docs/errors/chain/ColdkeySwapTooHeavy",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapTooHeavy/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 385,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L385",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1041,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 173,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L173",
+          "line": 276,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L276",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1059,15 +1428,51 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 171,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L171",
+          "line": 274,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L274",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
+    "CommitPayloadTooLarge": {
+      "code": "limit_exceeded",
+      "description": "The encrypted weight commit exceeds the subnet's consensus payload limit. Yuma accepts at most 5,000 bytes; Null accepts at most floor(32 KiB / mechanism_count). Reduce the submitted weight row or check the subnet's epoch_consensus setting.",
+      "docs_url": "/docs/errors/chain/CommitPayloadTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CommitPayloadTooLarge/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 415,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L415",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "CommitQueueFull": {
+      "code": "limit_exceeded",
+      "description": "The subnet's Null timelock queue has reached its shared per-epoch limit of 64 KiB or 64 commits across emission mechanisms. Wait for the next epoch before submitting another commit; the leading eligible validator can preempt lower-priority rows.",
+      "docs_url": "/docs/errors/chain/CommitQueueFull",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CommitQueueFull/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 417,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L417",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "CommitRevealDisabled": {
       "code": "disabled",
-      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
+      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli hparams get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
       "docs_url": "/docs/errors/chain/CommitRevealDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/CommitRevealDisabled/content.md",
       "pallets": [
@@ -1077,8 +1482,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 132,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L132",
+          "line": 133,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L133",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1095,15 +1500,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 130,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L130",
+          "line": 131,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L131",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "CommittingWeightsTooFast": {
       "code": "rate_limited",
-      "description": "The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli sudo get --netuid <n>`) and wait.",
+      "description": "The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli hparams get --netuid <n>`) and wait.",
       "docs_url": "/docs/errors/chain/CommittingWeightsTooFast",
       "markdown_url": "/llms.mdx/docs/errors/chain/CommittingWeightsTooFast/content.md",
       "pallets": [
@@ -1113,8 +1518,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 186,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L186",
+          "line": 188,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L188",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1266,8 +1671,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 123,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L123",
+          "line": 124,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L124",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1284,8 +1689,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 121,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L121",
+          "line": 122,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L122",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1355,7 +1760,7 @@
     },
     "Deprecated": {
       "code": "disabled",
-      "description": "The extrinsic has been removed and always fails, e.g. `schedule_swap_coldkey`, the swap pallet's user-liquidity calls, or `sudo_set_total_issuance`. Migrate to the replacement call noted in the deprecation (for coldkey swaps, `btcli wallet announce-coldkey-swap` then `btcli wallet swap-coldkey`).",
+      "description": "The extrinsic has been removed and always fails, e.g. `schedule_swap_coldkey`, the swap pallet's user-liquidity calls, `sudo_set_total_issuance`, or the owner-cut setters `sudo_set_subnet_owner_cut` / `sudo_set_owner_cut_enabled` (replaced by `sudo_set_subnet_emission_weights`, `btcli subnets emission`). Migrate to the replacement call noted in the deprecation (for coldkey swaps, `btcli wallet announce-coldkey-swap` then `btcli wallet swap-coldkey`).",
       "docs_url": "/docs/errors/chain/Deprecated",
       "markdown_url": "/llms.mdx/docs/errors/chain/Deprecated/content.md",
       "pallets": [
@@ -1367,23 +1772,77 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 287,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L287",
+          "line": 285,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L285",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 169,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L169",
+          "line": 272,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L272",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 181,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L181",
+          "line": 182,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L182",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "DerivedAuthorityTooComplex": {
+      "code": "limit_exceeded",
+      "description": "The derived authority exceeds the runtime's member, depth, or resolution bounds. Use a smaller supported authority structure.",
+      "docs_url": "/docs/errors/chain/DerivedAuthorityTooComplex",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DerivedAuthorityTooComplex/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 283,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L283",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "DescriptorMismatch": {
+      "code": "invalid_argument",
+      "description": "The descriptor does not match the account's permanent authorization record. Check the destination and exported public descriptor; re-registration cannot reset keys.",
+      "docs_url": "/docs/errors/chain/DescriptorMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DescriptorMismatch/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 263,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L263",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "Disabled": {
+      "code": "disabled",
+      "description": "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; creating a wallet locally does not activate runtime support.",
+      "docs_url": "/docs/errors/chain/Disabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 259,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L259",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -1399,8 +1858,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 301,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L301",
+          "line": 299,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L299",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1435,8 +1894,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 787,
-          "url": "/code/pallets/proxy/src/lib.rs#L787",
+          "line": 912,
+          "url": "/code/pallets/proxy/src/lib.rs#L912",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -1453,8 +1912,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 146,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L146",
+          "line": 148,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L148",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1489,8 +1948,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 354,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L354",
+          "line": 519,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L519",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1525,8 +1984,116 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 331,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L331",
+          "line": 329,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L329",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionSlotsNotAscending": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_subnet_emission_weights_v2` got a split whose slots are out of order or repeated. List each slot at most once, in declared order (burn, recycle, owner, validator, miner, then gamma slots by netuid).",
+      "docs_url": "/docs/errors/chain/EmissionSlotsNotAscending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionSlotsNotAscending/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 494,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L494",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionWeightIndexDuplicated": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_subnet_emission_weights` listed the same slot index twice in `uids`. Give each slot at most once per call.",
+      "docs_url": "/docs/errors/chain/EmissionWeightIndexDuplicated",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionWeightIndexDuplicated/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 427,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L427",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionWeightIndexOutOfRange": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_subnet_emission_weights` named a slot index outside the five-slot emission weight vector. Valid indices are 0 = burn, 1 = recycle, 2 = owner, 3 = validator, 4 = miner; gamma shares are set with `sudo_set_subnet_emission_weights_v2`.",
+      "docs_url": "/docs/errors/chain/EmissionWeightIndexOutOfRange",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionWeightIndexOutOfRange/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 425,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L425",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionWeightsDoNotSumToOne": {
+      "code": "invalid_argument",
+      "description": "The five slots and the subnet's gamma shares do not sum to exactly `u64::MAX` (1.0), so raising one share requires lowering another in the same call. `btcli subnets emission set-value/increase/decrease` renormalize the other slots for you; with a raw call, give shares that total 18446744073709551615 with the gamma shares (`sudo_set_subnet_emission_weights` keeps omitted slots; `sudo_set_subnet_emission_weights_v2` sets omitted slots to zero).",
+      "docs_url": "/docs/errors/chain/EmissionWeightsDoNotSumToOne",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionWeightsDoNotSumToOne/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 431,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L431",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionWeightsLengthMismatch": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_subnet_emission_weights` was given `uids` and `values` lists of different lengths. Each slot index in `uids` needs exactly one share in `values`; pass the two lists pairwise (e.g. `uids=[2, 3, 4]`, `values=[owner, validator, miner]`).",
+      "docs_url": "/docs/errors/chain/EmissionWeightsLengthMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionWeightsLengthMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 422,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L422",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "EmissionWeightsNotSettableOnRoot": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_subnet_emission_weights` was called for netuid 0. The root network has no alpha emission to divide, so it carries no emission weight vector; pass a subnet netuid.",
+      "docs_url": "/docs/errors/chain/EmissionWeightsNotSettableOnRoot",
+      "markdown_url": "/llms.mdx/docs/errors/chain/EmissionWeightsNotSettableOnRoot/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 459,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L459",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1552,8 +2119,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 324,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L324",
+          "line": 322,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L322",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1570,8 +2137,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 263,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L263",
+          "line": 265,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L265",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1588,8 +2155,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 265,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L265",
+          "line": 267,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L267",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1633,8 +2200,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 241,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L241",
+          "line": 243,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L243",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1660,8 +2227,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 180,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L180",
+          "line": 182,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L182",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1723,15 +2290,15 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 145,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L145",
+          "line": 146,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L146",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
     },
     "FirstEmissionBlockNumberAlreadySet": {
       "code": "already_exists",
-      "description": "`btcli sudo start` was issued for a subnet whose emissions have already been started. Check with `btcli sudo check-start`; if the subnet is already emitting, no action is needed.",
+      "description": "`btcli hparams start` was issued for a subnet whose emissions have already been started. Check with `btcli hparams check-start`; if the subnet is already emitting, no action is needed.",
       "docs_url": "/docs/errors/chain/FirstEmissionBlockNumberAlreadySet",
       "markdown_url": "/llms.mdx/docs/errors/chain/FirstEmissionBlockNumberAlreadySet/content.md",
       "pallets": [
@@ -1741,8 +2308,188 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 200,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L200",
+          "line": 202,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L202",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "FundsNotSettled": {
+      "code": "policy_violation",
+      "description": "`finalize` ran the configured `call`, but the raised funds were still in the crowdloan's funds account afterwards, so finalization was refused. This happens when the call does not spend the raised amount, or when a wrapper such as `Utility.batch` returns Ok after its inner call failed. Fix the finalization call so it consumes the full `raised` amount, then `finalize` again.",
+      "docs_url": "/docs/errors/chain/FundsNotSettled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FundsNotSettled/content.md",
+      "pallets": [
+        "Crowdloan"
+      ],
+      "sources": [
+        {
+          "pallet": "Crowdloan",
+          "path": "pallets/crowdloan/src/lib.rs",
+          "line": 295,
+          "url": "/code/pallets/crowdloan/src/lib.rs#L295",
+          "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
+    "GammaDepositDailySpendCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The spend is above what the gamma deposit's daily spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
+      "docs_url": "/docs/errors/chain/GammaDepositDailySpendCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDailySpendCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 489,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L489",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDepositDailySpendCapMismatch": {
+      "code": "invalid_argument",
+      "description": "A mint named a daily spend cap, but the gamma deposit it credits has another. A named cap opens a new deposit and must match an existing one's. Mint without naming one, or change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first.",
+      "docs_url": "/docs/errors/chain/GammaDepositDailySpendCapMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDailySpendCapMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 483,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L483",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDepositDoesNotExist": {
+      "code": "not_found",
+      "description": "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with the `gamma_deposits` read.",
+      "docs_url": "/docs/errors/chain/GammaDepositDoesNotExist",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDoesNotExist/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 477,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L477",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDepositNotEmpty": {
+      "code": "invalid_argument",
+      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its hotkey has spent it to zero, close it.",
+      "docs_url": "/docs/errors/chain/GammaDepositNotEmpty",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositNotEmpty/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 479,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L479",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDepositSpenderMismatch": {
+      "code": "invalid_argument",
+      "description": "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it.",
+      "docs_url": "/docs/errors/chain/GammaDepositSpenderMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositSpenderMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 481,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L481",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaDisabled": {
+      "code": "disabled",
+      "description": "Gamma minting is switched off network-wide (`GammaEnabled`) or on this subnet (the `gamma_enabled` hyperparameter). Root enables it network-wide; the subnet owner or root enables the subnet. In an emission split, a gamma share names a subnet with gamma disabled; remove that share (a share of 0 in btcli or the SDK does this).",
+      "docs_url": "/docs/errors/chain/GammaDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 473,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L473",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaEmissionAboveMaximum": {
+      "code": "policy_violation",
+      "description": "A gamma share in the emission split is above the 10% maximum per target subnet. Lower the share.",
+      "docs_url": "/docs/errors/chain/GammaEmissionAboveMaximum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionAboveMaximum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 496,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L496",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaEmissionNotSettableOnLeasedSubnet": {
+      "code": "policy_violation",
+      "description": "The subnet is under a lease, and a leased subnet cannot set gamma shares in its emission split until the lease ends.",
+      "docs_url": "/docs/errors/chain/GammaEmissionNotSettableOnLeasedSubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionNotSettableOnLeasedSubnet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 503,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L503",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "GammaEmissionTargetNotWhitelisted": {
+      "code": "policy_violation",
+      "description": "A gamma share in the emission split names a subnet root has not whitelisted for gamma emission. Only whitelisted subnets can be targets; remove that share (a share of 0 in btcli or the SDK does this).",
+      "docs_url": "/docs/errors/chain/GammaEmissionTargetNotWhitelisted",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GammaEmissionTargetNotWhitelisted/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 499,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L499",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1774,9 +2521,45 @@
         "EVM"
       ]
     },
+    "GenerationExhausted": {
+      "code": "limit_exceeded",
+      "description": "The account has reached the maximum authorization sequence and cannot sign again. Do not wrap or reset the counter; further authorization requires a protocol upgrade.",
+      "docs_url": "/docs/errors/chain/GenerationExhausted",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GenerationExhausted/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 273,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L273",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "GrandpaChangeDelayMustBeZero": {
+      "code": "invalid_argument",
+      "description": "`schedule_grandpa_change` was given a nonzero `in_blocks` delay. GRANDPA authority changes submitted through AdminUtils must activate at the end of the current block so the authority set and its set ID remain consistent. Pass `in_blocks=0`.",
+      "docs_url": "/docs/errors/chain/GrandpaChangeDelayMustBeZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GrandpaChangeDelayMustBeZero/content.md",
+      "pallets": [
+        "AdminUtils"
+      ],
+      "sources": [
+        {
+          "pallet": "AdminUtils",
+          "path": "pallets/admin-utils/src/lib.rs",
+          "line": 278,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L278",
+          "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
     "HotKeyAccountNotExists": {
       "code": "not_registered",
-      "description": "The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet overview`; register the hotkey on a subnet first.",
+      "description": "The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet registrations`; register the hotkey on a subnet first.",
       "docs_url": "/docs/errors/chain/HotKeyAccountNotExists",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyAccountNotExists/content.md",
       "pallets": [
@@ -1812,7 +2595,7 @@
     },
     "HotKeyAlreadyRegisteredInSubNet": {
       "code": "already_exists",
-      "description": "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet overview`; use a different hotkey or netuid.",
+      "description": "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet registrations`; use a different hotkey or netuid.",
       "docs_url": "/docs/errors/chain/HotKeyAlreadyRegisteredInSubNet",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyAlreadyRegisteredInSubNet/content.md",
       "pallets": [
@@ -1830,7 +2613,7 @@
     },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
-      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli query uid --netuid <n>` (or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
+      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus`/`set_service` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInNetwork",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyNotRegisteredInNetwork/content.md",
       "pallets": [
@@ -1894,8 +2677,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 214,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L214",
+          "line": 216,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L216",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "HotkeyOwnerPolicyViolation": {
+      "code": "not_authorized",
+      "description": "This ownership change would weaken a protected hotkey's authorization. Use a coldkey account with a compatible authorization policy before registering, associating or moving ownership of the hotkey.",
+      "docs_url": "/docs/errors/chain/HotkeyOwnerPolicyViolation",
+      "markdown_url": "/llms.mdx/docs/errors/chain/HotkeyOwnerPolicyViolation/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 469,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L469",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1912,8 +2713,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 249,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L249",
+          "line": 251,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L251",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1930,15 +2731,15 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 342,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L342",
+          "line": 507,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L507",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
     "IncorrectWeightVersionKey": {
       "code": "invalid_argument",
-      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli sudo get --netuid <n>`) and update the validator software or the key.",
+      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli hparams get --netuid <n>`) and update the validator software or the key.",
       "docs_url": "/docs/errors/chain/IncorrectWeightVersionKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/IncorrectWeightVersionKey/content.md",
       "pallets": [
@@ -1984,8 +2785,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 184,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L184",
+          "line": 186,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L186",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2002,8 +2803,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 339,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L339",
+          "line": 337,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L337",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2029,9 +2830,27 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 157,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L157",
+          "line": 158,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "InsufficientGammaBalance": {
+      "code": "insufficient_balance",
+      "description": "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
+      "docs_url": "/docs/errors/chain/InsufficientGammaBalance",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientGammaBalance/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 487,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L487",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
@@ -2047,8 +2866,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 148,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L148",
+          "line": 149,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L149",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2066,15 +2885,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 190,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L190",
+          "line": 192,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L192",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 151,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L151",
+          "line": 152,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L152",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2091,8 +2910,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 307,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L307",
+          "line": 305,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L305",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2109,8 +2928,44 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 223,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L223",
+          "line": 225,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L225",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "InvalidAuthorizationMode": {
+      "code": "invalid_argument",
+      "description": "The order terms and authorization scheme do not match. Classical signatures require original V1 or V2 terms; account approval requires Authorized terms containing the owner-local nonce. Prepare and authorize the complete order again.",
+      "docs_url": "/docs/errors/chain/InvalidAuthorizationMode",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidAuthorizationMode/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 550,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L550",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidBatchLength": {
+      "code": "invalid_argument",
+      "description": "A per-subnet weight batch (`batch_set_weights`, `batch_commit_weights`, `batch_reveal_weights`) was empty or had more items than there are networks. Send at least one item and at most one per subnet.",
+      "docs_url": "/docs/errors/chain/InvalidBatchLength",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidBatchLength/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 377,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2145,8 +3000,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 144,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L144",
+          "line": 146,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L146",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2163,8 +3018,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 166,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L166",
+          "line": 168,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L168",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2199,8 +3054,8 @@
         {
           "pallet": "Utility",
           "path": "pallets/utility/src/lib.rs",
-          "line": 171,
-          "url": "/code/pallets/utility/src/lib.rs#L171",
+          "line": 200,
+          "url": "/code/pallets/utility/src/lib.rs#L200",
           "raw_url": "/code/raw/pallets/utility/src/lib.rs"
         }
       ]
@@ -2217,9 +3072,27 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 797,
-          "url": "/code/pallets/proxy/src/lib.rs#L797",
+          "line": 922,
+          "url": "/code/pallets/proxy/src/lib.rs#L922",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidDerivedAuthority": {
+      "code": "invalid_argument",
+      "description": "The composite descriptor, derived account ID, or approving origin is invalid. Multisig protection must be approved by the composite's actual quorum.",
+      "docs_url": "/docs/errors/chain/InvalidDerivedAuthority",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidDerivedAuthority/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 281,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L281",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -2280,8 +3153,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 170,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L170",
+          "line": 172,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L172",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2343,8 +3216,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 225,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L225",
+          "line": 227,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L227",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2361,9 +3234,27 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 163,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L163",
+          "line": 164,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L164",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "InvalidNextCommitment": {
+      "code": "invalid_argument",
+      "description": "Hashed accounts require a new nonzero commitment different from the current key. Restore the wallet with its original signing scheme and account mode.",
+      "docs_url": "/docs/errors/chain/InvalidNextCommitment",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNextCommitment/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 271,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L271",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -2374,24 +3265,6 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNonce/content.md",
       "pallets": [
         "EVM"
-      ]
-    },
-    "InvalidNumRootClaim": {
-      "code": "invalid_argument",
-      "description": "The value passed to sudo_set_num_root_claims exceeds the compile-time maximum number of root claims. Check the `new_value` argument against the chain's `MAX_NUM_ROOT_CLAIMS` constant and pass a smaller number.",
-      "docs_url": "/docs/errors/chain/InvalidNumRootClaim",
-      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNumRootClaim/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 275,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L275",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
       ]
     },
     "InvalidOrigin": {
@@ -2442,8 +3315,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 210,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L210",
+          "line": 212,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L212",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2460,8 +3333,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 128,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L128",
+          "line": 129,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L129",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2478,8 +3351,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 251,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L251",
+          "line": 253,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L253",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2520,6 +3393,15 @@
         }
       ]
     },
+    "InvalidSafeAccountId": {
+      "code": "invalid_argument",
+      "description": "The safe composite hash could not decode to the runtime account type without changing its 32-byte identity. This runtime account type is incompatible with safe composite derivation; the call made no account.",
+      "docs_url": "/docs/errors/chain/InvalidSafeAccountId",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSafeAccountId/content.md",
+      "pallets": [
+        "Multisig"
+      ]
+    },
     "InvalidSchedule": {
       "code": "invalid_argument",
       "description": "The pallet's schedule is misconfigured, e.g. a zero weight or zero `ref_time_by_fuel` for a basic operation, making gas conversion impossible. This is a runtime configuration issue; inspect the `Schedule` constant rather than call arguments.",
@@ -2549,21 +3431,29 @@
     },
     "InvalidSignature": {
       "code": "invalid_argument",
-      "description": "Signature verification failed: the sender of an Ethereum or EVM transaction could not be recovered from its signature, or a limit order's Sr25519 signature does not match the order payload and signer. Check the signing key, chain id, and the exact payload bytes that were signed.",
+      "description": "Signature verification failed: the sender of an Ethereum or EVM transaction could not be recovered from its signature, or a limit order's Sr25519 signature does not match the order payload and signer, or a hashed account's rotation proof is invalid. Check the signing key, chain id, and the exact payload bytes that were signed.",
       "docs_url": "/docs/errors/chain/InvalidSignature",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSignature/content.md",
       "pallets": [
         "Ethereum",
         "EVM",
-        "LimitOrders"
+        "LimitOrders",
+        "HashedAccounts"
       ],
       "sources": [
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 318,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L318",
+          "line": 483,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L483",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        },
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 275,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L275",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -2574,24 +3464,6 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSpecName/content.md",
       "pallets": [
         "System"
-      ]
-    },
-    "InvalidSubnetNumber": {
-      "code": "invalid_argument",
-      "description": "A root-claim call passed an empty subnet set or more subnets than the per-call maximum (claim_root, or KeepSubnets in set_root_claim_type). Check the `subnets` argument is non-empty and within the `MAX_SUBNET_CLAIMS` limit.",
-      "docs_url": "/docs/errors/chain/InvalidSubnetNumber",
-      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSubnetNumber/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 279,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L279",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
       ]
     },
     "InvalidTickRange": {
@@ -2606,15 +3478,15 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 160,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L160",
+          "line": 161,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L161",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
     },
     "InvalidValue": {
       "code": "invalid_argument",
-      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`).",
+      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, or a gamma share naming its own subnet.",
       "docs_url": "/docs/errors/chain/InvalidValue",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidValue/content.md",
       "pallets": [
@@ -2625,15 +3497,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 257,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L257",
+          "line": 259,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L259",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 163,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L163",
+          "line": 266,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L266",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2650,8 +3522,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 285,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L285",
+          "line": 283,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L283",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2695,8 +3567,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 219,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L219",
+          "line": 221,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L221",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2713,8 +3585,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 227,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L227",
+          "line": 229,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L229",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2731,8 +3603,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 231,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L231",
+          "line": 233,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L233",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2749,8 +3621,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 233,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L233",
+          "line": 235,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L235",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2767,8 +3639,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 235,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L235",
+          "line": 237,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L237",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2785,8 +3657,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 229,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L229",
+          "line": 231,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L231",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LeasedSubnetOwnerCutBelowMinimum": {
+      "code": "policy_violation",
+      "description": "The subnet was created through a crowdloan lease, so slot 2 (owner) of its emission weight vector may not drop below the 18% launch default that lease contributors are paid from. Keep the owner share at or above 0.18 on lease-created subnets.",
+      "docs_url": "/docs/errors/chain/LeasedSubnetOwnerCutBelowMinimum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LeasedSubnetOwnerCutBelowMinimum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 444,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L444",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2803,15 +3693,105 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 336,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L336",
+          "line": 501,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L501",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedAmountResolvedToZero": {
+      "code": "invalid_argument",
+      "description": "The linked fraction floored to zero against the recorded output, so there is nothing to trade. Increase `pct` or wait for a larger provider output.",
+      "docs_url": "/docs/errors/chain/LinkedAmountResolvedToZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedAmountResolvedToZero/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 534,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L534",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputAssetMismatch": {
+      "code": "invalid_argument",
+      "description": "The provider recorded a different asset than the linked order spends: sells record TAO for a later buy, buys record alpha on that `(netuid, hotkey)` for a later sell. Check the consumer's `order_type` and `hotkey` against the provider record's `asset`.",
+      "docs_url": "/docs/errors/chain/LinkedOutputAssetMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputAssetMismatch/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 530,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L530",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputExpired": {
+      "code": "expired",
+      "description": "The provider record's `expires_at` is in the past, so the output is no longer drawable. Compare `LinkedOutputs.expires_at` with the chain `Timestamp`; unused records can be pruned with `prune_linked_output`.",
+      "docs_url": "/docs/errors/chain/LinkedOutputExpired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputExpired/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 532,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L532",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputNotPrunable": {
+      "code": "invalid_argument",
+      "description": "`prune_linked_output` was called by someone other than the record's signer before `expires_at`. The signer may prune at any time; anyone may prune only after expiry.",
+      "docs_url": "/docs/errors/chain/LinkedOutputNotPrunable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputNotPrunable/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 540,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L540",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputSignerMismatch": {
+      "code": "invalid_argument",
+      "description": "The linked order's signer is not the signer who recorded the named provider output. Only the same account can draw against a record; re-sign the consumer with that key.",
+      "docs_url": "/docs/errors/chain/LinkedOutputSignerMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputSignerMismatch/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 528,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L528",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
     "LiquidAlphaDisabled": {
       "code": "disabled",
-      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli sudo get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
+      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli hparams get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
       "docs_url": "/docs/errors/chain/LiquidAlphaDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/LiquidAlphaDisabled/content.md",
       "pallets": [
@@ -2821,8 +3801,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 134,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L134",
+          "line": 135,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L135",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2838,7 +3818,7 @@
     },
     "LockHotkeyMismatch": {
       "code": "invalid_argument",
-      "description": "The coldkey already has a conviction lock on this subnet bound to a different hotkey, and locks for one coldkey per subnet must target a single hotkey. Check the existing lock's hotkey in the lock storage for the coldkey and netuid, or move the lock first.",
+      "description": "A conviction lock on this subnet is bound to a different hotkey than the one in the call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` must reuse that hotkey (`btcli conviction move` to retarget), and a stake transfer that moves locked alpha must land on the receiver's existing lock hotkey (`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with `btcli conviction show --netuid <n>` / `btcli stake list` (locked \u00b7 free \u00b7 lock \u2192 hotkey).",
       "docs_url": "/docs/errors/chain/LockHotkeyMismatch",
       "markdown_url": "/llms.mdx/docs/errors/chain/LockHotkeyMismatch/content.md",
       "pallets": [
@@ -2848,8 +3828,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 305,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L305",
+          "line": 303,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L303",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2866,8 +3846,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 335,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L335",
+          "line": 333,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L333",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2884,8 +3864,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 147,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L147",
+          "line": 250,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L250",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2902,8 +3882,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 161,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L161",
+          "line": 264,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L264",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2920,8 +3900,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 159,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L159",
+          "line": 262,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L262",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2992,15 +3972,15 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 145,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L145",
+          "line": 248,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L248",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
     },
     "MaxWeightExceeded": {
       "code": "limit_exceeded",
-      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli sudo get --netuid <n>`) and flatten the weight vector before setting.",
+      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli hparams get --netuid <n>`) and flatten the weight vector before setting.",
       "docs_url": "/docs/errors/chain/MaxWeightExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/MaxWeightExceeded/content.md",
       "pallets": [
@@ -3056,15 +4036,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 172,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L172",
+          "line": 174,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L174",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 169,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L169",
+          "line": 170,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L170",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -3090,8 +4070,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 155,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L155",
+          "line": 258,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L258",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3108,9 +4088,27 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 157,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L157",
+          "line": 260,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L260",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
+    "MinerEmissionBelowMinimum": {
+      "code": "policy_violation",
+      "description": "Slot 4 (miner) of the emission weight vector is below the 33% floor. Miner incentive must receive at least 0.33 of block emission; raise the miner share (or lower the owner/validator shares that crowd it out).",
+      "docs_url": "/docs/errors/chain/MinerEmissionBelowMinimum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MinerEmissionBelowMinimum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 457,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L457",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
@@ -3179,7 +4177,7 @@
     },
     "NeedWaitingMoreBlocksToStarCall": {
       "code": "too_early",
-      "description": "The subnet owner ran `btcli sudo start` before enough blocks had passed since the subnet was registered. Check readiness with `btcli sudo check-start` and retry once the window opens.",
+      "description": "The subnet owner ran `btcli hparams start` before enough blocks had passed since the subnet was registered. Check readiness with `btcli hparams check-start` and retry once the window opens.",
       "docs_url": "/docs/errors/chain/NeedWaitingMoreBlocksToStarCall",
       "markdown_url": "/llms.mdx/docs/errors/chain/NeedWaitingMoreBlocksToStarCall/content.md",
       "pallets": [
@@ -3189,8 +4187,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 202,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L202",
+          "line": 204,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L204",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3207,8 +4205,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 151,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L151",
+          "line": 254,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L254",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3225,8 +4223,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 291,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L291",
+          "line": 289,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L289",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3251,7 +4249,7 @@
     },
     "NeuronNoValidatorPermit": {
       "code": "not_authorized",
-      "description": "The hotkey tried to set weights on other neurons without holding a validator permit on that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets metagraph`) and whether its stake ranks it as a validator.",
+      "description": "The hotkey tried to set weights on other neurons, or to publish a service other than the subnet owner's, without holding a validator permit on that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets metagraph`) and whether its stake ranks it as a validator.",
       "docs_url": "/docs/errors/chain/NeuronNoValidatorPermit",
       "markdown_url": "/llms.mdx/docs/errors/chain/NeuronNoValidatorPermit/content.md",
       "pallets": [
@@ -3279,8 +4277,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 164,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L164",
+          "line": 166,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L166",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3378,9 +4376,27 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 309,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L309",
+          "line": 307,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L307",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NoLinkedOutput": {
+      "code": "not_found",
+      "description": "A linked order named a provider `order_id` that has no recorded output \u2014 it was never a provider, already drawn, or pruned. Check `LinkedOutputs` for that id, or execute the provider first via `execute_orders` rather than in the same batched call.",
+      "docs_url": "/docs/errors/chain/NoLinkedOutput",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoLinkedOutput/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 526,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L526",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
@@ -3405,8 +4421,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 119,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L119",
+          "line": 120,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L120",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3423,8 +4439,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 789,
-          "url": "/code/pallets/proxy/src/lib.rs#L789",
+          "line": 914,
+          "url": "/code/pallets/proxy/src/lib.rs#L914",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3441,8 +4457,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 793,
-          "url": "/code/pallets/proxy/src/lib.rs#L793",
+          "line": 918,
+          "url": "/code/pallets/proxy/src/lib.rs#L918",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3468,15 +4484,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 126,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L126",
+          "line": 127,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L127",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "NonAssociatedColdKey": {
       "code": "not_authorized",
-      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet overview`, and sign with the coldkey that registered it.",
+      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes), or the gamma deposit at the hotkey belongs to another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it.",
       "docs_url": "/docs/errors/chain/NonAssociatedColdKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/NonAssociatedColdKey/content.md",
       "pallets": [
@@ -3567,8 +4583,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 204,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L204",
+          "line": 206,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L206",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3585,8 +4601,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 142,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L142",
+          "line": 144,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L144",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3603,15 +4619,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 113,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L113",
+          "line": 114,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L114",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "NotEnoughBalanceToStake": {
       "code": "insufficient_balance",
-      "description": "The coldkey's free balance is less than the TAO required, either the stake amount in add_stake or the burn cost of a registration. Check `btcli wallet balance` against the amount or the current registration burn (`Burn` storage for the netuid).",
+      "description": "The coldkey's free balance is less than the TAO required, either the stake amount in add_stake, the TAO of a gamma mint, or the burn cost of a registration. Check `btcli wallet balance` against the amount or the current registration burn (`Burn` storage for the netuid).",
       "docs_url": "/docs/errors/chain/NotEnoughBalanceToStake",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotEnoughBalanceToStake/content.md",
       "pallets": [
@@ -3683,7 +4699,7 @@
     },
     "NotEnoughStakeToWithdraw": {
       "code": "insufficient_balance",
-      "description": "An unstake, stake move, swap, or transfer requested more alpha than the hotkey-coldkey pair holds on that subnet. Compare the requested amount against the pair's current stake on the netuid (`btcli stake list` or the `Alpha` storage).",
+      "description": "An unstake, stake move, swap, or transfer requested more alpha than the hotkey-coldkey pair holds on that subnet. Compare the requested amount against that specific position (`btcli stake list`) \u2014 conviction locks are coldkey-wide, so stake may sit on a different hotkey than the lock target; move stake onto the origin hotkey first or pass the hotkey that actually holds the balance.",
       "docs_url": "/docs/errors/chain/NotEnoughStakeToWithdraw",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotEnoughStakeToWithdraw/content.md",
       "pallets": [
@@ -3713,9 +4729,27 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 781,
-          "url": "/code/pallets/proxy/src/lib.rs#L781",
+          "line": 906,
+          "url": "/code/pallets/proxy/src/lib.rs#L906",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "NotGammaDepositSpender": {
+      "code": "not_authorized",
+      "description": "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it.",
+      "docs_url": "/docs/errors/chain/NotGammaDepositSpender",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotGammaDepositSpender/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 485,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L485",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
@@ -3739,7 +4773,7 @@
     },
     "NotPermittedOnRootSubnet": {
       "code": "invalid_argument",
-      "description": "An admin-utils call that only applies to regular subnets (burn half-life, burn increase multiplier, owner-cut flags, or the subnet emission toggle) was targeted at the root network. Check that the `netuid` argument is not the root netuid 0.",
+      "description": "An admin-utils call that only applies to regular subnets (burn half-life, burn increase multiplier, owner-cut flags, the subnet emission toggle, or `gamma_enabled`) was targeted at the root network. Check that the `netuid` argument is not the root netuid 0.",
       "docs_url": "/docs/errors/chain/NotPermittedOnRootSubnet",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotPermittedOnRootSubnet/content.md",
       "pallets": [
@@ -3749,8 +4783,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 165,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L165",
+          "line": 268,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L268",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3767,8 +4801,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 783,
-          "url": "/code/pallets/proxy/src/lib.rs#L783",
+          "line": 908,
+          "url": "/code/pallets/proxy/src/lib.rs#L908",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3788,6 +4822,24 @@
           "line": 281,
           "url": "/code/pallets/crowdloan/src/lib.rs#L281",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
+    "NotRegistered": {
+      "code": "not_registered",
+      "description": "The hashed account has no authorization record. A sponsor must register its public descriptor before funds or account roles are assigned to it.",
+      "docs_url": "/docs/errors/chain/NotRegistered",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotRegistered/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 265,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L265",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -3812,8 +4864,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 115,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L115",
+          "line": 116,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L116",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3845,6 +4897,24 @@
         "System"
       ]
     },
+    "OrderAccountMissing": {
+      "code": "not_found",
+      "description": "The approval owner has no live System account. Fund the owner with the normal existential balance before approving an order; no registration or extra deposit is required.",
+      "docs_url": "/docs/errors/chain/OrderAccountMissing",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderAccountMissing/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 554,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L554",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
     "OrderAlreadyProcessed": {
       "code": "already_exists",
       "description": "The order id already has a terminal status: execution found it fulfilled, or `cancel_order` found any existing status for it. Check the `Orders` storage map under the blake2-256 hash of the SCALE-encoded `VersionedOrder`.",
@@ -3857,8 +4927,26 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 320,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L320",
+          "line": 485,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L485",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderBatchTooLarge": {
+      "code": "limit_exceeded",
+      "description": "The batch contains more than eight account-approved orders. Split execution into supported batches, retaining each signed order's original bytes and nonce. Classical orders retain the pallet's original total batch limit.",
+      "docs_url": "/docs/errors/chain/OrderBatchTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderBatchTooLarge/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 548,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L548",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3875,8 +4963,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 322,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L322",
+          "line": 487,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L487",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3893,8 +4981,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 324,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L324",
+          "line": 489,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L489",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3911,8 +4999,62 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 334,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L334",
+          "line": 499,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L499",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderNonceUsed": {
+      "code": "already_exists",
+      "description": "The nonce was already used or names different order bytes. For a new approval, choose a nonce greater than ApprovedOrders.highest_nonce; cancellation and expiry do not reset that watermark.",
+      "docs_url": "/docs/errors/chain/OrderNonceUsed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderNonceUsed/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 544,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L544",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderNotApproved": {
+      "code": "not_authorized",
+      "description": "The account-approved order has no matching on-chain owner approval. Execute authorize_order through the owner's authority with the exact nonce and order.",
+      "docs_url": "/docs/errors/chain/OrderNotApproved",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderNotApproved/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 546,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L546",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderSignerFrozen": {
+      "code": "not_authorized",
+      "description": "The order owner is temporarily prohibited from moving funds, so the order cannot be executed. Retry once the owner's freeze has lifted.",
+      "docs_url": "/docs/errors/chain/OrderSignerFrozen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderSignerFrozen/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 542,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L542",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3966,8 +5108,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 237,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L237",
+          "line": 239,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L239",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
@@ -3979,9 +5121,27 @@
         }
       ]
     },
+    "OwnerEmissionAboveMaximum": {
+      "code": "policy_violation",
+      "description": "Slot 2 (owner) of the emission weight vector exceeds the 33% ceiling. The subnet owner may take at most 0.33 of block emission; lower the owner share (0 disables the owner cut entirely on subnets that were not created through a lease).",
+      "docs_url": "/docs/errors/chain/OwnerEmissionAboveMaximum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OwnerEmissionAboveMaximum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 440,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L440",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "POWRegistrationDisabled": {
       "code": "disabled",
-      "description": "`sudo_set_network_pow_registration_allowed` unconditionally fails because proof-of-work registration is deprecated and its toggle can no longer be changed. Nothing to check; the call is permanently disabled.",
+      "description": "This legacy error is retained for older runtimes that disabled PoW registration. Upgraded runtimes let the subnet owner enable network_pow_registration_allowed; general registration must also be enabled. Root does not accept PoW registration.",
       "docs_url": "/docs/errors/chain/POWRegistrationDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/POWRegistrationDisabled/content.md",
       "pallets": [
@@ -3991,8 +5151,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 167,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L167",
+          "line": 270,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L270",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4009,8 +5169,44 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 350,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L350",
+          "line": 515,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L515",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "PartialFillNotSupportedForLinkedAmount": {
+      "code": "invalid_argument",
+      "description": "A `partial_fill` was submitted against a linked (consuming) order. Linked amounts must execute in one shot; omit `partial_fill` and execute the resolved amount in full.",
+      "docs_url": "/docs/errors/chain/PartialFillNotSupportedForLinkedAmount",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PartialFillNotSupportedForLinkedAmount/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 536,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L536",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "PartialFillNotSupportedForProvider": {
+      "code": "invalid_argument",
+      "description": "A `partial_fill` was submitted against a provider (`has_linked_order`). Provider output must be recorded from a single execution; omit `partial_fill` even if `partial_fills_enabled` is set.",
+      "docs_url": "/docs/errors/chain/PartialFillNotSupportedForProvider",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PartialFillNotSupportedForProvider/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 538,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L538",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4027,8 +5223,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 340,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L340",
+          "line": 505,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L505",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4072,8 +5268,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 326,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L326",
+          "line": 491,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L491",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4090,8 +5286,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 154,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L154",
+          "line": 155,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L155",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4108,8 +5304,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 148,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L148",
+          "line": 150,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L150",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4141,6 +5337,24 @@
         "Contracts"
       ]
     },
+    "RecycleEmissionMustBeZero": {
+      "code": "policy_violation",
+      "description": "Deprecated. Slot 1 (recycle) may now be non-zero; burn and recycle together may be at most 33% (`BurnRecycleEmissionAboveMaximum`).",
+      "docs_url": "/docs/errors/chain/RecycleEmissionMustBeZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RecycleEmissionMustBeZero/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 437,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L437",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "ReentranceDenied": {
       "code": "invalid_argument",
       "description": "A call tried to re-enter a contract already on the call stack without reentrancy being allowed, or contract code called back into the contracts pallet through the runtime. Check the callee address against the current call stack and the ALLOW_REENTRY call flag.",
@@ -4157,6 +5371,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/Reentrancy/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "RegistrationDepositTooHigh": {
+      "code": "limit_exceeded",
+      "description": "The current hashed account registration reserve exceeds the transaction's approved maximum. Read HashedAccounts.HashedAccountRegistrationDeposit and approve a fresh quote before signing again.",
+      "docs_url": "/docs/errors/chain/RegistrationDepositTooHigh",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RegistrationDepositTooHigh/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 285,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L285",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "RegistrationNotPermittedOnRootSubnet": {
@@ -4189,8 +5421,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 303,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L303",
+          "line": 301,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L301",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4207,8 +5439,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 338,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L338",
+          "line": 503,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L503",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4225,8 +5457,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 344,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L344",
+          "line": 509,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L509",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4270,8 +5502,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 175,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L175",
+          "line": 176,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L176",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4288,8 +5520,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 166,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L166",
+          "line": 167,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L167",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4315,8 +5547,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 253,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L253",
+          "line": 255,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L255",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4333,8 +5565,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 255,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L255",
+          "line": 257,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L257",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4351,8 +5583,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 182,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L182",
+          "line": 184,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L184",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "RootClaimTooHeavy": {
+      "code": "limit_exceeded",
+      "description": "A root claim would process more than the fixed 256-unit admission envelope. Only root-relevant validator hotkeys and their stored basket rows count as claim work; classifying the staking-hotkey relationship vector is separately capped at 256, and the queued dividend credits plus weight-vector destinations the claim would flush first are capped at 512 across all validators claimed (one validator always fits). Unrelated subnet stakes are not multiplied by the total network count. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
+      "docs_url": "/docs/errors/chain/RootClaimTooHeavy",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootClaimTooHeavy/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 368,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L368",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4369,8 +5619,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 332,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L332",
+          "line": 497,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L497",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4393,6 +5643,87 @@
         }
       ]
     },
+    "RootStakeLocked": {
+      "code": "too_early",
+      "description": "A root (netuid 0) exit was attempted before `RootStakeUnlockInterval` blocks elapsed since the coldkey/hotkey's last root stake add, remove, or claim. Applies to `remove_stake` and to move/swap/transfer off root. Check `LastColdkeyHotkeyStakeBlock` against the current block and wait out the hold window (or leave the interval at 0 via sudo if the lock is not intended).",
+      "docs_url": "/docs/errors/chain/RootStakeLocked",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootStakeLocked/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 354,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L354",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "RootWeightCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): one destination in a `set_root_weights` vector exceeded `RootWeightsCap`. That call is gone; the live guard is `BasketConcentrationCapExceeded` on `swap_basket`.",
+      "docs_url": "/docs/errors/chain/RootWeightCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 372,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L372",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "RootWeightSettingDisabled": {
+      "code": "disabled",
+      "description": "Retired on current runtimes: the `set_root_weights` extrinsic and its network-wide gate were removed. Funds have no target vector \u2014 dividends accumulate in place on their origin subnet and composition changes only through `swap_basket`. Seeing this error means the chain is running an older runtime.",
+      "docs_url": "/docs/errors/chain/RootWeightSettingDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightSettingDisabled/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 363,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L363",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "SafeDerivationFailed": {
+      "code": "invalid_argument",
+      "description": "The canonical bounded search could not derive an off-curve composite account. No fallback account was created. Choose a different signer manifest or derivation index for a new account; retain the original mode and parameters when restoring one.",
+      "docs_url": "/docs/errors/chain/SafeDerivationFailed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SafeDerivationFailed/content.md",
+      "pallets": [
+        "Utility",
+        "Multisig",
+        "Proxy"
+      ],
+      "sources": [
+        {
+          "pallet": "Utility",
+          "path": "pallets/utility/src/lib.rs",
+          "line": 202,
+          "url": "/code/pallets/utility/src/lib.rs#L202",
+          "raw_url": "/code/raw/pallets/utility/src/lib.rs"
+        },
+        {
+          "pallet": "Proxy",
+          "path": "pallets/proxy/src/lib.rs",
+          "line": 926,
+          "url": "/code/pallets/proxy/src/lib.rs#L926",
+          "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
     "SameAutoStakeHotkeyAlreadySet": {
       "code": "already_exists",
       "description": "The coldkey tried to set its auto-stake destination on a subnet to the hotkey that is already configured. Read `AutoStakeDestination` for the coldkey and netuid before calling; only a different hotkey is accepted.",
@@ -4405,8 +5736,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 267,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L267",
+          "line": 269,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L269",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4423,8 +5754,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 221,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L221",
+          "line": 223,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L223",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4436,6 +5767,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/SenderInSignatories/content.md",
       "pallets": [
         "Multisig"
+      ]
+    },
+    "ServiceDoesNotExist": {
+      "code": "not_found",
+      "description": "Gamma is spent only at a hotkey listed as a service on the deposit's subnet, and this one is not. List the subnet's services with the `services` read.",
+      "docs_url": "/docs/errors/chain/ServiceDoesNotExist",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ServiceDoesNotExist/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 505,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "ServingRateLimitExceeded": {
@@ -4485,7 +5834,7 @@
     },
     "SlippageTooHigh": {
       "code": "insufficient_liquidity",
-      "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance). Retry, raise `--rate-tolerance`, or disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
+      "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, raise `--rate-tolerance`, or, for stake, disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
       "docs_url": "/docs/errors/chain/SlippageTooHigh",
       "markdown_url": "/llms.mdx/docs/errors/chain/SlippageTooHigh/content.md",
       "pallets": [
@@ -4495,8 +5844,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 192,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L192",
+          "line": 194,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L194",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4513,8 +5862,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 123,
-          "url": "/code/pallets/commitments/src/lib.rs#L123",
+          "line": 134,
+          "url": "/code/pallets/commitments/src/lib.rs#L134",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -4530,7 +5879,7 @@
     },
     "StakeTooLowForRoot": {
       "code": "insufficient_balance",
-      "description": "`root_register` when the root network is full and the hotkey's stake on netuid 0 does not exceed the lowest-staked current root member. Compare your hotkey's root stake against existing root validators (`btcli subnets metagraph 0` or `btcli query neurons --netuid 0`).",
+      "description": "Retired. `root_register` used to raise this when the root network was full and the hotkey's netuid-0 stake did not exceed the lowest-staked root member; root admission is now burn-based (the coldkey pays the root burn price), so this error is no longer raised.",
       "docs_url": "/docs/errors/chain/StakeTooLowForRoot",
       "markdown_url": "/llms.mdx/docs/errors/chain/StakeTooLowForRoot/content.md",
       "pallets": [
@@ -4540,8 +5889,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 109,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L109",
+          "line": 110,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L110",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4558,8 +5907,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 174,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L174",
+          "line": 176,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L176",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4584,7 +5933,7 @@
     },
     "StartCallNotReady": {
       "code": "too_early",
-      "description": "`btcli sudo start` was run before `StartCallDelay` blocks elapsed since the subnet was registered. Check readiness with `btcli sudo check-start` and wait for the remainder.",
+      "description": "`btcli hparams start` was run before `StartCallDelay` blocks elapsed since the subnet was registered. Check readiness with `btcli hparams check-start` and wait for the remainder.",
       "docs_url": "/docs/errors/chain/StartCallNotReady",
       "markdown_url": "/llms.mdx/docs/errors/chain/StartCallNotReady/content.md",
       "pallets": [
@@ -4594,8 +5943,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 337,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L337",
+          "line": 335,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L335",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4647,7 +5996,7 @@
     },
     "SubNetRegistrationDisabled": {
       "code": "disabled",
-      "description": "Neuron registration is switched off: either the subnet's `NetworkRegistrationAllowed` flag is false, or network creation has not opened yet (`NetworkRegistrationStartBlock` is in the future). Check the network_registration_allowed hyperparameter for the netuid.",
+      "description": "Neuron registration is switched off: either the subnet's `NetworkRegistrationAllowed` flag is false, the PoW-specific toggle is off for a pow_register call, or network creation has not opened yet (`NetworkRegistrationStartBlock` is in the future). Check the network_registration_allowed hyperparameter for the netuid.",
       "docs_url": "/docs/errors/chain/SubNetRegistrationDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/SubNetRegistrationDisabled/content.md",
       "pallets": [
@@ -4675,8 +6024,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 289,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L289",
+          "line": 287,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L287",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4693,8 +6042,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 143,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L143",
+          "line": 246,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L246",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4711,8 +6060,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 259,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L259",
+          "line": 261,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L261",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4729,15 +6078,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 176,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L176",
+          "line": 178,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L178",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "SubtokenDisabled": {
       "code": "subtoken_disabled",
-      "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli sudo start` after registration. Check readiness with `btcli sudo check-start`.",
+      "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli hparams start` after registration. Check readiness with `btcli hparams check-start`.",
       "docs_url": "/docs/errors/chain/SubtokenDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/SubtokenDisabled/content.md",
       "pallets": [
@@ -4748,15 +6097,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 212,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L212",
+          "line": 214,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L214",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 172,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L172",
+          "line": 173,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L173",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4773,8 +6122,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 178,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L178",
+          "line": 179,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L179",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4791,8 +6140,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 330,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L330",
+          "line": 495,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L495",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4809,8 +6158,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 247,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L247",
+          "line": 249,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L249",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4827,8 +6176,26 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 245,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L245",
+          "line": 247,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L247",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "TaoUsdPriceUnavailable": {
+      "code": "disabled",
+      "description": "Gamma cannot be minted because the TAO/USD price is unusable: there is no feed, or the last feed is more than 300 blocks old. Check `tao_usd_price` and retry once the oracle has fed.",
+      "docs_url": "/docs/errors/chain/TaoUsdPriceUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TaoUsdPriceUnavailable/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 471,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L471",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4854,8 +6221,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 319,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L319",
+          "line": 317,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L317",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4876,6 +6243,33 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TerminatedWhileReentrant/content.md",
       "pallets": [
         "Contracts"
+      ]
+    },
+    "ThresholdTooHigh": {
+      "code": "invalid_argument",
+      "description": "The safe multisig threshold exceeds the full signatory count, including the sender. Use a threshold no greater than the number of distinct group members.",
+      "docs_url": "/docs/errors/chain/ThresholdTooHigh",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ThresholdTooHigh/content.md",
+      "pallets": [
+        "Multisig"
+      ]
+    },
+    "TimelockRevealFailedNotAllowed": {
+      "code": "invalid_argument",
+      "description": "The submitted commitment contains `TimelockRevealFailed`, a terminal audit state that only the runtime may create after an automatic reveal fails. Submit a `TimelockEncrypted` field instead.",
+      "docs_url": "/docs/errors/chain/TimelockRevealFailedNotAllowed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TimelockRevealFailedNotAllowed/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 138,
+          "url": "/code/pallets/commitments/src/lib.rs#L138",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
       ]
     },
     "TooBig": {
@@ -4918,9 +6312,27 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 779,
-          "url": "/code/pallets/proxy/src/lib.rs#L779",
+          "line": 904,
+          "url": "/code/pallets/proxy/src/lib.rs#L904",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "TooManyApprovedOrders": {
+      "code": "limit_exceeded",
+      "description": "The owner already has eight live approvals. Cancel or complete an existing order, or wait for its expiry, before approving another.",
+      "docs_url": "/docs/errors/chain/TooManyApprovedOrders",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyApprovedOrders/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 552,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L552",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
@@ -4936,8 +6348,8 @@
         {
           "pallet": "Utility",
           "path": "pallets/utility/src/lib.rs",
-          "line": 169,
-          "url": "/code/pallets/utility/src/lib.rs#L169",
+          "line": 198,
+          "url": "/code/pallets/utility/src/lib.rs#L198",
           "raw_url": "/code/raw/pallets/utility/src/lib.rs"
         }
       ]
@@ -4954,8 +6366,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 150,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L150",
+          "line": 152,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L152",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4972,8 +6384,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 119,
-          "url": "/code/pallets/commitments/src/lib.rs#L119",
+          "line": 130,
+          "url": "/code/pallets/commitments/src/lib.rs#L130",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -4985,6 +6397,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyFreezes/content.md",
       "pallets": [
         "Balances"
+      ]
+    },
+    "TooManyGammaDeposits": {
+      "code": "limit_exceeded",
+      "description": "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one with `close_gamma_deposit`, then retry.",
+      "docs_url": "/docs/errors/chain/TooManyGammaDeposits",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaDeposits/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 475,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L475",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "TooManyGammaShares": {
+      "code": "limit_exceeded",
+      "description": "The emission split has more than 16 gamma shares. Drop gamma shares to at most 16.",
+      "docs_url": "/docs/errors/chain/TooManyGammaShares",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaShares/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 501,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L501",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "TooManyHolds": {
@@ -5008,8 +6456,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 238,
-          "url": "/code/pallets/shield/src/lib.rs#L238",
+          "line": 242,
+          "url": "/code/pallets/shield/src/lib.rs#L242",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -5068,6 +6516,24 @@
         "Multisig"
       ]
     },
+    "TooManyStakingHotkeys": {
+      "code": "limit_exceeded",
+      "description": "The coldkey already stakes through the maximum number of hotkeys, either its own cap or the smaller cap that third-party stake transfers may fill. Stake to a hotkey the coldkey already stakes through, or unstake from unused hotkeys first.",
+      "docs_url": "/docs/errors/chain/TooManyStakingHotkeys",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyStakingHotkeys/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 382,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L382",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "TooManyTopics": {
       "code": "limit_exceeded",
       "description": "The number of topics passed to `seal_deposit_event` exceeds the schedule's `event_topics` limit. Reduce the number of indexed topics in the contract's event definition or compare against the schedule limit.",
@@ -5089,15 +6555,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 281,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L281",
+          "line": 279,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L279",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "TooManyUnrevealedCommits": {
       "code": "limit_exceeded",
-      "description": "`commit_weights` (or a CRv3 commit) failed because the hotkey already has 10 unrevealed commits queued on the subnet. Inspect `WeightCommits` for the hotkey and reveal or let old commits expire before committing again.",
+      "description": "Legacy hash commits (`commit_weights` and `commit_mechanism_weights`) reached their fixed limit of 10 unexpired entries in `WeightCommits` for this hotkey and mechanism. Reveal one or wait for it to expire. For a Yuma CRv3 timelocked commit, the hotkey reached the subnet's `MaxTimelockedCommitsPerHotkey` limit in the current mechanism and commit epoch. Check that setting and `TimelockedWeightCommits`. A setting of 0 pauses new Yuma commits even with an empty queue; root must raise it before retrying. Otherwise, retry in a later commit epoch or after root raises the cap.",
       "docs_url": "/docs/errors/chain/TooManyUnrevealedCommits",
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyUnrevealedCommits/content.md",
       "pallets": [
@@ -5107,8 +6573,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 178,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L178",
+          "line": 180,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L180",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5161,8 +6627,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 194,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L194",
+          "line": 196,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L196",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5188,8 +6654,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 271,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L271",
+          "line": 273,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L273",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5206,15 +6672,15 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 168,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L168",
+          "line": 170,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L170",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },
     "TxRateLimitExceeded": {
       "code": "rate_limited",
-      "description": "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, setting the owner hotkey) was repeated within its rate-limit window for that key and subnet. Check when the same transaction type last succeeded and wait for the limit to pass.",
+      "description": "An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, setting the owner hotkey) was repeated within its rate-limit window for that key and subnet, or the oracle fed the TAO/USD price twice in one block. Check when the same transaction type last succeeded and wait for the limit to pass.",
       "docs_url": "/docs/errors/chain/TxRateLimitExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/TxRateLimitExceeded/content.md",
       "pallets": [
@@ -5224,8 +6690,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 152,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L152",
+          "line": 154,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L154",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5242,8 +6708,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 269,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L269",
+          "line": 271,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L271",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5296,8 +6762,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 208,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L208",
+          "line": 210,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L210",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5314,8 +6780,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 791,
-          "url": "/code/pallets/proxy/src/lib.rs#L791",
+          "line": 916,
+          "url": "/code/pallets/proxy/src/lib.rs#L916",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5333,8 +6799,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 328,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L328",
+          "line": 493,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L493",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5387,8 +6853,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 125,
-          "url": "/code/pallets/commitments/src/lib.rs#L125",
+          "line": 136,
+          "url": "/code/pallets/commitments/src/lib.rs#L136",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -5405,8 +6871,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 315,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L315",
+          "line": 313,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L313",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5423,8 +6889,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 785,
-          "url": "/code/pallets/proxy/src/lib.rs#L785",
+          "line": 910,
+          "url": "/code/pallets/proxy/src/lib.rs#L910",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5441,9 +6907,27 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 236,
-          "url": "/code/pallets/shield/src/lib.rs#L236",
+          "line": 240,
+          "url": "/code/pallets/shield/src/lib.rs#L240",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
+        }
+      ]
+    },
+    "UnsupportedDescriptor": {
+      "code": "invalid_argument",
+      "description": "The hashed descriptor version or underlying signing scheme is unsupported. Use the descriptor exported by a wallet version supported by this runtime.",
+      "docs_url": "/docs/errors/chain/UnsupportedDescriptor",
+      "markdown_url": "/llms.mdx/docs/errors/chain/UnsupportedDescriptor/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 261,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L261",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
         }
       ]
     },
@@ -5465,6 +6949,42 @@
         }
       ]
     },
+    "ValidatorEmissionAboveMaximum": {
+      "code": "policy_violation",
+      "description": "Slot 3 (validator) of the emission weight vector exceeds the 50% ceiling. Validator dividends may draw at most 0.50 of block emission; lower the validator share.",
+      "docs_url": "/docs/errors/chain/ValidatorEmissionAboveMaximum",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ValidatorEmissionAboveMaximum/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 447,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L447",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ValidatorEmissionTooLowToPreserveRoot": {
+      "code": "policy_violation",
+      "description": "Slot 3 (validator) of the emission weight vector is at or below root's baseline share. Every block the chain pays root `min(V, r)` of the subnet's emission off the top of the validator slot, where `r = V0 * x / (x + A)` is what root would earn with the default validator share V0 (0.41) and the global TaoWeight (`x` = root TAO times that weight, `A` = the subnet's alpha issuance), recomputed from live state; alpha validators get `V - min(V, r)`. A set with `V <= r` would leave validators nothing, so it is rejected. `btcli subnets emission show --netuid <n>` prints the baseline and the floor for this block. Raise the validator share above it and resubmit.",
+      "docs_url": "/docs/errors/chain/ValidatorEmissionTooLowToPreserveRoot",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ValidatorEmissionTooLowToPreserveRoot/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 454,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L454",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "ValueNotInBounds": {
       "code": "invalid_argument",
       "description": "An admin-utils argument fell outside its allowed range: `min_burn` must be below `MinBurnUpperBound` and the subnet's max burn, `max_burn` above `MaxBurnLowerBound` and the min burn, and `max_epochs_per_block` at least 1. Check the argument against those bounds.",
@@ -5477,8 +6997,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 153,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L153",
+          "line": 256,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L256",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5513,8 +7033,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 283,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L283",
+          "line": 281,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L281",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5531,8 +7051,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 317,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L317",
+          "line": 315,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L315",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5549,8 +7069,8 @@
         {
           "pallet": "MevShield",
           "path": "pallets/shield/src/lib.rs",
-          "line": 240,
-          "url": "/code/pallets/shield/src/lib.rs#L240",
+          "line": 244,
+          "url": "/code/pallets/shield/src/lib.rs#L244",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
       ]
@@ -5598,6 +7118,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawFailed/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "WrongCommitment": {
+      "code": "not_authorized",
+      "description": "The revealed signing key does not match the account's current commitment. Check the mnemonic, derivation version, and current generation before signing again.",
+      "docs_url": "/docs/errors/chain/WrongCommitment",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WrongCommitment/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 269,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L269",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
+      ]
+    },
+    "WrongGeneration": {
+      "code": "invalid_argument",
+      "description": "The authorization proof uses a different sequence from HashedAccounts.Accounts. Wait for pending transactions and refresh chain state before signing again.",
+      "docs_url": "/docs/errors/chain/WrongGeneration",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WrongGeneration/content.md",
+      "pallets": [
+        "HashedAccounts"
+      ],
+      "sources": [
+        {
+          "pallet": "HashedAccounts",
+          "path": "pallets/hashed-accounts/src/lib.rs",
+          "line": 267,
+          "url": "/code/pallets/hashed-accounts/src/lib.rs#L267",
+          "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        }
       ]
     },
     "WrongTimepoint": {
@@ -5648,8 +7204,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 359,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L359",
+          "line": 524,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L524",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

@@ -2,10 +2,12 @@
  * Polkadot.js (ApiPromise) compatible helpers for dev tests.
  * Uses ApiPromise, not PAPI TypedApi — keep them separate.
  */
+import type { Struct } from "@polkadot/types-codec";
+import type { INumber } from "@polkadot/types-codec/types";
 import type { ApiPromise } from "@polkadot/api";
 import { tao } from "./balance.ts";
 import type { KeyringPair } from "@moonwall/util";
-import type { SignedOrder } from "./index.js";
+import type { SignedOrder } from "./limit-orders.js";
 
 export async function devForceSetBalance(
     polkadotJs: ApiPromise,
@@ -48,10 +50,10 @@ export async function devGetAlphaStake(
     coldkey: string,
     netuid: number
 ): Promise<bigint> {
-    const value = await polkadotJs.query.subtensorModule.alphaV2(hotkey, coldkey, netuid);
+    const value = await polkadotJs.query.subtensorModule.alphaV2<Struct>(hotkey, coldkey, netuid);
 
-    const mantissa = value.mantissa;
-    const exponent = value.exponent;
+    const mantissa = value.getT<INumber>("mantissa").toBigInt();
+    const exponent = value.getT<INumber>("exponent").toBigInt();
 
     let result: bigint;
 
@@ -103,4 +105,13 @@ export async function devExecuteOrders(
     shouldFail = false
 ): Promise<void> {
     await context.createBlock([await polkadotJs.tx.limitOrders.executeOrders(orders, shouldFail).signAsync(alice)]);
+}
+
+export async function devPruneLinkedOutput(
+    polkadotJs: ApiPromise,
+    context: any,
+    caller: KeyringPair,
+    orderId: `0x${string}`
+): Promise<void> {
+    await context.createBlock([await polkadotJs.tx.limitOrders.pruneLinkedOutput(orderId).signAsync(caller)]);
 }

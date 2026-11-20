@@ -495,6 +495,42 @@ impl IntentCall {
         )
     }
 
+    /// Move stake between hotkeys/subnets with a relative cross-subnet price limit.
+    pub fn move_stake_limit(
+        origin_hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_hotkey: impl Into<String>,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+        limit_price: u128,
+        allow_partial: bool,
+    ) -> Self {
+        Self::trusted(
+            "move_stake_limit",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "move_stake_limit",
+            Value::record(vec![
+                ("origin_hotkey".into(), Value::str(origin_hotkey)),
+                ("destination_hotkey".into(), Value::str(destination_hotkey)),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+                ("limit_price".into(), Value::Uint(limit_price)),
+                ("allow_partial".into(), Value::Bool(allow_partial)),
+            ]),
+            Spend::None,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
     /// Swap stake between two subnets on one hotkey.
     pub fn swap_stake(
         hotkey: impl Into<String>,
@@ -1174,6 +1210,20 @@ mod tests {
     }
 
     #[test]
+    fn trusted_move_stake_limit_uses_constructor_derived_netuids() {
+        let intent =
+            IntentCall::move_stake_limit("5origin", 1, "5destination", 2, 10, 900_000_000, false);
+        let policy = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+        assert_eq!(
+            policy.check(&intent, Some(0)),
+            vec![String::from("netuid 2 is not allowed by policy")]
+        );
+    }
+
+    #[test]
     fn compatibility_builders_cannot_downgrade_arbitrary_calls() {
         let intent = IntentCall::new(
             "caller_supplied",
@@ -1220,5 +1270,13 @@ mod tests {
                 String::from("netuid 2 is not allowed by policy"),
             ]
         );
+    }
+
+    #[test]
+    fn set_root_claim_type_requires_subnets_exactly_for_keep_subnets() {
+        assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
+        assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
+        assert!(IntentCall::set_root_claim_type("Keep", None).is_ok());
+        assert!(IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])).is_ok());
     }
 }

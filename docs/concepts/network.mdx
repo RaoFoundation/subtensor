@@ -48,9 +48,10 @@ A subnet is an independent incentive market, identified by an integer
 Netuid 0 is the **root network**: it has no miners, no alpha token, and no
 validation work — it is the pool where TAO is staked directly. Root TAO
 stake counts toward validator stake weight on every subnet (see below) and
-earns a share of each subnet's dividends. Registration there is stake-based
-rather than burn-based. By convention, root (TAO) is priced at 1.0 wherever
-subnet prices are summed.
+earns a share of each subnet's dividends. Registration there is burn-based
+like subnet registration (a full root network prunes its lowest-staked
+member). By convention, root (TAO) is priced at 1.0 wherever subnet prices
+are summed.
 
 Subnet slots are limited: a subnet holds at most `max_allowed_uids` neurons
 (default 256, and no lower than 64). Registering on a full subnet

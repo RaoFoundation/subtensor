@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: base_fee_set_base_fee_per_gas
+expression: fee
+---
+67091

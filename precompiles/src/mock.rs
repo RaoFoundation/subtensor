@@ -79,7 +79,10 @@ const EVM_DECIMALS_FACTOR: u64 = 1_000_000_000;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
+    // Defaults preserve the existing zero-cost mock; regressions can inject production gas costs.
+    pub static TestDbWeight: frame_support::weights::RuntimeDbWeight = frame_support::weights::RuntimeDbWeight { read: 0, write: 0 };
     pub const SS58Prefix: u8 = 42;
+    pub static BlockLength: limits::BlockLength = limits::BlockLength::max_with_normal_ratio(5 * 1024 * 1024, Perbill::from_percent(75));
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
         Weight::from_parts(2_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
@@ -106,6 +109,7 @@ parameter_types! {
     pub const MaxAuthorities: u32 = 32;
     pub static BlockGasLimit: U256 = U256::max_value();
     pub WeightPerGas: Weight = Weight::from_parts(20_000, 0);
+    pub PrecompilesValue: crate::Precompiles<Runtime> = crate::Precompiles::new();
     pub const ProxyDepositBase: TaoBalance = TaoBalance::new(1);
     pub const ProxyDepositFactor: TaoBalance = TaoBalance::new(1);
     pub const MaxProxies: u32 = 20;
@@ -188,7 +192,9 @@ parameter_types! {
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Runtime {
     type BaseCallFilter = Everything;
+    type DbWeight = TestDbWeight;
     type BlockWeights = BlockWeights;
+    type BlockLength = BlockLength;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Hash = H256;
@@ -287,8 +293,8 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = EnsureAddressNever<AccountId>;
     type AddressMapping = pallet_evm::HashedAddressMapping<BlakeTwo256>;
     type Currency = Balances;
-    type PrecompilesType = ();
-    type PrecompilesValue = ();
+    type PrecompilesType = crate::Precompiles<Self>;
+    type PrecompilesValue = PrecompilesValue;
     type ChainId = ();
     type BlockGasLimit = BlockGasLimit;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
@@ -385,6 +391,16 @@ mod test_crypto {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
+parameter_types! {
+    pub storage MockRegistrationDeposit: TaoBalance = TaoBalance::new(200_000_000);
+}
+
+impl pallet_admin_utils::RegistrationDepositInterface for MockRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        MockRegistrationDeposit::set(&value);
+    }
+}
+
 impl pallet_admin_utils::Config for Runtime {
     type Aura = ();
     type Grandpa = ();
@@ -392,6 +408,7 @@ impl pallet_admin_utils::Config for Runtime {
     type MaxAuthorities = MaxAuthorities;
     type Balance = TaoBalance;
     type WeightInfo = ();
+    type RegistrationDeposit = MockRegistrationDeposit;
 }
 
 impl pallet_drand::Config for Runtime {
@@ -432,16 +449,19 @@ impl AuthorshipInfo<AccountId> for MockAuthorshipProvider {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 impl pallet_subtensor::Config for Runtime {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -525,6 +545,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {
@@ -542,6 +563,8 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {
 }
 
 impl pallet_subtensor_proxy::Config for Runtime {
+    type SafeDerivationWeight = ();
+    type AccountPolicy = frame_support::traits::Everything;
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type ProxyType = ProxyType;

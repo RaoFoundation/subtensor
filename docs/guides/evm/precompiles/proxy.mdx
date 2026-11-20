@@ -1,0 +1,84 @@
+---
+title: Proxy
+description: Reference for the deployed ProxyPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `ProxyPrecompile` |
+| Solidity interface | `IProxy` |
+| Address | `0x000000000000000000000000000000000000080b` |
+| Status | Deployed |
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `createPureProxy(uint8,uint32,uint16)` | nonpayable |
+| `proxyCall(bytes32,uint8[],uint8[])` | nonpayable |
+| `killPureProxy(bytes32,uint8,uint16,uint32,uint32)` | nonpayable |
+| `addProxy(bytes32,uint8,uint32)` | nonpayable |
+| `removeProxy(bytes32,uint8,uint32)` | nonpayable |
+| `removeProxies()` | nonpayable |
+| `pokeDeposit()` | nonpayable |
+| `getProxies(bytes32)` | `view` |
+| `getProxyDeposit(bytes32)` | `view` |
+| `getAnnouncements(bytes32)` | `view` |
+| `getLastCallResult(bytes32)` | `view` |
+| `isRealPaysFee(bytes32,bytes32)` | `view` |
+
+`getLastCallResult` returns stable success/error metadata. Module errors expose
+the pallet index and four error bytes. Error kinds are `1` Other, `2`
+CannotLookup, `3` BadOrigin, `4` Module, `5` ConsumerRemaining, `6`
+NoProviders, `7` TooManyConsumers, `8` Token, `9` Arithmetic, `10`
+Transactional, `11` Exhausted, `12` Corruption, `13` Unavailable, `14`
+RootNotAllowed, and `15` Trie. This avoids returning SCALE-encoded runtime
+data.
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `announce` | `Proxy.announce` |
+| `removeAnnouncement` | `Proxy.remove_announcement` |
+| `rejectAnnouncement` | `Proxy.reject_announcement` |
+| `setRealPaysFee` | `Proxy.set_real_pays_fee` |
+
+## Proposed operation
+
+| Function | Source extrinsic |
+|---|---|
+| `proxyAnnounced` | `Proxy.proxy_announced` |
+
+`proxyAnnounced` must use the same versioned, stable EVM call description as
+other typed proxy execution. A new interface must not introduce another
+dependency on SCALE-encoded `RuntimeCall`.
+
+No selector is reserved for `proxyAnnounced`.
+
+Source: [`proxy.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/proxy.sol)
+
+## Input processing and gas
+
+The deployed `proxyCall(bytes32,uint8[],uint8[])` ABI is unchanged. Before the
+ABI decoder reads either array, this selector prepays
+`ceil(calldata_bytes / 32) × gas_transaction_non_zero_data`. Other proxy
+selectors, including views, do not pay this input-processing tariff.
+
+Inside `proxyCall`, each raw SCALE byte, including zero bytes, additionally
+costs `gas_transaction_non_zero_data` before SCALE decoding. This tariff also
+covers the linear dispatch-info traversal of the decoded call tree. It uses
+the runtime's EVM configuration; it is not a measured benchmark weight.
+Processing charges are not refunded on malformed inputs, failed authorization,
+or later dispatch rejection.
+
+The SCALE call cannot exceed the runtime's normal-block byte limit. The full
+ABI calldata cannot exceed `32 × normal_block_byte_limit + 164` bytes. Each
+size limit is checked before its corresponding decoder, and SCALE decoding
+retains its depth limit of 8. Oversized input is rejected by a constant-time
+length check. Runtime dispatch must fit the gas remaining after processing;
+otherwise the current precompile frame consumes its remaining gas and returns
+`OutOfGas`. The parent contract can handle that failure.
+
+Proxy authorization still runs in the proxy pallet with the mapped caller as
+the signed delegate. These processing charges do not grant proxy authority.

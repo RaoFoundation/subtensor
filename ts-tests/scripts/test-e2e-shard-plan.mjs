@@ -36,7 +36,7 @@ if (JSON.stringify(registeredSelectors) !== JSON.stringify(plannerSelectors)) {
 }
 const plan = buildE2EPlan(manifest, all);
 assert.equal(plan.state_count, 7);
-assert.equal(plan.shield_count, 5);
+assert.equal(plan.shield_count, 6);
 assert.deepEqual(
     plan.build_matrix.include.map(({ variant }) => variant),
     ["release", "fast"]
@@ -110,7 +110,7 @@ const baseConfig = {
     ],
 };
 const materialized = materializeShardEnvironments(baseConfig, manifest);
-assert.equal(materialized.environments.length, 13);
+assert.equal(materialized.environments.length, 14);
 assert.deepEqual(materialized.environments.find(({ name }) => name === "zombienet_evm_a").include, [
     "suites/zombienet_evm/01-contract-deploy-call.test.ts",
 ]);

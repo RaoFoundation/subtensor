@@ -1,0 +1,84 @@
+# Accepted advisories that cannot be fixed without a major polkadot-sdk bump.
+# The CI ignore list in .github/workflows/cargo-audit.yml covers the older
+# entries; cargo-audit merges both lists. Revisit everything here when the
+# SDK fork moves to a newer wasmtime.
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0269 (added 2026-09-15): wasmtime 8.0.1 WASI filesystem
+    # sandbox escape via trailing slashes. wasmtime 8.0.1 is pinned by the
+    # polkadot-sdk fork's sc-executor-wasmtime / sp-wasm-interface; the fix
+    # is wasmtime >=24.0.13. The node never exposes a WASI filesystem to the
+    # runtime, so the advisory is not reachable here.
+    "RUSTSEC-2026-0269",
+    # GHSA-jqpg-j7w6-42pr / RUSTSEC-2026-0316 affects dynamic component
+    # record lifting through wasmtime::component::Val. The SDK executor uses
+    # core WebAssembly only. Even `cargo metadata --all-features --locked`
+    # resolves wasmtime 8.0.1 without `component-model` (cache, cranelift,
+    # jitdump, parallel-compilation, pooling-allocator), so the affected API
+    # is not compiled. Revisit if executor features or the SDK fork change.
+    # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-jqpg-j7w6-42pr
+    "RUSTSEC-2026-0316",
+    # Component-model resource tables are not compiled into our core-Wasm
+    # executor. check-audit-feature-exclusions.py fails if component-model is
+    # enabled in any workspace build, including all features and targets.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0363.html
+    "RUSTSEC-2026-0363",
+    # The old ruzstd versions belong to optional smoldot light-client paths
+    # retained in Cargo.lock. Neither is in the active workspace build graph.
+    # The same guard fails if any affected ruzstd version becomes reachable;
+    # it must then be upgraded, not silently covered by this exclusion.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0344.html
+    "RUSTSEC-2026-0344",
+    # RUSTSEC-2026-0379/0380 (added 2026-10-20): Cranelift aarch64 br_table
+    # misjump and bit-packing overflow in wasmtime 8.0.1. Same sc-executor
+    # pin as above; fixes need much newer wasmtime majors. Accepted as a
+    # known SDK-pin exception (identical class to the other wasmtime
+    # entries); revisit on the next polkadot-sdk bump.
+    "RUSTSEC-2026-0379",
+    "RUSTSEC-2026-0380",
+    # RUSTSEC-2026-0381/0382/0383 (added 2026-10-20): leaked emSign
+    # intermediate CA keys (CVE-2026-111943).
+    # 0381 webpki-roots 0.25.4: only libp2p-websocket uses it, for /wss peer
+    #   dials. The default network backend is litep2p, and libp2p peers are
+    #   authenticated by Noise, not TLS. No 0.25 patch; needs an SDK bump.
+    "RUSTSEC-2026-0381",
+    # 0382 rustls-webpki: the compiled 0.103 line is bumped to the patched
+    #   0.103.16. The remaining 0.101.7 is lockfile-only (libp2p -> libp2p-quic
+    #   -> libp2p-tls); QUIC is not enabled, so nothing builds it.
+    "RUSTSEC-2026-0382",
+    # 0383 webpki-root-certs: only a wasm32 / FreeBSD-dev dependency of
+    #   rustls-platform-verifier; not part of the node build.
+    "RUSTSEC-2026-0383",
+    # RUSTSEC-2026-0387 (added 2026-10-28): crypto-bigint timing variability
+    # in ops intended to be constant-time. sp-core's std/host ECDSA signing
+    # selects secp256k1; k256/crypto-bigint is the portable no-std path. The
+    # production runtime verifies/recovers public ECDSA input but never signs
+    # with a secret, and SessionKeys contains only Aura sr25519 and Grandpa
+    # ed25519. Do not add runtime ECDSA secret operations while this is ignored.
+    # The >=0.7.6 fix needs a major polkadot-sdk crypto dependency bump.
+    "RUSTSEC-2026-0387",
+    # RUSTSEC-2026-0403 (added 2026-10-28): zstd-safe uninitialized memory on
+    # failed legacy-frame streaming decompression. Only stream::write::Decoder
+    # / DCtx::decompress_stream is affected. sp-maybe-compressed-blob calls the
+    # unaffected read Decoder and wasmtime-cache calls decode_all, which the
+    # advisory also marks unaffected. No affected API is called by the node.
+    # Fixing the SDK-pinned 5.0.2/6.0.6 versions needs the next SDK bump.
+    "RUSTSEC-2026-0403",
+    # GHSA-6fr9-xmw9-5352 / RUSTSEC-2026-0424 (added 2026-10-30): unchecked
+    # memory usage transferring borrowed resources between wasmtime
+    # components. Same sc-executor wasmtime 8.0.1 pin as 0316/0363 — the
+    # executor resolves without `component-model`, so the affected component
+    # transfer path is not compiled into the node. Fix needs wasmtime >=36
+    # (or other patched majors); revisit on the next polkadot-sdk bump.
+    # https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-6fr9-xmw9-5352
+    "RUSTSEC-2026-0424",
+    # RUSTSEC-2026-0459 (added 2026-11-09): bundled SQLite can expose stale
+    # process memory when opening an attacker-crafted database and sibling WAL
+    # with mismatched page sizes. BackendType::KeyValue is the node default and
+    # does not open SQLite. The optional SQL path opens only frontier.db3 under
+    # the operator's node data directory; docs/guides/running-a-node.mdx tells
+    # SQL operators to keep that database and WAL private and trusted. Updating
+    # libsqlite3-sys to >=0.39 requires moving Frontier off sqlx 0.8.6.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0459.html
+    "RUSTSEC-2026-0459",
+]

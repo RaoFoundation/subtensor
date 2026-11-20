@@ -88,8 +88,9 @@ where
         inherited_implication: &impl Implication,
         source: TransactionSource,
     ) -> ValidateResult<Self::Val, <T as frame_system::Config>::RuntimeCall> {
-        if let Some(ShieldCall::submit_encrypted { .. }) =
-            IsSubType::<ShieldCall<T>>::is_sub_type(call)
+        if IsSubType::<ShieldCall<T>>::is_sub_type(call)
+            .and_then(pallet_shield::Pallet::<T>::carrier_ciphertext)
+            .is_some()
         {
             let era_too_long = match self.0 {
                 Era::Immortal => true,
@@ -128,7 +129,7 @@ where
 mod tests {
     use super::*;
 
-    use frame_support::pallet_prelude::{BoundedVec, ConstU32};
+    use frame_support::pallet_prelude::BoundedVec;
 
     use sp_runtime::transaction_validity::InvalidTransaction;
 
@@ -149,7 +150,9 @@ mod tests {
 
     fn submit_encrypted_call() -> RuntimeCall {
         RuntimeCall::MevShield(pallet_shield::Call::submit_encrypted {
-            ciphertext: BoundedVec::<u8, ConstU32<8192>>::truncate_from(vec![0xAA; 64]),
+            ciphertext: BoundedVec::<u8, pallet_shield::MaxEncryptedCarrier>::truncate_from(
+                vec![0xAA; 64],
+            ),
         })
     }
 

@@ -26,7 +26,9 @@ For a cross-subnet transfer, **both** the origin and destination subnets must
 have transfers enabled. If the transferred stake carries a
 [conviction lock](/docs/guides/conviction), the lock follows the stake: locked
 mass and conviction move to the destination coldkey in proportion to the amount
-transferred.
+transferred. When the amount dips into locked α, the landing hotkey must match
+the receiver's existing lock hotkey — see
+[Transferring locked stake](/docs/guides/conviction#transferring-locked-stake).
 
 Flip the toggle below and try moving stake between the two coldkeys:
 

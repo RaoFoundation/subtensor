@@ -49,12 +49,16 @@ through `btcli evm call` — same argument conveniences (ss58 accepted for
 btcli evm call staking-v2                       # list all functions
 btcli evm call staking-v2 getTotalHotkeyStake 5F4tQyWr…       # view, free
 btcli evm call staking-v2 moveStake 5Forigin… 5Fdest… 1 4 1000000000 --evm-key default
+btcli evm call staking-v2 moveStakeLimit 5Forigin… 5Fdest… 1 4 1000000000 950000000 false --evm-key default
 btcli evm call staking-v2 addStakeLimit 5F4tQyWr… 1000000000 250000000 true 1 --evm-key default
 ```
 
-`addStakeLimit`/`removeStakeLimit` are the price-protected variants
+`addStakeLimit`/`removeStakeLimit` and `moveStakeLimit` are the
+price-protected variants
 (`limit_price` in rao per alpha, `allow_partial` for partial fills) — the
-EVM mirror of [`add-stake`'s](/docs/tx/add-stake) limit options.
+EVM mirror of the native staking limit calls. For `moveStakeLimit`, the limit
+is instead the minimum destination-alpha per origin-alpha ratio, scaled by
+10^9; it is non-payable, so do not attach EVM value.
 
 ## From Python
 

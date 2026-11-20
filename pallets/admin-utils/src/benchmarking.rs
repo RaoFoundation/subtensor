@@ -15,8 +15,119 @@ use frame_system::RawOrigin;
 use pallet_subtensor::SubnetworkN;
 use scale_info::prelude::vec;
 use sp_runtime::traits::Get;
+use subtensor_runtime_common::NetUid;
 
 use super::*;
+
+/// Seed the complete shared Null capacity, including historical dense rows,
+/// frozen Yuma bonds, EVM associations and the bounded commit-cleanup budget.
+fn setup_null_pruning_benchmark<T: Config>(count: u8) -> NetUid {
+    use alloc::collections::VecDeque;
+    use pallet_subtensor::*;
+    use sp_runtime::PerU16;
+    use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
+
+    let netuid = NetUid::from(1);
+    let n = subnets::mechanism::NULL_UID_BUDGET / u16::from(count);
+    let len = usize::from(n);
+    Pallet::<T>::set_admin_freeze_window(0);
+    Pallet::<T>::init_new_network(netuid, u16::MAX - 1);
+    Pallet::<T>::set_epoch_consensus(netuid, EpochConsensus::Null);
+    Pallet::<T>::set_max_allowed_uids(netuid, n);
+    Pallet::<T>::set_max_allowed_validators(netuid, 1);
+    Pallet::<T>::set_immunity_period(netuid, 0);
+    StakeThreshold::<T>::put(0u64);
+    MechanismCountCurrent::<T>::insert(netuid, subtensor_runtime_common::MechId::from(count));
+    SubnetworkN::<T>::insert(netuid, n);
+    Active::<T>::insert(netuid, vec![true; len]);
+    Emission::<T>::insert(
+        netuid,
+        (0..n)
+            .map(|uid| AlphaBalance::from(u64::from(uid)))
+            .collect::<Vec<_>>(),
+    );
+    Consensus::<T>::insert(netuid, vec![PerU16::zero(); len]);
+    Dividends::<T>::insert(netuid, vec![PerU16::zero(); len]);
+    ValidatorTrust::<T>::insert(netuid, vec![PerU16::zero(); len]);
+    StakeWeight::<T>::insert(netuid, vec![0u16; len]);
+    ValidatorPermit::<T>::insert(netuid, (0..n).map(|uid| uid == n - 1).collect::<Vec<_>>());
+    let row = (0..n).map(|uid| (uid, u16::MAX)).collect::<Vec<_>>();
+    for mechanism in 0..count {
+        let index = Pallet::<T>::get_mechanism_storage_index(netuid, mechanism.into());
+        Incentive::<T>::insert(index, vec![PerU16::zero(); len]);
+        ConsensusByMechanism::<T>::insert(index, vec![PerU16::zero(); len]);
+        LastUpdate::<T>::insert(index, vec![0u64; len]);
+        for uid in 0..n {
+            Weights::<T>::insert(index, uid, &row);
+        }
+    }
+    let frozen_n = DefaultMaxAllowedUids::<T>::get().min(n);
+    let frozen_row = (0..frozen_n).map(|uid| (uid, u16::MAX)).collect::<Vec<_>>();
+    for uid in 0..frozen_n {
+        Bonds::<T>::insert(NetUidStorageIndex::from(netuid), uid, &frozen_row);
+    }
+    for uid in 0..n {
+        let hotkey: T::AccountId = account("null_trim_hotkey", u32::from(uid), 0);
+        let coldkey: T::AccountId = account("null_trim_coldkey", u32::from(uid), 0);
+        Owner::<T>::insert(&hotkey, &coldkey);
+        Keys::<T>::insert(netuid, uid, &hotkey);
+        Uids::<T>::insert(netuid, &hotkey, uid);
+        BlockAtRegistration::<T>::insert(netuid, uid, 0);
+        IsNetworkMember::<T>::insert(&hotkey, netuid, true);
+        Pallet::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            AlphaBalance::from(if uid == n - 1 {
+                3_000_000_000u64
+            } else {
+                1_000_000_000u64
+            }),
+        );
+        let mut evm_address = [0u8; 20];
+        for (destination, source) in evm_address
+            .iter_mut()
+            .skip(12)
+            .zip((u64::from(uid) + 1).to_be_bytes())
+        {
+            *destination = source;
+        }
+        Pallet::<T>::set_associated_evm_address(netuid, uid, evm_address.into(), 0);
+        let children = (1..=5u16)
+            .map(|offset| {
+                let child: T::AccountId =
+                    account("null_trim_hotkey", u32::from((uid + offset) % n), 0);
+                (u64::MAX / 10, child)
+            })
+            .collect::<Vec<_>>();
+        let parents = (1..=5u16)
+            .map(|offset| {
+                let parent: T::AccountId =
+                    account("null_trim_hotkey", u32::from((uid + n - offset) % n), 0);
+                (u64::MAX / 10, parent)
+            })
+            .collect::<Vec<_>>();
+        ChildKeys::<T>::insert(&hotkey, netuid, children);
+        ParentKeys::<T>::insert(&hotkey, netuid, parents);
+    }
+    // 4,095 legacy hash keys plus one timelock key exercise cleanup AND UID
+    // compaction in the same bounded call; one extra key would defer compaction.
+    let index = NetUidStorageIndex::from(netuid);
+    for uid in 0..subnets::mechanism::NULL_UID_BUDGET - 1 {
+        let hotkey: T::AccountId = account("null_trim_old_commit", u32::from(uid), 0);
+        WeightCommits::<T>::insert(
+            index,
+            &hotkey,
+            VecDeque::from([(Default::default(), 0, 1, 0)]),
+        );
+    }
+    let winner: T::AccountId = account("null_trim_hotkey", u32::from(n - 1), 0);
+    TimelockedWeightCommits::<T>::mutate(index, 0, |queue| {
+        queue.push_back((winner, 0, vec![1u8].try_into().unwrap(), 1000));
+    });
+    frame_system::Pallet::<T>::set_block_number(10u32.into());
+    netuid
+}
 
 #[benchmarks]
 mod benchmarks {
@@ -56,7 +167,7 @@ mod benchmarks {
         let next_authorities = (1..=a)
             .map(|idx| account("Authority", idx, 0u32))
             .collect::<Vec<(sp_consensus_grandpa::AuthorityId, u64)>>();
-        let in_blocks = BlockNumberFor::<T>::from(42u32);
+        let in_blocks = BlockNumberFor::<T>::from(0u32);
 
         #[extrinsic_call]
         _(RawOrigin::Root, next_authorities, in_blocks, None);
@@ -100,8 +211,11 @@ mod benchmarks {
             1u16,        /*tempo*/
         );
 
+        let owner: T::AccountId = account("pow_owner", 0, 0);
+        pallet_subtensor::SubnetOwner::<T>::insert(NetUid::from(1), &owner);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, 1000u64/*min_difficulty*/)/*sudo_set_min_difficulty*/;
+		_(RawOrigin::Signed(owner), 1u16.into()/*netuid*/, 1000u64/*min_difficulty*/)/*sudo_set_min_difficulty*/;
     }
 
     #[benchmark]
@@ -115,6 +229,21 @@ mod benchmarks {
 
         #[extrinsic_call]
 		_(RawOrigin::Root, 1u16.into()/*netuid*/, 3u64/*rate_limit*/)/*sudo_set_weights_set_rate_limit*/;
+    }
+
+    #[benchmark]
+    fn sudo_set_max_timelocked_commits_per_hotkey() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, 1u16);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, 5u8);
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_max_timelocked_commits_per_hotkey(netuid),
+            5u8
+        );
     }
 
     #[benchmark]
@@ -178,8 +307,11 @@ mod benchmarks {
             1u16,        /*tempo*/
         );
 
+        let owner: T::AccountId = account("pow_owner", 0, 0);
+        pallet_subtensor::SubnetOwner::<T>::insert(NetUid::from(1), &owner);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, 1200000u64/*difficulty*/)/*sudo_set_difficulty*/;
+		_(RawOrigin::Signed(owner), 1u16.into()/*netuid*/, 1200000u64/*difficulty*/)/*sudo_set_difficulty*/;
     }
 
     #[benchmark]
@@ -353,15 +485,13 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_network_registration_allowed() {
-        // disable admin freeze window
-        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
-        pallet_subtensor::Pallet::<T>::init_new_network(
-            1u16.into(), /*netuid*/
-            1u16,        /*tempo*/
-        );
-
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, true/*registration_allowed*/)/*sudo_set_network_registration_allowed*/;
+        _(RawOrigin::Signed(owner), netuid, true);
+        assert!(pallet_subtensor::NetworkRegistrationAllowed::<T>::get(
+            netuid
+        ));
     }
 
     #[benchmark]
@@ -514,6 +644,56 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Root, netuid, 2000u16, 3000u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_liquid_alpha_consensus_mode() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, 1u16);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            netuid,
+            pallet_subtensor::ConsensusMode::Previous,
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_epoch_consensus() {
+        // Legacy state can exceed today's Yuma capacity. Charge the population accepted
+        // by the target Null mode rather than assuming the default Yuma limit.
+        let netuid = setup_null_pruning_benchmark::<T>(1);
+        pallet_subtensor::Pallet::<T>::set_epoch_consensus(
+            netuid,
+            pallet_subtensor::EpochConsensus::Yuma,
+        );
+        pallet_subtensor::Pallet::<T>::set_max_allowed_validators(netuid, 128);
+        let index = pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(netuid, 0.into());
+        let _ = pallet_subtensor::TimelockedWeightCommits::<T>::clear_prefix(index, u32::MAX, None);
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            netuid,
+            pallet_subtensor::EpochConsensus::Null,
+        );
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_epoch_consensus(netuid),
+            pallet_subtensor::EpochConsensus::Null
+        );
+        assert_eq!(
+            pallet_subtensor::ValidatorPermit::<T>::get(netuid)
+                .iter()
+                .filter(|permit| **permit)
+                .count(),
+            1
+        );
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_max_allowed_validators(netuid),
+            1
+        );
     }
 
     #[benchmark]
@@ -679,8 +859,82 @@ mod benchmarks {
             1u16,        /*sudo_tempo*/
         );
 
+        // Include actual deletion and UID compaction at the full Yuma limit;
+        // an empty subnet only measures changing MaxAllowedUids.
+        let netuid = NetUid::from(1);
+        let n = pallet_subtensor::DefaultMaxAllowedUids::<T>::get();
+        pallet_subtensor::Pallet::<T>::set_epoch_consensus(
+            netuid,
+            pallet_subtensor::EpochConsensus::Yuma,
+        );
+        pallet_subtensor::Pallet::<T>::set_max_allowed_uids(netuid, n);
+        pallet_subtensor::Pallet::<T>::set_immunity_period(netuid, 0);
+        for uid in 0..n {
+            let hotkey: T::AccountId = account("trim_hotkey", u32::from(uid), 0);
+            let coldkey: T::AccountId = account("trim_coldkey", u32::from(uid), 0);
+            pallet_subtensor::Owner::<T>::insert(&hotkey, &coldkey);
+            pallet_subtensor::Pallet::<T>::append_neuron(netuid, &hotkey, 0);
+            // Keep dense rows on the retained high-emission neurons so target
+            // filtering and remapping are exercised as well as UID deletion.
+            if uid >= n.saturating_sub(64) {
+                pallet_subtensor::Weights::<T>::insert(
+                    subtensor_runtime_common::NetUidStorageIndex::from(netuid),
+                    uid,
+                    (0..n).map(|target| (target, u16::MAX)).collect::<Vec<_>>(),
+                );
+            }
+        }
+        pallet_subtensor::Emission::<T>::insert(
+            netuid,
+            (0..n)
+                .map(|uid| subtensor_runtime_common::AlphaBalance::from(u64::from(uid)))
+                .collect::<Vec<_>>(),
+        );
+
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, 256u16/*max_n*/)/*sudo_trim_to_max_allowed_uids()*/;
+		_(RawOrigin::Root, 1u16.into()/*netuid*/, 64u16/*max_n*/)/*sudo_trim_to_max_allowed_uids()*/;
+
+        assert_eq!(SubnetworkN::<T>::get(netuid), 64);
+    }
+
+    #[benchmark]
+    fn sudo_trim_null_uids_batch() {
+        let netuid = setup_null_pruning_benchmark::<T>(1);
+        let before = SubnetworkN::<T>::get(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, 256u16);
+
+        assert_eq!(
+            SubnetworkN::<T>::get(netuid),
+            before - pallet_subtensor::subnets::uids::NULL_PRUNING_BATCH
+        );
+        assert_eq!(
+            pallet_subtensor::NullPruningTarget::<T>::get(netuid),
+            Some(256)
+        );
+    }
+
+    #[benchmark]
+    fn sudo_trim_null_uids_batch_many_mechanisms() {
+        let netuid = setup_null_pruning_benchmark::<T>(16);
+        let before = SubnetworkN::<T>::get(netuid);
+
+        #[block]
+        {
+            assert!(
+                AdminUtils::<T>::sudo_trim_null_uids_batch(RawOrigin::Root.into(), netuid, 64)
+                    .is_ok()
+            );
+        }
+        assert_eq!(
+            SubnetworkN::<T>::get(netuid),
+            before - pallet_subtensor::subnets::uids::NULL_PRUNING_BATCH
+        );
+        assert_eq!(
+            pallet_subtensor::NullPruningTarget::<T>::get(netuid),
+            Some(64)
+        );
     }
 
     #[benchmark]
@@ -738,23 +992,28 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_network_pow_registration_allowed() {
-        #[block]
-        {
-            assert!(
-                AdminUtils::<T>::sudo_set_network_pow_registration_allowed(
-                    RawOrigin::Root.into(),
-                    NetUid::from(u16::MAX),
-                    true,
-                )
-                .is_err()
-            );
-        }
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+        assert!(pallet_subtensor::NetworkPowRegistrationAllowed::<T>::get(
+            netuid
+        ));
     }
 
     #[benchmark]
     fn sudo_set_subnet_owner_cut() {
-        #[extrinsic_call]
-        _(RawOrigin::Root, u16::MAX);
+        let call = Call::<T>::sudo_set_subnet_owner_cut {
+            subnet_owner_cut: u16::MAX,
+        };
+
+        #[block]
+        {
+            assert_noop!(
+                call.dispatch_bypass_filter(RawOrigin::Root.into()),
+                Error::<T>::Deprecated
+            );
+        }
     }
 
     #[benchmark]
@@ -813,13 +1072,47 @@ mod benchmarks {
     }
     #[benchmark]
     fn sudo_set_mechanism_count() {
-        let netuid = NetUid::from(1);
-        let owner = setup_worst_case_admin_subnet::<T>(netuid);
-        let mechanism_count = 16u8.into();
-        assert!(pallet_subtensor::Pallet::<T>::do_set_max_mechanism_count(mechanism_count).is_ok());
+        // Removing 15 mechanisms includes the largest reachable historical
+        // row prefixes, not only the cheap creation of empty mechanisms.
+        let netuid = setup_null_pruning_benchmark::<T>(16);
+        let owner: T::AccountId = whitelisted_caller();
+        pallet_subtensor::SubnetOwner::<T>::insert(netuid, &owner);
+        for mechanism in 0..16u8 {
+            let index = pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(
+                netuid,
+                mechanism.into(),
+            );
+            let _ = pallet_subtensor::WeightCommits::<T>::clear_prefix(index, u32::MAX, None);
+            let _ =
+                pallet_subtensor::TimelockedWeightCommits::<T>::clear_prefix(index, u32::MAX, None);
+        }
+        // Distribute the maximum frozen Yuma bond rows among removed mechanisms.
+        let _ = pallet_subtensor::Bonds::<T>::clear_prefix(
+            pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(netuid, 0.into()),
+            u32::MAX,
+            None,
+        );
+        // A previous 16-mechanism Yuma subnet had at most 16 populated UIDs
+        // per mechanism. It could subsequently grow to 256 UIDs in Null.
+        let bond_row = (0..16u16).map(|uid| (uid, u16::MAX)).collect::<Vec<_>>();
+        for mechanism in 0..16u8 {
+            let index = pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(
+                netuid,
+                mechanism.into(),
+            );
+            for uid in 0..16u16 {
+                pallet_subtensor::Bonds::<T>::insert(index, uid, &bond_row);
+            }
+        }
+        let mechanism_count = 1u8.into();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, mechanism_count);
+
+        assert_eq!(
+            pallet_subtensor::MechanismCountCurrent::<T>::get(netuid),
+            mechanism_count
+        );
     }
 
     #[benchmark]
@@ -852,6 +1145,12 @@ mod benchmarks {
     fn sudo_set_emission_bar_quantile() {
         #[extrinsic_call]
         _(RawOrigin::Root, U64F64::from_num(0.61));
+    }
+
+    #[benchmark]
+    fn sudo_set_emission_bar_rank() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 64u16);
     }
 
     #[benchmark]
@@ -924,11 +1223,18 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_owner_cut_enabled() {
-        let netuid = NetUid::from(1);
-        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        let call = Call::<T>::sudo_set_owner_cut_enabled {
+            netuid: NetUid::from(1),
+            enabled: true,
+        };
 
-        #[extrinsic_call]
-        _(RawOrigin::Signed(owner), netuid, true);
+        #[block]
+        {
+            assert_noop!(
+                call.dispatch_bypass_filter(RawOrigin::Root.into()),
+                Error::<T>::Deprecated
+            );
+        }
     }
 
     #[benchmark]
@@ -938,6 +1244,176 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_concentration_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 4096u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_hashed_accounts_enabled() {
+        HashedAccountsEnabled::<T>::put(false);
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+        assert!(HashedAccountsEnabled::<T>::get());
+    }
+
+    #[benchmark]
+    fn sudo_set_hashed_account_registration_deposit() {
+        let value = subtensor_runtime_common::TaoBalance::new(300_000_000);
+        #[extrinsic_call]
+        _(RawOrigin::Root, value);
+        assert_eq!(T::RegistrationDeposit::get(), value);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trading_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trading_frozen() {
+        let hotkey: T::AccountId = account("basket_frozen_hot", 0, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, hotkey.clone(), true);
+
+        assert!(pallet_subtensor::BasketTradingFrozen::<T>::contains_key(
+            &hotkey
+        ));
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_daily_turnover_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 6553u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_liquidity_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 6553u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_min_trade_tao() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 100_000_000u64);
+
+        assert_eq!(pallet_subtensor::BasketMinTradeTao::<T>::get(), 100_000_000);
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_emission_weights() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        // Move one percent of emission from validators to miners on top of the
+        // seeded vector. Valid under any `InitialSubnetOwnerCut` (0 in the mock,
+        // 18% in production): the validator slot stays far above the TAO-weight
+        // floor and the miner slot only grows, so every rule check runs and passes.
+        let current = pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid);
+        let slot = |index: pallet_subtensor::EmissionIndex| -> u64 {
+            current.get(index.position()).copied().unwrap_or(0)
+        };
+        let one_percent = pallet_subtensor::emission_fraction(1, 100);
+        let owner_share = slot(pallet_subtensor::EmissionIndex::Owner);
+        let validator =
+            slot(pallet_subtensor::EmissionIndex::Validator).saturating_sub(one_percent);
+        let miner = pallet_subtensor::EMISSION_WEIGHT_ONE
+            .saturating_sub(owner_share)
+            .saturating_sub(validator);
+        let uids = vec![0u16, 1, 2, 3, 4];
+        let values = vec![0u64, 0, owner_share, validator, miner];
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, uids, values);
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid),
+            [0, 0, owner_share, validator, miner]
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_claim_dust() {
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            1_000_000_000u64,
+            10u16,
+            100_000u64,
+            10_000_000u64,
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_tao_usd_price_oracle() {
+        let oracle: T::AccountId = account("oracle", 0, 1);
+        pallet_subtensor::TaoUsdPriceOracle::<T>::put(oracle.clone());
+        pallet_subtensor::TaoUsdPrice::<T>::put(pallet_subtensor::TaoUsdPriceState {
+            accepted: 1,
+            feed: 1,
+            fed_at: 0,
+        });
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, Some(oracle));
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_gamma_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_gamma_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_emission_weights_v2() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        let current = pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid);
+        let slot = |index: pallet_subtensor::EmissionIndex| -> u64 {
+            current.get(index.position()).copied().unwrap_or(0)
+        };
+        let owner_share = slot(pallet_subtensor::EmissionIndex::Owner);
+        let validator = slot(pallet_subtensor::EmissionIndex::Validator)
+            .saturating_sub(pallet_subtensor::emission_fraction(1, 100));
+        let miner = pallet_subtensor::EMISSION_WEIGHT_ONE
+            .saturating_sub(owner_share)
+            .saturating_sub(validator);
+        let split = pallet_subtensor::EmissionSplit::truncate_from(vec![
+            (pallet_subtensor::EmissionSlot::Owner, owner_share),
+            (pallet_subtensor::EmissionSlot::Validator, validator),
+            (pallet_subtensor::EmissionSlot::Miner, miner),
+        ]);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, split);
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid),
+            [0, 0, owner_share, validator, miner]
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_gamma_emission_whitelisted() {
+        let netuid = NetUid::from(1);
+        setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, true);
     }
 
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);

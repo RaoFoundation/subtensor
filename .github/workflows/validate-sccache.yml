@@ -24,6 +24,8 @@ on:
       - ".github/scripts/test-download-artifact.sh"
       - ".github/scripts/select-shared-release-artifact.sh"
       - ".github/scripts/test-select-shared-release-artifact.sh"
+      - ".github/scripts/split-typescript-e2e-plan.sh"
+      - ".github/scripts/test-split-typescript-e2e-plan.sh"
       - ".github/scripts/prewarm-exact-runtime.sh"
       - ".github/scripts/test-prewarm-exact-runtime.sh"
       - ".github/scripts/benchmark-sccache-paired.sh"
@@ -80,6 +82,7 @@ jobs:
           .github/scripts/test-snapshot-artifact.sh
           .github/scripts/test-download-artifact.sh
           .github/scripts/test-select-shared-release-artifact.sh
+          .github/scripts/test-split-typescript-e2e-plan.sh
           .github/scripts/test-r2-artifact-mirror.py
           .github/scripts/test-r2-sccache-warmset.py
           .github/scripts/test-classify-bittensor-e2e-changes.sh
@@ -101,7 +104,6 @@ jobs:
       - name: Configure direct R2 sccache baseline
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: host-cache-benchmark-paired
           sccache-local-tier: disabled
 
       - name: Measure paired origin and warm-local reads in one VM
@@ -131,7 +133,6 @@ jobs:
       - name: Configure production reader cache
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: host-cache-benchmark-fleet
           sccache-credential-mode: reader
 
       - name: Measure a clean runtime check

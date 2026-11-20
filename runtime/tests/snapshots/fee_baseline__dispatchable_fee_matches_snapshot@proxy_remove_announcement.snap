@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: proxy_remove_announcement
+expression: fee
+---
+115361

@@ -58,11 +58,14 @@ mod config {
         /// Interface to allow interacting with the proxy pallet.
         type ProxyInterface: crate::ProxyInterface<Self::AccountId>;
 
+        /// Preserve protected hotkey authorization across ownership changes.
+        type HotkeyOwnerPolicy: crate::HotkeyOwnerPolicy<Self::AccountId>;
+
         /// Interface to get commitments.
         type GetCommitments: GetCommitments<Self::AccountId>;
 
-        ///  Interface to clean commitments on network dissolution.
-        type CommitmentsInterface: CommitmentsInterface;
+        /// Interface to clean commitments when a network or neuron is removed.
+        type CommitmentsInterface: CommitmentsInterface<Self::AccountId>;
 
         /// Interface to mint, burn, and recycle subnet alpha.
         type AlphaAssets: AlphaAssetsInterface;
@@ -75,6 +78,11 @@ mod config {
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: crate::weights::WeightInfo;
+
+        /// Transitional access to the retired Alpha share maps. Production runtimes set
+        /// this to false once the bounded AlphaV2 migration is complete; migration test
+        /// runtimes keep it enabled to verify upgrades from historical state.
+        type LegacyAlphaCompatibility: Get<bool>;
 
         // Initial Value Constants
 

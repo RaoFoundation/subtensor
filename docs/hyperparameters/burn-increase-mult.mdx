@@ -1,26 +1,34 @@
 ---
 title: burn_increase_mult
-description: Multiplier applied to the burn cost after each successful registration.
+description: Shared multiplier for independent burn price and PoW difficulty increases.
 ---
 
+This historical parameter name controls both burn price and PoW difficulty.
+A successful burn registration increases only burn cost; a successful PoW
+registration increases only PoW difficulty. Each route has its own demand signal,
+while both reuse this multiplier. No TAO is charged by the PoW path, and failed
+registrations do not change either price.
+
 Controls how sharply the registration price reacts to demand: every successful
-registration multiplies the current burn cost by this factor. Owners tune it to
+burn registration multiplies the current burn cost by this factor. Owners tune it to
 decide how strongly a registration burst should price out the next entrant;
 miners see it as the reason the cost quoted a moment ago can jump before their
 own transaction lands.
 
 ## How it works
 
-After each successful registration,
-[`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L517-L541)
+After each successful burn registration,
+[`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs)
 (in `pallets/subtensor/src/subnets/registration.rs`) sets
 
 ```
 new_burn = clamp(burn × burn_increase_mult, min_burn, max_burn)
 ```
 
-The bump is immediate — the very next registration, even in the same block,
-pays the raised price. Values below 1 are treated as 1 at read time
+The bump is immediate — the next burn registration, even in the same block,
+pays the raised burn price. PoW registrations apply the same calculation to
+`difficulty`, bounded by `min_difficulty` and `max_difficulty`, and do not raise
+burn cost. Values below 1 are treated as 1 at read time
 (`max(mult, 1)`), so the multiplier can never shrink the price. Between
 registrations, the per-block decay governed by
 [`burn_half_life`](/docs/hyperparameters/burn-half-life) pulls the price back

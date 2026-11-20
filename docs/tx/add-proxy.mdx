@@ -10,19 +10,25 @@ the coldkey, then let the delegate submit day-to-day calls with
 `proxy_for=<this account>`. The chain reserves a small deposit from the
 signer per delegation (returned on removal). The delegate can act within
 `proxy_type` immediately (or after announcing, if `delay` > 0) — grant
-only to keys you control or fully trust.
+only to keys you control or fully trust. `Validate` and `Weights` cover
+hotkey-signed calls, so by default the wallet's hotkey signs those grants
+and must hold the deposit and fee. Set `from_hotkey=False` to grant from
+the coldkey or a proxied account instead (for example, to preserve a pure
+account's existing grants). `from_hotkey=True` selects the hotkey for
+any proxy type.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L265-L276) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L336-L347) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `delegate_ss58` | string | yes | Key that will be allowed to sign for this account. |
-| `proxy_type` | string | no | Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. |
+| `proxy_type` | string | no | Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. |
 | `delay` | integer | no | Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately. |
+| `from_hotkey` | boolean | no | Signing origin: true selects the hotkey; false selects the coldkey or proxied account. Omit to use the hotkey for Validate/Weights and the coldkey for other proxy types. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -65,11 +71,11 @@ result = sub.execute_tool("add_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L267`](/code/pallets/proxy/src/lib.rs#L265-L276):
+`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L338`](/code/pallets/proxy/src/lib.rs#L336-L347):
 
 ```rust
 #[pallet::call_index(1)]
-#[pallet::weight(T::WeightInfo::add_proxy(T::MaxProxies::get()))]
+#[pallet::weight(T::WeightInfo::add_proxy(T::MaxProxies::get()).saturating_add(T::AccountPolicy::grant_weight()))]
 pub fn add_proxy(
     origin: OriginFor<T>,
     delegate: AccountIdLookupOf<T>,
@@ -82,6 +88,6 @@ pub fn add_proxy(
 }
 ```
 
-Delegates to [`add_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L941).
+Delegates to [`add_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L1195).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

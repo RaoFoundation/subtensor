@@ -20,6 +20,17 @@ use frame_benchmarking::benchmarks;
 type CurrencyOf<T> = <T as Config>::Currency;
 
 benchmarks! {
+	deposit {
+		let caller = frame_benchmarking::whitelisted_caller::<T::AccountId>();
+		let address = H160::from_low_u64_le(1);
+		let destination = T::AddressMapping::into_account_id(address);
+		let value: BalanceOf<T> = 100_000u32.into();
+		CurrencyOf::<T>::make_free_balance_be(&caller, 1_000_000u32.into());
+		CurrencyOf::<T>::make_free_balance_be(&destination, Zero::zero());
+	}: _(RawOrigin::Signed(caller), address, Some(value))
+	verify {
+		assert_eq!(CurrencyOf::<T>::free_balance(&destination), value);
+	}
 	withdraw {
 		let caller = frame_benchmarking::whitelisted_caller::<T::AccountId>();
 		let from = H160::from_low_u64_le(0);

@@ -22,6 +22,9 @@ pub use evm::backend::Basic as Account;
 use frame_support::{sp_runtime::traits::UniqueSaturatedInto, weights::Weight};
 use sp_core::{H160, H256, U256};
 
+/// Maximum authorization count, enforced before signature recovery on every entry path.
+pub const MAX_AUTHORIZATION_LIST_SIZE: usize = 255;
+
 #[derive(Debug)]
 pub struct CheckEvmTransactionInput {
 	pub chain_id: Option<u64>,
@@ -220,6 +223,9 @@ impl<'config, E: From<TransactionValidationError>> CheckEvmTransaction<'config, 
 	}
 
 	pub fn validate_common(&self) -> Result<&Self, E> {
+		if self.transaction.authorization_list.len() > MAX_AUTHORIZATION_LIST_SIZE {
+			return Err(TransactionValidationError::AuthorizationListTooLarge.into());
+		}
 		if self.config.is_transactional {
 			// Try to subtract the proof_size_base_cost from the Weight proof_size limit or fail.
 			// Validate the weight limit can afford recording the proof size cost.
@@ -291,7 +297,6 @@ impl<'config, E: From<TransactionValidationError>> CheckEvmTransaction<'config, 
 			}
 
 			// EIP-7702 validation: Check authorization list size (DoS protection)
-			const MAX_AUTHORIZATION_LIST_SIZE: usize = 255;
 			if self.transaction.authorization_list.len() > MAX_AUTHORIZATION_LIST_SIZE {
 				return Err(TransactionValidationError::AuthorizationListTooLarge.into());
 			}

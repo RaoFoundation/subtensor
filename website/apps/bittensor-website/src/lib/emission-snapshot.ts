@@ -1,5 +1,5 @@
 import snapshotData from '../../public/catalog/emission-snapshot.json';
-import { blockEmissionTao } from './emission-math';
+import {blockEmissionTao} from './emission-math';
 
 export type SubnetEmissionRow = {
   netuid: number;
@@ -7,25 +7,42 @@ export type SubnetEmissionRow = {
   spotPrice: number;
   emaPrice: number;
   minerBurned: number;
+  emissionEnabled: boolean;
   taoIn: number;
   alphaIn: number;
   alphaOut: number;
+  demandShare: number;
+  burnAdjustedShare: number;
+  gateFactor: number;
   taoShare: number;
   taoPerBlock: number;
+};
+
+export type EmissionInput = {
+  netuid: number;
+  emaPrice: number;
+  minerBurned: number;
+  emissionEnabled: boolean;
 };
 
 export type EmissionSnapshot = {
   fetchedAt: string;
   network: string;
-  emissionMode: 'price_ema' | string;
+  chainSpecVersion: number;
+  emissionMode: 'price_ema_miner_burn_hill_gate' | string;
+  emissionGateSource: 'chain_storage' | 'v445_defaults_recomputed';
   blockEmissionTao: number;
-  blockEmissionCalculatedTao?: number;
   totalIssuanceTao: number;
   totalIssuanceRao?: number;
   rootTao: number;
   emaPriceSum: number;
   rootDividendGateOpen: boolean;
   taoWeight: number;
+  emissionGateRank: number;
+  emissionGateQuantile: number;
+  emissionGateExponent: number;
+  emissionGateBar: number;
+  emissionInputs: EmissionInput[];
   dataSource?: {
     subnets: string;
     chain: string;

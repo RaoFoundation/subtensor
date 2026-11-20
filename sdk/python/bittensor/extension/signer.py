@@ -65,6 +65,10 @@ class ExtensionSigner:
         self._public_key = public_key
         self._crypto_type = crypto_type
         self._ss58_format = ss58_format
+        # MEV-shielded flows sign two extrinsics back to back; the CLI flips
+        # this so the bridge page can label the stages.
+        self.two_stage: bool = False
+        self._sign_index = 0
 
     @property
     def ss58_address(self) -> str:
@@ -100,8 +104,19 @@ class ExtensionSigner:
     async def sign_extrinsic_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         body = dict(payload)
         body["address"] = self.ss58_address
+        self._sign_index += 1
+        stage = None
+        more_coming = False
+        if self.two_stage:
+            if self._sign_index == 1:
+                stage = "approve 1 of 2 — the shielded transaction"
+                more_coming = True
+            else:
+                stage = "approve 2 of 2 — the encrypted carrier"
         try:
-            return await self._bridge.sign_extrinsic_payload(body)
+            return await self._bridge.sign_extrinsic_payload(
+                body, stage=stage, more_coming=more_coming
+            )
         except BridgeError as error:
             message = str(error).lower()
             if "cancel" in message or "reject" in message or "denied" in message:

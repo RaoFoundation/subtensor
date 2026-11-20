@@ -1,7 +1,19 @@
 use super::*;
 pub mod account;
 pub mod add_stake;
+pub mod auto_parent;
+mod basket_flush;
+pub use basket_flush::BasketFlushWork;
+#[cfg(test)]
+pub(crate) use basket_flush::{MAX_BASKET_FLUSH_ROWS, MAX_BASKET_ROWS};
+mod basket_trade;
+mod deferred_dividends;
+pub use deferred_dividends::{DeferredBasketConversion, DeferredBasketDebt, DeferredBasketState};
+mod basket_views;
+pub mod beta_pricing;
 mod claim_root;
+#[cfg(test)]
+pub(crate) use claim_root::RootClaimOutcome;
 pub mod decrease_take;
 pub mod helpers;
 pub mod increase_take;
@@ -12,3 +24,13 @@ pub mod recycle_alpha;
 pub mod remove_stake;
 pub mod set_children;
 pub mod stake_utils;
+
+/// Permanent fee-preservation policy for additional authorization and transfer work.
+/// Keep its proof-size allowance while excluding its execution time from declared
+/// weight, preserving existing fees and gas pricing. The work still executes;
+/// this policy permits more actual work per block and is not a measured bound.
+pub fn fee_preserving_additional_work(
+    weight: frame_support::weights::Weight,
+) -> frame_support::weights::Weight {
+    frame_support::weights::Weight::from_parts(0, weight.proof_size())
+}

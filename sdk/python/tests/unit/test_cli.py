@@ -10,17 +10,24 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 
 import pytest
 from typer.testing import CliRunner
 
+import bittensor.cli.commands.root as root_commands
 import bittensor.cli.context as cli_context
-from bittensor import __version__, wallets
+from bittensor import RpcConnectionError, RpcPolicyError, __version__, config, wallets
+from bittensor.balance import Balance
+from bittensor.cli.call_names import resolve_builder_params
+from bittensor.cli.helpers import format_balance
 from bittensor.cli.main import app
+from bittensor.cli.output import Output
+from bittensor.cli.root_helpers import RootPosition, position_columns, position_rows
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import BOB
+from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT
 
 runner = CliRunner()
 
@@ -65,6 +72,79 @@ def invoke(*args: str):
     return runner.invoke(app, list(args))
 
 
+def test_trim_null_uses_existing_submission_and_finalized_receipts(fake, monkeypatch, wallet_dir):
+    from dataclasses import replace
+
+    from bittensor.cli import null_pruning
+    from bittensor.result import ExtrinsicResult
+
+    owner = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+    current = null_pruning.PruningState(
+        100, "0xgenesis", owner, 320, None, 1, 64, 2500, "Null", False
+    )
+
+    async def read(_client, _netuid):
+        return current
+
+    async def submit(call, keypair, **options):
+        nonlocal current
+        assert options["wait_for_finalization"] is True
+        assert call.function == "sudo_trim_null_uids_batch"
+        assert call.params == {"netuid": 1, "target": 256}
+        current = replace(current, population=256)
+        fake.submissions.append((call, keypair.ss58_address, options))
+        return ExtrinsicResult(
+            success=True,
+            block_hash="0xfinalized",
+            extrinsic_id="101-0001",
+            events=[
+                {
+                    "event": {
+                        "module_id": "SubtensorModule",
+                        "event_id": "NullUidsPruningProgress",
+                        "attributes": {
+                            "netuid": 1,
+                            "target": 256,
+                            "remaining": 256,
+                            "removed": 64,
+                            "cleared_commits": 0,
+                        },
+                    }
+                }
+            ],
+        )
+
+    monkeypatch.setattr(null_pruning, "read_state", read)
+    monkeypatch.setattr(fake, "submit", submit)
+    result = invoke("hparams", "trim-null", "--netuid", "1", "--yes")
+    assert result.exit_code == 0, result.output
+    assert len(fake.submissions) == 1
+    assert "Pruning progress" in result.output
+    assert "finalized" in result.output
+
+
+def seed_root_validator_summary(fake: FakeSubstrate) -> None:
+    fake.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_validator_basket_summary",
+        {
+            "hotkey": BOB,
+            "nav_tao": 1_250_000_000,
+            "spot_nav_tao": 1_500_000_000,
+            "deposited_tao": 1_000_000_000,
+            "redeemed_tao": 0,
+            "holdings": [
+                {
+                    "netuid": 1,
+                    "alpha": 2_000_000_000,
+                    "spot_tao": 1_500_000_000,
+                    "realizable_tao": 1_250_000_000,
+                }
+            ],
+        },
+    )
+
+
 class TestOffline:
     """Commands that never open a connection."""
 
@@ -100,6 +180,20 @@ class TestOffline:
         for op in ("add-stake", "transfer", "set-weights", "create-crowdloan"):
             assert op in result.output
 
+    def test_stake_unstake_all_exposes_bulk_selector_only_on_workflow(self):
+        ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+        result = invoke("stake", "unstake-all", "--help")
+        assert result.exit_code == 0
+        workflow_help = ansi.sub("", result.output)
+        assert "--hotkey" in workflow_help
+        assert "--all-hotkeys" in workflow_help
+
+        primitive = invoke("tx", "unstake-all", "--help")
+        assert primitive.exit_code == 0
+        primitive_help = ansi.sub("", primitive.output)
+        assert "--hotkey" in primitive_help
+        assert "--all-hotkeys" not in primitive_help
+
     def test_query_group_help(self):
         result = invoke("query", "--help")
         assert result.exit_code == 0
@@ -108,6 +202,96 @@ class TestOffline:
 
 
 class TestQueries:
+    def test_rpc_policy_refusal_is_actionable(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError(
+                    "RPC endpoint rate limited this source (HTTP 429)",
+                    retry_after="60",
+                )
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "rate limited this source (HTTP 429)" in result.output
+        assert "wait 60 seconds, then retry" in result.output
+
+    def test_rpc_policy_refusal_without_retry_after_suggests_reducing_rate(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError("RPC endpoint rate limited this source (HTTP 429)")
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "reduce the request or connection rate, then retry" in result.output
+
+    def test_rpc_policy_http_date_retry_after_is_preserved(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError(
+                    "RPC endpoint rate limited this source (HTTP 429)",
+                    retry_after="Wed, 21 Oct 2026 07:28:00 GMT",
+                )
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "retry after Wed, 21 Oct 2026 07:28:00 GMT" in result.output
+
+    def test_public_rpc_connection_error_is_actionable(self, monkeypatch):
+        class FailedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcConnectionError("all configured endpoints refused the connection")
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", FailedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "could not reach finney: all configured endpoints refused" in result.output
+        assert "check the endpoint and network connection, then retry" in result.output
+
+    def test_bare_connection_timeout_is_not_blank(self, monkeypatch):
+        class TimeoutClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise TimeoutError
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", TimeoutClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert (
+            "could not reach finney: the connection timed out without a response" in result.output
+        )
+
     def test_scalar_query_json(self, fake: FakeSubstrate):
         fake.seed("SubtensorModule", "TxRateLimit", None, 1234)
         result = invoke("--json", "query", "tx-rate-limit")
@@ -128,8 +312,210 @@ class TestQueries:
         assert payload["coldkey"] == BOB
         assert payload["free_tao"] == pytest.approx(2.5)
 
+    def test_wallet_balance_human_format_uses_three_decimals(self):
+        assert format_balance(Balance.from_rao(2_832_438_604_652)) == "τ2,832.439"
+
+    @pytest.mark.parametrize("code", [4, 6])
+    def test_wallet_history_queries_underlying_account(self, fake, monkeypatch, code):
+        from bittensor.cli.commands import wallet as wallet_commands
+        from bittensor.receiving import receiving_address
+        from bittensor.sp_core import Keypair
+
+        key = Keypair.create_from_seed(bytes([93]) * 32, code)
+        queried = []
+
+        def fetch(owner, limit):
+            queried.append(owner)
+            return []
+
+        monkeypatch.setattr(wallet_commands, "_fetch_transfers", fetch)
+        result = invoke(
+            "--json",
+            "--network",
+            "finney",
+            "wallet",
+            "history",
+            "--coldkey",
+            receiving_address(key),
+        )
+        assert result.exit_code == 0, result.output
+        assert queried == [key.ss58_address]
+
+
+class TestAddressResolution:
+    @staticmethod
+    def app_context(wallet_dir: str) -> cli_context.AppContext:
+        return cli_context.AppContext(
+            network="finney",
+            wallet_name=_WALLET_NAME,
+            hotkey_name="default",
+            wallet_path=wallet_dir,
+            assume_yes=True,
+            dry_run=False,
+            output=Output(json_mode=True),
+        )
+
+    def test_raw_call_uses_canonical_saved_multisig_resolution(self, fake, wallet_dir):
+        config.add_multisig({"name": "treasury", "threshold": 1, "signatories": [BOB]})
+        app_ctx = self.app_context(wallet_dir)
+        expected = app_ctx.resolve_address_ref("new_coldkey", "treasury")
+
+        params = resolve_builder_params(
+            app_ctx,
+            "SubtensorModule.schedule_swap_coldkey",
+            {"new_coldkey": "treasury"},
+        )
+
+        assert params["new_coldkey"] == expected.address
+        assert expected.source == "saved multisig 'treasury'"
+
+    def test_raw_call_does_not_guess_arbitrary_string_lists_are_accounts(self, fake, wallet_dir):
+        app_ctx = self.app_context(wallet_dir)
+        params = {"remark": [BOB, "ordinary memo text"]}
+
+        assert resolve_builder_params(app_ctx, "System.remark", params) == params
+
+
+class TestRoot:
+    @pytest.mark.parametrize("all_wallets", [False, True])
+    def test_position_rows_match_columns(self, all_wallets):
+        position = RootPosition(
+            hotkey=BOB,
+            staked=Balance.from_tao(1),
+            accrued=Balance.from_tao("0.25"),
+            wallet=_WALLET_NAME if all_wallets else None,
+        )
+
+        rows = position_rows([position], all_wallets)
+
+        assert all(len(row) == len(position_columns(all_wallets)) for row in rows)
+
+    def test_list_single_coldkey_renders_human_table(self, fake: FakeSubstrate, monkeypatch):
+        async def root_positions(_client, _coldkey_ss58):
+            return [
+                RootPosition(
+                    hotkey=BOB,
+                    staked=Balance.from_tao(1),
+                    accrued=Balance.from_tao("0.25"),
+                )
+            ]
+
+        monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
+
+        result = invoke("root", "list", "--mine", "--coldkey", BOB)
+
+        assert result.exit_code == 0, result.exception
+        assert "root positions of" in result.output
+        assert "staked (τ)" in result.output
+        assert "τ1.250000000" in result.output
+
+    def test_list_all_wallets_renders_wallet_column(self, fake: FakeSubstrate, monkeypatch):
+        async def all_root_positions(_client, _coldkeys):
+            return [
+                RootPosition(
+                    hotkey=BOB,
+                    staked=Balance.from_tao(1),
+                    accrued=Balance.from_tao("0.25"),
+                    wallet=_WALLET_NAME,
+                    coldkey=BOB,
+                )
+            ]
+
+        monkeypatch.setattr(root_commands, "list_coldkeys", lambda _path: [(_WALLET_NAME, BOB)])
+        monkeypatch.setattr(root_commands, "fetch_all_root_positions", all_root_positions)
+
+        result = invoke("root", "list", "--all")
+
+        assert result.exit_code == 0, result.exception
+        assert "wallet" in result.output
+        assert _WALLET_NAME in result.output
+        assert "τ1.250000000" in result.output
+
+    def test_show_explicit_hotkey_renders_human_detail(self, fake: FakeSubstrate, monkeypatch):
+        async def root_positions(_client, _coldkey_ss58):
+            return []
+
+        monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
+        seed_root_validator_summary(fake)
+
+        result = invoke("root", "list", BOB, "--coldkey", BOB)
+
+        assert result.exit_code == 0, result.exception
+        assert "weights of" not in result.output
+        assert "fund holdings of" in result.output
+        assert "nav τ1.250000000" in result.output
+
+    def test_show_explicit_hotkey_json_emits_one_document(self, fake: FakeSubstrate, monkeypatch):
+        async def root_positions(_client, _coldkey_ss58):
+            return []
+
+        monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
+        seed_root_validator_summary(fake)
+
+        result = invoke("--json", "root", "list", BOB, "--coldkey", BOB)
+
+        assert result.exit_code == 0, result.exception
+        payload = json.loads(result.output)
+        assert payload["hotkey"] == BOB
+        assert payload["nav_tao"] == "τ1.250000000"
+        assert "weights" not in payload
+        assert [holding["netuid"] for holding in payload["holdings"]] == [1]
+
 
 class TestTransactions:
+    @pytest.mark.parametrize("mode", ["default", "forced", "required"])
+    def test_affordable_small_carrier_keeps_default_and_forced_shield(
+        self, fake, monkeypatch, mode
+    ):
+        # Free TAO covers the measured small tier, but not the Weight::MAX tier.
+        # No hashed/ML-DSA activation is needed for this ordinary wallet.
+        fake.seed_default("System", "Account", {"data": {"free": 1000}})
+        fake.seed("AdminUtils", "HashedAccountsEnabled", [], False)
+        fake.mev_key = bytes(1184)
+        fake.seed("MevShield", "NextKey", [], fake.mev_key)
+        sizes = []
+
+        async def estimate(call, keypair, **kwargs):
+            if call.module == "MevShield":
+                size = len(call.params["ciphertext"])
+                sizes.append(size)
+                return Balance.from_rao(17 if size <= 8192 else 10**18)
+            return Balance.from_rao(17)
+
+        monkeypatch.setattr(fake, "estimate_fee", estimate)
+        if mode == "required":
+            monkeypatch.setattr(REGISTRY["unstake_all"], "mev_shield_required", True)
+        result = invoke(
+            "--json",
+            "--yes",
+            *(["--mev-shield"] if mode == "forced" else []),
+            "stake",
+            "unstake-all",
+            "--hotkey",
+            BOB,
+        )
+        assert result.exit_code == 0, result.output
+        assert sizes and all(size <= 8192 for size in sizes)
+        assert (fake.last_call.module, fake.last_call.function) == ("MevShield", "submit_encrypted")
+        assert len(fake.last_call.params["ciphertext"]) == sizes[-1]
+
+    @pytest.mark.parametrize("flag", ["--signer", "--key"])
+    @pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+    def test_raw_call_selects_key_role(self, fake, wallet_dir, flag, role):
+        result = invoke(
+            "--json",
+            "--yes",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            flag,
+            role,
+        )
+        assert result.exit_code == 0, result.output
+        wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
+        assert fake.submissions[-1][1] == getattr(wallet, role).ss58_address
+
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):
         result = invoke(
             "--json",
@@ -170,6 +556,181 @@ class TestTransactions:
         call, _signer, _ = fake.submissions[-1]
         assert (call.module, call.function) == ("Balances", "transfer_keep_alive")
         assert call.params["value"] == 1_500_000_000
+
+    def test_stake_unstake_all_single_hotkey_keeps_direct_call(self, fake: FakeSubstrate):
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "unstake-all",
+            "--hotkey",
+            BOB,
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("SubtensorModule", "unstake_all")
+        assert call.params == {"hotkey": BOB}
+
+    @pytest.mark.parametrize(
+        ("command", "call_name", "expected_hotkeys"),
+        [
+            ("unstake-all", "unstake_all", [BOB, BOB_HOT, ALICE_HOT]),
+            ("unstake-all-alpha", "unstake_all_alpha", [BOB, ALICE_HOT]),
+        ],
+    )
+    def test_stake_unstake_all_hotkeys_batches_unique_live_positions(
+        self,
+        fake: FakeSubstrate,
+        wallet_dir: str,
+        command: str,
+        call_name: str,
+        expected_hotkeys: list[str],
+    ):
+        coldkey = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed("System", "Account", [coldkey], {"data": {"free": 2_500_000_000}})
+
+        def positions(params):
+            assert params == [coldkey]
+            return [
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 1_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 2,
+                    "stake": 2_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 0,
+                    "stake": 4_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": ALICE_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 4,
+                    "stake": 3_000_000_000,
+                    "is_registered": True,
+                },
+            ]
+
+        fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", positions)
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            command,
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        assert [(child.function, child.params["hotkey"]) for child in call.params["calls"]] == [
+            (call_name, hotkey) for hotkey in expected_hotkeys
+        ]
+        if command == "unstake-all":
+            dry_run = invoke(
+                "--json",
+                "--dry-run",
+                "stake",
+                command,
+                "--all-hotkeys",
+            )
+            assert dry_run.exit_code == 0, dry_run.output
+            assert any("MEV-shielded" in effect for effect in json.loads(dry_run.output)["effects"])
+
+    def test_stake_unstake_all_rejects_conflicting_hotkey_selectors(self, fake: FakeSubstrate):
+        result = invoke(
+            "--json",
+            "--yes",
+            "stake",
+            "unstake-all",
+            "--hotkey",
+            BOB,
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 2
+        assert "choose only one" in result.output
+        assert fake.submissions == []
+
+    def test_stake_unstake_all_reports_when_no_live_positions(
+        self, fake: FakeSubstrate, wallet_dir: str
+    ):
+        coldkey = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed_runtime(
+            "StakeInfoRuntimeApi",
+            "get_stake_info_for_coldkey",
+            [
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 0,
+                    "is_registered": True,
+                }
+            ],
+        )
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "stake",
+            "unstake-all",
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 1
+        assert "has no stake" in result.output
+        assert fake.submissions == []
+
+    def test_stake_unstake_all_uses_configured_proxy_as_selection_owner(self, fake: FakeSubstrate):
+        config.set_value("proxy_for", BOB)
+
+        def positions(params):
+            assert params == [BOB]
+            return [
+                {
+                    "hotkey": BOB_HOT,
+                    "coldkey": BOB,
+                    "netuid": 1,
+                    "stake": 1_000_000_000,
+                    "is_registered": True,
+                }
+            ]
+
+        fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", positions)
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "unstake-all",
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("Proxy", "proxy")
+        assert call.params["real"] == BOB
+        assert (call.params["call"].module, call.params["call"].function) == (
+            "SubtensorModule",
+            "unstake_all",
+        )
 
     def test_failed_extrinsic_exits_nonzero(self, fake: FakeSubstrate):
         from bittensor.result import ChainError, ExtrinsicResult
@@ -236,7 +797,7 @@ class TestTransactions:
         assert result.exit_code == 0, result.output
         assert "subnet 8 registered" in result.output
         assert "immediate · no deregistration needed" in result.output
-        assert "price  τ2.500000000" in result.output
+        assert re.search(r"price\s+τ2\.500000000", result.output)
 
     @pytest.mark.parametrize(
         ("subnet_limit", "prune_netuid", "expected_flow"),
@@ -283,16 +844,18 @@ class TestTransactions:
 
         prompts = []
 
-        def tracked_confirm(self, prompt):
+        def tracked_confirm(self, prompt, **kwargs):
             prompts.append(prompt)
 
         monkeypatch.setattr(cli_context.AppContext, "confirm", tracked_confirm)
         result = invoke("subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert prompts == ["register a new subnet for 7,998.452462874 TAO?"]
+        assert prompts == ["sign and submit?"]
+        assert "cost" in result.output
+        assert "τ7,998.452462874" in result.output
         assert expected_flow in result.output
-        assert "price  τ7,998.452462874" in result.output
+        assert re.search(r"price\s+τ7,998\.452462874", result.output)
 
     def test_subnet_create_unlocks_before_starting_activity(self, fake: FakeSubstrate, monkeypatch):
         from dataclasses import replace
@@ -324,7 +887,7 @@ class TestTransactions:
 
         @contextlib.contextmanager
         def tracked_activity(self, initial):
-            order.append("activity")
+            order.append(("activity", initial))
             with real_activity(self, initial) as update:
                 yield update
 
@@ -334,7 +897,12 @@ class TestTransactions:
         result = invoke("--yes", "subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert order == ["unlock", "activity"]
+        assert "unlock" in order
+        unlock_at = order.index("unlock")
+        submit_at = next(
+            i for i, step in enumerate(order) if isinstance(step, tuple) and "submitting" in step[1]
+        )
+        assert unlock_at < submit_at
 
     def test_subnet_create_waits_and_explains_deregistration(
         self, fake: FakeSubstrate, wallet_dir: str, monkeypatch
@@ -415,3 +983,463 @@ class TestTransactions:
         ) in updates
         assert "subnet 6 registered" in result.output
         assert "queued · registered after deregistration of subnet 6" in result.output
+
+
+def test_local_hotkey_name_is_not_valid_ss58():
+    """Local wallet names must be resolved before ss58 decode.
+
+    Passing a name like ``hotkey1`` straight into the codec raises Substrate's
+    opaque ``Length is bad`` — the failure mode ``btcli s register --hotkey
+    hotkey1`` hit before CLI call sites resolved ``*_ss58`` options.
+    """
+    from bittensor._transport.codec import ss58_decode
+
+    with pytest.raises(ValueError, match="Length is bad"):
+        ss58_decode("hotkey1")
+
+
+class TestResolveHotkeySs58:
+    """Hand-written CLI commands must resolve ``--hotkey`` like generated ``tx``."""
+
+    @pytest.fixture()
+    def alt_hotkey(self, wallet_dir) -> str:
+        wallets.new_hotkey(name=_WALLET_NAME, hotkey="hotkey1", path=wallet_dir, overwrite=True)
+        return wallets.open_wallet(_WALLET_NAME, "hotkey1", wallet_dir).hotkey.ss58_address
+
+    def test_subnets_register_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("subnets", "register", "--netuid", "18", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert len(captured) == 1
+        assert captured[0].op == "burned_register"
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_set_auto_stake_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("stake", "set-auto", "--netuid", "1", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_lock_add_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "lock", "add", "--netuid", "1", "--amount-alpha", "1", "--hotkey", "hotkey1"
+        )
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_stake_burn_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "sudo",
+            "stake-burn",
+            "--netuid",
+            "1",
+            "--amount-tao",
+            "1",
+            "--limit-price",
+            "1000",
+            "--hotkey",
+            "hotkey1",
+        )
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_child_revoke_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("stake", "child", "revoke", "--netuid", "1", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+
+class TestPowRegistration:
+    def test_root_rejects_pow_without_mining(self, fake, monkeypatch):
+        async def mine(*args, **kwargs):
+            pytest.fail("root must not start mining")
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "0", "--pow", "--yes")
+        assert result.exit_code == 2, result.output
+        assert not fake.submissions
+
+    def test_cli_refreshes_fresh_proof_when_difficulty_increases(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(
+            self,
+            netuid,
+            hotkey_ss58,
+            coldkey_ss58,
+            *,
+            workers,
+            max_seconds,
+            backend="auto",
+            device_ids=None,
+        ):
+            calls.append(netuid)
+            fake.seed("SubtensorModule", "Difficulty", [netuid], 2)
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - 1,
+                nonce=0,
+                work_hex=("ff" if len(calls) == 1 else "00") * 32,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 0, result.output
+        assert calls == [1, 1]
+        assert len(fake.submissions) == 1
+
+    def test_cli_remines_only_after_confirmed_expired_pool_rejection(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+        from bittensor.result import ChainError, ExtrinsicResult
+        from tests.harness.fake_substrate import success_result
+
+        mined = []
+        submitted = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            mined.append((options["backend"], options["device_ids"]))
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+                mining_backend=options["backend"],
+                mining_device_ids=options["device_ids"],
+            )
+
+        async def submit(call, keypair, **options):
+            submitted.append((call.params["work_block"], keypair.ss58_address))
+            if len(submitted) == 1:
+                fake.block += 5
+                return ExtrinsicResult(
+                    success=False, error=ChainError("pool rejection", name="BadRequest")
+                )
+            return success_result(fake.block)
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        monkeypatch.setattr(fake, "submit", submit)
+        result = invoke(
+            "subnets",
+            "register",
+            "--netuid",
+            "1",
+            "--pow",
+            "--pow-backend",
+            "gpu",
+            "--pow-device",
+            "0",
+            "--yes",
+        )
+        assert result.exit_code == 0, result.output
+        assert mined == [("gpu", [0]), ("gpu", [0])]
+        assert len(submitted) == 2
+        assert submitted[1][0] == submitted[0][0] + 5
+        assert submitted[1][1] == submitted[0][1]
+
+    @pytest.mark.parametrize(
+        "head_advance,error_name,included",
+        [(0, "BadRequest", False), (5, "BadRequest", True), (5, "Unknown", False)],
+    )
+    def test_cli_does_not_retry_fresh_included_or_uncertain_failure(
+        self, fake, monkeypatch, head_advance, error_name, included
+    ):
+        from bittensor.intents import PowRegister
+        from bittensor.result import ChainError, ExtrinsicResult
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        async def submit(call, keypair, **options):
+            calls.append(call)
+            fake.block += head_advance
+            return ExtrinsicResult(
+                success=False,
+                error=ChainError("rejected", name=error_name),
+                block_hash="0x" + "11" * 32 if included else None,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        monkeypatch.setattr(fake, "submit", submit)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 1, result.output
+        assert len(calls) == 1
+
+    def test_cli_caps_expired_proof_submission_attempts(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+        from bittensor.result import ChainError, ExtrinsicResult
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        async def submit(call, keypair, **options):
+            calls.append(call)
+            fake.block += 5
+            return ExtrinsicResult(
+                success=False, error=ChainError("expired", name="InvalidWorkBlock")
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        monkeypatch.setattr(fake, "submit", submit)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 1, result.output
+        assert len(calls) == 3
+
+    @pytest.mark.parametrize("head_age,expected_mines", [(4, 1), (5, 2)])
+    def test_cli_refreshes_only_at_five_block_pool_boundary(
+        self, fake, monkeypatch, head_age, expected_mines
+    ):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **options):
+            calls.append(netuid)
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - (head_age if len(calls) == 1 else 0),
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 0, result.output
+        assert len(calls) == expected_mines
+        assert len(fake.submissions) == 1
+
+    def test_cli_accepts_published_head_proof_without_unnecessary_refresh(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(self, netuid, hotkey_ss58, coldkey_ss58, **kwargs):
+            calls.append(netuid)
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block,
+                nonce=0,
+                work_hex="00" * 32,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke("subnets", "register", "--netuid", "1", "--pow", "--yes")
+        assert result.exit_code == 0, result.output
+        assert calls == [1]
+        assert len(fake.submissions) == 1
+
+    def test_cli_preserves_gpu_backend_and_devices_when_refreshing(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(
+            self, netuid, hotkey_ss58, coldkey_ss58, *, workers, max_seconds, backend, device_ids
+        ):
+            calls.append((backend, device_ids))
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - (5 if len(calls) == 1 else 1),
+                nonce=0,
+                work_hex="ab" * 32,
+                mining_backend=backend,
+                mining_device_ids=device_ids,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke(
+            "subnets",
+            "register",
+            "--netuid",
+            "1",
+            "--pow",
+            "--pow-backend",
+            "gpu",
+            "--pow-device",
+            "0",
+            "--pow-device",
+            "1",
+            "--yes",
+        )
+        assert result.exit_code == 0, result.output
+        assert calls == [("gpu", [0, 1]), ("gpu", [0, 1])]
+        assert len(fake.submissions) == 1
+
+    def test_cli_refreshes_expired_proof_after_confirmation(self, fake, monkeypatch):
+        from bittensor.intents import PowRegister
+
+        calls = []
+
+        async def mine(
+            self,
+            netuid,
+            hotkey_ss58,
+            coldkey_ss58,
+            *,
+            workers,
+            max_seconds,
+            backend="auto",
+            device_ids=None,
+        ):
+            calls.append((netuid, hotkey_ss58, coldkey_ss58, workers, max_seconds))
+            return PowRegister(
+                netuid=netuid,
+                hotkey_ss58=hotkey_ss58,
+                work_block=fake.block - (5 if len(calls) == 1 else 1),
+                nonce=0,
+                work_hex="ab" * 32,
+                mining_workers=workers,
+                mining_timeout=max_seconds,
+                mining_backend=backend,
+                mining_device_ids=device_ids,
+            )
+
+        monkeypatch.setattr(Client, "mine_pow_registration", mine)
+        result = invoke(
+            "subnets",
+            "register",
+            "--netuid",
+            "1",
+            "--pow",
+            "--pow-workers",
+            "1",
+            "--pow-timeout",
+            "10",
+            "--yes",
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 2
+        assert calls[0] == calls[1]
+        assert len(fake.submissions) == 1
+
+
+@pytest.mark.parametrize("scheme", [4, 6])
+def test_child_set_submits_guarded_hashed_receiving_address(fake, scheme):
+    from bittensor.hashed import descriptor_value
+    from bittensor.receiving import receiving_address
+    from bittensor.sp_core import Keypair
+
+    child = Keypair.create_from_seed(bytes([91]) * 32, scheme)
+    descriptor = descriptor_value(bytes(child.hashed_descriptor))
+    fake.seed("AdminUtils", "HashedAccountsEnabled", [], True)
+    fake.seed_constant("HashedAccounts", "RegistrationDeposit", 200_000_000)
+    fake.seed("HashedAccounts", "Accounts", [child.ss58_address], {"descriptor": descriptor})
+    fake.seed_default("System", "Account", {"data": {"free": 10**12}})
+    result = invoke(
+        "stake",
+        "child",
+        "set",
+        "--netuid",
+        "1",
+        "--hotkey",
+        ALICE_HOT,
+        "--children",
+        json.dumps([[0.5, receiving_address(child)]]),
+        "--yes",
+    )
+    assert result.exit_code == 0, result.output
+    assert len(fake.submissions) == 1
+    call = fake.submissions[0][0]
+    guard, assignment = call.params["calls"]
+    assert guard.function == "check_registered"
+    assert guard.params["descriptor"] == {"Classical": descriptor}
+    assert assignment.function == "set_children"
+    assert assignment.params["children"] == [(round(0.5 * (2**64 - 1)), child.ss58_address)]
+
+
+@pytest.mark.parametrize("crypto", [0, 1, 4, 6, 7, 8])
+@pytest.mark.parametrize("role", ["coldkey", "hotkey"])
+def test_registered_cli_submission_waits_for_finalized_authority(
+    fake, tmp_path, monkeypatch, crypto, role
+):
+    observed = []
+    original_submit = fake.submit
+
+    async def capture(call, keypair, **kwargs):
+        observed.append(kwargs["wait_for_finalization"])
+        return await original_submit(call, keypair, **kwargs)
+
+    monkeypatch.setattr(fake, "submit", capture)
+    path = str(tmp_path / "finality-wallets")
+    wallets.create(
+        name="finality",
+        path=path,
+        coldkey_crypto_type=crypto,
+        use_password=False,
+        on_mnemonic=lambda *_: None,
+    )
+    from bittensor.intents import Transfer
+
+    context = cli_context.AppContext(
+        "finney", "finality", "default", path, True, False, Output(json_mode=True)
+    )
+    intent = Transfer(BOB, 1)
+    intent.signer = role
+    result = context.submit(intent)
+    assert result.success, result.to_dict()
+    assert observed[-1] is (crypto in wallets.HASHED_CRYPTO_TYPES)

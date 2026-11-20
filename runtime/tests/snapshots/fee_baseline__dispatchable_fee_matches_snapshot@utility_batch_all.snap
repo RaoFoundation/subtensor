@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: utility_batch_all
+expression: fee
+---
+74168

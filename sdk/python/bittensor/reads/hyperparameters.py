@@ -48,7 +48,14 @@ _hyperparam(
     "subnet_emission_enabled",
     st.SubtensorModule.SubnetEmissionEnabled,
     "Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). "
-    "When 0, the subnet earns no TAO emission share even while "
-    "subnet_is_active is true; only root can flip it (see the "
-    "set_subnet_emission_enabled intent).",
+    "New registrations start enabled. When 0, the subnet earns no TAO "
+    "emission share even while subnet_is_active is true; only root can flip "
+    "it (see the set_subnet_emission_enabled intent).",
+)
+_hyperparam(
+    "subnet_gamma_emission_whitelisted",
+    st.SubtensorModule.SubnetGammaEmissionWhitelisted,
+    "Root-controlled gamma emission whitelist flag for a subnet (1 = whitelisted); other "
+    "subnets' gamma shares may name it only while it is set (see the "
+    "set_subnet_gamma_emission_whitelisted intent).",
 )

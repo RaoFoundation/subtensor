@@ -59,4 +59,25 @@ pub trait AccountProvider {
 	///
 	/// Incremented with each new transaction submitted by the account.
 	fn inc_account_nonce(who: &Self::AccountId);
+
+	/// Increment with an EVM error when the provider cannot advance the nonce.
+	fn try_inc_account_nonce(who: &Self::AccountId) -> Result<(), evm::ExitError> {
+		Self::inc_account_nonce(who);
+		Ok(())
+	}
+
+	/// Additional database reads for nonce providers with independent storage.
+	fn extra_nonce_reads() -> u64 {
+		0
+	}
+
+	/// Additional proof bytes for nonce storage beyond the system account.
+	fn extra_nonce_proof_size() -> u64 {
+		0
+	}
+
+	/// Additional database reads and writes when incrementing the nonce.
+	fn extra_nonce_write_counts() -> (u64, u64) {
+		(0, 0)
+	}
 }

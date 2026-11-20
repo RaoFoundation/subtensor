@@ -230,7 +230,45 @@ fn test_register_network_min_burn_at_default() {
 
         // Check registration allowed
         assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-        assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+        assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
+    });
+}
+
+/// New registrations start with pool-side TAO emission enabled so owners need
+/// only `start_call` (after `StartCallDelay`) — not a root sudo — before the
+/// subnet can earn its TAO emission share. Existing explicitly-disabled
+/// subnets are left alone (no migration).
+#[test]
+fn test_register_network_starts_with_subnet_emission_enabled() {
+    new_test_ext(1).execute_with(|| {
+        let sn_owner_coldkey = U256::from(0);
+        let sn_owner_hotkey = U256::from(1);
+        let cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&sn_owner_coldkey, ExistentialDeposit::get() + cost.into());
+
+        // Pre-existing subnet left disabled by root must stay disabled.
+        let existing = NetUid::from(7);
+        add_network(existing, 13, 0);
+        SubnetEmissionEnabled::<Test>::insert(existing, false);
+        assert!(!SubnetEmissionEnabled::<Test>::get(existing));
+
+        assert_ok!(SubtensorModule::register_network(
+            <<Test as Config>::RuntimeOrigin>::signed(sn_owner_coldkey),
+            sn_owner_hotkey
+        ));
+        let netuid = match last_event() {
+            RuntimeEvent::SubtensorModule(Event::<Test>::NetworkAdded(netuid, _)) => netuid,
+            _ => panic!("Expected NetworkAdded event"),
+        };
+
+        assert!(
+            SubnetEmissionEnabled::<Test>::get(netuid),
+            "fresh registration must start with SubnetEmissionEnabled = true"
+        );
+        // Owner still must call start_call before epochs / subtoken / emission schedule.
+        assert!(FirstEmissionBlockNumber::<Test>::get(netuid).is_none());
+        assert!(!SubtokenEnabled::<Test>::get(netuid));
+        assert!(!SubnetEmissionEnabled::<Test>::get(existing));
     });
 }
 
@@ -260,7 +298,7 @@ fn test_register_network_use_symbol_for_subnet_if_available() {
 
             // Check registration allowed
             assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-            assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+            assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
 
             // Reduce lock cost to avoid exponential cost growth
             NetworkLastLockCost::<Test>::set(1_000.into());
@@ -294,7 +332,7 @@ fn test_register_network_use_next_available_symbol_if_symbol_for_subnet_is_taken
 
             // Check registration allowed
             assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-            assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+            assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
 
             // Reduce lock cost to avoid exponential cost growth
             NetworkLastLockCost::<Test>::set(1_000.into());
@@ -369,7 +407,7 @@ fn test_register_network_use_default_symbol_if_all_symbols_are_taken() {
 
         // Check registration allowed
         assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
-        assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+        assert!(!NetworkPowRegistrationAllowed::<Test>::get(netuid));
     });
 }
 
@@ -479,7 +517,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
         );
 
         // For unstake_all_alpha, the result is AmountTooLow because no re-staking happens.
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id
@@ -506,7 +544,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
         )
         .unwrap();
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::remove_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -536,7 +574,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
             Error::<Test>::SubtokenDisabled
         );
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::move_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -548,7 +586,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
             Error::<Test>::SubtokenDisabled
         );
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::transfer_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,
@@ -560,7 +598,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
             Error::<Test>::SubtokenDisabled
         );
 
-        assert_noop!(
+        crate::assert_noop_ignore_postinfo!(
             SubtensorModule::swap_stake(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id,

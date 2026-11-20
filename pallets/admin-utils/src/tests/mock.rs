@@ -170,6 +170,7 @@ parameter_types! {
 }
 
 impl pallet_subtensor::Config for Test {
+    type HotkeyOwnerPolicy = ();
     type RuntimeCall = RuntimeCall;
     type Currency = Balances;
     type InitialIssuance = InitialIssuance;
@@ -253,6 +254,7 @@ impl pallet_subtensor::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type LegacyAlphaCompatibility = frame_support::traits::ConstBool<false>;
 }
 
 parameter_types! {
@@ -382,13 +384,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 pub struct GrandpaInterfaceImpl;
@@ -398,7 +402,22 @@ impl crate::GrandpaInterface<Test> for GrandpaInterfaceImpl {
         in_blocks: BlockNumber,
         forced: Option<BlockNumber>,
     ) -> sp_runtime::DispatchResult {
-        Grandpa::schedule_change(next_authorities, in_blocks, forced)
+        let next_set_id = Grandpa::current_set_id()
+            .checked_add(1)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        Grandpa::schedule_change(next_authorities, in_blocks, forced)?;
+        pallet_grandpa::CurrentSetId::<Test>::put(next_set_id);
+        Ok(())
+    }
+}
+
+parameter_types! {
+    pub storage MockRegistrationDeposit: TaoBalance = TaoBalance::new(200_000_000);
+}
+
+impl crate::RegistrationDepositInterface for MockRegistrationDeposit {
+    fn set(value: TaoBalance) {
+        MockRegistrationDeposit::set(&value);
     }
 }
 
@@ -409,6 +428,7 @@ impl crate::Config for Test {
     type Grandpa = GrandpaInterfaceImpl;
     type Balance = Balance;
     type WeightInfo = ();
+    type RegistrationDeposit = MockRegistrationDeposit;
 }
 
 parameter_types! {

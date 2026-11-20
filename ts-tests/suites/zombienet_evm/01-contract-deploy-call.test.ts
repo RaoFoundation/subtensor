@@ -33,7 +33,6 @@ import {
     sudoSetLockReductionInterval,
     tao,
     waitForFinalizedBlocks,
-    waitUntilBlockFinalized,
 } from "../../utils";
 
 const DEPLOYED_BYTECODE_PREFIX = "0x60806040523480156";
@@ -295,29 +294,13 @@ describeSuite({
                 const alphaInPool = await contractForCall.getContractStake(netuid);
                 expect(alphaInPool).toEqual(BigInt(0));
 
-                const depositAlphaTx = await contractForCall.depositAlpha(netuid, tao(10).toString(), hotkey.publicKey);
-                const depositReceipt = await depositAlphaTx.wait();
-                if (!depositReceipt) throw new Error("Missing depositAlpha receipt");
-                expect(depositReceipt.status).toEqual(1);
-                // Wait for the deposit's own block to finalize rather than a
-                // fixed block count: when GRANDPA lags best by more than 2
-                // blocks, the finalized-state stake reads below see the
-                // pre-deposit stake and the toBeLessThan assertion flakes.
-                await waitUntilBlockFinalized(api, depositReceipt.blockNumber);
-
-                const stakeAfterDeposit = await getStake(api, hotkeySs58, walletSs58, netuid);
-                expect(stakeAfterDeposit).toBeLessThan(stakeBeforeDeposit);
-
-                const contractStake = await getStake(api, hotkeySs58, convertH160ToSS58(contractAddress), netuid);
-                expect(contractStake).toBeGreaterThan(BigInt(0));
-
-                const alphaBalanceOnContract = await contractForCall.alphaBalance(ethWallet.address, netuid);
-                expect(tao(10) - alphaBalanceOnContract).toBeLessThan(BigInt(1000));
-
-                const stakeFromContract = BigInt(
-                    await stakingPrecompile.getStake(hotkey.publicKey, contractPublicKey, netuid)
+                await expect(
+                    contractForCall.depositAlpha(netuid, tao(10).toString(), hotkey.publicKey)
+                ).rejects.toThrow(/user deposit alpha call failed/);
+                expect(await getStake(api, hotkeySs58, walletSs58, netuid)).toEqual(stakeBeforeDeposit);
+                expect(await stakingPrecompile.getStake(hotkey.publicKey, contractPublicKey, netuid)).toEqual(
+                    BigInt(0)
                 );
-                expect(stakeFromContract).toEqual(await contractForCall.getContractStake(netuid));
             },
         });
 
@@ -524,6 +507,26 @@ describeSuite({
                     expect(proxiesList.includes(proxySs58)).toBe(true);
                     expect(Number(proxyInfo[1])).toEqual(type);
                     expect(Number(proxyInfo[2])).toEqual(delay);
+                }
+            },
+        });
+
+        it({
+            id: "T12",
+            title: "Repeated gas estimates and calls tolerate execution backpressure",
+            test: async () => {
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, provider);
+                const account = ethers.ZeroHash;
+                const data = contract.interface.encodeFunctionData("getProxies", [account]);
+                for (let index = 0; index < 12; index++) {
+                    const gas = await provider.send("eth_estimateGas", [{ to: IPROXY_ADDRESS, data, gasPrice: "0x0" }]);
+                    expect(BigInt(gas)).toBeGreaterThan(0n);
+                    const result = await provider.send("eth_call", [
+                        { to: IPROXY_ADDRESS, data, gasPrice: "0x0" },
+                        "latest",
+                    ]);
+                    const [proxies] = contract.interface.decodeFunctionResult("getProxies", result);
+                    expect(proxies.length).toEqual(0);
                 }
             },
         });

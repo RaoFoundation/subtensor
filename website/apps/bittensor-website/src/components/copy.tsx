@@ -40,6 +40,28 @@ export function CopyCodeButton() {
   );
 }
 
+/** Compact EVM address that copies the complete 20-byte value. */
+export function EvmAddress({ address }: { address: string }) {
+  const { copied, flash } = useCopied();
+  const shortAddress = `${address.slice(0, 3)}...${address.slice(-4)}`;
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy address ${address}`}
+      title={address}
+      className="inline-flex items-center gap-1 font-mono text-[0.8125rem] text-fg hover:text-mute transition-colors"
+      onClick={async () => {
+        await navigator.clipboard.writeText(address);
+        flash();
+      }}
+    >
+      {shortAddress}
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+    </button>
+  );
+}
+
 /** "Copy Markdown" — fetches the page's raw markdown and copies it. */
 export function CopyMarkdownButton({
   markdownUrl,

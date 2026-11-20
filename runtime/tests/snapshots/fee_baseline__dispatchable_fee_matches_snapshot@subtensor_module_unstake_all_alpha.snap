@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_unstake_all_alpha
+expression: fee
+---
+1044339

@@ -1,6 +1,46 @@
 import {createMDX} from 'fumadocs-mdx/next';
+import {mkdirSync, readdirSync, readFileSync, writeFileSync} from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const withMDX = createMDX();
+
+// Keep in sync with CODE_ROOTS / exclusions in src/lib/code.ts.
+const CODE_ROOTS = [
+  'pallets',
+  'runtime',
+  'primitives',
+  'common',
+  'precompiles',
+  'chain-extensions',
+];
+const EXCLUDED_DIRS = new Set(['tests', 'target']);
+const EXCLUDED_FILES = new Set(['tests.rs', 'mock.rs', 'benchmarks.rs', 'benchmarking.rs']);
+
+const appDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(appDir, '../../..');
+
+/** Bundle the /code corpus so search.json does not walk the repo at request time. */
+function writeCodeCorpus() {
+  /** @type {Record<string, string>} */
+  const corpus = {};
+  function walk(dir) {
+    for (const entry of readdirSync(dir, {withFileTypes: true})) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!EXCLUDED_DIRS.has(entry.name)) walk(abs);
+      } else if (entry.name.endsWith('.rs') && !EXCLUDED_FILES.has(entry.name)) {
+        corpus[path.relative(repoRoot, abs)] = readFileSync(abs, 'utf8');
+      }
+    }
+  }
+  for (const root of CODE_ROOTS) walk(path.join(repoRoot, root));
+  const out = path.join(appDir, 'src/lib/generated/code-corpus.json');
+  mkdirSync(path.dirname(out), {recursive: true});
+  writeFileSync(out, JSON.stringify(corpus));
+}
+
+writeCodeCorpus();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

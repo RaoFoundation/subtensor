@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .._generated import calls
+from ._money import Money, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -25,13 +26,15 @@ class SetSubnetEmissionEnabled(Intent):
 
     Flips the ``SubnetEmissionEnabled`` storage flag for each listed subnet —
     the ROOT-ONLY switch that gates whether a subnet earns its share of TAO
-    emission on the pool side. Distinct from the owner's one-shot
-    ``start_call`` (``subnet_is_active``): a subnet can be active — epochs
-    running, alpha trading — yet earn no TAO emission share until root flips
-    this flag on. Disabling only zeros the pool-side ``alpha_in`` /
-    ``tao_in`` / ``excess_tao`` chain-buy paths; it does not remove the
-    subnet from emission share calculation and does not touch ``alpha_out``,
-    the owner cut, root proportion, or pending server/validator emission.
+    emission on the pool side. New registrations start with this flag on;
+    root uses this call mainly to disable (or re-enable) specific subnets.
+    Distinct from the owner's one-shot ``start_call`` (``subnet_is_active``):
+    a subnet can be active — epochs running, alpha trading — yet earn no TAO
+    emission share while this flag is off. Disabling only zeros the pool-side
+    ``alpha_in`` / ``tao_in`` / ``excess_tao`` chain-buy paths; it does not
+    remove the subnet from emission share calculation and does not touch
+    ``alpha_out``, the owner cut, root proportion, or pending server/validator
+    emission.
 
     Requires the chain sudo key: ``Executor`` wraps the built call in
     ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig
@@ -83,3 +86,93 @@ class SetSubnetEmissionEnabled(Intent):
 
     def touches_netuids(self) -> list[int]:
         return list(self.netuids)
+
+
+@register
+@dataclass
+class SetSubnetGammaEmissionWhitelisted(Intent):
+    """Whitelist a subnet for gamma emission, or remove it from the whitelist (root only).
+
+    A subnet owner's gamma share may only name a subnet on this whitelist (see
+    the ``set_subnet_emission_weights`` intent). Removing a subnet removes every
+    gamma share to it: each share is added to the paying subnet's miner slot and
+    its unconverted alpha to that subnet's pending miner emission.
+    """
+
+    op = "set_subnet_gamma_emission_whitelisted"
+    signer = "coldkey"
+    origin = "root"
+    verify = "subnet_gamma_emission_whitelisted"
+    wraps = (
+        ("AdminUtils", "sudo_set_subnet_gamma_emission_whitelisted"),
+        ("Sudo", "sudo"),
+    )
+
+    netuid: int = field(metadata={"help": "Subnet to whitelist or remove from the whitelist."})
+    whitelisted: bool = field(
+        metadata={"help": "True to whitelist the subnet, false to remove it."}
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.AdminUtils.sudo_set_subnet_gamma_emission_whitelisted(
+                netuid=self.netuid, whitelisted=self.whitelisted
+            )
+        )
+
+    def summary(self) -> str:
+        if self.whitelisted:
+            return f"whitelist netuid {self.netuid} for gamma emission"
+        return f"remove netuid {self.netuid} from the gamma emission whitelist"
+
+    def affects_all_subnets(self) -> bool:
+        return not self.whitelisted
+
+
+@register
+@dataclass
+class SetRootClaimThreshold(Intent):
+    """Set the minimum TAO payout for a root dividend claim (root only).
+
+    ``claim_root`` and ``claim_root_with_hotkey`` silently skip any
+    per-validator basket redemption whose estimated payout falls below this
+    threshold — the shares keep accruing and pay out once they clear it. The
+    threshold exists so dust claims cannot grind the chain with tiny swaps;
+    the default is 500,000 rao (0.0005 TAO) and the chain caps it at
+    10,000,000 rao (0.01 TAO).
+
+    Requires the chain sudo key: ``Executor`` wraps the built call in
+    ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig
+    that ``Sudo.sudo`` call is what the multisig must dispatch. Verify the
+    effect afterwards with the ``root_claim_threshold`` read.
+    """
+
+    op = "set_root_claim_threshold"
+    signer = "coldkey"
+    origin = "root"
+    verify = "root_claim_threshold"
+    wraps = (
+        ("SubtensorModule", "sudo_set_root_claim_threshold"),
+        ("Sudo", "sudo"),
+    )
+
+    threshold: Money = field(
+        metadata={
+            "help": "Minimum claim payout in TAO; per-validator redemptions estimated "
+            "below it are skipped and keep accruing. At most 0.01 TAO."
+        }
+    )
+
+    def __post_init__(self):
+        self.threshold = tao_amount(self.threshold)
+
+    async def build(self, substrate, wallet: Any):
+        # The chain only accepts the root netuid entry for this threshold.
+        return await substrate.compose(
+            calls.SubtensorModule.sudo_set_root_claim_threshold(
+                netuid=0, new_value=self.threshold.rao
+            )
+        )
+
+    def summary(self) -> str:
+        return f"set the root claim threshold to {self.threshold}"

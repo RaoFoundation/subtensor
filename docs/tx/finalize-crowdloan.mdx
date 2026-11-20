@@ -13,7 +13,7 @@ dissolved.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.finalize`](/code/pallets/crowdloan/src/lib.rs#L609-L674) |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.finalize`](/code/pallets/crowdloan/src/lib.rs#L613-L692) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("finalize_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.finalize` — [`pallets/crowdloan/src/lib.rs#L611`](/code/pallets/crowdloan/src/lib.rs#L609-L674):
+`Crowdloan.finalize` — [`pallets/crowdloan/src/lib.rs#L615`](/code/pallets/crowdloan/src/lib.rs#L613-L692):
 
 ```rust
 #[pallet::call_index(3)]
@@ -71,7 +71,7 @@ pub fn finalize(
     origin: OriginFor<T>,
     #[pallet::compact] crowdloan_id: CrowdloanId,
 ) -> DispatchResult {
-    let who = ensure_signed(origin)?;
+    let who = ensure_signed(origin.clone())?;
 
     let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
 
@@ -84,6 +84,11 @@ pub fn finalize(
         CurrentCrowdloanId::<T>::get().is_none(),
         Error::<T>::AlreadyFinalizing
     );
+
+    // Exclude unsolicited deposits from the amount the finalizer must spend.
+    let remaining_balance = CurrencyOf::<T>::balance(&crowdloan.funds_account)
+        .checked_sub(&crowdloan.raised)
+        .ok_or(Error::<T>::InsufficientBalance)?;
 
     crowdloan.finalized = true;
     Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
@@ -105,9 +110,11 @@ pub fn finalize(
                 }
             };
 
-            // Dispatch the call with creator origin
+            // Keep the creator's inherited filters (for example, proxy permissions).
+            // Reconstructing a signed origin would authorize the stored call more broadly
+            // than the account that is finalizing the crowdloan is allowed to act.
             stored_call
-                .dispatch(frame_system::RawOrigin::Signed(who).into())
+                .dispatch(origin)
                 .map(|_| ())
                 .map_err(|e| e.error)?;
 
@@ -126,6 +133,13 @@ pub fn finalize(
             return Err(Error::<T>::InvalidFinalizationConfig)?;
         }
     }
+
+    // Wrappers such as utility::batch can return Ok after a child fails. Do not
+    // commit finalization (or partial child effects) while raised funds remain.
+    ensure!(
+        CurrencyOf::<T>::balance(&crowdloan.funds_account) <= remaining_balance,
+        Error::<T>::FundsNotSettled
+    );
 
     Self::deposit_event(Event::<T>::Finalized { crowdloan_id });
 

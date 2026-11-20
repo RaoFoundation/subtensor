@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: subtensor_module_register_network_with_identity
+expression: fee
+---
+1632922

@@ -235,7 +235,7 @@ impl PrecompileHandle for MockHandle {
 	fn refund_external_cost(&mut self, _ref_time: Option<u64>, _proof_size: Option<u64>) {}
 
 	fn remaining_gas(&self) -> u64 {
-		unimplemented!()
+		u64::MAX
 	}
 
 	fn log(&mut self, _: H160, _: Vec<H256>, _: Vec<u8>) -> Result<(), ExitError> {
@@ -259,7 +259,7 @@ impl PrecompileHandle for MockHandle {
 	}
 
 	fn is_static(&self) -> bool {
-		unimplemented!()
+		false
 	}
 
 	fn gas_limit(&self) -> Option<u64> {

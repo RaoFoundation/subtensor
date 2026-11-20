@@ -69,7 +69,7 @@ def _decode_commitment_data(fields: list) -> str:
     """Concatenate Raw* field bytes; utf-8 when possible, else 0x-hex."""
     data = b""
     for entry in fields:
-        for variant, value in (entry or {}).items():
+        for variant, value in metagraph_module._field_items(entry):
             if variant.startswith("Raw") and isinstance(value, str):
                 data += bytes.fromhex(value.removeprefix("0x"))
     try:
@@ -140,10 +140,11 @@ async def commitments(view, netuid: int) -> list[dict]:
     """Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.
 
     One row per hotkey that has (or had) a commitment — including sealed
-    timelocked payloads waiting on drand (`is_revealed` false, `reveals_at`
-    set) and fully-revealed ones whose live storage entry the chain already
-    dropped. `commitment` is the currently visible content: the plaintext, or
-    the latest chain-decrypted payload; null while still sealed.
+    timelocked payloads waiting on drand (`status` ``sealed``), terminal
+    on-chain reveal failures retained for audit (`status` ``failed``), and
+    fully-revealed ones whose live storage entry the chain already dropped.
+    `commitment` is the currently visible content: the plaintext, or the
+    latest chain-decrypted payload; null while sealed or failed.
     """
     records = await metagraph_module.fetch_commitments(view, netuid)
     return [

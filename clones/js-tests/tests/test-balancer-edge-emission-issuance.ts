@@ -5,6 +5,7 @@ import { u8aToHex } from "@polkadot/util";
 
 import { connectApi } from "../lib/api.js";
 import { createTempLogger } from "../lib/file-log.js";
+import { assertIssuanceMatch } from "../lib/issuance.js";
 
 const WS_ENDPOINT = process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944";
 const MAX_BLOCKS_TO_WAIT = Number(process.env.MAX_EDGE_EMISSION_WAIT_BLOCKS ?? 120);
@@ -43,8 +44,7 @@ async function main() {
     if (!assertMetadataAvailable()) {
       return;
     }
-    await repairIssuanceMirrorIfNeeded("pre-test setup");
-    await assertIssuanceMatch("initial");
+    await assertIssuanceMatch(api, "initial");
 
     const netuid = await findEmissionSubnet();
     console.log("selected netuid:", netuid);
@@ -73,7 +73,7 @@ async function main() {
       await restoreOriginals(netuid, original);
     }
 
-    await assertIssuanceMatch("final after restore");
+    await assertIssuanceMatch(api, "final after restore");
     console.log("balancer edge emission issuance scenarios: ok");
   } finally {
     await api?.disconnect();
@@ -108,6 +108,8 @@ function assertMetadataAvailable() {
     ["SubtensorModule.SubnetAlphaIn", api.query.subtensorModule?.subnetAlphaIn],
     ["SubtensorModule.SubnetExcessTao", api.query.subtensorModule?.subnetExcessTao],
     ["SubtensorModule.SubnetTaoInEmission", api.query.subtensorModule?.subnetTaoInEmission],
+    ["SubtensorModule.SubnetTaoFlow", api.query.subtensorModule?.subnetTaoFlow],
+    ["SubtensorModule.SubnetProtocolFlow", api.query.subtensorModule?.subnetProtocolFlow],
     ["SubtensorModule.SubnetEmissionEnabled", api.query.subtensorModule?.subnetEmissionEnabled],
     ["SubtensorModule.Tempo", api.query.subtensorModule?.tempo],
     ["Swap.SwapBalancer", api.query.swap?.swapBalancer],
@@ -181,7 +183,7 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
     quoteWeight === HIGH_QUOTE_WEIGHT ? forcedWeight >= HIGH_EDGE_FLOOR : forcedWeight <= LOW_EDGE_CEILING,
     `${label}: forced balancer weight ${forcedWeight} is no longer edge-cased`
   );
-  await assertIssuanceMatch(`${label} after force storage`);
+  await assertIssuanceMatch(api, `${label} after force storage`, blockHash);
 
   const setHeader = await api.rpc.chain.getHeader(blockHash);
   lastFinalizedBlockNumber = setHeader.number.toNumber();
@@ -197,12 +199,25 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
 
   for (let blocks = 1; blocks <= MAX_BLOCKS_TO_WAIT; blocks++) {
     const header = await waitForFinalizedBlock();
-    await assertIssuanceMatch(`${label} block ${header.number.toString()}`);
+    await assertIssuanceMatch(api, `${label} block ${header.number.toString()}`, header.hash.toHex());
 
     const after = await emissionSnapshot(netuid, header.hash);
     const sumDelta = after.taoPlusReservoir - before.taoPlusReservoir;
 
     if (sumDelta > 0n) {
+      const reservoirDelta = after.taoReservoir - before.taoReservoir;
+      const emissionInjection = after.taoInEmission + after.subnetExcessTao;
+      // Coinbase is not the only thing that can move TAO into this pool in the
+      // sampled window. The pending-basket-deposit drain runs right after
+      // coinbase (one hotkey per block, round-robin) and any protocol-side
+      // basket trade it executes on this subnet books into SubnetProtocolFlow,
+      // alongside the coinbase inflows already counted by SubnetTaoInEmission /
+      // SubnetExcessTao. User stakes book into SubnetTaoFlow. Both counters are
+      // cumulative, so their window deltas are exactly the extra TAO to allow
+      // for. Only inflows are credited (outflows already shrink sumDelta), so
+      // this never adds slack beyond what the chain itself recorded.
+      const basketFlushInflow = maxZero(after.protocolFlow - before.protocolFlow - emissionInjection);
+      const userInflow = maxZero(after.userFlow - before.userFlow);
       console.log(
         `${label} after:`,
         `block=${after.block}`,
@@ -211,18 +226,21 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
         `alphaReservoir=${after.alphaReservoir}`,
         `taoInEmission=${after.taoInEmission}`,
         `subnetExcessTao=${after.subnetExcessTao}`,
+        `basketFlushInflow=${basketFlushInflow}`,
+        `userInflow=${userInflow}`,
         `sum=${after.taoPlusReservoir}`,
         `sumDelta=${sumDelta}`
       );
-      const reservoirDelta = after.taoReservoir - before.taoReservoir;
       // Last-block SubnetTaoInEmission / SubnetExcessTao are informative but not
       // an exact closed form for Δ(SubnetTAO+reservoir) once fees / multi-step
       // coinbase paths are involved — only require a positive injection and that
-      // the observed emission counters cover it from above.
-      const observedInjection = after.taoInEmission + after.subnetExcessTao + reservoirDelta;
+      // the observed emission counters, plus the non-emission TAO the chain
+      // recorded flowing into this pool over the same window, cover it from above.
+      const observedInjection = emissionInjection + reservoirDelta + basketFlushInflow + userInflow;
       assert.ok(
         observedInjection >= sumDelta,
-        `${label}: SubnetTAO + BalancerTaoReservoir grew by ${sumDelta} but observed injection counters only sum to ${observedInjection}`
+        `${label}: SubnetTAO + BalancerTaoReservoir grew by ${sumDelta} but observed injection counters only sum to ${observedInjection} ` +
+          `(emission=${emissionInjection}, reservoirDelta=${reservoirDelta}, basketFlushInflow=${basketFlushInflow}, userInflow=${userInflow})`
       );
       return { before, after };
     }
@@ -237,14 +255,17 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
 
 async function emissionSnapshot(netuid, blockHash = null) {
   const at = (query, ...args) => blockHash ? query.at(blockHash, ...args) : query(...args);
-  const [header, tao, taoReservoir, alphaReservoir, taoInEmission, subnetExcessTao] = await Promise.all([
-    blockHash ? api.rpc.chain.getHeader(blockHash) : api.rpc.chain.getHeader(),
-    at(api.query.subtensorModule.subnetTAO, netuid),
-    at(api.query.swap.balancerTaoReservoir, netuid),
-    at(api.query.swap.balancerAlphaReservoir, netuid),
-    at(api.query.subtensorModule.subnetTaoInEmission, netuid),
-    at(api.query.subtensorModule.subnetExcessTao, netuid),
-  ]);
+  const [header, tao, taoReservoir, alphaReservoir, taoInEmission, subnetExcessTao, userFlow, protocolFlow] =
+    await Promise.all([
+      blockHash ? api.rpc.chain.getHeader(blockHash) : api.rpc.chain.getHeader(),
+      at(api.query.subtensorModule.subnetTAO, netuid),
+      at(api.query.swap.balancerTaoReservoir, netuid),
+      at(api.query.swap.balancerAlphaReservoir, netuid),
+      at(api.query.subtensorModule.subnetTaoInEmission, netuid),
+      at(api.query.subtensorModule.subnetExcessTao, netuid),
+      at(api.query.subtensorModule.subnetTaoFlow, netuid),
+      at(api.query.subtensorModule.subnetProtocolFlow, netuid),
+    ]);
   const taoBig = tao.toBigInt();
   const taoReservoirBig = taoReservoir.toBigInt();
 
@@ -255,8 +276,14 @@ async function emissionSnapshot(netuid, blockHash = null) {
     alphaReservoir: alphaReservoir.toBigInt(),
     taoInEmission: taoInEmission.toBigInt(),
     subnetExcessTao: subnetExcessTao.toBigInt(),
+    userFlow: userFlow.toBigInt(),
+    protocolFlow: protocolFlow.toBigInt(),
     taoPlusReservoir: taoBig + taoReservoirBig,
   };
+}
+
+function maxZero(value) {
+  return value > 0n ? value : 0n;
 }
 
 async function captureOriginals(netuid) {
@@ -292,42 +319,6 @@ async function restoreOriginals(netuid, original) {
     `sudo restore edge-emission storage on netuid ${netuid}`
   );
   console.log(`restored original balancer storage for netuid ${netuid}`);
-}
-
-async function repairIssuanceMirrorIfNeeded(label) {
-  const balances = (await api.query.balances.totalIssuance()).toBigInt();
-  const subtensor: bigint = (await api.query.subtensorModule.totalIssuance()).toBigInt();
-  const diff = balances - subtensor;
-  if (diff === 0n) {
-    console.log(`${label}: issuance matched`, balances.toString());
-    return;
-  }
-
-  const target = balances + diff;
-  assert.ok(target > 0n, `cannot repair issuance mirror: computed target ${target}`);
-  await submitAndWait(
-    alice,
-    api.tx.sudo.sudo(api.tx.system.setStorage([
-      [api.query.subtensorModule.totalIssuance.key(), storageValueHex("u64", target)],
-    ])),
-    "sudo repair Subtensor TotalIssuance mirror"
-  );
-  await assertIssuanceMatch(`${label} repaired`);
-}
-
-async function assertIssuanceMatch(label) {
-  const [balancesIssuance, subtensorIssuance] = await Promise.all([
-    api.query.balances.totalIssuance(),
-    api.query.subtensorModule.totalIssuance(),
-  ]);
-  const balances = balancesIssuance.toBigInt();
-  const subtensor = subtensorIssuance.toBigInt();
-  assert.equal(
-    subtensor,
-    balances,
-    `${label}: SubtensorModule.TotalIssuance ${subtensor} does not match Balances.TotalIssuance ${balances}`
-  );
-  console.log(`${label}: issuance match`, balances.toString());
 }
 
 async function sudoSetStorage(entries, label) {

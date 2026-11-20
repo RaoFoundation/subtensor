@@ -2,6 +2,7 @@ export * from "./account.ts";
 export * from "./address.ts";
 export * from "./admin_utils.ts";
 export * from "./balance.js";
+export * from "./basket.js";
 export * from "./coldkey_swap.ts";
 export * from "./evm-config.ts";
 export * from "./evm.ts";

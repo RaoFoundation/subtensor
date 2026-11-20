@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import {useMemo, useRef, useState} from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,8 +11,8 @@ import {
   Legend,
   type Plugin,
 } from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { ExplainerPanel, ExplainerSlider, ExplainerStat, ExplainerToggle } from './explainer-panel';
+import {Line} from 'react-chartjs-2';
+import {ExplainerPanel, ExplainerSlider, ExplainerStat, ExplainerToggle} from './explainer-panel';
 import {
   MATURITY_RATE_BLOCKS,
   ONE_YEAR_BLOCKS,
@@ -41,9 +41,11 @@ export const EXAMPLE_SUBNET = {
   netuid: 7,
   name: 'Atlas',
   alphaOut: 8_000_000,
+  protocolAlpha: 1_000_000,
+  alphaBurned: 1_000_000,
   ageBlocks: ONE_YEAR_BLOCKS + 500_000,
   owner: {name: 'Alice (owner)', lockedMass: 250_000, perpetual: true, ownerLock: true},
-  validator: {name: 'Bob (validator)', lockedMass: 600_000, perpetual: true, ownerLock: false},
+  validator: {name: 'Bob (validator)', lockedMass: 1_200_000, perpetual: true, ownerLock: false},
   staker: {name: 'Carol (staker)', lockedMass: 200_000, perpetual: false, ownerLock: false},
 } as const;
 
@@ -57,32 +59,30 @@ function seriesForLocker(
   const points: number[] = [];
   for (let i = 0; i <= steps; i++) {
     const dt = (horizon * i) / steps;
-    points.push(
-      rollForwardLock(lockedMass, 0, dt, {perpetual, ownerLock}).conviction,
-    );
+    points.push(rollForwardLock(lockedMass, 0, dt, {perpetual, ownerLock}).conviction);
   }
   return points;
 }
 
-/** Interpolated x-intervals where the total-conviction series is at or above the threshold. */
+/** Interpolated x-intervals where the leader-conviction series is at or above the threshold. */
 function aboveThresholdSegments(
   labels: number[],
-  total: number[],
+  series: number[],
   threshold: number,
 ): {from: number; to: number}[] {
   const segments: {from: number; to: number}[] = [];
   let start: number | null = null;
   for (let i = 0; i < labels.length; i++) {
-    const above = total[i] >= threshold;
+    const above = series[i] >= threshold;
     if (above && start === null) {
       if (i === 0) {
         start = labels[0];
       } else {
-        const t = (threshold - total[i - 1]) / (total[i] - total[i - 1]);
+        const t = (threshold - series[i - 1]) / (series[i] - series[i - 1]);
         start = labels[i - 1] + t * (labels[i] - labels[i - 1]);
       }
     } else if (!above && start !== null) {
-      const t = (threshold - total[i - 1]) / (total[i] - total[i - 1]);
+      const t = (threshold - series[i - 1]) / (series[i] - series[i - 1]);
       segments.push({from: start, to: labels[i - 1] + t * (labels[i] - labels[i - 1])});
       start = null;
     }
@@ -97,27 +97,30 @@ export function ConvictionSubnetScenario() {
   const [carolLock, setCarolLock] = useState<number>(EXAMPLE_SUBNET.staker.lockedMass);
   const [carolPerpetual, setCarolPerpetual] = useState(false);
 
-  const threshold = convictionOwnershipThreshold(EXAMPLE_SUBNET.alphaOut);
+  const eligibleAlpha = Math.max(
+    0,
+    EXAMPLE_SUBNET.alphaOut - EXAMPLE_SUBNET.protocolAlpha - EXAMPLE_SUBNET.alphaBurned,
+  );
+  const threshold = convictionOwnershipThreshold(
+    EXAMPLE_SUBNET.alphaOut,
+    EXAMPLE_SUBNET.protocolAlpha,
+    EXAMPLE_SUBNET.alphaBurned,
+  );
   const horizon = MATURITY_RATE_BLOCKS * 2;
 
   const chart = useMemo(() => {
     const steps = 60;
     const labels = Array.from({length: steps + 1}, (_, i) => (horizon * i) / steps);
-    const alice = seriesForLocker(
-      EXAMPLE_SUBNET.owner.lockedMass,
-      true,
-      true,
-      horizon,
-      steps,
-    );
+    const alice = seriesForLocker(EXAMPLE_SUBNET.owner.lockedMass, true, true, horizon, steps);
     const bob = seriesForLocker(bobLock, true, false, horizon, steps);
     const carol = seriesForLocker(carolLock, carolPerpetual, false, horizon, steps);
-    const total = labels.map((_, i) => alice[i] + bob[i] + carol[i]);
-    const segments = aboveThresholdSegments(labels, total, threshold);
-    // The red dot marks where total conviction first crosses the gate
+    // The gate measures the highest single hotkey, not the subnet-wide sum.
+    const leader = labels.map((_, i) => Math.max(alice[i], bob[i], carol[i]));
+    const segments = aboveThresholdSegments(labels, leader, threshold);
+    // The red dot marks where the leading hotkey first crosses the gate
     // (the subnet is already past one year of age in this scenario).
     const crossing = segments.length > 0 ? segments[0].from : null;
-    return {labels, alice, bob, carol, total, segments, crossing};
+    return {labels, alice, bob, carol, leader, segments, crossing};
   }, [bobLock, carolLock, carolPerpetual, horizon, threshold]);
 
   const now = useMemo(() => {
@@ -127,19 +130,16 @@ export function ConvictionSubnetScenario() {
     });
     const bob = rollForwardLock(bobLock, 0, elapsed, {perpetual: true});
     const carol = rollForwardLock(carolLock, 0, elapsed, {perpetual: carolPerpetual});
-    const total = alice.conviction + bob.conviction + carol.conviction;
-    const leader =
-      [
-        {name: 'Alice', c: alice.conviction},
-        {name: 'Bob', c: bob.conviction},
-        {name: 'Carol', c: carol.conviction},
-      ].sort((a, b) => b.c - a.c)[0] ?? {name: '—', c: 0};
+    const leader = [
+      {name: 'Alice', c: alice.conviction},
+      {name: 'Bob', c: bob.conviction},
+      {name: 'Carol', c: carol.conviction},
+    ].sort((a, b) => b.c - a.c)[0] ?? {name: '—', c: 0};
 
-    return {alice, bob, carol, total, leader};
+    return {alice, bob, carol, leader};
   }, [elapsed, bobLock, carolLock, carolPerpetual]);
 
-  const ownershipReady =
-    EXAMPLE_SUBNET.ageBlocks >= ONE_YEAR_BLOCKS && now.total >= threshold;
+  const ownershipReady = EXAMPLE_SUBNET.ageBlocks >= ONE_YEAR_BLOCKS && now.leader.c > threshold;
 
   // The plugin is registered once at chart creation, so it reads live values
   // through a ref instead of closing over state that would go stale.
@@ -166,8 +166,8 @@ export function ConvictionSubnetScenario() {
     () => ({
       id: 'subnetScenarioAnnotations',
       beforeDatasetsDraw(chart) {
-        const { segments } = drawState.current;
-        const { ctx, chartArea, scales } = chart;
+        const {segments} = drawState.current;
+        const {ctx, chartArea, scales} = chart;
         const xScale = scales.x;
         if (!xScale) return;
 
@@ -193,8 +193,8 @@ export function ConvictionSubnetScenario() {
         ctx.restore();
       },
       afterDatasetsDraw(chart) {
-        const { threshold, horizon, bobLock, carolLock, carolPerpetual } = drawState.current;
-        const { ctx, chartArea, scales } = chart;
+        const {threshold, horizon, bobLock, carolLock, carolPerpetual} = drawState.current;
+        const {ctx, chartArea, scales} = chart;
         const xScale = scales.x;
         const yScale = scales.y;
         if (!xScale || !yScale) return;
@@ -205,22 +205,27 @@ export function ConvictionSubnetScenario() {
 
         // Threshold label on the dashed gate line.
         ctx.fillStyle = ACCENT;
-        ctx.fillText('10% THRESHOLD', chartArea.left + 6, yScale.getPixelForValue(threshold) - 6);
+        ctx.fillText('18% THRESHOLD', chartArea.left + 6, yScale.getPixelForValue(threshold) - 6);
 
         // Direct series labels instead of a legend.
-        const totalAt = (dt: number) =>
-          rollForwardLock(EXAMPLE_SUBNET.owner.lockedMass, 0, dt, {perpetual: true, ownerLock: true}).conviction +
-          rollForwardLock(bobLock, 0, dt, {perpetual: true}).conviction +
-          rollForwardLock(carolLock, 0, dt, {perpetual: carolPerpetual}).conviction;
+        const leaderAt = (dt: number) =>
+          Math.max(
+            rollForwardLock(EXAMPLE_SUBNET.owner.lockedMass, 0, dt, {
+              perpetual: true,
+              ownerLock: true,
+            }).conviction,
+            rollForwardLock(bobLock, 0, dt, {perpetual: true}).conviction,
+            rollForwardLock(carolLock, 0, dt, {perpetual: carolPerpetual}).conviction,
+          );
 
-        // Below the curve: the total rises left-to-right, so the gap under
-        // the label's anchor point only grows along the text.
+        // Below the curve: the leader series rises left-to-right, so the gap
+        // under the label's anchor point only grows along the text.
         const xMain = horizon * 0.35;
         ctx.fillStyle = INK;
         ctx.fillText(
-          'TOTAL CONVICTION',
+          'LEADING HOTKEY',
           xScale.getPixelForValue(xMain) + 4,
-          yScale.getPixelForValue(totalAt(xMain)) + 16,
+          yScale.getPixelForValue(leaderAt(xMain)) + 16,
         );
 
         const xSide = horizon * 0.68;
@@ -228,7 +233,11 @@ export function ConvictionSubnetScenario() {
         const carolY = rollForwardLock(carolLock, 0, xSide, {perpetual: carolPerpetual}).conviction;
         ctx.fillStyle = INK_FAINT;
         ctx.fillText('BOB', xScale.getPixelForValue(xSide) + 4, yScale.getPixelForValue(bobY) - 6);
-        ctx.fillText('CAROL', xScale.getPixelForValue(xSide) + 4, yScale.getPixelForValue(carolY) - 6);
+        ctx.fillText(
+          'CAROL',
+          xScale.getPixelForValue(xSide) + 4,
+          yScale.getPixelForValue(carolY) - 6,
+        );
 
         ctx.restore();
       },
@@ -240,8 +249,8 @@ export function ConvictionSubnetScenario() {
     () => ({
       datasets: [
         {
-          label: 'Total conviction',
-          data: chart.labels.map((dt, i) => ({x: dt, y: chart.total[i]})),
+          label: 'Leading hotkey',
+          data: chart.labels.map((dt, i) => ({x: dt, y: chart.leader[i]})),
           borderColor: INK,
           borderWidth: 2,
           pointRadius: 0,
@@ -265,7 +274,7 @@ export function ConvictionSubnetScenario() {
           tension: 0.3,
         },
         {
-          label: '10% threshold',
+          label: '18% threshold',
           data: [
             {x: 0, y: threshold},
             {x: horizon, y: threshold},
@@ -277,7 +286,7 @@ export function ConvictionSubnetScenario() {
         },
         {
           label: 'Gate crossed',
-          // Red dot exactly where total conviction crosses the threshold.
+          // Red dot exactly where the leading hotkey crosses the threshold.
           data: chart.crossing === null ? [] : [{x: chart.crossing, y: threshold}],
           borderColor: ACCENT,
           backgroundColor: ACCENT,
@@ -341,65 +350,71 @@ export function ConvictionSubnetScenario() {
       title={`Example: Subnet ${EXAMPLE_SUBNET.netuid} (${EXAMPLE_SUBNET.name})`}
       caption={
         <>
-          Fictional numbers for illustration. Three coldkeys lock toward different hotkeys;
-          total conviction must reach 10% of SubnetAlphaOut before{' '}
-          <a
-            href="/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377"
-            className="underline"
-          >
+          Fictional numbers for illustration. Three coldkeys lock toward different hotkeys; the
+          highest single hotkey&apos;s own conviction must exceed 18% of eligible alpha
+          (SubnetAlphaOut minus protocol-owned and burned alpha) before{' '}
+          <a href='/code/pallets/subtensor/src/staking/lock.rs#L1174-L1398' className='underline'>
             ownership can transfer
           </a>
-          .
+          . Other hotkeys&apos; conviction does not count toward the gate.
         </>
       }
     >
-      <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-4 sm:grid-cols-4">
-        <ExplainerStat label="SubnetAlphaOut" value={formatAlpha(EXAMPLE_SUBNET.alphaOut)} />
-        <ExplainerStat label="10% threshold" value={formatAlpha(threshold)} />
-        <ExplainerStat label="Subnet age" value={formatBlocks(EXAMPLE_SUBNET.ageBlocks)} />
+      <div className='mb-6 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-4 sm:grid-cols-4'>
+        <ExplainerStat label='Eligible alpha' value={formatAlpha(eligibleAlpha)} />
+        <ExplainerStat label='18% threshold' value={formatAlpha(threshold)} />
+        <ExplainerStat label='Subnet age' value={formatBlocks(EXAMPLE_SUBNET.ageBlocks)} />
         <ExplainerStat
-          label="Ownership gate"
+          label='Ownership gate'
           value={ownershipReady ? 'Open' : 'Closed'}
           accent={ownershipReady}
         />
       </div>
 
-      <div className="h-52">
+      <div className='h-52'>
         <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 lg:grid-cols-4">
+      <div className='mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 lg:grid-cols-4'>
         <ExplainerStat
-          label="Alice (owner hotkey)"
+          label='Alice (owner hotkey)'
           value={formatAlpha(now.alice.conviction)}
-          hint="Owner locks: conviction = locked mass instantly"
+          hint='Owner locks: conviction = locked mass instantly'
         />
-        <ExplainerStat label="Bob (validator)" value={formatAlpha(now.bob.conviction)} hint="Perpetual lock" />
         <ExplainerStat
-          label="Carol (staker)"
+          label='Bob (validator)'
+          value={formatAlpha(now.bob.conviction)}
+          hint='Perpetual lock'
+        />
+        <ExplainerStat
+          label='Carol (staker)'
           value={formatAlpha(now.carol.conviction)}
           hint={carolPerpetual ? 'Perpetual' : 'Decaying — mass frees over time'}
         />
         <ExplainerStat
-          label="Total / threshold"
-          value={`${formatAlpha(now.total)} / ${formatAlpha(threshold)}`}
-          hint={ownershipReady ? `Leader: ${now.leader.name}` : `${formatPct(now.total / threshold)} of gate`}
+          label='Leader / threshold'
+          value={`${formatAlpha(now.leader.c)} / ${formatAlpha(threshold)}`}
+          hint={
+            ownershipReady
+              ? `Leader: ${now.leader.name}`
+              : `${formatPct(now.leader.c / threshold)} of gate`
+          }
         />
       </div>
 
-      <div className="mt-6 border-t border-line pt-4 pb-1">
+      <div className='mt-6 border-t border-line pt-4 pb-1'>
         <ExplainerToggle
           label="Carol's mode (set-perpetual-lock)"
           options={[
-            { id: 'decaying', label: 'decaying' },
-            { id: 'perpetual', label: 'perpetual' },
+            {id: 'decaying', label: 'decaying'},
+            {id: 'perpetual', label: 'perpetual'},
           ]}
           value={carolPerpetual ? 'perpetual' : 'decaying'}
           onChange={(id) => setCarolPerpetual(id === 'perpetual')}
         />
-        <div className="mt-6 grid gap-x-8 gap-y-5 sm:grid-cols-3">
+        <div className='mt-6 grid gap-x-8 gap-y-5 sm:grid-cols-3'>
           <ExplainerSlider
-            label="Simulate elapsed time"
+            label='Simulate elapsed time'
             value={elapsed}
             min={0}
             max={horizon}
@@ -411,7 +426,7 @@ export function ConvictionSubnetScenario() {
             label="Bob's locked mass"
             value={bobLock}
             min={100_000}
-            max={1_000_000}
+            max={2_000_000}
             step={50_000}
             display={formatAlpha(bobLock)}
             onChange={setBobLock}

@@ -1,7 +1,12 @@
 ---
 title: burn_half_life
-description: Blocks for the burn cost to decay halfway back toward min_burn.
+description: Shared half-life for burn price and PoW difficulty decay.
 ---
+
+This is the shared half-life for burn price and PoW difficulty. Its historical
+name and storage encoding remain compatible. Each price decays toward its own
+minimum, including when its registration route is disabled. Burn registrations
+do not interrupt PoW difficulty decay, and PoW registrations do not increase burn cost.
 
 Sets how quickly an elevated registration price cools off. After registrations
 bump the burn cost up, it decays exponentially — this parameter is the number

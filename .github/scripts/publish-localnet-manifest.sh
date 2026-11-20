@@ -6,6 +6,7 @@ set -euo pipefail
 : "${TAG:?TAG is required}"
 : "${SHA:?SHA is required}"
 : "${PUBLISH_LATEST:?PUBLISH_LATEST is required}"
+release_tag="${RELEASE_TAG:-}"
 
 descriptor_dir="${1:-image-descriptors}"
 
@@ -41,6 +42,13 @@ tags=(
   --tag "$IMAGE:$TAG"
   --tag "$IMAGE:sha-$SHA"
 )
+if [[ -n "$release_tag" ]]; then
+  [[ "$release_tag" =~ ^v[0-9]+$ ]] || {
+    echo "RELEASE_TAG must look like vN: $release_tag" >&2
+    exit 1
+  }
+  tags+=(--tag "$IMAGE:$release_tag")
+fi
 case "$PUBLISH_LATEST" in
   true)
     tags+=(--tag "$IMAGE:latest")

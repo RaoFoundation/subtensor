@@ -107,6 +107,13 @@ pub fn reveal_round(encrypted_data: &[u8]) -> Result<f64, JsValue> {
         .map_err(to_js_err)
 }
 
+/// Inner compressed TLE ciphertext from a `UserData` envelope, for
+/// `Commitments.set_commitment` `TimelockEncrypted.encrypted`.
+#[wasm_bindgen(js_name = innerCiphertext)]
+pub fn inner_ciphertext(encrypted_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    timelock::inner_ciphertext(encrypted_data).map_err(to_js_err)
+}
+
 /// Decrypt a `UserData` envelope with an already-fetched signature (hex).
 #[wasm_bindgen(js_name = decryptWithSignature)]
 pub fn decrypt_with_signature(

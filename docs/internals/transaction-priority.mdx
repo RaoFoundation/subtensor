@@ -5,7 +5,7 @@ description: How custom transaction extensions determine extrinsic priority in s
 
 In Subtensor, transaction priority is determined by custom transaction extensions, which alter or override the default Substrate SDK behavior. Extensions affecting transaction priority are:
 
-- **[`ChargeTransactionPaymentWrapper`](/code/runtime/src/transaction_payment_wrapper.rs#L41)** (wraps `ChargeTransactionPayment`)
+- **[`ChargeTransactionPaymentWrapper`](/code/runtime/src/transaction_payment_wrapper.rs#L56)** (wraps `ChargeTransactionPayment`)
 - **[`DrandPriority`](/code/pallets/drand/src/drand_priority.rs#L21)**
 
 Substrate SDK combines priorities from all transaction extensions using addition.
@@ -20,6 +20,28 @@ In the Substrate SDK, `ChargeTransactionPayment` normally calculates transaction
 
 However, in Subtensor, `ChargeTransactionPaymentWrapper` **overrides** this logic.
 It replaces the dynamic calculation with a **flat priority scale** based only on the dispatch class.
+
+### Proxy fee payment
+
+`RealPaysFee` lets a real account opt in to paying transaction fees for a delegate.
+The wrapper follows up to three consecutive `proxy` levels, requiring consent for
+each `(real, delegate)` pair. It stops at the first missing opt-in and keeps the
+nearest proven payer. If the outermost real has not opted in, the signer pays.
+
+A `batch`, `batch_all`, or `force_batch` inside a supported proxy chain can supply
+the final level: every immediate item must be a `proxy` call for the same real
+account, opted in to paying for the enclosing real. For example,
+`proxy(C, proxy(B, batch([proxy(A, call), ...])))` charges A only when C pays for
+the signer, B pays for C, and A pays for B. Batch lookup never descends into the
+items' inner calls.
+
+Empty batches, mixed real accounts, non-proxy items, and `proxy_announced` do not
+extend fee propagation; the nearest proven payer remains responsible. Calls
+beyond the third proxy level are not inspected for fee payment. These limits
+affect fee selection only; normal proxy permissions still govern dispatch.
+
+When a proxy real pays, the signer-chosen tip is dropped. Fee redirection preserves
+the original dispatch origin and the priority scale below.
 
 ### Current priority values
 

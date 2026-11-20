@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: limit_orders_cancel_order
+expression: fee
+---
+77346

@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: mev_shield_set_max_pending_extrinsics_number
+expression: fee
+---
+68140

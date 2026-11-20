@@ -11,12 +11,10 @@ mod dispatches {
     use sp_core::ecdsa::Signature;
     use sp_runtime::{Percent, Saturating, traits::Hash};
 
+    use crate::MAX_BASKET_SWAP_LEGS;
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
-    use crate::MAX_NUM_ROOT_CLAIMS;
-    use crate::MAX_ROOT_CLAIM_HOTKEYS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
-    use crate::MAX_SUBNET_CLAIMS;
-
+    use crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -67,7 +65,7 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(0)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::set_weights_weight(*netuid, dests.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn set_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -127,7 +125,7 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(119)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn set_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -161,7 +159,7 @@ mod dispatches {
         /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(80)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_set_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::batch_set_weights_weight(netuids, weights), DispatchClass::Normal, Pays::No))]
         pub fn batch_set_weights(
             origin: OriginFor<T>,
             netuids: Vec<Compact<NetUid>>,
@@ -238,7 +236,7 @@ mod dispatches {
         /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(100)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_commit_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::batch_commit_weights_weight(netuids.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn batch_commit_weights(
             origin: OriginFor<T>,
             netuids: Vec<Compact<NetUid>>,
@@ -274,7 +272,7 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(97)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::reveal_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::reveal_weights_weight(*netuid, uids.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn reveal_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -315,7 +313,7 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(116)]
-        #[pallet::weight((<T as Config>::WeightInfo::reveal_mechanism_weights(uids.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn reveal_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -398,7 +396,7 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(117)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_crv3_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_crv3_mechanism_weights(), <T as Config>::WeightInfo::commit_crv3_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_crv3_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -444,7 +442,7 @@ mod dispatches {
         ///
         /// * `InvalidInputLengths`: The input vectors are of mismatched lengths.
         #[pallet::call_index(98)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_reveal_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::batch_reveal_weights_weight(*netuid, uids_list), DispatchClass::Normal, Pays::No))]
         pub fn batch_reveal_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -557,8 +555,13 @@ mod dispatches {
         ///
         /// * `BalanceWithdrawalError`: Errors stemming from transaction pallet.
         ///
+        // Release compatibility: pending-dividend settlement still executes, but
+        // stake calls retain the pre-487 weight schedule (including refunds).
+        // The release owner explicitly accepts the additional actual block work.
         #[pallet::call_index(2)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake())]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::add_stake()
+        )]
         pub fn add_stake(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -592,14 +595,24 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn remove_stake(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
             amount_unstaked: AlphaBalance,
-        ) -> DispatchResult {
-            Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked),
+                <T as crate::pallet::Config>::WeightInfo::remove_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+            )
         }
 
         /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
@@ -793,7 +806,7 @@ mod dispatches {
         /// * `InvalidSeal`: The seal is incorrect.
         ///
         #[pallet::call_index(6)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
         pub fn register(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -802,26 +815,64 @@ mod dispatches {
             _work: Vec<u8>,
             hotkey: T::AccountId,
             _coldkey: T::AccountId,
-        ) -> DispatchResult {
-            Self::do_register(origin, netuid, hotkey)
+        ) -> DispatchResultWithPostInfo {
+            Self::do_register_with_post_info(origin, netuid, hotkey)
         }
 
-        /// Register the hotkey to root network
+        /// Register the hotkey to root network.
+        ///
+        /// Admission is burn-based: the coldkey pays the root burn price
+        /// (demand-priced like subnet registration), recycled out of issuance.
+        /// No prior stake is required. When the network is full, the
+        /// lowest-staked non-immune member is pruned to make room.
+        ///
+        /// After a successful registration, the hotkey is auto-childkeyed
+        /// to every existing subnet owner unless the validator opted out
+        /// of auto parent delegation. Pruning a seat clears that
+        /// validator's protocol auto-parent edges.
+        ///
+        /// Declared weight is `WeightInfo::root_register` plus the evicted hotkey's
+        /// two possible pending-dividend flushes and a `TotalNetworks`-scaled
+        /// `DbWeight` term for the per-subnet persist (and prune cleanup).
+        /// Re-benchmark on reference hardware so the base measurement
+        /// includes that work.
         #[pallet::call_index(62)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
-        pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_root_register(origin, hotkey)
+        #[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
+        pub fn root_register(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let (base, _) = Self::root_register_weight_parts();
+            let mut work = crate::staking::BasketFlushWork::default();
+            let result = Self::do_root_register_with_flush_work(origin, hotkey, &mut work);
+            Self::with_actual_weight(result, base.saturating_add(Self::basket_flush_weight(work)))
         }
 
         /// User register a new subnetwork via burning token
         #[pallet::call_index(7)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
         pub fn burned_register(
             origin: OriginFor<T>,
             netuid: NetUid,
             hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            Self::do_register_with_post_info(origin, netuid, hotkey)
+        }
+
+        /// Register by owner-enabled PoW, without TAO burn, collateral purchase,
+        /// or transaction fee. The signing coldkey is bound into the proof.
+        /// Transaction validation verifies the proof before pool admission.
+        #[pallet::call_index(152)]
+        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::pow_register().saturating_add(Pallet::<T>::hotkey_owner_policy_weight()), Pays::No))]
+        pub fn pow_register(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            work_block: u64,
+            nonce: u64,
+            work: [u8; 32],
+            hotkey: T::AccountId,
         ) -> DispatchResult {
-            Self::do_register(origin, netuid, hotkey)
+            Self::do_pow_register(origin, netuid, work_block, nonce, work, hotkey)
         }
 
         /// The extrinsic for user to change its hotkey in subnet or all subnets.
@@ -836,7 +887,7 @@ mod dispatches {
         )]
         #[pallet::call_index(70)]
         #[pallet::weight((
-            <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, false),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -863,7 +914,7 @@ mod dispatches {
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
-            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, *keep_stake),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -881,25 +932,32 @@ mod dispatches {
         ///
         /// Only callable by root as it doesn't require an announcement and can be used to swap any coldkey.
         #[pallet::call_index(71)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey())]
+        #[pallet::weight((Pallet::<T>::swap_coldkey_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_coldkey(
             origin: OriginFor<T>,
             old_coldkey: T::AccountId,
             new_coldkey: T::AccountId,
             swap_cost: TaoBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             ensure_root(origin)?;
 
+            let base = <T as crate::pallet::Config>::WeightInfo::swap_coldkey();
             if !swap_cost.is_zero() {
-                Self::charge_swap_cost(&old_coldkey, swap_cost)?;
+                Self::charge_swap_cost(&old_coldkey, swap_cost).map_err(|error| {
+                    Self::fail_with_weight(error, base.saturating_add(T::DbWeight::get().reads(2)))
+                })?;
             }
-            Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
+            let work = Self::do_swap_coldkey_tracked(&old_coldkey, &new_coldkey).map_err(
+                |(done, error)| Self::fail_with_weight(error, base.saturating_add(done)),
+            )?;
 
-            // We also clear any announcement or dispute for security reasons
+            // We also clear any announcement, destination reservation, or dispute.
+            Self::release_coldkey_swap_destination_reservation(&old_coldkey);
             ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
+            Self::set_coldkey_swap_v2_policy_snapshot(&old_coldkey, None);
             ColdkeySwapDisputes::<T>::remove(old_coldkey);
 
-            Ok(())
+            Ok((Some(Self::swap_coldkey_actual_weight(work)), Pays::Yes).into())
         }
 
         /// Sets the childkey take for a given hotkey.
@@ -1002,7 +1060,7 @@ mod dispatches {
 
         /// User register a new subnetwork
         #[pallet::call_index(59)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
         pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_register_network(origin, &hotkey, 1, None)
         }
@@ -1038,6 +1096,7 @@ mod dispatches {
             netuid: NetUid,
         ) -> DispatchResult {
             ensure_root(origin)?;
+            Self::ensure_beta_basket_seed_idle()?;
             Self::do_dissolve_network(netuid)
         }
 
@@ -1182,7 +1241,7 @@ mod dispatches {
 
         /// User register a new subnetwork
         #[pallet::call_index(79)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
         pub fn register_network_with_identity(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1209,10 +1268,26 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
+        ///
+        /// The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions
+        /// (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to
+        /// the subnets actually visited and unstaked. Remaining positions stay for a
+        /// later call so the envelope fits the normal-class block.
         #[pallet::call_index(83)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
-        pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_unstake_all(origin, hotkey)
+        #[pallet::weight(Pallet::<T>::unstake_all_declared_weight_for(&hotkey))]
+        pub fn unstake_all(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            let work = Self::do_unstake_all_tracked(origin, hotkey).map_err(|(done, error)| {
+                Self::fail_with_weight(error, Self::unstake_all_actual_weight(&coldkey, done))
+            })?;
+            Ok((
+                Some(Self::unstake_all_actual_weight(&coldkey, work)),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -1233,10 +1308,30 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
+        ///
+        /// The declared weight covers up to [`crate::MAX_UNSTAKE_ALL_LEGS`] positions
+        /// (one `remove_stake` plus a `StakingHotkeys` walk each) and is refunded to
+        /// the subnets actually visited and unstaked. Remaining positions stay for a
+        /// later call so the envelope fits the normal-class block.
         #[pallet::call_index(84)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
-        pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_unstake_all_alpha(origin, hotkey)
+        #[pallet::weight(Pallet::<T>::unstake_all_alpha_declared_weight_for(&hotkey))]
+        pub fn unstake_all_alpha(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            let work =
+                Self::do_unstake_all_alpha_tracked(origin, hotkey).map_err(|(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::unstake_all_alpha_actual_weight(&coldkey, done),
+                    )
+                })?;
+            Ok((
+                Some(Self::unstake_all_alpha_actual_weight(&coldkey, work)),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
@@ -1252,10 +1347,17 @@ mod dispatches {
         ///
         /// * `destination_netuid`: The subnet ID to move stake to.
         ///
-        /// * `alpha_amount`: The alpha stake amount to move.
+        /// * `alpha_amount`: The alpha stake amount to move. `AlphaBalance::MAX`
+        ///   means the live origin position at execution (so a preceding
+        ///   `claim_root_with_hotkey` in the same batch is included).
         ///
         #[pallet::call_index(85)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::move_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn move_stake(
             origin: OriginFor<T>,
             origin_hotkey: T::AccountId,
@@ -1263,14 +1365,19 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
-            Self::do_move_stake(
-                origin,
-                origin_hotkey,
-                destination_hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_move_stake(
+                    origin,
+                    origin_hotkey,
+                    destination_hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::move_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
 
@@ -1283,7 +1390,8 @@ mod dispatches {
         /// * `hotkey`: The hotkey associated with the stake.
         /// * `origin_netuid`: The network/subnet ID to move stake from.
         /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
-        /// * `alpha_amount`: The amount of stake to transfer.
+        /// * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the
+        ///   live origin position at execution.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.
@@ -1295,11 +1403,17 @@ mod dispatches {
         /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
         /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
         /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        /// * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.
         ///
         /// # Events
         /// May emit a `StakeTransferred` event on success.
         #[pallet::call_index(86)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn transfer_stake(
             origin: OriginFor<T>,
             destination_coldkey: T::AccountId,
@@ -1307,14 +1421,19 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
-            Self::do_transfer_stake(
-                origin,
-                destination_coldkey,
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_transfer_stake(
+                    origin,
+                    destination_coldkey,
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
 
@@ -1325,7 +1444,8 @@ mod dispatches {
         /// * `hotkey`: The hotkey whose stake is being swapped.
         /// * `origin_netuid`: The network/subnet ID from which stake is removed.
         /// * `destination_netuid`: The network/subnet ID to which stake is added.
-        /// * `alpha_amount`: The amount of stake to swap.
+        /// * `alpha_amount`: The amount of stake to swap. `AlphaBalance::MAX` means the live
+        ///   origin position at execution.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.
@@ -1341,20 +1461,30 @@ mod dispatches {
         /// # Events
         /// May emit a `StakeSwapped` event on success.
         #[pallet::call_index(87)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_stake())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::swap_stake()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn swap_stake(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
-            Self::do_swap_stake(
-                origin,
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_swap_stake(
+                    origin,
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::swap_stake()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
 
@@ -1391,7 +1521,9 @@ mod dispatches {
         /// * `BalanceWithdrawalError`: Errors stemming from transaction pallet.
         ///
         #[pallet::call_index(88)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake_limit())]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::add_stake_limit()
+        )]
         pub fn add_stake_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1444,7 +1576,12 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(89)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn remove_stake_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1452,14 +1589,19 @@ mod dispatches {
             amount_unstaked: AlphaBalance,
             limit_price: TaoBalance,
             allow_partial: bool,
-        ) -> DispatchResult {
-            Self::do_remove_stake_limit(
-                origin,
-                hotkey,
-                netuid,
-                amount_unstaked,
-                limit_price,
-                allow_partial,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_remove_stake_limit(
+                    origin,
+                    hotkey,
+                    netuid,
+                    amount_unstaked,
+                    limit_price,
+                    allow_partial,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::remove_stake_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
 
@@ -1470,7 +1612,8 @@ mod dispatches {
         /// * `hotkey`: The hotkey whose stake is being swapped.
         /// * `origin_netuid`: The network/subnet ID from which stake is removed.
         /// * `destination_netuid`: The network/subnet ID to which stake is added.
-        /// * `alpha_amount`: The amount of stake to swap.
+        /// * `alpha_amount`: The amount of stake to swap. `AlphaBalance::MAX` means the live
+        ///   origin position at execution.
         /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
         /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type of order.
         ///
@@ -1489,7 +1632,12 @@ mod dispatches {
         /// # Events
         /// May emit a `StakeSwapped` event on success.
         #[pallet::call_index(90)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_stake_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn swap_stake_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1498,15 +1646,62 @@ mod dispatches {
             alpha_amount: AlphaBalance,
             limit_price: TaoBalance,
             allow_partial: bool,
-        ) -> DispatchResult {
-            Self::do_swap_stake_limit(
-                origin,
-                hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
-                limit_price,
-                allow_partial,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_swap_stake_limit(
+                    origin,
+                    hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                    limit_price,
+                    allow_partial,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::swap_stake_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+            )
+        }
+
+        /// Moves stake from one hotkey to another and, when the subnets differ,
+        /// protects the swap with a relative price limit.
+        ///
+        /// `limit_price` is the minimum acceptable destination-alpha per
+        /// origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the
+        /// call is fill-or-kill; otherwise it moves only the amount executable
+        /// before the limit is crossed. `alpha_amount` of `AlphaBalance::MAX`
+        /// means the live origin position at execution.
+        #[pallet::call_index(149)]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
+        pub fn move_stake_limit(
+            origin: OriginFor<T>,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            alpha_amount: AlphaBalance,
+            limit_price: TaoBalance,
+            allow_partial: bool,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_move_stake_limit(
+                    origin,
+                    origin_hotkey,
+                    destination_hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                    limit_price,
+                    allow_partial,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::move_stake_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
 
@@ -1519,7 +1714,7 @@ mod dispatches {
         /// # Note
         /// Will charge based on the weight even if the hotkey is already associated with a coldkey.
         #[pallet::call_index(91)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey())]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(1)))]
         pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
 
@@ -1647,14 +1842,24 @@ mod dispatches {
         /// at which or better (higher) the staking should execute.
         /// Without limit_price it remove all the stake similar to `remove_stake` extrinsic
         #[pallet::call_index(103)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn remove_stake_full_limit(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
             limit_price: Option<TaoBalance>,
-        ) -> DispatchResult {
-            Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price)
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price),
+                <T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
+            )
         }
 
         /// Register a new leased network.
@@ -1671,7 +1876,7 @@ mod dispatches {
         ///
         /// * `end_block`: The block at which the lease will end. If not defined, the lease is perpetual.
         #[pallet::call_index(110)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()).saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
         pub fn register_leased_network(
             origin: OriginFor<T>,
             emissions_share: Percent,
@@ -1694,7 +1899,7 @@ mod dispatches {
         ///
         /// * `hotkey`: The hotkey of the beneficiary to mark as subnet owner hotkey.
         #[pallet::call_index(111)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get()))]
+        #[pallet::weight(Pallet::<T>::terminate_lease_declared_weight())]
         pub fn terminate_lease(
             origin: OriginFor<T>,
             lease_id: LeaseId,
@@ -1757,7 +1962,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(113)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), <T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1797,10 +2002,12 @@ mod dispatches {
                 Error::<T>::HotKeyNotRegisteredInSubNet
             );
 
+            Self::ensure_staking_hotkeys_can_grow(&coldkey, &hotkey)?;
+
             let current_hotkey = AutoStakeDestination::<T>::get(coldkey.clone(), netuid);
-            if let Some(current_hotkey) = current_hotkey {
+            if let Some(current_hotkey) = &current_hotkey {
                 ensure!(
-                    current_hotkey != hotkey,
+                    *current_hotkey != hotkey,
                     Error::<T>::SameAutoStakeHotkeyAlreadySet
                 );
 
@@ -1811,12 +2018,20 @@ mod dispatches {
             }
 
             // Add the coldkey to the new hotkey (if not already present)
+            StakingHotkeys::<T>::mutate(&coldkey, |hotkeys| {
+                if !hotkeys.contains(&hotkey) {
+                    hotkeys.push(hotkey.clone());
+                }
+            });
             AutoStakeDestination::<T>::insert(coldkey.clone(), netuid, hotkey.clone());
             AutoStakeDestinationColdkeys::<T>::mutate(hotkey.clone(), netuid, |v| {
                 if !v.contains(&coldkey) {
                     v.push(coldkey.clone());
                 }
             });
+            if let Some(old_hotkey) = current_hotkey {
+                Self::maybe_remove_staking_hotkey(&old_hotkey, &coldkey);
+            }
 
             Self::deposit_event(Event::AutoStakeDestinationSet {
                 coldkey,
@@ -1850,7 +2065,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(118)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1875,96 +2090,291 @@ mod dispatches {
         #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
             ensure_root(origin)?;
+            Self::ensure_beta_basket_seed_idle()?;
             Self::do_dissolve_network(netuid)
         }
 
-        /// Claims the root emissions for a coldkey.
+        /// Claims the root emissions for a coldkey across every validator it root-stakes to.
+        ///
+        /// Redemption is fund-level: for each validator, the staker's accrued entitlement is
+        /// paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on
+        /// root. The corresponding alpha fraction is sold; any concavity surplus over the
+        /// NAV-priced entitlement remains in the basket as root TAO for the other holders. The
+        /// `subnets` argument is retained for call-data compatibility with pre-basket clients;
+        /// it is ignored — baskets have no per-subnet claim selection.
+        ///
+        /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
+        ///
+        /// Dust rows are not sold (see [`Pallet::claim_root_with_hotkey`]); the claimant's
+        /// slice of them stays in the fund. A claim that is admitted and then fails is
+        /// charged the work it did, not the declared envelope; a claim refused at admission
+        /// keeps the envelope.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
+        /// * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.
         ///
         /// # Events
-        /// * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.
+        /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
+        /// * `BasketClaimDustSkipped`: Per fund whose dust rows were left unsold.
         ///
         /// # Errors
-        /// * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims.
-        /// * `TooManyRootClaimHotkeys`: The coldkey's hotkey fanout exceeds one claim's bound.
-        ///
+        /// * `RootClaimTooHeavy`: More hotkeys or fund rows than one claim may walk.
         #[pallet::call_index(121)]
-        // The benchmark covers one hotkey and one subnet. Manual claims bound both
-        // dimensions below and refund unused weight after execution.
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root()
-                .saturating_mul(MAX_ROOT_CLAIM_HOTKEYS as u64)
-                .saturating_mul(MAX_SUBNET_CLAIMS as u64)
+            Pallet::<T>::root_claim_declared_weight()
         )]
         pub fn claim_root(
             origin: OriginFor<T>,
             subnets: BTreeSet<NetUid>,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
-            ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
+            let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            let staking_count = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+            let credit_count = HotkeySwapBasketCredits::<T>::iter_key_prefix(&coldkey)
+                .take(
+                    Self::root_claim_declared_work()
+                        .saturating_sub(staking_count)
+                        .saturating_add(1) as usize,
+                )
+                .count() as u32;
+            let selection_scanned = staking_count.saturating_add(credit_count);
+            // Admission failures keep the declared envelope: the admission scan's cost is
+            // not precisely metered, so refunding it could under-charge. Only a claim that
+            // was admitted and then failed is billed for the work it actually did.
             ensure!(
-                subnets.len() <= MAX_SUBNET_CLAIMS,
-                Error::<T>::InvalidSubnetNumber
+                selection_scanned <= Self::root_claim_declared_work(),
+                Error::<T>::RootClaimTooHeavy
             );
-
-            let hotkey_count = StakingHotkeys::<T>::decode_len(&coldkey).unwrap_or_default();
+            let hotkeys = Self::root_claim_hotkeys(&coldkey, staking_hotkeys);
             ensure!(
-                hotkey_count <= MAX_ROOT_CLAIM_HOTKEYS,
-                Error::<T>::TooManyRootClaimHotkeys
+                Self::root_claim_fits_declared_budget(&hotkeys),
+                Error::<T>::RootClaimTooHeavy
             );
-
+            let hotkey_count = hotkeys.len() as u32;
+            let admitted = Self::root_claim_admission_weight(
+                selection_scanned.saturating_add(Self::root_claim_declared_work()),
+            );
+            let outcome = Self::do_root_claim_tracked(coldkey.clone(), hotkeys).map_err(
+                |(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::root_claim_actual_weight(hotkey_count, selection_scanned, &done)
+                            .saturating_add(admitted),
+                    )
+                },
+            )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = T::DbWeight::get()
-                .reads(1)
-                .saturating_add(Self::do_root_claim(coldkey, Some(subnets))?);
+            let weight = Self::root_claim_actual_weight(hotkey_count, selection_scanned, &outcome);
             Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets the root claim type for the coldkey.
+        /// Claims the root emissions for a coldkey on one validator hotkey.
+        ///
+        /// Redemption is fund-level for that validator: the staker's accrued entitlement is
+        /// paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on
+        /// root. The corresponding alpha fraction is sold; any concavity surplus over the
+        /// NAV-priced entitlement remains in the basket as root TAO for the other holders.
+        /// Other validators' accrued yield is left untouched.
+        ///
+        /// Dust rows are not sold: a fund row worth less than
+        /// `min(BasketClaimRowDustCapTao, BasketClaimRowDustBps × anchored NAV)`, or one
+        /// whose slice for this claimant is worth less than `BasketClaimSliceDustTao`, is
+        /// skipped when that slice is also worth at most `BasketClaimForfeitCapTao` (all at
+        /// the anchored mark, which decides dust only). The claim burns the full
+        /// entitlement, so the claimant's slice of a skipped row — never more than the cap
+        /// at the anchored mark — is left to the remaining holders (`BasketClaimDustSkipped`
+        /// reports it). A claim
+        /// that is admitted and then fails is charged the work it did, not the declared
+        /// envelope; a claim refused at admission keeps the envelope.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
+        /// * `hotkey`: The validator whose basket entitlement to redeem.
         ///
         /// # Events
-        /// * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey.
+        /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
+        /// * `BasketClaimDustSkipped`: When the claim left dust rows unsold.
         ///
-        #[pallet::call_index(122)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_root_claim_type())]
-        pub fn set_root_claim_type(
+        /// # Errors
+        /// * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim
+        ///   may walk.
+        #[pallet::call_index(148)]
+        #[pallet::weight(
+            Pallet::<T>::root_claim_hotkey_declared_weight()
+        )]
+        pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
-            new_root_claim_type: RootClaimTypeEnum,
-        ) -> DispatchResult {
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
-
-            if let RootClaimTypeEnum::KeepSubnets { subnets } = &new_root_claim_type {
-                ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
-            }
-
-            Self::maybe_add_coldkey_index(&coldkey);
-
-            Self::change_root_claim_type(&coldkey, new_root_claim_type);
-            Ok(())
-        }
-
-        /// Sets root claim number (sudo extrinsic). Zero disables auto-claim.
-        #[pallet::call_index(123)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_num_root_claims())]
-        pub fn sudo_set_num_root_claims(origin: OriginFor<T>, new_value: u64) -> DispatchResult {
-            ensure_root(origin)?;
-
+            // Admission failures keep the declared envelope (see `claim_root`).
             ensure!(
-                new_value <= MAX_NUM_ROOT_CLAIMS,
-                Error::<T>::InvalidNumRootClaim
+                Self::root_claim_hotkey_fits_declared_budget(&hotkey),
+                Error::<T>::RootClaimTooHeavy
             );
 
-            NumRootClaim::<T>::set(new_value);
+            let admitted =
+                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+            let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
+                |(done, error)| {
+                    Self::fail_with_weight(
+                        error,
+                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
+                    )
+                },
+            )?;
+            Self::maybe_add_coldkey_index(&coldkey);
 
-            Ok(())
+            let weight = Self::root_claim_actual_weight(1, 0, &outcome);
+            Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets root claim threshold for subnet (sudo or owner origin).
+        /// Stakes TAO from the caller's balance directly into a validator's basket.
+        ///
+        /// The TAO enters by the fund's current holdings: it is split pro-rata across
+        /// every holding by realizable value and buys each one, so the deposit acquires
+        /// the exposure the fund already has and stays symmetric with claims (which
+        /// redeem pro-rata of every holding). A deposit into a fund with no holdings is
+        /// held as the fund's root (TAO cash) slot. Inflows never change a fund's
+        /// composition; only the validator's [`Pallet::swap_basket`] trades do. The
+        /// caller is credited a fund entitlement at the fund's pre-buy realizable NAV,
+        /// priced against the realizable value the deposit added — the depositor bears
+        /// their own entry slippage and swap fees.
+        /// The credited entitlement is redeemable through
+        /// [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]);
+        /// it does not require or affect root stake, and it does not change any
+        /// staker's dividend accrual.
+        ///
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
+        /// * `hotkey`: The root-registered validator whose basket to deposit into.
+        /// * `amount_staked`: TAO to take from the caller's balance and deploy.
+        ///
+        /// # Events
+        /// * `BasketStakedIn`: On success, with the TAO taken, the realizable value added,
+        ///   and the entitlement credited.
+        ///
+        /// # Errors
+        /// * `HotKeyAccountNotExists`: The hotkey is not a registered account.
+        /// * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on root.
+        /// * `AmountTooLow`: Below the minimum stake, the deposit's realizable value
+        ///   rounds to zero entitlement, or a holding cannot be priced (or would receive
+        ///   a zero-TAO slice) so the deposit cannot buy every position its shares claim.
+        /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
+        #[pallet::call_index(147)]
+        // Declared weight is a cap sized for 256 mirrored holdings as deployment slots
+        // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
+        // sim-swap valuations plus a quantity-coverage lookup) plus a hotkey-specific pending
+        // dividend settlement allowance; actual weight is computed from real slot, holding,
+        // and flush counts and refunded post-dispatch, mirroring `claim_root`.
+        #[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight_for(&hotkey), DispatchClass::Normal, Pays::Yes))]
+        pub fn stake_into_basket(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            amount_staked: TaoBalance,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+            let weight = Self::do_stake_into_basket_tracked(coldkey, hotkey, amount_staked)
+                .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
+            Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// --- Rebalances a root validator's beta basket: sells `amount` of the fund's
+        /// `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either
+        /// side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker
+        /// entitlements are unchanged; only the fund's composition moves.
+        ///
+        /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
+        /// the TAO through the middle is taken from the fund's turnover bucket
+        /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
+        /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
+        /// `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for
+        /// the hotkey by governance. On top of the protocol band the caller may set its own
+        /// floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy).
+        /// * `hotkey`: The root-registered validator whose basket to rebalance.
+        /// * `origin_netuid`: Subnet to sell out of (root = the TAO slot).
+        /// * `destination_netuid`: Subnet to buy into (root = the TAO slot).
+        /// * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root).
+        /// * `min_amount_out`: Least amount the buy leg must credit to the destination
+        ///   holding, in `destination_netuid` alpha (rao of TAO when the destination is
+        ///   root), after fees. `0` sets no floor; the 2% protocol band still applies.
+        ///
+        /// # Events
+        /// * `BasketSwapped`: On success, with the amounts on both legs.
+        ///
+        /// # Errors
+        /// * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off.
+        /// * `BasketSameSubnet`: Origin equals destination.
+        /// * `NonAssociatedColdKey`: Caller does not own `hotkey`.
+        /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
+        /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
+        /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
+        /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
+        /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
+        /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
+        /// * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap.
+        #[pallet::call_index(150)]
+        // Declared weight is a cap sized for 256 holdings (one NAV sim-swap sweep, two
+        // post-trade re-quotes, and two AMM legs) plus a hotkey-specific pending dividend
+        // settlement allowance; actual weight is computed from the real holding count and
+        // flush work and refunded post-dispatch, mirroring `stake_into_basket` / `claim_root`.
+        #[pallet::weight((Pallet::<T>::swap_basket_declared_weight_for(&hotkey), DispatchClass::Normal, Pays::Yes))]
+        pub fn swap_basket(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            amount: AlphaBalance,
+            min_amount_out: u64,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+            let weight = Self::do_swap_basket_tracked(
+                coldkey,
+                hotkey,
+                origin_netuid,
+                destination_netuid,
+                amount.to_u64(),
+                min_amount_out,
+            )
+            .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
+            Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// Rebalance several legs of one validator basket atomically.
+        ///
+        /// Pending dividend deposits are flushed once and the basket is valued once. Each
+        /// leg then applies the same ownership, availability, slippage, turnover, liquidity,
+        /// concentration, and caller-floor checks as [`Pallet::swap_basket`]. A failed leg
+        /// rolls back every trade leg in this call; the preceding dividend flush remains
+        /// settled, matching the failure behavior of the single-leg call.
+        ///
+        /// Each tuple is `(origin_netuid, destination_netuid, amount, min_amount_out)`.
+        #[pallet::call_index(151)]
+        #[pallet::weight((Pallet::<T>::swap_basket_many_declared_weight_for(&hotkey, legs.len() as u32), DispatchClass::Normal, Pays::Yes))]
+        pub fn swap_basket_many(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            legs: BoundedVec<(NetUid, NetUid, AlphaBalance, u64), ConstU32<MAX_BASKET_SWAP_LEGS>>,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+            let weight = Self::do_swap_basket_many_tracked(coldkey, hotkey, legs.as_slice())
+                .map_err(|(done, error)| Self::fail_with_weight(error, done))?;
+            Ok((Some(weight), Pays::Yes).into())
+        }
+
+        // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are
+        // retired: basket redemption is always a full swap to root TAO (no per-coldkey claim
+        // type), and there is no auto-claim scheduler to configure. Do not reuse these indices.
+
+        /// --- Sets the root claim dust threshold (sudo). Basket redemption is fund-level, so
+        /// only the `NetUid::ROOT` entry is meaningful; other netuids are rejected.
         #[pallet::call_index(124)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_root_claim_threshold())]
         pub fn sudo_set_root_claim_threshold(
@@ -1973,7 +2383,10 @@ mod dispatches {
             new_value: u64,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
+            // Claims only ever consult the ROOT entry; accepting other netuids would silently
+            // store an inert value.
+            ensure!(netuid.is_root(), Error::<T>::InvalidRootClaimThreshold);
 
             ensure!(
                 new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),
@@ -1985,22 +2398,28 @@ mod dispatches {
             Ok(())
         }
 
-        /// Announces a coldkey swap using BlakeTwo256 hash of the new coldkey.
+        /// Announces a coldkey swap using the BlakeTwo256 hash of the new coldkey.
         ///
-        /// This is required before the coldkey swap can be performed
-        /// after the delay period.
+        /// Legacy commitment path: keeps the destination secret until
+        /// `swap_coldkey_announced` reveals it. Does **not** validate or reserve
+        /// the destination (that requires cleartext — use
+        /// [`Self::announce_coldkey_swap_v2`]). Prefer V2 for merges into
+        /// already-used destinations and for pre-fee admission checks.
         ///
-        /// It can be reannounced after a delay of `ColdkeySwapReannouncementDelay` following
-        /// the first valid execution block of the original announcement.
+        /// It can be reannounced after a delay of `ColdkeySwapReannouncementDelay`
+        /// following the first valid execution block of the original announcement.
         ///
-        /// The dispatch origin of this call must be the original coldkey that made the announcement.
+        /// The dispatch origin of this call must be the original coldkey that made
+        /// the announcement.
         ///
-        /// * `new_coldkey_hash`: The hash of the new coldkey using BlakeTwo256.
+        /// * `new_coldkey_hash`: BlakeTwo256 hash of the destination coldkey.
         ///
         /// The `ColdkeySwapAnnounced` event is emitted on successful announcement.
-        ///
         #[pallet::call_index(125)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap())]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap()
+                .saturating_add(T::DbWeight::get().writes(2))
+        )]
         pub fn announce_coldkey_swap(
             origin: OriginFor<T>,
             new_coldkey_hash: T::Hash,
@@ -2018,9 +2437,77 @@ mod dispatches {
                 Self::charge_swap_cost(&who, swap_cost)?;
             }
 
+            // Hash announce cannot reserve a cleartext dest; drop any prior V2 hold.
+            Self::release_coldkey_swap_destination_reservation(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
+
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
             let when = now.saturating_add(delay);
             ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
+
+            Self::deposit_event(Event::ColdkeySwapAnnounced {
+                who,
+                new_coldkey_hash,
+            });
+            Ok(())
+        }
+
+        /// Announces a coldkey swap with the cleartext destination account.
+        ///
+        /// Validates the destination (and combined swap work) before charging the
+        /// announcement fee, then exclusively reserves that account for the delay
+        /// so a third party cannot register it as a hotkey. The on-chain
+        /// announcement stores a BlakeTwo256 commitment to the destination and
+        /// its policy-import eligibility at announcement time. Every call creates
+        /// or renews that reservation, so every call pays the key-swap cost,
+        /// including reannouncements.
+        ///
+        /// Prefer this over [`Self::announce_coldkey_swap`] when merging into an
+        /// already-used coldkey or when pre-fee refusal of bad destinations matters.
+        ///
+        /// * `new_coldkey`: Destination coldkey (validated before any fee).
+        #[pallet::call_index(155)]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap_v2()
+                .saturating_add(Pallet::<T>::announce_coldkey_swap_v2_admission_weight())
+        )]
+        pub fn announce_coldkey_swap_v2(
+            origin: OriginFor<T>,
+            new_coldkey: T::AccountId,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let now = <frame_system::Pallet<T>>::block_number();
+
+            // Refuse destinations that execution would still reject, before the fee.
+            let work = Self::ensure_coldkey_swap_destination(&who, &new_coldkey)
+                .map_err(|(_weight, error)| error)?;
+            // Also refuse a destination another announcer already reserved —
+            // before the fee, so a conflict cannot burn the swap cost.
+            Self::ensure_coldkey_swap_destination_reservable(&who, &new_coldkey)?;
+            // Bind the balance-sensitive swap decisions before funds can change.
+            let policy = Self::coldkey_swap_announcement_policy(&new_coldkey, &work);
+
+            if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
+                let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
+                let min_when = when.saturating_add(reannouncement_delay);
+                ensure!(now >= min_when, Error::<T>::ColdkeySwapReannouncedTooEarly);
+            }
+            // Each call creates or renews a destination reservation, so a free
+            // reannouncement would let anyone hold an account reserved forever.
+            Self::charge_swap_cost(&who, Self::get_key_swap_cost())?;
+
+            // Reserve the destination for the delay so a third party cannot
+            // register it as a hotkey and force NewColdKeyIsHotkey at execute.
+            Self::reserve_coldkey_swap_destination(&who, &new_coldkey)?;
+
+            let new_coldkey_hash = Self::coldkey_swap_v2_announcement_hash(
+                &new_coldkey,
+                policy.import_source_policies,
+            );
+            let delay = ColdkeySwapAnnouncementDelay::<T>::get();
+            let when = now.saturating_add(delay);
+            ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, Some(policy));
 
             Self::deposit_event(Event::ColdkeySwapAnnounced {
                 who,
@@ -2033,32 +2520,83 @@ mod dispatches {
         ///
         /// The dispatch origin of this call must be the original coldkey that made the announcement.
         ///
-        /// * `new_coldkey`: The new coldkey to swap to. The BlakeTwo256 hash of the new coldkey must be
-        ///   the same as the announced coldkey hash.
+        /// * `new_coldkey`: The new coldkey to swap to. It must match the legacy
+        ///   destination hash or the V2 destination-and-policy commitment.
         ///
         /// The `ColdkeySwapped` event is emitted on successful swap.
         #[pallet::call_index(126)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced())]
+        #[pallet::weight((Pallet::<T>::swap_coldkey_announced_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_coldkey_announced(
             origin: OriginFor<T>,
             new_coldkey: T::AccountId,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
-            let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone())
-                .ok_or(Error::<T>::ColdkeySwapAnnouncementNotFound)?;
+            // Announcement checks read the announcement and, for V2, its policy
+            // snapshot plus the live reservation; charge those plus the benchmarked
+            // base, not the envelope of `MAX_COLDKEY_SWAP_POSITIONS` stake transfers.
+            let base = <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced();
+            let announcement_read = T::DbWeight::get().reads(1);
+            let initial_precheck = base.saturating_add(announcement_read);
+            // Keep a paid announcement until the swap commits, including when
+            // the destination's lock mode changed after announcement.
+            let (when, new_coldkey_hash) =
+                ColdkeySwapAnnouncements::<T>::get(who.clone()).ok_or(Self::fail_with_weight(
+                    Error::<T>::ColdkeySwapAnnouncementNotFound,
+                    initial_precheck,
+                ))?;
 
-            ensure!(
-                new_coldkey_hash == T::Hashing::hash_of(&new_coldkey),
-                Error::<T>::AnnouncedColdkeyHashDoesNotMatch
-            );
+            let legacy_hash_matches = new_coldkey_hash == T::Hashing::hash_of(&new_coldkey);
+            let snapshot_read = if legacy_hash_matches {
+                Weight::zero()
+            } else {
+                T::DbWeight::get().reads(5)
+            };
+            let precheck = initial_precheck.saturating_add(snapshot_read);
+            let policy_import_mode = if legacy_hash_matches {
+                ColdkeySwapPolicyImportMode::CurrentDestination
+            } else {
+                Self::coldkey_swap_v2_policy_snapshot(&who, &new_coldkey, &new_coldkey_hash, when)
+                    .ok_or(Self::fail_with_weight(
+                    Error::<T>::AnnouncedColdkeyHashDoesNotMatch,
+                    precheck,
+                ))?
+            };
 
             let now = <frame_system::Pallet<T>>::block_number();
-            ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
+            ensure!(
+                now >= when,
+                Self::fail_with_weight(Error::<T>::ColdkeySwapTooEarly, precheck)
+            );
 
-            Self::do_swap_coldkey(&who, &new_coldkey)?;
+            let work = Self::do_announced_coldkey_swap(
+                &who,
+                &new_coldkey,
+                policy_import_mode,
+                !legacy_hash_matches,
+            )
+            .map_err(|(done, error)| {
+                Self::fail_with_weight(
+                    error,
+                    base.saturating_add(snapshot_read).saturating_add(done),
+                )
+            })?;
 
-            Ok(())
+            // A self-swap must not release a root-imposed recovery lock.
+            if who != new_coldkey {
+                ColdkeySwapDisputes::<T>::remove(&who);
+            }
+            Self::release_coldkey_swap_destination_reservation(&who);
+            ColdkeySwapAnnouncements::<T>::remove(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
+
+            Ok((
+                Some(
+                    Self::swap_coldkey_announced_actual_weight(work).saturating_add(snapshot_read),
+                ),
+                Pays::Yes,
+            )
+                .into())
         }
 
         /// Dispute a coldkey swap.
@@ -2078,12 +2616,13 @@ mod dispatches {
                 Error::<T>::ColdkeySwapAnnouncementNotFound
             );
             ensure!(
-                !ColdkeySwapDisputes::<T>::contains_key(&coldkey),
+                !ColdkeySwapDisputes::<T>::get(&coldkey).is_some_and(|when| !when.is_zero()),
                 Error::<T>::ColdkeySwapAlreadyDisputed
             );
 
             let now = <frame_system::Pallet<T>>::block_number();
-            ColdkeySwapDisputes::<T>::insert(&coldkey, now);
+            // Zero is reserved for a root reset that retains the recovery lock.
+            ColdkeySwapDisputes::<T>::insert(&coldkey, now.max(1u32.into()));
 
             Self::deposit_event(Event::ColdkeySwapDisputed { coldkey });
             Ok(())
@@ -2096,12 +2635,49 @@ mod dispatches {
         /// * `coldkey`: The coldkey to reset the swap for.
         ///
         #[pallet::call_index(128)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap())]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap()
+                .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
+                .saturating_add(T::DbWeight::get().writes(2))
+        )]
         pub fn reset_coldkey_swap(origin: OriginFor<T>, coldkey: T::AccountId) -> DispatchResult {
             ensure_root(origin)?;
 
+            Self::release_coldkey_swap_destination_reservation(&coldkey);
             ColdkeySwapAnnouncements::<T>::remove(&coldkey);
+            Self::set_coldkey_swap_v2_policy_snapshot(&coldkey, None);
             ColdkeySwapDisputes::<T>::remove(&coldkey);
+
+            Self::deposit_event(Event::ColdkeySwapReset { who: coldkey });
+            Ok(())
+        }
+
+        /// Reset a coldkey swap while retaining its recovery lock.
+        ///
+        /// Clears the announcement and active dispute. The coldkey may announce again,
+        /// dispute, execute the new swap, or submit an encrypted transaction, but cannot
+        /// clear the announcement to unlock itself or make unrelated calls. Uses the
+        /// existing dispute entry with block zero.
+        ///
+        /// The dispatch origin of this call must be root.
+        ///
+        /// * `coldkey`: The coldkey to reset the swap for while keeping it locked.
+        #[pallet::call_index(156)]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap_keep_locked()
+                .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
+                .saturating_add(T::DbWeight::get().writes(2))
+        )]
+        pub fn reset_coldkey_swap_keep_locked(
+            origin: OriginFor<T>,
+            coldkey: T::AccountId,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            Self::release_coldkey_swap_destination_reservation(&coldkey);
+            ColdkeySwapAnnouncements::<T>::remove(&coldkey);
+            Self::set_coldkey_swap_v2_policy_snapshot(&coldkey, None);
+            ColdkeySwapDisputes::<T>::insert(&coldkey, BlockNumberFor::<T>::zero());
 
             Self::deposit_event(Event::ColdkeySwapReset { who: coldkey });
             Ok(())
@@ -2199,7 +2775,11 @@ mod dispatches {
         ///
         /// The `ColdkeySwapCleared` event is emitted on successful clear.
         #[pallet::call_index(133)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::clear_coldkey_swap_announcement())]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::clear_coldkey_swap_announcement()
+                .saturating_add(Pallet::<T>::coldkey_swap_reservation_release_weight())
+                .saturating_add(T::DbWeight::get().writes(2))
+        )]
         pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let now = <frame_system::Pallet<T>>::block_number();
@@ -2211,9 +2791,29 @@ mod dispatches {
             let min_when = when.saturating_add(delay);
             ensure!(now >= min_when, Error::<T>::ColdkeySwapClearTooEarly);
 
+            Self::release_coldkey_swap_destination_reservation(&who);
             ColdkeySwapAnnouncements::<T>::remove(&who);
+            Self::set_coldkey_swap_v2_policy_snapshot(&who, None);
 
             Self::deposit_event(Event::ColdkeySwapCleared { who });
+            Ok(())
+        }
+
+        /// Destination-authorized release of a coldkey-swap destination reservation.
+        ///
+        /// V2 announce takes the destination in cleartext and exclusively reserves it.
+        /// The reserved account can free that hold so a third party cannot squat
+        /// someone else's coldkey indefinitely. Reservations also expire after
+        /// `when + ColdkeySwapReannouncementDelay`.
+        #[pallet::call_index(154)]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::release_own_coldkey_swap_destination_reservation()
+        )]
+        pub fn release_own_coldkey_swap_destination_reservation(
+            origin: OriginFor<T>,
+        ) -> DispatchResult {
+            let dest = ensure_signed(origin)?;
+            Self::do_release_own_coldkey_swap_destination_reservation(&dest)?;
             Ok(())
         }
 
@@ -2222,18 +2822,20 @@ mod dispatches {
         ///
         /// `limit_price` is expressed in the same TaoCurrency/u64 units as `Burn`.
         #[pallet::call_index(134)]
-        #[pallet::weight((<T as Config>::WeightInfo::register_limit(), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((<T as Config>::WeightInfo::register_limit().saturating_add(Pallet::<T>::hotkey_owner_policy_weight()), DispatchClass::Normal, Pays::Yes))]
         pub fn register_limit(
             origin: OriginFor<T>,
             netuid: NetUid,
             hotkey: T::AccountId,
             limit_price: u64,
-        ) -> DispatchResult {
-            Self::do_register_limit(origin, netuid, hotkey, limit_price)
+        ) -> DispatchResultWithPostInfo {
+            Self::do_register_limit_with_post_info(origin, netuid, hotkey, limit_price)
         }
 
-        /// Allows a root validator to toggle auto parent delegation
-        /// for new subnets owner hotkey
+        /// Allows a root validator to toggle auto parent delegation.
+        /// When enabled (the default), the validator is childkeyed to
+        /// subnet owners on new subnet registration and on this
+        /// validator's own root registration.
         #[pallet::call_index(135)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_auto_parent_delegation_enabled(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_auto_parent_delegation_enabled(
@@ -2248,11 +2850,8 @@ mod dispatches {
                 Error::<T>::NonAssociatedColdKey
             );
 
-            ensure!(
-                Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
-                Error::<T>::HotKeyNotRegisteredInSubNet
-            );
-
+            // Allowed before root registration so a validator can opt out
+            // and then `root_register` without being auto-childkeyed.
             AutoParentDelegationEnabled::<T>::insert(&hotkey, enabled);
 
             Self::deposit_event(Event::AutoParentDelegationEnabledSet { hotkey, enabled });
@@ -2361,17 +2960,38 @@ mod dispatches {
             Self::do_trigger_epoch(origin, netuid)
         }
 
-        /// Sets or clears whether the caller rejects incoming locked alpha.
+        /// Sets or clears whether the caller rejects incoming locked alpha payments.
         ///
         /// Coldkeys reject locked alpha by default. Passing `false` opts the
-        /// caller into receiving locked alpha from stake transfers or coldkey
-        /// swaps.
+        /// caller into receiving locked alpha through stake transfers.
         #[pallet::call_index(142)]
         #[pallet::weight((<T as Config>::WeightInfo::set_reject_locked_alpha(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_reject_locked_alpha(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
             Self::set_accept_locked_alpha(&coldkey, !enabled);
             Self::deposit_event(Event::RejectLockedAlphaUpdated { coldkey, enabled });
+            Ok(())
+        }
+
+        /// Opt out of staking-hotkey list growth caused by other accounts. Existing
+        /// destinations and hotkeys owned by the recipient can still receive transfers.
+        #[pallet::call_index(153)]
+        #[pallet::weight((<T as Config>::WeightInfo::set_reject_staking_hotkey_growth(), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_reject_staking_hotkey_growth(
+            origin: OriginFor<T>,
+            enabled: bool,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            AccountFlags::<T>::mutate_exists(&coldkey, |stored| {
+                let flags = stored.unwrap_or_default();
+                let flags = if enabled {
+                    flags | crate::ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH
+                } else {
+                    flags & !crate::ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH
+                };
+                *stored = if flags == 0 { None } else { Some(flags) };
+            });
+            Self::deposit_event(Event::RejectStakingHotkeyGrowthUpdated { coldkey, enabled });
             Ok(())
         }
 
@@ -2390,7 +3010,8 @@ mod dispatches {
         /// * `destination_hotkey`: The hotkey the stake lands on.
         /// * `origin_netuid`: The network/subnet ID to move stake from.
         /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
-        /// * `alpha_amount`: The amount of stake to transfer.
+        /// * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the
+        ///   live origin position at execution.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.
@@ -2402,11 +3023,17 @@ mod dispatches {
         /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
         /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
         /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        /// * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.
         ///
         /// # Events
         /// May emit a `StakeAndHotkeyTransferred` event on success.
         #[pallet::call_index(143)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey())]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+                .saturating_add(Pallet::<T>::staking_hotkeys_walk_bound()),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn transfer_stake_and_hotkey(
             origin: OriginFor<T>,
             destination_coldkey: T::AccountId,
@@ -2415,15 +3042,20 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             alpha_amount: AlphaBalance,
-        ) -> DispatchResult {
-            Self::do_transfer_stake_and_hotkey(
-                origin,
-                destination_coldkey,
-                origin_hotkey,
-                destination_hotkey,
-                origin_netuid,
-                destination_netuid,
-                alpha_amount,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin.clone())?;
+            Self::with_actual_weight(
+                Self::do_transfer_stake_and_hotkey(
+                    origin,
+                    destination_coldkey,
+                    origin_hotkey,
+                    destination_hotkey,
+                    origin_netuid,
+                    destination_netuid,
+                    alpha_amount,
+                ),
+                <T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey()
+                    .saturating_add(Self::staking_hotkeys_walk_actual(&coldkey)),
             )
         }
 
@@ -2507,6 +3139,138 @@ mod dispatches {
             min_locked: AlphaBalance,
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
+        }
+
+        /// Feeds the TAO/USD price in gamma units (10^9 per US dollar) per TAO, at most once per
+        /// block. Signed by the oracle, which pays no fee when the feed succeeds.
+        #[pallet::call_index(157)]
+        #[pallet::weight((<T as Config>::WeightInfo::feed_tao_usd_price(), DispatchClass::Normal, Pays::Yes))]
+        pub fn feed_tao_usd_price(origin: OriginFor<T>, price: u64) -> DispatchResultWithPostInfo {
+            Self::do_feed_tao_usd_price(origin, price)?;
+            Ok(Pays::No.into())
+        }
+
+        /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
+        /// signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or
+        /// opens with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(166)]
+        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
+        pub fn mint_gamma(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            amount: TaoBalance,
+            min_amount_out: GammaBalance,
+            daily_spend_cap: Option<GammaBalance>,
+        ) -> DispatchResult {
+            Self::do_mint_gamma(
+                origin,
+                hotkey,
+                netuid,
+                amount,
+                min_amount_out,
+                daily_spend_cap,
+            )
+        }
+
+        /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as
+        /// `burn_alpha` does, and credits its gamma to the signer's deposit at
+        /// `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens
+        /// with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(167)]
+        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
+        pub fn mint_gamma_with_stake(
+            origin: OriginFor<T>,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            netuid: NetUid,
+            alpha_amount: AlphaBalance,
+            min_amount_out: GammaBalance,
+            daily_spend_cap: Option<GammaBalance>,
+        ) -> DispatchResult {
+            Self::do_mint_gamma_with_stake(
+                origin,
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                alpha_amount,
+                min_amount_out,
+                daily_spend_cap,
+            )
+        }
+
+        /// Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to
+        /// `destination_hotkey`: the whole balance, or at least 0.1 gamma leaving at least as
+        /// much. A move that empties the origin closes it.
+        #[pallet::call_index(160)]
+        #[pallet::weight((<T as Config>::WeightInfo::move_gamma(), DispatchClass::Normal, Pays::Yes))]
+        pub fn move_gamma(
+            origin: OriginFor<T>,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            netuid: NetUid,
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_move_gamma(origin, origin_hotkey, destination_hotkey, netuid, amount)
+        }
+
+        /// Closes the signer's empty gamma deposit at `hotkey`, releasing the hotkey.
+        #[pallet::call_index(161)]
+        #[pallet::weight((<T as Config>::WeightInfo::close_gamma_deposit(), DispatchClass::Normal, Pays::Yes))]
+        pub fn close_gamma_deposit(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+        ) -> DispatchResult {
+            Self::do_close_gamma_deposit(origin, hotkey, netuid)
+        }
+
+        // Call indices 158 (`mint_gamma`), 159 (`mint_gamma_with_stake`), 164 (`spend_gamma`) and
+        // 165 (`set_service`) took a deposit's spender, and 162 (`set_gamma_deposit_spender`) set
+        // it; they are retired: a deposit's hotkey spends it. Do not reuse these indices.
+
+        /// Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it.
+        /// A changed cap keeps what the deposit can spend now, up to the new cap.
+        #[pallet::call_index(163)]
+        #[pallet::weight((<T as Config>::WeightInfo::set_gamma_deposit_daily_spend_cap(), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_gamma_deposit_daily_spend_cap(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            daily_spend_cap: Option<GammaBalance>,
+        ) -> DispatchResult {
+            Self::do_set_gamma_deposit_daily_spend_cap(origin, hotkey, netuid, daily_spend_cap)
+        }
+
+        /// Spends `amount` of the signer's gamma deposit on `netuid` at `service`, a hotkey with
+        /// a service on the subnet, and adds it to what the signer has spent there. The amount is
+        /// at least 0.1 gamma unless it empties the deposit, and within the deposit's balance
+        /// and what its daily spend cap allows. Pays no fee: an invalid spend is refused before
+        /// it enters a block, and a valid one burns its amount.
+        #[pallet::call_index(168)]
+        #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(), DispatchClass::Normal, Pays::No))]
+        pub fn spend_gamma(
+            origin: OriginFor<T>,
+            service: T::AccountId,
+            netuid: NetUid,
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_spend_gamma(origin, service, netuid, amount)
+        }
+
+        /// Sets the service of the coldkey's hotkey on the subnet: the url where it describes its
+        /// services. The hotkey must be registered on the subnet with a validator permit, or be
+        /// the subnet owner's hotkey signed for by the subnet owner. An empty url removes the
+        /// service.
+        #[pallet::call_index(169)]
+        #[pallet::weight((<T as Config>::WeightInfo::set_service(), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_service(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
+        ) -> DispatchResult {
+            Self::do_set_service(origin, netuid, hotkey, url)
         }
     }
 }

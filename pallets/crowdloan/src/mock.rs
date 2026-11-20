@@ -181,6 +181,25 @@ pub(crate) mod pallet_test {
             Ok(())
         }
 
+        #[pallet::call_index(4)]
+        pub fn transfer_some_funds(
+            origin: OriginFor<T>,
+            dest: AccountOf<T>,
+            amount: TaoBalance,
+        ) -> DispatchResult {
+            let crowdloan_id = pallet_crowdloan::CurrentCrowdloanId::<T>::get()
+                .ok_or(Error::<T>::MissingCurrentCrowdloanId)?;
+            let crowdloan = pallet_crowdloan::Crowdloans::<T>::get(crowdloan_id)
+                .ok_or(Error::<T>::CrowdloanDoesNotExist)?;
+            <T as Config>::Currency::transfer(
+                &crowdloan.funds_account,
+                &dest,
+                amount,
+                Preservation::Expendable,
+            )?;
+            Ok(())
+        }
+
         #[pallet::call_index(1)]
         pub fn transfer_funds(origin: OriginFor<T>, dest: AccountOf<T>) -> DispatchResult {
             let crowdloan_id = pallet_crowdloan::CurrentCrowdloanId::<T>::get()

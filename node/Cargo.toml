@@ -21,6 +21,7 @@ name = "node-subtensor"
 
 [dependencies]
 log.workspace = true
+tracing-subscriber.workspace = true
 async-trait.workspace = true
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true, features = ["thread-pool"] }

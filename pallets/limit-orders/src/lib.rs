@@ -2,13 +2,17 @@
 
 extern crate alloc;
 
+pub use authorization::*;
 pub use pallet::*;
+mod authorization;
+pub use v2::{LinkedAsset, LinkedOutput, OrderAmount, OrderV2, OrderView};
 
 #[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
+pub mod benchmarking;
 pub(crate) mod migrations;
 #[cfg(test)]
 mod tests;
+mod v2;
 pub mod weights;
 
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
@@ -17,14 +21,25 @@ use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{BoundedVec, traits::ConstU32};
 use scale_info::TypeInfo;
 use sp_core::H256;
-use sp_runtime::{
-    AccountId32, MultiSignature, Perbill,
-    traits::{ConstBool, Verify},
-};
+use sp_runtime::{AccountId32, Perbill, traits::ConstBool};
 use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::OrderSwapInterface;
+
+/// Ledger's raw-signing size limit — `MAX_SIGN_SIZE` in the Zondax Polkadot app
+/// (`app/src/coin.h`), mirroring the 256-byte rule Substrate applies to extrinsic
+/// signing payloads.
+///
+/// A `signRaw` payload longer than this is **blake2_256-hashed on-device** before
+/// the ed25519 signature is produced (`crypto_sign_ed25519` in `app/src/crypto.c`),
+/// so the signature commits to the hash of the payload rather than to the payload
+/// bytes. The device still displays the full message: the printable-ASCII check and
+/// pagination in `tx_raw_getItem` operate on the received buffer, and the hashing
+/// happens later, in the signing step only. Clear-signing therefore remains
+/// what-you-see-is-what-you-sign — the on-chain verifier just has to accept the
+/// hashed commitment as well (see `verify_readable`).
+pub const LEDGER_MAX_SIGN_SIZE: usize = 256;
 
 // ── Data structures ──────────────────────────────────────────────────────────
 
@@ -119,31 +134,128 @@ pub struct Order<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> 
 )]
 pub enum VersionedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     V1(Order<AccountId>),
+    /// Same fields as V1, plus linked amounts and an opt-in provider flag.
+    V2(OrderV2<AccountId>),
+    /// Explicit nonce-bearing terms for account approval.
+    /// The nonrecursive inner enum cannot contain another authorization wrapper.
+    #[codec(index = 2)]
+    Authorized {
+        nonce: u64,
+        terms: OrderTerms<AccountId>,
+    },
 }
 
-impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrder<AccountId> {
-    /// Returns a reference to the inner order regardless of version.
-    pub fn inner(&self) -> &Order<AccountId> {
+/// The exact existing economic payloads, without another authorization wrapper.
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
+)]
+pub enum OrderTerms<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
+    V1(Order<AccountId>),
+    V2(OrderV2<AccountId>),
+}
+
+impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> OrderTerms<AccountId> {
+    pub fn versioned(&self) -> VersionedOrder<AccountId> {
         match self {
-            VersionedOrder::V1(order) => order,
+            Self::V1(order) => VersionedOrder::V1(order.clone()),
+            Self::V2(order) => VersionedOrder::V2(order.clone()),
         }
     }
 }
 
-/// The envelope the admin submits on-chain: the versioned order payload plus
-/// the user's signature over the order.
+impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrder<AccountId> {
+    /// Attach a nonce once; nesting or replacing an existing nonce is rejected.
+    pub fn with_nonce(self, nonce: u64) -> Result<Self, &'static str> {
+        let terms = match self {
+            Self::V1(order) => OrderTerms::V1(order),
+            Self::V2(order) => OrderTerms::V2(order),
+            Self::Authorized { .. } => return Err("OrderAlreadyAuthorized"),
+        };
+        Ok(Self::Authorized { nonce, terms })
+    }
+
+    pub fn is_authorized(&self) -> bool {
+        matches!(self, Self::Authorized { .. })
+    }
+
+    pub fn authorized_terms(&self) -> Option<(u64, VersionedOrder<AccountId>)> {
+        match self {
+            Self::Authorized { nonce, terms } => Some((*nonce, terms.versioned())),
+            _ => None,
+        }
+    }
+
+    /// Version-agnostic projection every execution path reads.
+    pub fn view(&self) -> OrderView<AccountId> {
+        match self {
+            VersionedOrder::V1(order) => OrderView::from_v1(order),
+            VersionedOrder::V2(order) => OrderView::from_v2(order),
+            VersionedOrder::Authorized { nonce, terms } => {
+                let mut view = terms.versioned().view();
+                view.authorization_nonce = Some(*nonce);
+                view
+            }
+        }
+    }
+
+    /// The order's signer, borrowed without cloning the rest of the payload.
+    pub fn signer(&self) -> &AccountId {
+        match self {
+            VersionedOrder::V1(order) => &order.signer,
+            VersionedOrder::V2(order) => &order.signer,
+            VersionedOrder::Authorized { terms, .. } => match terms {
+                OrderTerms::V1(order) => &order.signer,
+                OrderTerms::V2(order) => &order.signer,
+            },
+        }
+    }
+
+    pub fn version_tag(&self) -> &'static str {
+        match self {
+            VersionedOrder::V1(_) => "v1",
+            VersionedOrder::V2(_) => "v2",
+            VersionedOrder::Authorized { .. } => "authorized",
+        }
+    }
+
+    pub fn as_v1(&self) -> Option<&Order<AccountId>> {
+        match self {
+            VersionedOrder::V1(order) => Some(order),
+            VersionedOrder::V2(_) | VersionedOrder::Authorized { .. } => None,
+        }
+    }
+
+    /// v1-only accessor kept for existing tests. Use [`Self::view`] for v2.
+    pub fn inner(&self) -> &Order<AccountId> {
+        match self {
+            VersionedOrder::V1(order) => order,
+            VersionedOrder::V2(_) | VersionedOrder::Authorized { .. } => {
+                panic!("VersionedOrder::inner is v1-only; use view()")
+            }
+        }
+    }
+}
+
+/// The envelope a relayer submits: the versioned terms, typed authorization,
+/// and optional partial fill. Existing classical envelopes retain their bytes.
 ///
-/// Signature verification is performed against `order.inner().signer` (the AccountId)
-/// directly. Sr25519 and ed25519 signatures over either the SCALE-encoded order or its
-/// `<Bytes>`-wrapped blake2-256 hash are accepted; ecdsa is rejected at validation time.
-#[freeze_struct("9dd5a8ac812dc504")]
+/// Signature verification is performed against `order.signer()` (the AccountId)
+/// directly, and either signing form is accepted (see `verify_order` / `verify_wrapped`):
+///   - raw: the SCALE-encoded `VersionedOrder`, or
+///   - wrapped: `<Bytes>` + `blake2_256(SCALE_ENCODE(VersionedOrder))` (the `OrderId`) + `</Bytes>`,
+///     the `signRaw` envelope used by Polkadot.js / Ledger.
+/// Both sr25519 and ed25519 signatures are accepted; ecdsa is rejected at validation time.
+/// `Authorized` terms require an account approval. A classical detached signature
+/// cannot authorize that mode.
+#[freeze_struct("b365db4d93c61c97")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
 )]
 pub struct SignedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     pub order: VersionedOrder<AccountId>,
-    /// Sr25519 or ed25519 signature over the raw order or its wrapped hash.
-    pub signature: MultiSignature,
+    /// Typed proof. Legacy variants retain the exact MultiSignature encoding;
+    /// the account-approved variant requires explicit Authorized terms.
+    pub signature: OrderSignature,
     /// Whether we want a partial fill for this order
     pub partial_fill: Option<u64>,
 }
@@ -165,6 +277,7 @@ pub enum OrderStatus {
 #[derive(Debug, PartialEq)]
 pub(crate) struct OrderEntry<AccountId> {
     pub(crate) order_id: H256,
+    pub(crate) authorization_nonce: Option<u64>,
     pub(crate) signer: AccountId,
     pub(crate) hotkey: AccountId,
     pub(crate) side: OrderType,
@@ -186,6 +299,12 @@ pub(crate) struct OrderEntry<AccountId> {
     pub(crate) effective_swap_limit: u64,
     /// Present when this execution covers only part of the order.
     pub(crate) partial_fill: Option<u64>,
+    /// Record this order's pro-rata output as a provider record after distribution.
+    pub(crate) has_linked_order: bool,
+    /// Provider this entry draws from, if any. Consumed after a successful
+    /// distribute — not during classify — so a later `Err` cannot depend on
+    /// FRAME rollback to restore the record.
+    pub(crate) provider: Option<H256>,
 }
 
 // ── Pallet ───────────────────────────────────────────────────────────────────
@@ -195,13 +314,16 @@ pub(crate) struct OrderEntry<AccountId> {
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo as _;
+    use alloc::format;
+    use alloc::string::String;
     use frame_support::{
         PalletId,
         pallet_prelude::*,
-        traits::{Get, UnixTime},
+        traits::{Contains, Get, UnixTime},
         transactional,
     };
     use frame_system::pallet_prelude::*;
+    use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
     use sp_runtime::traits::AccountIdConversion;
     use sp_std::collections::btree_set::BTreeSet;
     use sp_std::vec::Vec;
@@ -213,6 +335,13 @@ pub mod pallet {
     pub trait Config: frame_system::Config<AccountId = AccountId32> {
         /// Full swap + balance execution interface (see [`OrderSwapInterface`]).
         type SwapInterface: OrderSwapInterface<Self::AccountId>;
+
+        /// Account policy checked for the signed order's owner at execution time.
+        /// The extrinsic signer may be an unrelated relayer.
+        type OrderSignerFilter: Contains<Self::AccountId>;
+
+        /// Execution freezes for authenticated owners, including protected accounts.
+        type AuthenticatedOrderSignerFilter: Contains<Self::AccountId>;
 
         /// Time provider for expiry checks.
         type TimeProvider: UnixTime;
@@ -244,6 +373,10 @@ pub mod pallet {
         /// EVM-compatible chain ID used to bind orders to a specific chain.
         /// Wire to `pallet_evm_chain_id` in the runtime via `ConfigurableChainId`.
         type ChainId: Get<u64>;
+
+        /// How long, in milliseconds, a provider's recorded output stays drawable.
+        #[pallet::constant]
+        type LinkedOutputTtl: Get<u64>;
     }
 
     // ── Storage ───────────────────────────────────────────────────────────────
@@ -254,10 +387,20 @@ pub mod pallet {
     #[pallet::storage]
     pub type Orders<T: Config> = StorageMap<_, Blake2_128Concat, H256, OrderStatus, OptionQuery>;
 
-    /// Switch to enable/disable the pallet.
-    /// Defaults to `false` so bare node deployments are safe; genesis sets it to `true`.
+    /// Bounded approvals and replay watermark, removed with the System account.
+    #[pallet::storage]
+    pub type ApprovedOrders<T: Config> =
+        StorageMap<_, Blake2_128Concat, AccountId32, AccountOrderApprovals, OptionQuery>;
+
+    /// Switch to enable/disable the pallet; genesis enables configured deployments.
     #[pallet::storage]
     pub type LimitOrdersEnabled<T: Config> = StorageValue<_, bool, ValueQuery, ConstBool<false>>;
+
+    /// Output recorded by orders that declared `has_linked_order`, keyed by
+    /// the provider's `OrderId`. Single-use: the first linked draw removes it.
+    #[pallet::storage]
+    pub type LinkedOutputs<T: Config> =
+        StorageMap<_, Blake2_128Concat, H256, LinkedOutput<T::AccountId>, OptionQuery>;
 
     /// Tracks which named migrations have already been applied.
     /// Keyed by a short migration name; value is always `true`.
@@ -308,6 +451,28 @@ pub mod pallet {
         },
         /// Root has either enabled(true) or disabled(false) the pallet
         LimitOrdersPalletStatusChanged { enabled: bool },
+        /// A provider order recorded its post-fee output for a later linked draw.
+        LinkedOutputRecorded {
+            order_id: H256,
+            signer: T::AccountId,
+            asset: LinkedAsset<T::AccountId>,
+            total: u64,
+            expires_at: u64,
+        },
+        /// A linked order drew against a provider record, consuming it.
+        LinkedOutputConsumed {
+            provider: H256,
+            consumer: H256,
+            amount: u64,
+            undrawn: u64,
+        },
+        /// A provider record was removed without being drawn.
+        LinkedOutputPruned { order_id: H256, total: u64 },
+        OrderApproved {
+            order_id: H256,
+            signer: T::AccountId,
+            nonce: u64,
+        },
     }
 
     // ── Errors ────────────────────────────────────────────────────────────────
@@ -357,6 +522,36 @@ pub mod pallet {
         /// delivering any output (conservation), and the order stays retryable in a
         /// differently-composed batch.
         ZeroShareInBatch,
+        /// Linked order named a provider with no recorded output.
+        NoLinkedOutput,
+        /// Linked order signer differs from the provider's signer.
+        LinkedOutputSignerMismatch,
+        /// Provider output asset is not what the linked order spends.
+        LinkedOutputAssetMismatch,
+        /// Provider record has passed its `expires_at` deadline.
+        LinkedOutputExpired,
+        /// Linked fraction floored to zero against the recorded output.
+        LinkedAmountResolvedToZero,
+        /// Partial fill submitted against a linked (consuming) order.
+        PartialFillNotSupportedForLinkedAmount,
+        /// Partial fill submitted against a provider (`has_linked_order`).
+        PartialFillNotSupportedForProvider,
+        /// `prune_linked_output` called by a non-signer on an unexpired record.
+        LinkedOutputNotPrunable,
+        /// The order owner is temporarily prohibited from moving funds.
+        OrderSignerFrozen,
+        /// The nonce was already consumed or names a different canonical order.
+        OrderNonceUsed,
+        /// This full order has not been approved by its authenticated owner.
+        OrderNotApproved,
+        /// The runtime batch capacity is smaller than the submitted authorized batch.
+        OrderBatchTooLarge,
+        /// Nonce-bearing terms and proof authorization must use the same mode.
+        InvalidAuthorizationMode,
+        /// The owner already has eight live account-approved orders.
+        TooManyApprovedOrders,
+        /// The owner must have an existing System account to hold approvals.
+        OrderAccountMissing,
     }
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -401,7 +596,9 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Execute a batch of signed limit orders. Admin-gated.
+        /// Execute classical and account-approved orders in one batch.
+        /// Each order independently authenticates its owner and permitted relayer;
+        /// at most eight entries may use account approval.
         ///
         /// The `should_fail` flag controls how individual order failures are
         /// handled:
@@ -415,7 +612,7 @@ pub mod pallet {
         ///   whole batch by returning the underlying error, reverting any orders
         ///   already executed in this call.
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::execute_orders(orders.len() as u32))]
+        #[pallet::weight(Pallet::<T>::execute_orders_weight(orders))]
         pub fn execute_orders(
             origin: OriginFor<T>,
             orders: BoundedVec<SignedOrder<T::AccountId>, T::MaxOrdersPerBatch>,
@@ -427,6 +624,7 @@ pub mod pallet {
                 Error::<T>::LimitOrdersDisabled
             );
 
+            Self::check_authorized_batch_bound(&orders)?;
             for signed_order in orders {
                 let order_id = Self::derive_order_id(&signed_order.order);
                 if let Err(reason) = Self::try_execute_order(signed_order, order_id, &relayer) {
@@ -448,8 +646,8 @@ pub mod pallet {
         /// Unlike `execute_orders`, which hits the pool once per order, this
         /// extrinsic:
         ///
-        /// 1. Validates all orders (bad signature / expired / already processed /
-        ///    price-not-met orders are skipped and emit `OrderSkipped`).
+        /// 1. Validates every order's authorization, expiry, status and price;
+        ///    any failure aborts the entire batch.
         /// 2. Fetches the current price once.
         /// 3. Aggregates all valid buy inputs (TAO) and sell inputs (alpha).
         /// 4. Nets the two sides: only the residual amount touches the pool in
@@ -462,10 +660,11 @@ pub mod pallet {
         /// 6. Collects protocol fees (TAO for buy orders, alpha → TAO for sell
         ///    orders) and routes them to `FeeCollector`.
         ///
-        /// All orders in the batch must target `netuid`. Orders for a different
-        /// subnet are skipped.
+        /// All orders must target `netuid`; a mismatch aborts the batch.
+        /// Classical and account-approved entries may be mixed, with at most
+        /// eight entries using account approval.
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::execute_batched_orders(orders.len() as u32))]
+        #[pallet::weight(Pallet::<T>::execute_batched_orders_weight(orders))]
         pub fn execute_batched_orders(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -477,6 +676,7 @@ pub mod pallet {
                 Error::<T>::LimitOrdersDisabled
             );
 
+            Self::check_authorized_batch_bound(&orders)?;
             Self::do_execute_batched_orders(netuid, orders, relayer)
         }
 
@@ -486,14 +686,17 @@ pub mod pallet {
         /// provided so the pallet can derive the `OrderId`. Once marked
         /// Cancelled, the order can never be executed.
         #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::cancel_order())]
+        #[pallet::weight(if order.is_authorized() { T::WeightInfo::cancel_authenticated_order() } else { T::WeightInfo::cancel_order() })]
         pub fn cancel_order(
             origin: OriginFor<T>,
             order: VersionedOrder<T::AccountId>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(order.inner().signer == who, Error::<T>::Unauthorized);
+            ensure!(order.signer() == &who, Error::<T>::Unauthorized);
 
+            if let Some((nonce, terms)) = order.authorized_terms() {
+                return Self::cancel_authenticated_order(who, nonce, terms);
+            }
             let order_id = Self::derive_order_id(&order);
 
             ensure!(
@@ -536,6 +739,62 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Remove a provider record. The signer may prune at any time; anyone
+        /// may prune after `expires_at`. Moves no funds.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::prune_linked_output())]
+        pub fn prune_linked_output(origin: OriginFor<T>, order_id: H256) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            let record = LinkedOutputs::<T>::get(order_id).ok_or(Error::<T>::NoLinkedOutput)?;
+            let now_ms = T::TimeProvider::now().as_millis() as u64;
+            ensure!(
+                record.signer == who || now_ms > record.expires_at,
+                Error::<T>::LinkedOutputNotPrunable
+            );
+
+            LinkedOutputs::<T>::remove(order_id);
+            Self::deposit_event(Event::LinkedOutputPruned {
+                order_id,
+                total: record.total,
+            });
+
+            Ok(())
+        }
+        /// Approve every economic term through the owner's normal origin.
+        /// The owner must have a live System account and may hold eight live approvals.
+        /// New nonces must increase. Terminal/expired slots are reclaimed here;
+        /// account reaping removes all approvals without retaining any balance.
+        /// The explicit Authorized order includes its replay-protection nonce.
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::WeightInfo::authorize_order())]
+        #[transactional]
+        pub fn authorize_order(
+            origin: OriginFor<T>,
+            order: VersionedOrder<AccountId32>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            ensure!(order.signer() == &who, Error::<T>::Unauthorized);
+            let (nonce, terms) = order
+                .authorized_terms()
+                .ok_or(Error::<T>::InvalidAuthorizationMode)?;
+            ensure!(
+                LimitOrdersEnabled::<T>::get(),
+                Error::<T>::LimitOrdersDisabled
+            );
+            ensure!(
+                T::AuthenticatedOrderSignerFilter::contains(&who),
+                Error::<T>::OrderSignerFrozen
+            );
+            let id = Self::approve_order(&who, nonce, &terms)?;
+            Self::deposit_event(Event::OrderApproved {
+                order_id: id,
+                signer: who,
+                nonce,
+            });
+            Ok(())
+        }
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -574,6 +833,9 @@ pub mod pallet {
 
         /// Derive the on-chain `OrderId` as blake2_256 over the SCALE-encoded order.
         pub fn derive_order_id(order: &VersionedOrder<T::AccountId>) -> H256 {
+            if let Some((nonce, terms)) = order.authorized_terms() {
+                return Self::derive_authorized_order_id(nonce, &terms);
+            }
             H256(sp_core::hashing::blake2_256(&order.encode()))
         }
 
@@ -596,6 +858,167 @@ pub mod pallet {
             T::SwapInterface::transfer_tao(signer, recipient, fee_tao)
         }
 
+        /// Verify the signature over the **raw** SCALE-encoded order — the original,
+        /// non-Ledger form a software wallet signing arbitrary bytes produces.
+        /// Accepts sr25519 and ed25519; rejects ecdsa.
+        pub(crate) fn verify_order(signed_order: &SignedOrder<T::AccountId>) -> bool {
+            matches!(
+                signed_order.signature,
+                OrderSignature::Sr25519(_) | OrderSignature::Ed25519(_)
+            ) && signed_order.signature.verify(
+                signed_order.order.encode().as_slice(),
+                signed_order.order.signer(),
+            )
+        }
+
+        /// Verify the signature over the **wrapped order hash** — the Ledger/`signRaw`
+        /// form: `<Bytes>` + `blake2_256(SCALE_ENCODE(order))` (i.e. `order_id`) + `</Bytes>`.
+        /// Signing a fixed-size hash keeps the message within Ledger's signing limits,
+        /// and the `<Bytes>…</Bytes>` envelope is what `signRaw` (Polkadot.js / Ledger)
+        /// wraps around raw payloads. Accepts sr25519 and ed25519; rejects ecdsa.
+        pub(crate) fn verify_wrapped(
+            signed_order: &SignedOrder<T::AccountId>,
+            order_id: H256,
+        ) -> bool {
+            let payload = [
+                b"<Bytes>".as_slice(),
+                order_id.as_bytes(),
+                b"</Bytes>".as_slice(),
+            ]
+            .concat();
+            matches!(
+                signed_order.signature,
+                OrderSignature::Sr25519(_) | OrderSignature::Ed25519(_)
+            ) && signed_order
+                .signature
+                .verify(payload.as_slice(), signed_order.order.signer())
+        }
+
+        /// Render `who` into its SS58 (base58check) string, reproducing
+        /// `Ss58Codec::to_ss58check_with_version`.
+        pub(crate) fn render_account(who: &T::AccountId) -> String {
+            let prefix = <T as frame_system::Config>::SS58Prefix::get();
+            who.to_ss58check_with_version(Ss58AddressFormat::custom(prefix))
+        }
+
+        /// Build the canonical, single-line, all-printable-ASCII "clear-signing"
+        /// message for a versioned order.
+        ///
+        /// This is a PURE function of the order's fields: every token is a
+        /// deterministic rendering of a runtime field, so a TS frontend can rebuild
+        /// the exact same bytes and have a hardware wallet display and sign them.
+        ///
+        /// The `none` vs `[]` distinction for the relayer field is deliberate and
+        /// load-bearing: it prevents a signature produced for an "any relayer" order
+        /// from being transplanted onto an "empty relayer list" order (or vice versa).
+        pub(crate) fn render_order(order: &VersionedOrder<T::AccountId>) -> Vec<u8> {
+            let version = order.version_tag();
+            let o = order.view();
+
+            let label = match o.order_type {
+                OrderType::LimitBuy => "Limit buy",
+                OrderType::TakeProfit => "Take-profit",
+                OrderType::StopLoss => "Stop-loss",
+            };
+            let price_word = match o.order_type {
+                OrderType::LimitBuy => "limit price",
+                OrderType::TakeProfit | OrderType::StopLoss => "trigger price",
+            };
+
+            let netuid: u16 = u16::from(o.netuid);
+
+            let max_slippage = match o.max_slippage {
+                None => String::from("none"),
+                Some(p) => format!("{}", p.deconstruct()),
+            };
+
+            let relayer = match &o.relayer {
+                None => String::from("none"),
+                Some(list) if list.is_empty() => String::from("[]"),
+                Some(list) => {
+                    let mut acc = String::new();
+                    for (i, r) in list.iter().enumerate() {
+                        if i > 0 {
+                            acc.push('+');
+                        }
+                        acc.push_str(&Self::render_account(r));
+                    }
+                    acc
+                }
+            };
+
+            // v1 stays byte-identical. v2 always renders `has-linked-order` so the
+            // signed authorisation cannot be transplanted onto a provider.
+            let tail = match order {
+                VersionedOrder::V1(_) => String::new(),
+                VersionedOrder::V2(v2) => format!(", has-linked-order {}", v2.has_linked_order),
+                VersionedOrder::Authorized { nonce, .. } => {
+                    format!(", nonce {nonce}, has-linked-order {}", o.has_linked_order)
+                }
+            };
+
+            let msg = format!(
+                "TAO.com order {version}: {label} {amount} on subnet {netuid}, \
+{price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
+fee {fee_rate} to {fee_recipient}, relayer {relayer}, \
+max slippage {max_slippage}, chain {chain_id}, \
+partial fills {partial}, signer {signer}{tail}",
+                version = version,
+                label = label,
+                amount = o.amount.render(),
+                netuid = netuid,
+                price_word = price_word,
+                limit_price = o.limit_price,
+                expiry = o.expiry,
+                hotkey = Self::render_account(&o.hotkey),
+                fee_rate = o.fee_rate.deconstruct(),
+                fee_recipient = Self::render_account(&o.fee_recipient),
+                relayer = relayer,
+                max_slippage = max_slippage,
+                chain_id = o.chain_id,
+                partial = o.partial_fills_enabled,
+                signer = Self::render_account(&o.signer),
+                tail = tail,
+            );
+
+            msg.into_bytes()
+        }
+
+        /// Verify the signature over the **human-readable** ("clear-signing") message —
+        /// the form a hardware wallet (Ledger) can display to the user field-by-field
+        /// and sign. The signed payload is the `<Bytes>`-wrapped canonical message built
+        /// by [`render_order`] (the `signRaw`/Ledger envelope). Accepts sr25519 and
+        /// ed25519; rejects ecdsa.
+        ///
+        /// The bytes actually verified follow the device's own rule: a raw-signing
+        /// payload longer than [`LEDGER_MAX_SIGN_SIZE`] is blake2_256-hashed on-device
+        /// before signing, so for an oversized payload the signature commits to
+        /// `blake2_256(payload)` and that is what is verified; at or below the limit the
+        /// payload bytes are verified directly. In practice the readable message is
+        /// always oversized (three SS58 addresses alone are 144 characters), so the
+        /// hashed branch is the live one — the byte-exact branch exists to keep this
+        /// function correct for any future, shorter rendering.
+        ///
+        /// The sibling forms need no such rule: `verify_wrapped`'s payload is a fixed
+        /// 47 bytes (`<Bytes>` + 32-byte hash + `</Bytes>`), and `verify_order` is not a
+        /// Ledger form at all — it has no `<Bytes>…</Bytes>` envelope, which the device's
+        /// `tx_raw_parse` requires, so a Ledger can never produce it.
+        pub(crate) fn verify_readable(signed_order: &SignedOrder<T::AccountId>) -> bool {
+            let msg = Self::render_order(&signed_order.order);
+            let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+            let signed_bytes = if payload.len() > LEDGER_MAX_SIGN_SIZE {
+                sp_core::hashing::blake2_256(&payload).to_vec()
+            } else {
+                payload
+            };
+            matches!(
+                signed_order.signature,
+                OrderSignature::Sr25519(_) | OrderSignature::Ed25519(_)
+            ) && signed_order
+                .signature
+                .verify(signed_bytes.as_slice(), signed_order.order.signer())
+        }
+
         /// Validates all execution preconditions for a signed order.
         /// Checks that the order's netuid is not root (0), that the signature is valid,
         /// the order has not been processed, is not expired, and the price condition is met.
@@ -606,33 +1029,69 @@ pub mod pallet {
             now_ms: u64,
             current_price: U64F64,
             relayer: &T::AccountId,
-        ) -> DispatchResult {
-            let order = signed_order.order.inner();
+        ) -> Result<(u64, Option<H256>), DispatchError> {
+            if let Some(signed) = Self::authenticated_order(signed_order)? {
+                return Self::validate_authorized_order(
+                    &signed,
+                    &signed_order.order.view(),
+                    order_id,
+                    now_ms,
+                    current_price,
+                    relayer,
+                );
+            }
+            let order = signed_order.order.view();
             ensure!(!order.netuid.is_root(), Error::<T>::RootNetUidNotAllowed);
+            // Recheck the asset owner, not the relayer, before resolving linked amounts,
+            // withdrawing assets, charging fees, or writing fill status. Both execution paths
+            // and all supported signature/order versions share this validation.
+            ensure!(
+                T::OrderSignerFilter::contains(&order.signer),
+                Error::<T>::OrderSignerFrozen
+            );
             ensure!(
                 order.chain_id == T::ChainId::get(),
                 Error::<T>::ChainIdMismatch
             );
+            // Accept either signing form: the legacy raw form (`verify_order`,
+            // signature directly over the SCALE-encoded order) or the Ledger/`signRaw`
+            // form (`verify_wrapped`, signature over the `<Bytes>…</Bytes>`-wrapped order
+            // hash). Both are checked so software wallets signing raw bytes and hardware
+            // wallets that can only sign wrapped messages are simultaneously supported.
+            // The raw form is checked first: it short-circuits the common relayer flow,
+            // and an order signed in the wrapped form falls through to a second verify.
+            // The human-readable ("clear-signing") form is checked LAST: it is the least
+            // common and involves the SS58/format rendering work, so it should only run
+            // on fall-through. Exercising all three verifications is the worst case the
+            // weights must account for.
             ensure!(
-                matches!(
-                    signed_order.signature,
-                    MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
-                ) && (signed_order
-                    .signature
-                    .verify(signed_order.order.encode().as_slice(), &order.signer)
-                    || signed_order.signature.verify(
-                        [
-                            b"<Bytes>".as_slice(),
-                            order_id.as_bytes(),
-                            b"</Bytes>".as_slice(),
-                        ]
-                        .concat()
-                        .as_slice(),
-                        &order.signer,
-                    )),
+                Self::verify_order(signed_order)
+                    || Self::verify_wrapped(signed_order, order_id)
+                    || Self::verify_readable(signed_order),
                 Error::<T>::InvalidSignature
             );
-            let order_status = Orders::<T>::get(order_id);
+            Self::validate_order_execution(
+                &order,
+                signed_order.partial_fill,
+                order_id,
+                now_ms,
+                current_price,
+                relayer,
+            )
+        }
+
+        /// Common fill, price, expiry, relayer and linked-asset validation.
+        /// The caller has already checked the owner policy, subnet and chain.
+        pub(crate) fn validate_order_execution(
+            order: &OrderView<AccountId32>,
+            partial_fill: Option<u64>,
+            order_id: H256,
+            now_ms: u64,
+            current_price: U64F64,
+            relayer: &AccountId32,
+        ) -> Result<(u64, Option<H256>), DispatchError> {
+            let order_status =
+                Self::order_status(&order.signer, order.authorization_nonce, order_id);
             ensure!(
                 order_status != Some(OrderStatus::Fulfilled),
                 Error::<T>::OrderAlreadyProcessed
@@ -662,7 +1121,19 @@ pub mod pallet {
                     Error::<T>::RelayerMissMatch
                 );
             }
-            if let Some(partial_fill) = signed_order.partial_fill {
+            // Resolve after cheap deterministic checks so a bad order still
+            // reports its precise reason, and so v1 never pays for a storage read.
+            let (amount, provider) = Self::resolve_amount(order, now_ms)?;
+
+            if let Some(partial_fill) = partial_fill {
+                ensure!(
+                    !order.amount.is_linked(),
+                    Error::<T>::PartialFillNotSupportedForLinkedAmount
+                );
+                ensure!(
+                    !order.has_linked_order,
+                    Error::<T>::PartialFillNotSupportedForProvider
+                );
                 ensure!(
                     order.relayer.is_some(),
                     Error::<T>::RelayerRequiredForPartialFill
@@ -673,9 +1144,9 @@ pub mod pallet {
                 );
                 let max_fill =
                     if let Some(OrderStatus::PartiallyFilled(already_filled)) = order_status {
-                        order.amount.saturating_sub(already_filled)
+                        amount.saturating_sub(already_filled)
                     } else {
-                        order.amount
+                        amount
                     };
                 ensure!(
                     partial_fill > 0 && partial_fill <= max_fill,
@@ -695,7 +1166,84 @@ pub mod pallet {
                     Error::<T>::IncorrectPartialFillAmount
                 );
             }
+            Ok((amount, provider))
+        }
+
+        /// Resolve a signed amount to the absolute input to trade, plus the
+        /// provider id that authorised it (`None` for a fixed amount).
+        pub(crate) fn resolve_amount(
+            order: &OrderView<T::AccountId>,
+            now_ms: u64,
+        ) -> Result<(u64, Option<H256>), DispatchError> {
+            let Some((provider, pct)) = order.amount.linked() else {
+                return Ok((order.amount.fixed().unwrap_or(0), None));
+            };
+
+            let record = LinkedOutputs::<T>::get(provider).ok_or(Error::<T>::NoLinkedOutput)?;
+            ensure!(
+                record.signer == order.signer,
+                Error::<T>::LinkedOutputSignerMismatch
+            );
+            ensure!(
+                record.asset == order.input_asset(),
+                Error::<T>::LinkedOutputAssetMismatch
+            );
+            ensure!(now_ms <= record.expires_at, Error::<T>::LinkedOutputExpired);
+
+            let amount = pct.mul_floor(record.total);
+            ensure!(amount > 0, Error::<T>::LinkedAmountResolvedToZero);
+
+            Ok((amount, Some(provider)))
+        }
+
+        /// Remove a provider record after the drawing order has traded.
+        pub(crate) fn consume_linked_output(
+            provider: H256,
+            consumer: H256,
+            amount: u64,
+        ) -> DispatchResult {
+            let record = LinkedOutputs::<T>::take(provider).ok_or(Error::<T>::NoLinkedOutput)?;
+            Self::deposit_event(Event::LinkedOutputConsumed {
+                provider,
+                consumer,
+                amount,
+                undrawn: record.total.saturating_sub(amount),
+            });
             Ok(())
+        }
+
+        /// Record post-fee output for a provider order. No-op if the flag is
+        /// off or `amount_out` is zero.
+        pub(crate) fn record_linked_output(
+            order_id: H256,
+            signer: &T::AccountId,
+            asset: LinkedAsset<T::AccountId>,
+            has_linked_order: bool,
+            amount_out: u64,
+        ) {
+            if !has_linked_order || amount_out == 0 {
+                return;
+            }
+
+            let now_ms = T::TimeProvider::now().as_millis() as u64;
+            let expires_at = now_ms.saturating_add(T::LinkedOutputTtl::get());
+
+            LinkedOutputs::<T>::insert(
+                order_id,
+                LinkedOutput {
+                    signer: signer.clone(),
+                    asset: asset.clone(),
+                    total: amount_out,
+                    expires_at,
+                },
+            );
+            Self::deposit_event(Event::LinkedOutputRecorded {
+                order_id,
+                signer: signer.clone(),
+                asset,
+                total: amount_out,
+                expires_at,
+            });
         }
 
         /// Compute the new `OrderStatus` to write after filling `fill_amount` of an order.
@@ -704,6 +1252,8 @@ pub mod pallet {
         /// `fill_amount`, and returns `Fulfilled` when the total reaches `order_amount`.
         /// Pass `None` for `fill_amount` when the order is being fully executed in one shot.
         pub(crate) fn compute_order_status(
+            owner: &AccountId32,
+            authorization_nonce: Option<u64>,
             order_id: H256,
             fill_amount: Option<u64>,
             order_amount: u64,
@@ -711,12 +1261,13 @@ pub mod pallet {
             let Some(fill) = fill_amount else {
                 return OrderStatus::Fulfilled;
             };
-            let already_filled =
-                if let Some(OrderStatus::PartiallyFilled(n)) = Orders::<T>::get(order_id) {
-                    n
-                } else {
-                    0
-                };
+            let already_filled = if let Some(OrderStatus::PartiallyFilled(n)) =
+                Self::order_status(owner, authorization_nonce, order_id)
+            {
+                n
+            } else {
+                0
+            };
             let new_total = already_filled.saturating_add(fill);
             if new_total >= order_amount {
                 OrderStatus::Fulfilled
@@ -738,12 +1289,34 @@ pub mod pallet {
             order_id: H256,
             relayer: &T::AccountId,
         ) -> DispatchResult {
-            let order = signed_order.order.inner();
+            if let Some(signed) = Self::authenticated_order(&signed_order)? {
+                return Self::try_execute_authorized_order(signed, order_id, relayer);
+            }
+            let order = signed_order.order.view();
             let now_ms = T::TimeProvider::now().as_millis() as u64;
             let current_price = T::SwapInterface::current_alpha_price(order.netuid);
 
-            Self::is_order_valid(&signed_order, order_id, now_ms, current_price, relayer)?;
+            let (amount, provider) =
+                Self::is_order_valid(&signed_order, order_id, now_ms, current_price, relayer)?;
 
+            Self::execute_validated_order(
+                &order,
+                signed_order.partial_fill,
+                order_id,
+                amount,
+                provider,
+            )
+        }
+
+        /// Shared economic execution; callers wrap authorization and this helper
+        /// in one storage transaction.
+        pub(crate) fn execute_validated_order(
+            order: &OrderView<AccountId32>,
+            partial_fill: Option<u64>,
+            order_id: H256,
+            amount: u64,
+            provider: Option<H256>,
+        ) -> DispatchResult {
             let effective_swap_limit = Self::compute_effective_swap_limit(
                 order.order_type.is_buy(),
                 order.limit_price,
@@ -756,7 +1329,7 @@ pub mod pallet {
             // limit is u64::MAX (buys) or 0 (sells), matching previous market-order behaviour.
             let (amount_in, amount_out) = if order.order_type.is_buy() {
                 // partial fill validations have passed, it is safe here to do this
-                let tao_in = TaoBalance::from(signed_order.partial_fill.unwrap_or(order.amount));
+                let tao_in = TaoBalance::from(partial_fill.unwrap_or(amount));
                 // Deduct fee from TAO input before swapping.
                 let fee_tao = TaoBalance::from(order.fee_rate.mul_floor(tao_in.to_u64()));
                 let tao_after_fee = tao_in.saturating_sub(fee_tao);
@@ -775,8 +1348,7 @@ pub mod pallet {
                 (tao_after_fee.to_u64(), alpha_out.to_u64())
             } else {
                 // partial fill validations have passed, it is safe here to do this
-                let alpha_in =
-                    AlphaBalance::from(signed_order.partial_fill.unwrap_or(order.amount));
+                let alpha_in = AlphaBalance::from(partial_fill.unwrap_or(amount));
 
                 // Sell the full alpha amount; fee is taken from the TAO output.
                 let tao_out = T::SwapInterface::sell_alpha(
@@ -794,10 +1366,28 @@ pub mod pallet {
                 (alpha_in.to_u64(), tao_out.saturating_sub(fee_tao).to_u64())
             };
 
+            if let Some(provider) = provider {
+                Self::consume_linked_output(provider, order_id, amount)?;
+            }
+
             // Mark as fulfilled or partially filled and emit event.
-            let status =
-                Self::compute_order_status(order_id, signed_order.partial_fill, order.amount);
-            Orders::<T>::insert(order_id, status);
+            let status = Self::compute_order_status(
+                &order.signer,
+                order.authorization_nonce,
+                order_id,
+                partial_fill,
+                amount,
+            );
+            Self::set_order_status(&order.signer, order.authorization_nonce, order_id, status);
+
+            Self::record_linked_output(
+                order_id,
+                &order.signer,
+                order.output_asset(),
+                order.has_linked_order,
+                amount_out,
+            );
+
             Self::deposit_event(Event::OrderExecuted {
                 order_id,
                 signer: order.signer.clone(),
@@ -821,6 +1411,12 @@ pub mod pallet {
             orders: BoundedVec<SignedOrder<T::AccountId>, T::MaxOrdersPerBatch>,
             relayer: T::AccountId,
         ) -> DispatchResult {
+            if orders
+                .iter()
+                .any(|signed| signed.order.is_authorized() || signed.signature.is_authenticated())
+            {
+                return Self::do_execute_authenticated_batch(netuid, orders, &relayer);
+            }
             ensure!(!netuid.is_root(), Error::<T>::RootNetUidNotAllowed);
 
             let now_ms = T::TimeProvider::now().as_millis() as u64;
@@ -830,9 +1426,36 @@ pub mod pallet {
             let (valid_buys, valid_sells) =
                 Self::validate_and_classify(netuid, &orders, now_ms, current_price, relayer)?;
 
+            Self::execute_classified_batch(netuid, current_price, valid_buys, valid_sells)
+        }
+
+        /// Shared netting, collection, distribution, fees and terminal bookkeeping.
+        pub(crate) fn execute_classified_batch(
+            netuid: NetUid,
+            current_price: U64F64,
+            valid_buys: BoundedVec<OrderEntry<AccountId32>, T::MaxOrdersPerBatch>,
+            valid_sells: BoundedVec<OrderEntry<AccountId32>, T::MaxOrdersPerBatch>,
+        ) -> DispatchResult {
             let executed_count = valid_buys.len().saturating_add(valid_sells.len()) as u32;
             if executed_count == 0 {
                 return Ok(());
+            }
+
+            // Offsetting orders settle at spot without reaching the pool's price-limit
+            // check. Apply both sides' constraints before collecting any assets.
+            let scaled_price = current_price.saturating_mul(U64F64::from_num(1_000_000_000u64));
+            for order in &valid_buys {
+                ensure!(
+                    order.effective_swap_limit == u64::MAX
+                        || scaled_price <= U64F64::from_num(order.effective_swap_limit),
+                    Error::<T>::PriceConditionNotMet
+                );
+            }
+            for order in &valid_sells {
+                ensure!(
+                    scaled_price >= U64F64::from_num(order.effective_swap_limit),
+                    Error::<T>::PriceConditionNotMet
+                );
             }
 
             let total_buy_net: u128 = valid_buys.iter().map(|e| e.net as u128).sum();
@@ -951,6 +1574,7 @@ pub mod pallet {
             // Track which order_ids we have already seen in this batch. A repeated
             // order_id is never legitimate within a single batch.
             let mut seen_order_ids: BTreeSet<H256> = BTreeSet::new();
+            let mut seen_providers: BTreeSet<H256> = BTreeSet::new();
 
             for signed_order in orders.iter() {
                 let order_id = Self::derive_order_id(&signed_order.order);
@@ -962,43 +1586,31 @@ pub mod pallet {
                     Error::<T>::DuplicateOrderInBatch
                 );
 
-                let order = signed_order.order.inner();
+                let order = signed_order.order.view();
 
                 // Hard-fail if the order targets a different subnet than the batch netuid.
                 ensure!(order.netuid == netuid, Error::<T>::OrderNetUidMismatch);
 
                 // Hard-fail on any per-order validation error (signature, expiry, price, root).
-                Self::is_order_valid(signed_order, order_id, now_ms, current_price, &relayer)?;
+                // A provider+consumer pair in the same batch fails `NoLinkedOutput`:
+                // amounts are resolved here, before the netted swap that would
+                // produce the provider's output.
+                let (amount, provider) =
+                    Self::is_order_valid(signed_order, order_id, now_ms, current_price, &relayer)?;
 
-                let amount_in = signed_order.partial_fill.unwrap_or(order.amount);
-                let net = if order.order_type.is_buy() {
-                    // Buy: fee on TAO input — net is the amount that reaches the pool.
-                    amount_in.saturating_sub(order.fee_rate.mul_floor(amount_in))
-                } else {
-                    // Sell: fee on TAO output — full alpha enters the pool; the fee is
-                    // deducted from the TAO payout later in `distribute_tao_pro_rata`.
-                    amount_in
-                };
+                // Two consumers of one record in this batch: fail here, without
+                // taking storage. The actual take happens after distribute.
+                if let Some(provider) = provider {
+                    ensure!(seen_providers.insert(provider), Error::<T>::NoLinkedOutput);
+                }
 
-                let effective_swap_limit = Self::compute_effective_swap_limit(
-                    order.order_type.is_buy(),
-                    order.limit_price,
-                    order.max_slippage,
-                );
-
-                let entry = OrderEntry {
+                let entry = Self::classify_order(
+                    &order,
+                    signed_order.partial_fill,
                     order_id,
-                    signer: order.signer.clone(),
-                    hotkey: order.hotkey.clone(),
-                    side: order.order_type.clone(),
-                    gross: amount_in,
-                    order_amount: order.amount,
-                    net,
-                    fee_rate: order.fee_rate,
-                    fee_recipient: order.fee_recipient.clone(),
-                    effective_swap_limit,
-                    partial_fill: signed_order.partial_fill,
-                };
+                    amount,
+                    provider,
+                );
 
                 // try_push cannot fail: both vecs share the same bound as `orders`.
                 if entry.side.is_buy() {
@@ -1009,6 +1621,47 @@ pub mod pallet {
             }
 
             Ok((buys, sells))
+        }
+
+        pub(crate) fn classify_order(
+            order: &OrderView<AccountId32>,
+            partial_fill: Option<u64>,
+            order_id: H256,
+            amount: u64,
+            provider: Option<H256>,
+        ) -> OrderEntry<AccountId32> {
+            let amount_in = partial_fill.unwrap_or(amount);
+            let net = if order.order_type.is_buy() {
+                // Buy: fee on TAO input — net is the amount that reaches the pool.
+                amount_in.saturating_sub(order.fee_rate.mul_floor(amount_in))
+            } else {
+                // Sell: fee on TAO output — full alpha enters the pool; the fee is
+                // deducted from the TAO payout later in `distribute_tao_pro_rata`.
+                amount_in
+            };
+
+            let effective_swap_limit = Self::compute_effective_swap_limit(
+                order.order_type.is_buy(),
+                order.limit_price,
+                order.max_slippage,
+            );
+
+            OrderEntry {
+                order_id,
+                authorization_nonce: order.authorization_nonce,
+                signer: order.signer.clone(),
+                hotkey: order.hotkey.clone(),
+                side: order.order_type.clone(),
+                gross: amount_in,
+                order_amount: amount,
+                net,
+                fee_rate: order.fee_rate,
+                fee_recipient: order.fee_recipient.clone(),
+                effective_swap_limit,
+                partial_fill,
+                has_linked_order: order.has_linked_order,
+                provider,
+            }
         }
 
         /// Pull gross TAO from each buyer and gross staked alpha from each seller
@@ -1132,6 +1785,14 @@ pub mod pallet {
                 // transfer while still marking the order terminal — which would consume the
                 // signer's TAO for zero alpha and permanently close the order.
                 ensure!(share > 0, Error::<T>::ZeroShareInBatch);
+                // Check the actual rounded allocation, not just the residual pool
+                // swap. Explicit order fees are separate from the exchange price.
+                ensure!(
+                    e.effective_swap_limit == u64::MAX
+                        || (e.net as u128).saturating_mul(1_000_000_000)
+                            <= (share as u128).saturating_mul(e.effective_swap_limit as u128),
+                    Error::<T>::PriceConditionNotMet
+                );
                 T::SwapInterface::transfer_staked_alpha(
                     pallet_acct,
                     pallet_hotkey,
@@ -1142,8 +1803,27 @@ pub mod pallet {
                     false, // validate_sender: skip — pallet intermediary needs no validation
                     true,  // set_receiver_limit: rate-limit the buyer after they receive stake
                 )?;
-                let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
-                Orders::<T>::insert(e.order_id, status);
+                let status = Self::compute_order_status(
+                    &e.signer,
+                    e.authorization_nonce,
+                    e.order_id,
+                    e.partial_fill,
+                    e.order_amount,
+                );
+                Self::set_order_status(&e.signer, e.authorization_nonce, e.order_id, status);
+                if let Some(provider) = e.provider {
+                    Self::consume_linked_output(provider, e.order_id, e.order_amount)?;
+                }
+                Self::record_linked_output(
+                    e.order_id,
+                    &e.signer,
+                    LinkedAsset::Alpha {
+                        netuid,
+                        hotkey: e.hotkey.clone(),
+                    },
+                    e.has_linked_order,
+                    share,
+                );
                 Self::deposit_event(Event::OrderExecuted {
                     order_id: e.order_id,
                     signer: e.signer.clone(),
@@ -1201,6 +1881,11 @@ pub mod pallet {
                 // layer) rather than no-op the transfer while still marking the order terminal,
                 // which would consume the seller's alpha for zero TAO and close the order.
                 ensure!(net_share > 0, Error::<T>::ZeroShareInBatch);
+                ensure!(
+                    (gross_share as u128).saturating_mul(1_000_000_000)
+                        >= (e.net as u128).saturating_mul(e.effective_swap_limit as u128),
+                    Error::<T>::PriceConditionNotMet
+                );
 
                 if fee > 0 {
                     if let Some(entry) = sell_fees.iter_mut().find(|(r, _)| r == &e.fee_recipient) {
@@ -1215,8 +1900,24 @@ pub mod pallet {
                     &e.signer,
                     TaoBalance::from(net_share),
                 )?;
-                let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
-                Orders::<T>::insert(e.order_id, status);
+                let status = Self::compute_order_status(
+                    &e.signer,
+                    e.authorization_nonce,
+                    e.order_id,
+                    e.partial_fill,
+                    e.order_amount,
+                );
+                Self::set_order_status(&e.signer, e.authorization_nonce, e.order_id, status);
+                if let Some(provider) = e.provider {
+                    Self::consume_linked_output(provider, e.order_id, e.order_amount)?;
+                }
+                Self::record_linked_output(
+                    e.order_id,
+                    &e.signer,
+                    LinkedAsset::Tao,
+                    e.has_linked_order,
+                    net_share,
+                );
                 Self::deposit_event(Event::OrderExecuted {
                     order_id: e.order_id,
                     signer: e.signer.clone(),

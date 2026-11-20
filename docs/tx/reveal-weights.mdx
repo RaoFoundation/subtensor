@@ -18,7 +18,7 @@ salt-based commits — the timelocked path used by `set_weights` and
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285) |
 
 ## Parameters
 
@@ -77,11 +77,11 @@ result = sub.execute_tool("reveal_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L277`](/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286):
+`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L276`](/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285):
 
 ```rust
 #[pallet::call_index(97)]
-#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::reveal_weights(), DispatchClass::Normal, Pays::No))]
+#[pallet::weight((Pallet::<T>::reveal_weights_weight(*netuid, uids.len() as u32), DispatchClass::Normal, Pays::No))]
 pub fn reveal_weights(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -94,6 +94,6 @@ pub fn reveal_weights(
 }
 ```
 
-Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L393).
+Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L657).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

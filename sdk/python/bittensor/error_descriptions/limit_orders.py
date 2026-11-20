@@ -92,4 +92,72 @@ DESCRIPTIONS: dict[str, str] = {
         "rejected rather than consuming that order's input for no payout. Check the order's "
         "`amount` relative to the batch totals and retry it in a differently composed batch."
     ),
+    "NoLinkedOutput": (
+        "A linked order named a provider `order_id` that has no recorded output — it was never "
+        "a provider, already drawn, or pruned. Check `LinkedOutputs` for that id, or execute the "
+        "provider first via `execute_orders` rather than in the same batched call."
+    ),
+    "LinkedOutputSignerMismatch": (
+        "The linked order's signer is not the signer who recorded the named provider output. "
+        "Only the same account can draw against a record; re-sign the consumer with that key."
+    ),
+    "LinkedOutputAssetMismatch": (
+        "The provider recorded a different asset than the linked order spends: sells record TAO "
+        "for a later buy, buys record alpha on that `(netuid, hotkey)` for a later sell. Check "
+        "the consumer's `order_type` and `hotkey` against the provider record's `asset`."
+    ),
+    "LinkedOutputExpired": (
+        "The provider record's `expires_at` is in the past, so the output is no longer drawable. "
+        "Compare `LinkedOutputs.expires_at` with the chain `Timestamp`; unused records can be "
+        "pruned with `prune_linked_output`."
+    ),
+    "LinkedAmountResolvedToZero": (
+        "The linked fraction floored to zero against the recorded output, so there is nothing "
+        "to trade. Increase `pct` or wait for a larger provider output."
+    ),
+    "PartialFillNotSupportedForLinkedAmount": (
+        "A `partial_fill` was submitted against a linked (consuming) order. Linked amounts must "
+        "execute in one shot; omit `partial_fill` and execute the resolved amount in full."
+    ),
+    "PartialFillNotSupportedForProvider": (
+        "A `partial_fill` was submitted against a provider (`has_linked_order`). Provider output "
+        "must be recorded from a single execution; omit `partial_fill` even if "
+        "`partial_fills_enabled` is set."
+    ),
+    "LinkedOutputNotPrunable": (
+        "`prune_linked_output` was called by someone other than the record's signer before "
+        "`expires_at`. The signer may prune at any time; anyone may prune only after expiry."
+    ),
+    "OrderSignerFrozen": (
+        "The order owner is temporarily prohibited from moving funds, so the order cannot be "
+        "executed. Retry once the owner's freeze has lifted."
+    ),
+    "OrderNonceUsed": (
+        "The nonce was already used or names different order bytes. For a new approval, "
+        "choose a nonce greater than ApprovedOrders.highest_nonce; cancellation and expiry "
+        "do not reset that watermark."
+    ),
+    "TooManyApprovedOrders": (
+        "The owner already has eight live approvals. Cancel or complete an existing order, "
+        "or wait for its expiry, before approving another."
+    ),
+    "OrderAccountMissing": (
+        "The approval owner has no live System account. Fund the owner with the normal "
+        "existential balance before approving an order; no registration or extra deposit "
+        "is required."
+    ),
+    "OrderNotApproved": (
+        "The account-approved order has no matching on-chain owner approval. Execute "
+        "authorize_order through the owner's authority with the exact nonce and order."
+    ),
+    "OrderBatchTooLarge": (
+        "The batch contains more than eight account-approved orders. "
+        "Split execution into supported batches, retaining each signed order's original "
+        "bytes and nonce. Classical orders retain the pallet's original total batch limit."
+    ),
+    "InvalidAuthorizationMode": (
+        "The order terms and authorization scheme do not match. Classical signatures require "
+        "original V1 or V2 terms; account approval requires Authorized terms "
+        "containing the owner-local nonce. Prepare and authorize the complete order again."
+    ),
 }

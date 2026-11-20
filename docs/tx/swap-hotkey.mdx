@@ -23,7 +23,7 @@ instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L836-L849) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L888-L901) |
 
 ## Parameters
 
@@ -55,7 +55,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.SwapHotkey(new_hotkey_ss58="5F...")
+intent = bt.SwapHotkey(new_hotkey_ss58="5G...destination")
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -74,12 +74,12 @@ result = sub.execute_tool("swap_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L842`](/code/pallets/subtensor/src/macros/dispatches.rs#L836-L849):
+`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L894`](/code/pallets/subtensor/src/macros/dispatches.rs#L888-L901):
 
 ```rust
 #[pallet::call_index(70)]
 #[pallet::weight((
-    <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
+    crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, false),
     DispatchClass::Normal,
     Pays::Yes
 ))]
@@ -93,6 +93,6 @@ pub fn swap_hotkey(
 }
 ```
 
-Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L72).
+Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L177).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

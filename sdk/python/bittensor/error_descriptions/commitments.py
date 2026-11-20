@@ -23,4 +23,9 @@ DESCRIPTIONS: dict[str, str] = {
         "difference, leaving a leftover, which signals an internal inconsistency. Check the "
         "account's reserved balance against the deposit recorded in `CommitmentOf`."
     ),
+    "TimelockRevealFailedNotAllowed": (
+        "The submitted commitment contains `TimelockRevealFailed`, a terminal audit state that "
+        "only the runtime may create after an automatic reveal fails. Submit a "
+        "`TimelockEncrypted` field instead."
+    ),
 }

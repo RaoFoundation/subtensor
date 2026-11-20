@@ -1,13 +1,14 @@
 use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, TransactionType};
+use codec::Encode;
 use frame_support::{
     dispatch::{DispatchErrorWithPostInfo, DispatchExtension, DispatchInfo, PostDispatchInfo},
     pallet_prelude::*,
     traits::{IsSubType, OriginTrait},
 };
 use sp_runtime::traits::Dispatchable;
-use sp_std::marker::PhantomData;
+use sp_std::{marker::PhantomData, vec, vec::Vec};
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex};
 
 /// Dispatch extension for rate-limit checks that are safe to reject before dispatch.
@@ -22,6 +23,9 @@ impl<T: Config> CheckRateLimits<T> {
             call,
             Call::commit_weights { .. }
                 | Call::commit_mechanism_weights { .. }
+                | Call::commit_timelocked_weights { .. }
+                | Call::commit_timelocked_mechanism_weights { .. }
+                | Call::commit_crv3_mechanism_weights { .. }
                 | Call::set_weights { .. }
                 | Call::set_mechanism_weights { .. }
                 | Call::register_network { .. }
@@ -34,8 +38,11 @@ impl<T: Config> CheckRateLimits<T> {
         netuid_index: NetUidStorageIndex,
         error: Error<T>,
     ) -> Result<(), Error<T>> {
+        // Every rate-limited weight call requires the hotkey to hold a uid on the subnet
+        // at dispatch, so an unregistered signer is refused here rather than admitted as a
+        // free (`Pays::No`) failing extrinsic.
         let Ok(neuron_uid) = Pallet::<T>::get_uid_for_net_and_hotkey(netuid, who) else {
-            return Ok(());
+            return Err(Error::<T>::HotKeyNotRegisteredInSubNet);
         };
 
         let current_block = Pallet::<T>::get_current_block_as_u64();
@@ -60,6 +67,21 @@ impl<T: Config> CheckRateLimits<T> {
                 Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
                 Error::<T>::CommittingWeightsTooFast,
             ),
+            Call::commit_timelocked_weights { netuid, .. } => Self::check_weights_rate_limit(
+                who,
+                *netuid,
+                NetUidStorageIndex::from(*netuid),
+                Error::<T>::CommittingWeightsTooFast,
+            ),
+            Call::commit_timelocked_mechanism_weights { netuid, mecid, .. }
+            | Call::commit_crv3_mechanism_weights { netuid, mecid, .. } => {
+                Self::check_weights_rate_limit(
+                    who,
+                    *netuid,
+                    Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                    Error::<T>::CommittingWeightsTooFast,
+                )
+            }
             Call::set_weights { netuid, .. }
                 if !Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) =>
             {
@@ -87,6 +109,31 @@ impl<T: Config> CheckRateLimits<T> {
             }
             _ => Ok(()),
         }
+    }
+
+    /// One pending commit per hotkey and mechanism when commits are rate limited. Calls sharing
+    /// this tag also share the same on-chain rate limit, so the pool keeps only one candidate
+    /// instead of landing the rest as deterministic `CommittingWeightsTooFast` failures.
+    pub(crate) fn provides_tags(who: &T::AccountId, call: &Call<T>) -> Vec<Vec<u8>> {
+        let (netuid, netuid_index) = match call {
+            Call::commit_weights { netuid, .. }
+            | Call::commit_timelocked_weights { netuid, .. } => {
+                (*netuid, NetUidStorageIndex::from(*netuid))
+            }
+            Call::commit_mechanism_weights { netuid, mecid, .. }
+            | Call::commit_timelocked_mechanism_weights { netuid, mecid, .. }
+            | Call::commit_crv3_mechanism_weights { netuid, mecid, .. } => (
+                *netuid,
+                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+            ),
+            _ => return Vec::new(),
+        };
+
+        if Pallet::<T>::get_weights_set_rate_limit(netuid) == 0 {
+            return Vec::new();
+        }
+
+        vec![(b"weight-commit", who, netuid_index).encode()]
     }
 }
 
@@ -133,7 +180,7 @@ mod tests {
     };
     use frame_system::Call as SystemCall;
     use sp_core::U256;
-    use sp_runtime::DispatchError;
+    use sp_runtime::{DispatchError, Saturating};
     use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
     fn dispatch_with_ext(call: RuntimeCall, origin: RuntimeOrigin) -> DispatchResultWithPostInfo {
@@ -190,6 +237,25 @@ mod tests {
                 netuid,
                 mecid: MechId::MAIN,
                 commit_hash: sp_core::H256::zero(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_weights {
+                netuid,
+                commit: Default::default(),
+                reveal_round: 1,
+                commit_reveal_version: 4,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit: Default::default(),
+                reveal_round: 1,
+                commit_reveal_version: 4,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_crv3_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit: Default::default(),
+                reveal_round: 1,
             }),
             set_weights_call(netuid, 0),
             RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights {
@@ -305,7 +371,11 @@ mod tests {
             System::set_block_number(200_u64);
             SubtensorModule::set_network_last_lock_block(100);
             let coldkey = U256::from(70);
-            fund(coldkey, SubtensorModule::get_network_lock_cost().into());
+            fund(
+                coldkey,
+                SubtensorModule::get_network_lock_cost()
+                    .saturating_add(crate::tests::mock::ExistentialDeposit::get()),
+            );
 
             assert_ok!(dispatch_with_ext(
                 register_network_call(U256::from(71)),

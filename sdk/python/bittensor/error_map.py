@@ -84,6 +84,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "HotKeyAccountNotExists": _C.NOT_REGISTERED,
     "HotKeyNotRegisteredInNetwork": _C.NOT_REGISTERED,
     "NonAssociatedColdKey": _C.NOT_AUTHORIZED,
+    "HotkeyOwnerPolicyViolation": _C.NOT_AUTHORIZED,
     "NotEnoughStake": _C.INSUFFICIENT_BALANCE,
     "NotEnoughStakeToWithdraw": _C.INSUFFICIENT_BALANCE,
     # Hotkey stake-weight floor for set/commit weights (not free-TAO balance).
@@ -162,6 +163,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "StakeUnavailable": _C.INSUFFICIENT_BALANCE,
     "SubnetNotExists": _C.SUBNET_NOT_EXISTS,
     "TooManyUnrevealedCommits": _C.LIMIT_EXCEEDED,
+    "CommitPayloadTooLarge": _C.LIMIT_EXCEEDED,
+    "CommitQueueFull": _C.LIMIT_EXCEEDED,
     "ExpiredWeightCommit": _C.EXPIRED,
     "RevealTooEarly": _C.TOO_EARLY,
     "InputLengthsUnequal": _C.INVALID_ARGUMENT,
@@ -214,9 +217,25 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "UidMapCouldNotBeCleared": _C.INTERNAL,
     "TrimmingWouldExceedMaxImmunePercentage": _C.LIMIT_EXCEEDED,
     "ChildParentInconsistency": _C.INVALID_ARGUMENT,
-    "InvalidNumRootClaim": _C.INVALID_ARGUMENT,
     "InvalidRootClaimThreshold": _C.INVALID_ARGUMENT,
-    "InvalidSubnetNumber": _C.INVALID_ARGUMENT,
+    "BasketHasNoWeights": _C.INVALID_ARGUMENT,
+    "BetaBasketSeedInProgress": _C.TOO_EARLY,
+    "BasketDepositPending": _C.TOO_EARLY,
+    "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
+    "RootWeightCapExceeded": _C.LIMIT_EXCEEDED,
+    "InvalidBatchLength": _C.INVALID_ARGUMENT,
+    "TooManyStakingHotkeys": _C.LIMIT_EXCEEDED,
+    "ColdkeySwapTooHeavy": _C.LIMIT_EXCEEDED,
+    "RootWeightSettingDisabled": _C.DISABLED,
+    "BasketConcentrationCapExceeded": _C.LIMIT_EXCEEDED,
+    "BasketTradingDisabled": _C.DISABLED,
+    "BasketTradingFrozen": _C.DISABLED,
+    "BasketTurnoverBudgetExceeded": _C.RATE_LIMITED,
+    "BasketSameSubnet": _C.INVALID_ARGUMENT,
+    "BasketLiquidityCapExceeded": _C.LIMIT_EXCEEDED,
+    "BasketSwapBatchEmpty": _C.INVALID_ARGUMENT,
+    "BasketMinOutNotMet": _C.INSUFFICIENT_LIQUIDITY,  # user floor, same family as SlippageTooHigh
+    "RootStakeLocked": _C.TOO_EARLY,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,
     "VotingPowerTrackingNotEnabled": _C.DISABLED,
     "InvalidVotingPowerEmaAlpha": _C.INVALID_ARGUMENT,
@@ -226,6 +245,17 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
     "ColdkeyCollateralIncomplete": _C.INTERNAL,
     "ColdkeyCollateralPositionsFull": _C.LIMIT_EXCEEDED,
+    "TaoUsdPriceUnavailable": _C.DISABLED,
+    "GammaDisabled": _C.DISABLED,
+    "TooManyGammaDeposits": _C.LIMIT_EXCEEDED,
+    "GammaDepositDoesNotExist": _C.NOT_FOUND,
+    "GammaDepositNotEmpty": _C.INVALID_ARGUMENT,
+    "GammaDepositSpenderMismatch": _C.INVALID_ARGUMENT,
+    "GammaDepositDailySpendCapMismatch": _C.INVALID_ARGUMENT,
+    "NotGammaDepositSpender": _C.NOT_AUTHORIZED,
+    "InsufficientGammaBalance": _C.INSUFFICIENT_BALANCE,
+    "GammaDepositDailySpendCapExceeded": _C.LIMIT_EXCEEDED,
+    "ServiceDoesNotExist": _C.NOT_FOUND,
     # Pending announcement blocks nearly all signed calls until the swap is
     # executed or the announcement is cleared (guards/check_coldkey_swap.rs).
     # Bucketed as disabled (feature/path blocked), not already_exists.
@@ -242,6 +272,26 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "NoExistingLock": _C.NOT_FOUND,
     "ActiveLockExists": _C.ALREADY_EXISTS,
     "CannotUseSystemAccount": _C.NOT_AUTHORIZED,
+    # Emission weight vector (`sudo_set_subnet_emission_weights`): one error per
+    # rule so a caller learns the constraint from the failure alone.
+    "EmissionWeightsLengthMismatch": _C.INVALID_ARGUMENT,
+    "EmissionWeightIndexOutOfRange": _C.INVALID_ARGUMENT,
+    "EmissionWeightIndexDuplicated": _C.INVALID_ARGUMENT,
+    "EmissionWeightsDoNotSumToOne": _C.INVALID_ARGUMENT,
+    "BurnEmissionMustBeZero": _C.POLICY_VIOLATION,
+    "RecycleEmissionMustBeZero": _C.POLICY_VIOLATION,
+    "BurnRecycleEmissionAboveMaximum": _C.POLICY_VIOLATION,
+    "OwnerEmissionAboveMaximum": _C.POLICY_VIOLATION,
+    "LeasedSubnetOwnerCutBelowMinimum": _C.POLICY_VIOLATION,
+    "ValidatorEmissionAboveMaximum": _C.POLICY_VIOLATION,
+    "ValidatorEmissionTooLowToPreserveRoot": _C.POLICY_VIOLATION,
+    "MinerEmissionBelowMinimum": _C.POLICY_VIOLATION,
+    "EmissionWeightsNotSettableOnRoot": _C.INVALID_ARGUMENT,
+    "EmissionSlotsNotAscending": _C.INVALID_ARGUMENT,
+    "GammaEmissionAboveMaximum": _C.POLICY_VIOLATION,
+    "GammaEmissionTargetNotWhitelisted": _C.POLICY_VIOLATION,
+    "TooManyGammaShares": _C.LIMIT_EXCEEDED,
+    "GammaEmissionNotSettableOnLeasedSubnet": _C.POLICY_VIOLATION,
     "UnlockAmountTooHigh": _C.INSUFFICIENT_BALANCE,
     "TempoOutOfBounds": _C.INVALID_ARGUMENT,
     "ActivityCutoffFactorMilliOutOfBounds": _C.INVALID_ARGUMENT,
@@ -249,6 +299,9 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AutoEpochAlreadyImminent": _C.ALREADY_EXISTS,
     "DynamicTempoBlockedByCommitReveal": _C.DISABLED,
     "AccountRejectsLockedAlpha": _C.POLICY_VIOLATION,
+    "AccountRejectsStakingHotkeyGrowth": _C.POLICY_VIOLATION,
+    "ColdkeySwapDestinationReserved": _C.ALREADY_EXISTS,
+    "ColdkeySwapDestinationReservationNotFound": _C.NOT_FOUND,
     # ── Utility ─────────────────────────────────────────────────────────
     "TooManyCalls": _C.LIMIT_EXCEEDED,
     "InvalidDerivedAccount": _C.INVALID_ARGUMENT,
@@ -258,6 +311,9 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "MinimumThreshold": _C.INVALID_ARGUMENT,
     "AlreadyApproved": _C.ALREADY_EXISTS,
     "NoApprovalsNeeded": _C.INVALID_ARGUMENT,
+    "SafeDerivationFailed": _C.INVALID_ARGUMENT,  # also Utility and Proxy
+    "InvalidSafeAccountId": _C.INVALID_ARGUMENT,
+    "ThresholdTooHigh": _C.INVALID_ARGUMENT,
     "TooFewSignatories": _C.INVALID_ARGUMENT,
     "TooManySignatories": _C.LIMIT_EXCEEDED,
     "SignatoriesOutOfOrder": _C.INVALID_ARGUMENT,
@@ -284,6 +340,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "RescheduleNoChange": _C.INVALID_ARGUMENT,
     "Named": _C.INVALID_ARGUMENT,
     # ── Proxy ───────────────────────────────────────────────────────────
+    "AccountPolicyViolation": _C.NOT_AUTHORIZED,
     "NotProxy": _C.NOT_AUTHORIZED,
     "Unproxyable": _C.NOT_AUTHORIZED,
     "Duplicate": _C.ALREADY_EXISTS,
@@ -297,6 +354,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AccountNotAllowedCommit": _C.NOT_AUTHORIZED,
     "SpaceLimitExceeded": _C.LIMIT_EXCEEDED,
     "UnexpectedUnreserveLeftover": _C.INTERNAL,
+    "TimelockRevealFailedNotAllowed": _C.INVALID_ARGUMENT,
     # ── AdminUtils ──────────────────────────────────────────────────────
     "SubnetDoesNotExist": _C.SUBNET_NOT_EXISTS,
     "MaxValidatorsLargerThanMaxUIds": _C.INVALID_ARGUMENT,
@@ -314,6 +372,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "POWRegistrationDisabled": _C.DISABLED,
     "CollateralLockShareTooHigh": _C.INVALID_ARGUMENT,
     "CollateralDrainRatioOutOfBounds": _C.INVALID_ARGUMENT,
+    "GrandpaChangeDelayMustBeZero": _C.INVALID_ARGUMENT,
     # ── SafeMode ────────────────────────────────────────────────────────
     "Entered": _C.ALREADY_EXISTS,
     "Exited": _C.ALREADY_EXISTS,
@@ -323,7 +382,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "CannotReleaseYet": _C.TOO_EARLY,
     "CurrencyError": _C.INTERNAL,
     # ── Ethereum ────────────────────────────────────────────────────────
-    "InvalidSignature": _C.INVALID_ARGUMENT,  # also EVM, LimitOrders
+    "InvalidSignature": _C.INVALID_ARGUMENT,  # also EVM, LimitOrders, HashedAccounts
     "PreLogExists": _C.INVALID_ARGUMENT,
     # ── EVM ─────────────────────────────────────────────────────────────
     "BalanceLow": _C.INSUFFICIENT_BALANCE,
@@ -333,6 +392,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "GasPriceTooLow": _C.INVALID_ARGUMENT,
     "InvalidNonce": _C.INVALID_ARGUMENT,
     "GasLimitTooLow": _C.INVALID_ARGUMENT,
+    "AuthorizationListTooLarge": _C.LIMIT_EXCEEDED,
     "GasLimitTooHigh": _C.INVALID_ARGUMENT,
     "InvalidChainId": _C.INVALID_ARGUMENT,
     "Reentrancy": _C.INTERNAL,
@@ -355,6 +415,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BlockDurationTooShort": _C.INVALID_ARGUMENT,
     "BlockDurationTooLong": _C.INVALID_ARGUMENT,
     "InvalidCrowdloanId": _C.NOT_FOUND,
+    "FundsNotSettled": _C.POLICY_VIOLATION,
     "CapRaised": _C.LIMIT_EXCEEDED,
     "ContributionPeriodEnded": _C.EXPIRED,
     "ContributionTooLow": _C.INVALID_ARGUMENT,
@@ -443,6 +504,35 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ArithmeticOverflow": _C.INTERNAL,
     "DuplicateOrderInBatch": _C.INVALID_ARGUMENT,
     "ZeroShareInBatch": _C.INVALID_ARGUMENT,
+    "NoLinkedOutput": _C.NOT_FOUND,
+    "LinkedOutputSignerMismatch": _C.INVALID_ARGUMENT,
+    "LinkedOutputAssetMismatch": _C.INVALID_ARGUMENT,
+    "LinkedOutputExpired": _C.EXPIRED,
+    "LinkedAmountResolvedToZero": _C.INVALID_ARGUMENT,
+    "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
+    "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
+    "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
+    "OrderSignerFrozen": _C.NOT_AUTHORIZED,
+    "OrderNonceUsed": _C.ALREADY_EXISTS,
+    "OrderNotApproved": _C.NOT_AUTHORIZED,
+    "OrderBatchTooLarge": _C.LIMIT_EXCEEDED,
+    "TooManyApprovedOrders": _C.LIMIT_EXCEEDED,
+    "OrderAccountMissing": _C.NOT_FOUND,
+    "InvalidAuthorizationMode": _C.INVALID_ARGUMENT,
+    # ── HashedAccounts ──────────────────────────────────────────────────
+    "Disabled": _C.DISABLED,
+    "UnsupportedDescriptor": _C.INVALID_ARGUMENT,
+    "DescriptorMismatch": _C.INVALID_ARGUMENT,
+    "NotRegistered": _C.NOT_REGISTERED,
+    "WrongGeneration": _C.INVALID_ARGUMENT,
+    "WrongCommitment": _C.NOT_AUTHORIZED,
+    "InvalidNextCommitment": _C.INVALID_ARGUMENT,
+    "GenerationExhausted": _C.LIMIT_EXCEEDED,
+    "AliasCollision": _C.ALREADY_EXISTS,
+    "AuthenticationKindConflict": _C.POLICY_VIOLATION,
+    "InvalidDerivedAuthority": _C.INVALID_ARGUMENT,
+    "DerivedAuthorityTooComplex": _C.LIMIT_EXCEEDED,
+    "RegistrationDepositTooHigh": _C.LIMIT_EXCEEDED,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────
@@ -579,8 +669,9 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     ),
     "StakeAmountTooLow": (
         _C.LIMIT_EXCEEDED,
-        "The stake amount is below the chain minimum, or the hotkey's stake weight is "
-        "below the floor required to set/commit weights. Check `btcli stake list`.",
+        "The stake amount is below the chain minimum, the hotkey's stake weight is "
+        "below the floor required to set/commit weights, or a gamma spend is below 0.1 gamma "
+        "without emptying the deposit. Check `btcli stake list`.",
     ),
     "RateLimitExceeded": (
         _C.RATE_LIMITED,
@@ -612,7 +703,9 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     "Payment": (
         _C.INSUFFICIENT_BALANCE,
         "The signing account cannot cover the transaction fee (and tip). Fund the "
-        "account or lower the tip; check with `btcli wallet balance`.",
+        "account with free TAO or lower the tip; check with `btcli wallet balance`. "
+        "MEV-shielded submissions charge the outer carrier in TAO only — if you "
+        "only hold staked alpha, retry with `--no-mev-shield`.",
     ),
     "Future": (
         _C.TOO_EARLY,

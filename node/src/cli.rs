@@ -43,6 +43,13 @@ pub struct Cli {
     /// For `build-patched-spec`, the implicit default is `skip` unless this flag is explicitly set.
     #[arg(long, value_enum, default_value_t = HistoryBackfill::Keep)]
     pub history_backfill: HistoryBackfill,
+
+    /// Expose `grandpa_genWarpSyncCheckpoint` for generating a trusted warp-sync checkpoint.
+    ///
+    /// The response is compact but requires retained GRANDPA transition history. Public endpoints
+    /// should apply their normal RPC rate limits.
+    #[arg(long, default_value_t = false)]
+    pub enable_warp_sync_checkpoint_rpc: bool,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -116,6 +123,13 @@ pub struct CloneStateCmd {
     /// P2P port used by the temporary sync node.
     #[arg(long, default_value_t = 30466)]
     pub port: u16,
+
+    /// Maximum outbound peers for the temporary sync node. Clone jobs run
+    /// behind NAT and receive no inbound connections, so every peer is one
+    /// this node dials; warp proofs come only from peers on a compatible
+    /// release, and more outbound slots raise the chance of reaching one.
+    #[arg(long, default_value_t = 150)]
+    pub out_peers: u32,
 
     /// Maximum time to wait for sync completion.
     #[arg(long, default_value_t = 7200)]

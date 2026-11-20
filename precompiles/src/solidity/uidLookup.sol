@@ -13,4 +13,8 @@ interface IUidLookup {
         address evm_address,
         uint16 limit
     ) external view returns (LookupItem[] memory);
+    function getAssociatedEvmAddress(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (bool exists, address evmAddress, uint64 blockAssociated);
 }

@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: base_fee_set_elasticity
+expression: fee
+---
+67091

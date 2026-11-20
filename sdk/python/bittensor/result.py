@@ -50,6 +50,29 @@ class ConnectionNotReady(BittensorError):
     """Raised when the client is used before its connection is opened."""
 
 
+class RpcConnectionError(BittensorError):
+    """Raised when the public RPC transport cannot complete an operation."""
+
+
+class RpcPolicyError(RpcConnectionError):
+    """Raised when an RPC endpoint explicitly refuses traffic under a policy."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: str | None = None,
+        policy: str | None = None,
+        reason: str | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+        self.policy = policy
+        self.reason = reason
+
+
 # Rustc help conventions: lowercase, no trailing punctuation, states the fix.
 # Commands are backticked so the CLI renders them in the command style.
 REMEDIATION: dict[ErrorCode, str] = {
@@ -176,8 +199,8 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "\n"
         "a newly registered subnet starts inactive: staking, unstaking, and other alpha "
         "operations are rejected until the subnet owner activates it with "
-        "`btcli sudo start`. there is nothing to fix on your side; wait for the "
-        "subnet to become active (`btcli sudo check-start`)."
+        "`btcli hparams start`. there is nothing to fix on your side; wait for the "
+        "subnet to become active (`btcli hparams check-start`)."
     ),
     ErrorCode.DISABLED: (
         "the call or feature is blocked by a chain/subnet switch or pending state: "
@@ -191,7 +214,7 @@ EXPLANATIONS: dict[ErrorCode, str] = {
     ),
     ErrorCode.TOO_EARLY: (
         "the call arrived before its window opened: a reveal before the reveal "
-        "period, a coldkey swap before its delay elapsed, `btcli sudo start` before "
+        "period, a coldkey swap before its delay elapsed, `btcli hparams start` before "
         "enough blocks passed, or a finalization before the period ended.\n"
         "\n"
         "unlike rate_limited this is not about calling too often — the flow has a "
@@ -284,10 +307,10 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
     "SlippageTooHigh": (
-        "the price moved past the slippage-protection limit (stake trades are "
-        "protected by default with a 5% tolerance); retry, raise the tolerance "
-        "(`--rate-tolerance 0.1` / rate_tolerance=0.1), or disable protection "
-        "entirely (`--no-slippage-protection` / slippage_protection=False)"
+        "the price moved past the slippage-protection limit (stake trades and gamma "
+        "mints are protected by default with a 5% tolerance); retry, raise the tolerance "
+        "(`--rate-tolerance 0.1` / rate_tolerance=0.1), or, for stake trades, disable "
+        "protection entirely (`--no-slippage-protection` / slippage_protection=False)"
     ),
     "ColdkeySwapAnnounced": (
         "this coldkey has a pending swap announcement that blocks transfers "
@@ -312,8 +335,10 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "use the same new coldkey you announced"
     ),
     "Payment": (
-        "fund the signing account so it can cover fees (and tip); check with "
-        "`btcli wallet balance`"
+        "fund the signing account with free TAO for fees (and tip); check with "
+        "`btcli wallet balance`. MEV-shielded submissions cannot take the outer "
+        "carrier fee in alpha — retry with `--no-mev-shield` if you only hold "
+        "staked alpha"
     ),
     "Future": (
         "the nonce is too high; wait for pending extrinsics or resubmit with "
@@ -326,12 +351,32 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "the command — if it keeps failing, use a local wallet or file a bug"
     ),
     "ZeroMaxAmount": (
-        "relax the price/slippage limit or wait for a better price so max_amount "
-        "is non-zero"
+        "relax the price/slippage limit or wait for a better price so max_amount is non-zero"
     ),
     "AmountTooLow": (
-        "raise the amount above the chain minimum stake (after fees/slippage); "
-        "check with `btcli stake list` / subnet price"
+        "raise the amount above the chain minimum stake (after fees/slippage), or to "
+        "mint, spend or move at least 0.1 gamma, or a daily spend cap to 0 or at least 0.1 "
+        "gamma; check with `btcli stake list` / subnet price"
+    ),
+    "NonAssociatedColdKey": (
+        "sign with the coldkey that owns the hotkey (`btcli wallet registrations`) or its "
+        "gamma deposit (`btcli gamma show`)"
+    ),
+    "TaoUsdPriceUnavailable": (
+        "the TAO/USD price is missing or over 300 blocks old; check `btcli query tao-usd-price` "
+        "and retry once the oracle feeds"
+    ),
+    "GammaDepositNotEmpty": (
+        "move the balance out with `btcli gamma move --amount-gamma all`, which closes "
+        "the deposit, or close it once its hotkey has spent it"
+    ),
+    "GammaDepositDailySpendCapMismatch": (
+        "the deposit already has another daily spend cap (`btcli gamma show`); mint without "
+        "`--daily-spend-cap-gamma`, or change it with `btcli gamma set-cap` first"
+    ),
+    "TooManyGammaDeposits": (
+        "move gamma into an existing deposit with `btcli gamma move`, or close an empty one "
+        "with `btcli gamma close`"
     ),
     "StakeAmountTooLow": (
         "raise the stake amount above the minimum, or stake more to the hotkey if "
@@ -342,16 +387,22 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "(`btcli stake add` / `btcli stake list`); funding free TAO alone will not help"
     ),
     "NotEnoughStakeToWithdraw": (
-        "lower the unstake/move amount; check free stake with `btcli stake list` "
-        "(locks and collateral do not count)"
+        "lower the amount or use the hotkey that actually holds the stake "
+        "(`btcli stake list`); lock target and stake hotkey can differ"
     ),
     "NotEnoughBalanceToStake": (
-        "fund the coldkey or reduce the stake/registration amount; check with "
+        "fund the coldkey or reduce the stake, mint or registration amount; check with "
         "`btcli wallet balance`"
     ),
     "StakeUnavailable": (
         "only free stake can move — wait out conviction locks or drain miner "
-        "collateral, then retry; check with `btcli stake list`"
+        "collateral, then retry; check locked vs free with `btcli stake list`"
+    ),
+    "LockHotkeyMismatch": (
+        "reuse the existing lock hotkey, or for transfers of locked alpha land "
+        "on the receiver's lock hotkey via `btcli stake transfer "
+        "--destination-hotkey <lock-hotkey>`; inspect with `btcli conviction show` / "
+        "`btcli stake list`"
     ),
     "NeuronNoValidatorPermit": (
         "this hotkey lacks a validator permit on the subnet; increase stake weight "
@@ -379,20 +430,29 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "CommitRevealEnabled": (
         "this subnet requires commit-reveal weights; use the commit/reveal path "
-        "(btcli weights auto-selects it) instead of plain set_weights — check with "
-        "`btcli sudo get --netuid N`"
+        "(btcli misc weights auto-selects it) instead of plain set_weights — check with "
+        "`btcli hparams get --netuid N`"
+    ),
+    "CommitPayloadTooLarge": (
+        "ciphertext exceeds the subnet consensus limit (floor(32 KiB / mechanism_count) "
+        "for Null, 5,000 bytes for "
+        "Yuma); reduce the row or check epoch_consensus"
+    ),
+    "CommitQueueFull": (
+        "the Null subnet's shared timelock queue reached its byte or count limit; "
+        "wait for the next epoch or for queued commits to reveal"
     ),
     "CommitRevealDisabled": (
         "commit-reveal is off on this subnet; use plain set_weights — check with "
-        "`btcli sudo get --netuid N`"
+        "`btcli hparams get --netuid N`"
     ),
     "SubNetRegistrationDisabled": (
         "registration is closed on this subnet; check `network_registration_allowed` "
-        "with `btcli sudo get --netuid N` or ask the owner"
+        "with `btcli hparams get --netuid N` or ask the owner"
     ),
     "SubtokenDisabled": (
-        "the subnet is not started yet; wait for the owner to run `btcli sudo start` "
-        "(`btcli sudo check-start`)"
+        "the subnet is not started yet; wait for the owner to run `btcli hparams start` "
+        "(`btcli hparams check-start`)"
     ),
     "RegistrationNotPermittedOnRootSubnet": (
         "do not register on netuid 0 with the normal register path; use the root "
@@ -631,9 +691,11 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
             if wrapper not in err:
                 continue
             variant = err[wrapper]
-            if wrapper in ("Token", "Arithmetic", "Transactional") and isinstance(
-                variant, dict
-            ) and variant:
+            if (
+                wrapper in ("Token", "Arithmetic", "Transactional")
+                and isinstance(variant, dict)
+                and variant
+            ):
                 name = next(iter(variant))
             elif wrapper in ("BadOrigin", "CannotLookup", "Other"):
                 name = wrapper

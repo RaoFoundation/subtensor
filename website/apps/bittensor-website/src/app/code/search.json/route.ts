@@ -1,4 +1,5 @@
 import { buildCommit, searchCode } from '@/lib/code';
+import corpus from '@/lib/generated/code-corpus.json';
 import { codeRoute } from '@/lib/shared';
 
 export const dynamic = 'force-dynamic';
@@ -6,6 +7,9 @@ export const dynamic = 'force-dynamic';
 /**
  * Agent-facing content search over the on-chain Rust corpus.
  * GET /code/search.json?q=<literal>&limit=20
+ *
+ * The corpus is a build-time snapshot (next.config.mjs) bundled into this
+ * function — the Vercel checkout is not available at request time.
  */
 export function GET(req: Request) {
   const url = new URL(req.url);
@@ -22,7 +26,7 @@ export function GET(req: Request) {
     );
   }
 
-  const results = searchCode(q, Number.isFinite(limit) ? limit : 20);
+  const results = searchCode(q, Number.isFinite(limit) ? limit : 20, corpus);
   return Response.json({
     commit: buildCommit(),
     q,

@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: mev_shield_set_on_initialize_weight
+expression: fee
+---
+68171

@@ -1,12 +1,12 @@
-"""`btcli upgrade`: runtime-upgrade proposals — discover, verify, sign.
+"""`btcli misc upgrade`: runtime-upgrade proposals — discover, verify, sign.
 
 The release train proposes a mainnet runtime upgrade as the CI half of a
 2-of-2 deployment multisig and publishes a proposal pre-release whose URL is
 the one thing signers need:
 
-    btcli upgrade pending                       # what is waiting, from chain state
-    btcli upgrade check --url <release-url>     # verify the call data end to end
-    btcli upgrade sign  --url <release-url> -w <wallet>   # approve it
+    btcli misc upgrade pending                       # what is waiting, from chain state
+    btcli misc upgrade check --url <release-url>     # verify the call data end to end
+    btcli misc upgrade sign  --url <release-url> -w <wallet>   # approve it
 
 `sign` re-runs every check first and refuses on any mismatch, then picks the
 right approval (first / interior / final) from chain state — no signer
@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 import typer
 
-from ... import calls
+from ...account_mode import multisig_call, validate_account_mode
 from .. import multisig_helpers as ms_helpers
 from .. import upgrade_helpers as uh
 from ..context import AppContext, ctx_of
@@ -73,7 +73,7 @@ def upgrade_record_fields(record: dict[str, Any]) -> dict[str, Any]:
     elif not release:
         fields["note"] = (
             "no matching release manifest found — pass the proposal's release URL "
-            "to `btcli upgrade check/sign` directly"
+            "to `btcli misc upgrade check/sign` directly"
         )
     return fields
 
@@ -226,7 +226,7 @@ def _print_reproduce_recipe(app_ctx: AppContext, bundle: uh.ProposalBundle) -> N
 @app.command(
     "check",
     epilog=(
-        "Example: btcli upgrade check "
+        "Example: btcli misc upgrade check "
         "--url https://github.com/RaoFoundation/subtensor/releases/tag/v426 "
         "--wasm ./my-srtool-build.wasm"
     ),
@@ -281,6 +281,7 @@ def _resolve_sudo_signer_set(
     signatories: Optional[str],
     other_signatories: Optional[str],
     manifest: Optional[dict],
+    account_mode: Optional[str] = None,
 ) -> tuple[int, list[str]]:
     """The sudo multisig's (threshold, resolved signatories) for signing.
 
@@ -296,6 +297,7 @@ def _resolve_sudo_signer_set(
         other_signatories=other_signatories,
         signer="coldkey",
         wallet_default=None,
+        account_mode=account_mode,
     )
     if threshold is not None:
         return threshold, sigs
@@ -303,6 +305,9 @@ def _resolve_sudo_signer_set(
     manifest_sigs = [str(s) for s in sudo.get("signatories") or []]
     manifest_threshold = sudo.get("threshold")
     if manifest_sigs and manifest_threshold:
+        app_ctx.multisig_account_mode = validate_account_mode(
+            account_mode or sudo.get("account_mode", "legacy")
+        )
         return int(manifest_threshold), list(dict.fromkeys(manifest_sigs))
     raise ValueError(
         "cannot determine the sudo multisig signer set: the release manifest has "
@@ -314,7 +319,7 @@ def _resolve_sudo_signer_set(
 @app.command(
     "sign",
     epilog=(
-        "Example: btcli upgrade sign "
+        "Example: btcli misc upgrade sign "
         "--url https://github.com/RaoFoundation/subtensor/releases/tag/v426 -w trium-a"
     ),
 )
@@ -339,6 +344,9 @@ def upgrade_sign(
     ),
     multisig: Optional[str] = typer.Option(
         None, "--multisig", help="Saved sudo-multisig name (see `btcli multisig list`)."
+    ),
+    multisig_account_mode: Optional[str] = typer.Option(
+        None, "--multisig-account-mode", help="Sudo group derivation: legacy or safe."
     ),
     multisig_threshold: Optional[int] = typer.Option(
         None, "--multisig-threshold", help="Sudo multisig threshold (with --signatories)."
@@ -378,11 +386,13 @@ def upgrade_sign(
             signatories=signatories,
             other_signatories=other_signatories,
             manifest=bundle.manifest,
+            account_mode=multisig_account_mode,
         )
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
 
+    sudo_account_mode = getattr(app_ctx, "multisig_account_mode", "legacy")
     signer_address = app_ctx.wallet().coldkeypub.ss58_address
     if signer_address not in sudo_signatories:
         app_ctx.output.error(
@@ -397,7 +407,9 @@ def upgrade_sign(
         outcome = await uh.run_proposal_checks(client, bundle)
         plan: dict[str, Any] = {}
         if outcome.ok:
-            derived = await client.multisig(sudo_signatories, sudo_threshold)
+            derived = await client.multisig(
+                sudo_signatories, sudo_threshold, account_mode=sudo_account_mode
+            )
             plan["multisig_address"] = derived.address
             plan["matches_sudo"] = derived.address == outcome.data["sudo_key"]
             if plan["matches_sudo"]:
@@ -458,7 +470,41 @@ def upgrade_sign(
         )
         return
 
-    app_ctx.confirm(prompt + "?")
+    spec = ((outcome.data.get("manifest") or {}).get("spec_version")) or "?"
+    app_ctx.show_review(
+        [
+            (
+                "Upgrade",
+                [
+                    ("action", prompt),
+                    ("position", position),
+                    ("spec", spec),
+                    ("sudo multisig", plan["multisig_address"]),
+                ],
+            ),
+            ("Fees", [("estimated fee", "unavailable")]),
+            (
+                "Signer",
+                [
+                    ("signer", signer_address),
+                    ("multisig", plan["multisig_address"]),
+                    ("threshold", f"{sudo_threshold} of {len(sudo_signatories)}"),
+                ],
+            ),
+            (
+                "Transaction",
+                [
+                    ("operation", "runtime-upgrade approval"),
+                    ("call hash", plan["finalizing_call_hash"], "dim"),
+                ],
+            ),
+        ],
+        question=prompt,
+        confirm_facts=[
+            ("via", f"sudo · {sudo_threshold}-of-{len(sudo_signatories)}"),
+            ("signing as", app_ctx.wallet_name),
+        ],
+    )
     signing = app_ctx.signer("coldkey")
 
     # Phase 2: re-read the position from live state and submit the matching
@@ -494,7 +540,9 @@ def upgrade_sign(
         # signers; this outer argument is free to be estimated per submission.
         max_weight = await uh.finalizing_max_weight(client, finalizing, signer_address)
         if sudo_layer is None:
-            call = calls.Multisig.approve_as_multi(
+            call = multisig_call(
+                "approve_as_multi",
+                account_mode=sudo_account_mode,
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=None,
@@ -502,7 +550,9 @@ def upgrade_sign(
                 max_weight=max_weight,
             )
         elif len(approvals) < sudo_threshold - 1:
-            call = calls.Multisig.approve_as_multi(
+            call = multisig_call(
+                "approve_as_multi",
+                account_mode=sudo_account_mode,
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
@@ -510,7 +560,9 @@ def upgrade_sign(
                 max_weight=max_weight,
             )
         else:
-            call = calls.Multisig.as_multi(
+            call = multisig_call(
+                "as_multi",
+                account_mode=sudo_account_mode,
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
@@ -597,7 +649,7 @@ def _report_after_sign(
         # lagged; `upgrade pending` will confirm).
         app_ctx.output.message(
             "the sudo multisig operation is complete — the upgrade should now "
-            "execute; verify with `btcli upgrade pending` and the chain's spec version"
+            "execute; verify with `btcli misc upgrade pending` and the chain's spec version"
         )
         return
     approvals = sudo_layer.get("approvals") or []

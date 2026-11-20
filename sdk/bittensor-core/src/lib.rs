@@ -12,10 +12,13 @@ pub mod client;
 pub mod codec;
 pub mod digest;
 pub mod error;
+pub mod keyfile_env;
 #[cfg(feature = "host")]
 pub mod keyfiles;
 pub mod keys;
 pub mod mlkem;
+#[cfg(feature = "host")]
+pub mod pow;
 pub mod runtime;
 pub mod signers;
 pub mod timelock;

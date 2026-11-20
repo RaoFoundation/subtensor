@@ -143,22 +143,6 @@ def write_writer(path: Path) -> None:
     atomic_write(path, values)
 
 
-def attach_writer_local(writer_path: Path, reader_path: Path) -> None:
-    writer = load_object(writer_path)
-    if writer.get("mode") != "writer":
-        raise ConfigError("invalid writer mode")
-    validate_r2(writer, "writer")
-
-    reader = load_object(reader_path)
-    if reader.get("mode") != "reader":
-        raise ConfigError("invalid reader mode")
-    validate_r2(reader, "reader")
-    if reader.get("local") is None:
-        raise ConfigError("local cache contract is unavailable")
-    writer["local"] = validate_local(reader["local"], credential_source=reader)
-    atomic_write(writer_path, writer)
-
-
 def credential_values(values: dict[str, object]) -> list[str]:
     mode = values.get("mode")
     if mode == "gha":
@@ -327,23 +311,12 @@ def prepare_writer(config_path: Path, output_path: Path) -> bool:
         disable_prepare(config_path, output_path, "invalid local tier mode")
         return False
 
+    # Writers always use direct R2. sccache writes the first level of a
+    # multilevel chain (the host-local tier) synchronously and, under the
+    # `all` write policy, returns before starting the R2 upload when that
+    # write fails. The host-local tier accepts only reader credentials, so an
+    # attached local tier silently discarded every trusted write-through.
     write_writer(config_path)
-    if local_mode == "disabled":
-        return True
-
-    reader_path = config_path.with_name(config_path.name + ".reader")
-    reader_path.unlink(missing_ok=True)
-    error = fetch_reader_contract(reader_path)
-    if error is not None:
-        reader_path.unlink(missing_ok=True)
-        warning(f"local sccache reader unavailable; using direct R2 writer: {error}")
-        return True
-    try:
-        attach_writer_local(config_path, reader_path)
-    except ConfigError:
-        warning("local sccache reader failed validation; using direct R2 writer")
-    finally:
-        reader_path.unlink(missing_ok=True)
     return True
 
 
@@ -469,15 +442,15 @@ def activate(config_path: Path, env_path: Path, output_path: Path) -> int:
                 }
             )
             if values.get("local") is not None:
+                if mode == "writer":
+                    raise ConfigError("writer configuration must use direct R2")
                 local = validate_local(values["local"])
                 mask(local["username"])
                 mask(local["password"])
                 environment.update(
                     {
                         "SCCACHE_MULTILEVEL_CHAIN": "webdav,s3",
-                        "SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY": (
-                            "all" if mode == "writer" else "ignore"
-                        ),
+                        "SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY": "ignore",
                         "SCCACHE_WEBDAV_ENDPOINT": local["endpoint"],
                         "SCCACHE_WEBDAV_KEY_PREFIX": local["key_prefix"],
                         "SCCACHE_WEBDAV_USERNAME": local["username"],

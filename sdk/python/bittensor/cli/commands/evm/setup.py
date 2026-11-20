@@ -195,8 +195,9 @@ def doctor(
         fields["nonce"] = _run_evm(app_ctx, lambda: rpc.get_nonce(info.address))
         if wei == 0:
             app_ctx.output.message(
-                f"key {info.name} has no balance — fund it with `btcli evm fund` "
-                f"(or transfer TAO to its mirror {info.ss58_mirror})"
+                f"key {info.name} has no balance — send TAO to {info.address} "
+                "from an EVM wallet on this network. For native funding, "
+                "`btcli evm fund` checks the selected network's receiving route."
             )
     app_ctx.output.detail(f"EVM endpoint: {network.name}", fields)
 
@@ -253,13 +254,32 @@ def setup_localnet(
         ("disable the contract deployment whitelist", calls.EVM.disable_whitelist(disabled=True))
     )
 
+    step_rows = [(f"step {i + 1}", desc) for i, (desc, _) in enumerate(plan)]
+    stages = [
+        (
+            "Setup",
+            [
+                ("summary", f"submit {len(plan)} sudo extrinsic(s)"),
+                ("wallet", app_ctx.wallet_name),
+                *step_rows,
+            ],
+        ),
+        ("Fees", [("estimated fee", "unavailable")]),
+        ("Signer", [("signer", app_ctx.wallet_name)]),
+        ("Transaction", [("operation", "Sudo.sudo"), *step_rows]),
+    ]
     if app_ctx.dry_run:
+        app_ctx.output.transaction_card(stages)
         app_ctx.output.detail(
             "setup-localnet plan (each submitted as Sudo.sudo, signed by the wallet coldkey)",
             {f"step {i + 1}": desc for i, (desc, _) in enumerate(plan)},
         )
         return
-    app_ctx.confirm(f"submit {len(plan)} sudo extrinsic(s) with wallet {app_ctx.wallet_name!r}?")
+    app_ctx.show_review(
+        stages,
+        question=f"submit {len(plan)} sudo extrinsic(s) with wallet {app_ctx.wallet_name!r}",
+        confirm_facts=[("signing as", app_ctx.wallet_name)],
+    )
 
     async def _op(client):
         results = []

@@ -1,0 +1,53 @@
+[
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "precompile",
+				"type": "address"
+			},
+			{
+				"internalType": "bytes4",
+				"name": "selector",
+				"type": "bytes4"
+			}
+		],
+		"name": "getPrecompileStatus",
+		"outputs": [
+			{
+				"components": [
+					{
+						"internalType": "bool",
+						"name": "isDeprecated",
+						"type": "bool"
+					},
+					{
+						"internalType": "bool",
+						"name": "isDisabled",
+						"type": "bool"
+					},
+					{
+						"internalType": "address",
+						"name": "newPrecompile",
+						"type": "address"
+					},
+					{
+						"internalType": "bytes4",
+						"name": "newSelector",
+						"type": "bytes4"
+					},
+					{
+						"internalType": "string",
+						"name": "message",
+						"type": "string"
+					}
+				],
+				"internalType": "struct IPrecompileRegistry.PrecompileStatus",
+				"name": "",
+				"type": "tuple"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]

@@ -34,6 +34,28 @@ use fp_rpc::EthereumRuntimeRPCApi;
 
 const LOG_TARGET: &str = "eth-pending";
 
+/// Only a pool transaction's validity failure permits it to be skipped. An API
+/// failure says nothing about validity and must not produce a successful,
+/// incomplete pending-state response.
+fn pending_extrinsic_outcome(
+	result: Result<sp_runtime::ApplyExtrinsicResult, sp_api::ApiError>,
+	is_inherent: bool,
+) -> TransactionOutcome<Result<(), Error>> {
+	match result {
+		Ok(Ok(Err(error))) if is_inherent => {
+			TransactionOutcome::Rollback(Err(Error::InherentDispatch(error)))
+		}
+		// Included user transactions consume their nonce and fee even when their
+		// inner call fails. Keep those effects in the pending overlay.
+		Ok(Ok(_)) => TransactionOutcome::Commit(Ok(())),
+		Ok(Err(validity)) if is_inherent => {
+			TransactionOutcome::Rollback(Err(ApplyExtrinsicFailed::Validity(validity).into()))
+		}
+		Ok(Err(_)) => TransactionOutcome::Rollback(Ok(())),
+		Err(error) => TransactionOutcome::Rollback(Err(Error::from(error))),
+	}
+}
+
 /// The generated error type for creating pending runtime api.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -47,6 +69,8 @@ pub(crate) enum Error {
 	Backend(#[from] sp_blockchain::Error),
 	#[error(transparent)]
 	ApplyExtrinsicFailed(#[from] ApplyExtrinsicFailed),
+	#[error("Pending inherent dispatch failed: {0:?}")]
+	InherentDispatch(sp_runtime::DispatchError),
 }
 
 impl<B, C, P, CT, BE, CIDP, EC> Eth<B, C, P, CT, BE, CIDP, EC>
@@ -63,15 +87,21 @@ where
 	/// Creates a pending runtime API.
 	pub(crate) async fn pending_runtime_api(&self) -> Result<(B::Hash, ApiRef<'_, C::Api>), Error> {
 		let api = self.client.runtime_api();
+		// Pin the complete ready pool for this pending-state reconstruction.
+		let extrinsics: Vec<_> = self
+			.graph
+			.ready()
+			.map(|tx| tx.data().as_ref().clone())
+			.collect();
 
 		let info = self.client.info();
 		let (best_number, best_hash) = (info.best_number, info.best_hash);
 
-		let inherent_data_provider = self
+		let provider = self
 			.pending_create_inherent_data_providers
 			.create_inherent_data_providers(best_hash, ())
 			.await?;
-		let inherent_data = inherent_data_provider.create_inherent_data().await?;
+		let inherent_data = provider.create_inherent_data().await?;
 
 		let digest = if let Some(digest_provider) = &self.pending_consensus_data_provider {
 			if let Some(header) = self.client.header(best_hash)? {
@@ -93,51 +123,91 @@ where
 			digest,
 		);
 
-		// Initialize the pending block header
-		if api
-			.initialize_pending_block(best_hash, &pending_header)
-			.is_err()
-		{
-			api.initialize_block(best_hash, &pending_header)?;
-		}
+		// Roll back an unsuccessful initialization. Only a genuinely absent
+		// legacy export permits fallback; execution failures do not.
+		let initialized = api.execute_in_transaction(|api| {
+			match api.initialize_pending_block(best_hash, &pending_header) {
+				Ok(()) => TransactionOutcome::Commit(Ok(())),
+				Err(error) => TransactionOutcome::Rollback(Err(error)),
+			}
+		});
+		match initialized {
+            Err(error) if error.to_string() == "Execution failed: Method not found: 'EthereumRuntimeRPCApi_initialize_pending_block'" => {
+                api.execute_in_transaction(|api| {
+                    match api.initialize_block(best_hash, &pending_header) {
+                        Ok(_) => TransactionOutcome::Commit(Ok(())),
+                        Err(error) => TransactionOutcome::Rollback(Err(error)),
+                    }
+                })?;
+            }
+            result => result?,
+        }
 
-		// Apply inherents to the pending block.
-		let inherents = api.execute_in_transaction(move |api| {
-			// `create_inherents` should not change any state, to ensure this we always rollback
-			// the transaction.
+		// Inherent construction must never commit storage effects.
+		let inherents = api.execute_in_transaction(|api| {
 			TransactionOutcome::Rollback(api.inherent_extrinsics(best_hash, inherent_data))
 		})?;
-		log::debug!(target: LOG_TARGET, "Pending runtime API: inherent len = {}", inherents.len());
-		// Apply the inherents to the best block's state.
-		for ext in inherents {
-			let _ = api.execute_in_transaction(|api| match api.apply_extrinsic(best_hash, ext) {
-				Ok(Ok(_)) => TransactionOutcome::Commit(Ok(())),
-				Ok(Err(tx_validity)) => TransactionOutcome::Rollback(Err(
-					ApplyExtrinsicFailed::Validity(tx_validity).into(),
-				)),
-				Err(err) => TransactionOutcome::Rollback(Err(Error::from(err))),
-			});
-		}
-
-		// Get all extrinsics from the ready queue.
-		let extrinsics: Vec<<B as BlockT>::Extrinsic> = self
-			.graph
-			.ready()
-			.map(|in_pool_tx| in_pool_tx.data().as_ref().clone())
-			.collect::<Vec<<B as BlockT>::Extrinsic>>();
-		log::debug!(target: LOG_TARGET, "Pending runtime API: extrinsic len = {}", extrinsics.len());
-		// Apply the extrinsics from the ready queue to the pending block's state.
-		for ext in extrinsics {
-			let _ = api.execute_in_transaction(|api| match api.apply_extrinsic(best_hash, ext) {
-				Ok(Ok(_)) => TransactionOutcome::Commit(Ok(())),
-				Ok(Err(tx_validity)) => TransactionOutcome::Rollback(Err(
-					ApplyExtrinsicFailed::Validity(tx_validity).into(),
-				)),
-				Err(err) => TransactionOutcome::Rollback(Err(Error::from(err))),
-			});
+		log::debug!(target: LOG_TARGET, "Pending runtime API: inherent len = {}, pool len = {}", inherents.len(), extrinsics.len());
+		for (ext, is_inherent) in inherents
+			.into_iter()
+			.map(|ext| (ext, true))
+			.chain(extrinsics.into_iter().map(|ext| (ext, false)))
+		{
+			api.execute_in_transaction(|api| {
+				pending_extrinsic_outcome(api.apply_extrinsic(best_hash, ext), is_inherent)
+			})?;
 		}
 
 		Ok((best_hash, api))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use sp_runtime::{transaction_validity::InvalidTransaction, DispatchError};
+
+	#[test]
+	fn runtime_failures_abort_pending_reconstruction() {
+		for is_inherent in [false, true] {
+			let error = sp_api::ApiError::Application(
+				std::io::Error::other("runtime execution failed").into(),
+			);
+			assert!(matches!(
+				pending_extrinsic_outcome(Err(error), is_inherent),
+				TransactionOutcome::Rollback(Err(Error::CallApi(_)))
+			));
+		}
+	}
+
+	#[test]
+	fn invalid_pool_transactions_are_skipped_but_invalid_inherents_abort() {
+		assert!(matches!(
+			pending_extrinsic_outcome(Ok(Err(InvalidTransaction::Stale.into())), false),
+			TransactionOutcome::Rollback(Ok(()))
+		));
+		assert!(matches!(
+			pending_extrinsic_outcome(Ok(Err(InvalidTransaction::BadMandatory.into())), true),
+			TransactionOutcome::Rollback(Err(Error::ApplyExtrinsicFailed(_)))
+		));
+	}
+
+	#[test]
+	fn included_user_dispatch_errors_keep_fees_and_nonce_but_inherent_errors_abort() {
+		assert!(matches!(
+			pending_extrinsic_outcome(Ok(Ok(Err(DispatchError::BadOrigin))), false),
+			TransactionOutcome::Commit(Ok(()))
+		));
+		assert!(matches!(
+			pending_extrinsic_outcome(Ok(Ok(Err(DispatchError::BadOrigin))), true),
+			TransactionOutcome::Rollback(Err(Error::InherentDispatch(DispatchError::BadOrigin)))
+		));
+		for is_inherent in [false, true] {
+			assert!(matches!(
+				pending_extrinsic_outcome(Ok(Ok(Ok(()))), is_inherent),
+				TransactionOutcome::Commit(Ok(()))
+			));
+		}
 	}
 }
 

@@ -68,7 +68,12 @@ from .reads import (
     StakePosition,
     StakeValuation,
     SubnetInfo,
+    SubnetLifecycleState,
     SwapQuote,
+)
+from .registration_sponsorship import (
+    RegistrationSponsorship,
+    RegistrationSponsorshipRequired,
 )
 from .result import (
     BittensorError,
@@ -77,6 +82,8 @@ from .result import (
     ErrorCode,
     ExtrinsicResult,
     PolicyError,
+    RpcConnectionError,
+    RpcPolicyError,
 )
 from .signing import (
     KeyedWallet,
@@ -137,7 +144,10 @@ __all__ = [
     "MetagraphNeuron",
     "NeuronCommitment",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "Balance",
+    "RegistrationSponsorship",
+    "RegistrationSponsorshipRequired",
     "UnitMismatchError",
     "tao",
     "alpha",
@@ -156,6 +166,8 @@ __all__ = [
     "ConnectionNotReady",
     "ErrorCode",
     "PolicyError",
+    "RpcConnectionError",
+    "RpcPolicyError",
     "Wallet",
     "wallet",  # lowercase alias for Wallet
     "wallets",

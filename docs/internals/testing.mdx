@@ -148,6 +148,27 @@ pnpm moonwall run dev
 pnpm moonwall run zombienet_staking
 ```
 
+### Testing a runtime without rebuilding the node
+
+The `dev` and `local` chain specs read their runtime from
+`SUBTENSOR_LOCALNET_RUNTIME_WASM` when it is set, instead of the runtime
+embedded in the node. A runtime-only change then needs only a new wasm:
+
+```bash
+SUBTENSOR_LOCALNET_RUNTIME_WASM=$PWD/target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
+  ./path/to/older/node-subtensor --dev
+```
+
+CI uses this for pull requests. When
+`.github/scripts/classify-node-changes.sh` finds no change compiled into the
+node natively, the TypeScript E2E, Rust SDK E2E, and mainnet clone jobs take
+the node that `docker-localnet.yml` built for the PR's base commit and build
+only the runtime wasm. Before using it,
+`.github/scripts/verify-base-node-runtime.py` boots that node with the new
+wasm and requires every runtime API version and method signature, and the BABE
+configuration, to be unchanged; otherwise the job builds the node as before.
+The job summary's "Node binary" section says which path ran.
+
 ## Other suites
 
 - **Mainnet clone** (`clones/`): clones live mainnet state, sudo-upgrades it to

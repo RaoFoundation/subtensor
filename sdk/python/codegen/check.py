@@ -69,15 +69,27 @@ COVERED_PALLETS = (
     "Commitments",
     "AdminUtils",
     "Contracts",
+    "HashedAccounts",
 )
 
 RAW_ONLY: dict[str, set[str]] = {
+    # Ordinary funding and migration intents insert registration automatically
+    # when they have the recipient descriptor. Expose standalone sponsorship
+    # through the raw call surface, not a second wallet-creation workflow.
+    "HashedAccounts": {
+        "register",
+        "check_registered",
+        "check_registration_deposit",
+        # Composite protection is composed by MultisigGroup and derivative
+        # helpers, with the exact call approved by its actual authority.
+        "register_derived",
+        "register_derived_sponsored",
+        "check_derived",
+    },
     "SubtensorModule": {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",
         "sudo_set_min_childkey_take",
-        "sudo_set_num_root_claims",
-        "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
         "trigger_epoch",
@@ -94,18 +106,19 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_set_weights",
         "batch_commit_weights",
         "batch_reveal_weights",
-        # PoW registration — out of scope by design (faucet is testnet-only and
-        # absent from the finney metadata this layer is generated against)
+        # PoW registration — out of scope by design
         "register",
-        # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
-        # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
+        # coldkey swap: V2 announce/execute/clear/dispute/release are wrapped by
+        # intents; these remain raw — legacy hash announce, deprecated schedule,
+        # or root-only (reset, arbitrary swap)
+        "announce_coldkey_swap",
         "reset_coldkey_swap",
+        "reset_coldkey_swap_keep_locked",
         "schedule_swap_coldkey",
         "swap_coldkey",
         "swap_hotkey_v2",
-        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock
-        # are wrapped by lock intents)
-        "set_reject_locked_alpha",
+        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock,
+        # set_reject_locked_alpha are wrapped by lock intents)
         # alpha burn/recycle + buyback variants (add_stake_burn is wrapped)
         "burn_alpha",
         "recycle_alpha",
@@ -122,6 +135,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # updates go through AdminUtils.sudo_set_tempo / sudo_set_activity_cutoff_factor.
         "set_tempo",
         "set_activity_cutoff_factor",
+        # TAO/USD price feed — signed by the oracle only, not agent-executable
+        "feed_tao_usd_price",
     },
     "Balances": {
         # force_* are root-origin; burn/upgrade are niche
@@ -139,6 +154,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "force_batch",
         # origin/dispatch plumbing — niche
         "as_derivative",
+        "as_protected_derivative",
+        "as_safe_derivative",
         "dispatch_as",
         "dispatch_as_fallible",
         "if_else",
@@ -147,6 +164,7 @@ RAW_ONLY: dict[str, set[str]] = {
     "Multisig": {
         # deposit maintenance — niche; the four multisig operations are wrapped
         "poke_deposit",
+        "poke_deposit_safe",
     },
     "Swap": {
         # all user LP calls are DEPRECATED on-chain (per runtime metadata docs);
@@ -159,12 +177,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "toggle_user_liquidity",
     },
     "LimitOrders": {
-        # signed Order payloads (constructed off-chain) and admin-gated execution;
-        # not a fit for a declarative intent. Reachable via the raw-call escape hatch.
-        "cancel_order",
-        "execute_orders",
-        "execute_batched_orders",
+        # Order execution and owner-authorized operations have intents.
+        # Administrative maintenance remains available as raw calls.
         "set_pallet_status",
+        "prune_linked_output",
     },
     "MevShield": {
         # submit_encrypted is exposed via client.submit_shielded (a submission mode,
@@ -195,11 +211,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # the dispatch wrapper itself — used by the executor's proxy signing
         # mode (proxy_for=...), not expressed as a standalone intent
         "proxy",
-        # announced-proxy flow (non-zero delay): proxy_announced is wrapped;
-        # announce/reject/remove remain raw
-        "announce",
-        "reject_announcement",
-        "remove_announcement",
+        # announced-proxy flow (non-zero delay): announce / reject / remove /
+        # proxy_announced are wrapped by intents (protected-account UX)
         # pure (keyless) proxies are wrapped (create_pure/kill_pure); deposit
         # maintenance stays raw — niche
         "poke_deposit",
@@ -231,8 +244,14 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_difficulty",
         "sudo_set_dissolve_network_schedule_duration",
         "sudo_set_ema_price_halving_period",
+        # emission gate tuning (v440/v441) — root-only, no semantic wrapper
+        "sudo_set_emission_bar_quantile",
+        "sudo_set_emission_bar_rank",
+        "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
+        "sudo_set_gamma_enabled",
         "sudo_set_kappa",
+        "sudo_set_liquid_alpha_consensus_mode",
         "sudo_set_lock_reduction_interval",
         "sudo_set_max_allowed_validators",
         "sudo_set_max_epochs_per_block",
@@ -241,6 +260,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # still reachable via `btcli call` if needed
         "sudo_set_mechanism_emission_split",
         "sudo_set_max_registrations_per_block",
+        # root-only Yuma timelocked commit queue cap
+        "sudo_set_max_timelocked_commits_per_hotkey",
         "sudo_set_min_allowed_uids",
         "sudo_set_min_delegate_take",
         "sudo_set_min_difficulty",
@@ -249,21 +270,37 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_network_immunity_period",
         "sudo_set_network_min_lock_cost",
         "sudo_set_network_rate_limit",
-        "sudo_set_network_registration_allowed",
         "sudo_set_nominator_min_required_stake",
         "sudo_set_owner_hparam_rate_limit",
         "sudo_set_rao_recycled",
         "sudo_set_recycle_or_burn",
+        # basket concentration cap (swap_basket guardrail) — root-only, no semantic wrapper
+        "sudo_set_basket_concentration_cap",
+        # validator basket trading gates and budget — root-only governance toggles
+        "sudo_set_basket_trading_enabled",
+        "sudo_set_hashed_accounts_enabled",
+        "sudo_set_hashed_account_registration_deposit",
+        "sudo_set_basket_trading_frozen",
+        "sudo_set_basket_daily_turnover_cap",
+        "sudo_set_basket_liquidity_cap",
+        "sudo_set_basket_min_trade_tao",
+        "sudo_set_basket_claim_dust",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
+        # superseded by v2, which the SetSubnetEmissionWeights intent sends
+        "sudo_set_subnet_emission_weights",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
+        # owner-cut setters deprecated by the emission weight vector (both always
+        # fail with Error::Deprecated; use SetSubnetEmissionWeights)
         "sudo_set_subnet_owner_cut",
+        "sudo_set_owner_cut_enabled",
         "sudo_set_subtoken_enabled",
         "sudo_set_tao_flow_cutoff",
         "sudo_set_tao_flow_normalization_exponent",
         "sudo_set_tao_flow_smoothing_factor",
+        "sudo_set_tao_usd_price_oracle",
         "sudo_set_target_registrations_per_interval",
         "sudo_set_total_issuance",
         "sudo_set_tx_delegate_take_rate_limit",

@@ -19,6 +19,7 @@
 
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use safe_math::FixedExt;
+use sp_runtime::traits::CheckedAdd;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AuthorshipInfo, NetUid};
 use subtensor_swap_interface::SwapHandler;
@@ -94,14 +95,15 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
     ) -> Result<(), Error<T>> {
-        ColdkeyCollateralHotkeys::<T>::try_mutate(netuid, coldkey, |hotkeys| {
-            if hotkeys.contains(hotkey) {
-                return Ok(());
-            }
-            hotkeys
-                .try_push(hotkey.clone())
-                .map_err(|_| Error::<T>::ColdkeyCollateralPositionsFull)
-        })
+        let mut hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, coldkey);
+        if hotkeys.contains(hotkey) {
+            return Ok(());
+        }
+        hotkeys
+            .try_push(hotkey.clone())
+            .map_err(|_| Error::<T>::ColdkeyCollateralPositionsFull)?;
+        ColdkeyCollateralHotkeys::<T>::insert(netuid, coldkey, hotkeys);
+        Ok(())
     }
 
     /// Drop `hotkey` from [`ColdkeyCollateralHotkeys`] when its collateral row
@@ -284,12 +286,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        let tao_paid = Self::transfer_tao_to_subnet(netuid, coldkey, total_charge)?;
-        // `transfer_tao_to_subnet` clips to keep-alive; never accept a short fill.
-        ensure!(
-            tao_paid == total_charge,
-            Error::<T>::NotEnoughBalanceToStake
-        );
         // Bound the AMM fill whenever any of the charge is collateral. A naked
         // `max_price()` lets a delayed/shielded inclusion clear at an
         // arbitrarily worse rate; burn-only registrations keep the historical
@@ -299,7 +295,28 @@ impl<T: Config> Pallet<T> {
         } else {
             Self::collateral_purchase_limit_price(netuid)?
         };
+        // Registration is fill-or-kill for the entire combined charge. A
+        // partial AMM fill must not buy a UID with a discounted burn and bond.
+        if !collateral_topup.is_zero() {
+            let max_amount: TaoBalance = Self::get_max_amount_add(netuid, limit_price)?.into();
+            ensure!(total_charge <= max_amount, Error::<T>::SlippageTooHigh);
+        }
+        let tao_paid = Self::transfer_tao_to_subnet(netuid, coldkey, total_charge)?;
+        // `transfer_tao_to_subnet` clips to keep-alive; never accept a short fill.
+        ensure!(
+            tao_paid == total_charge,
+            Error::<T>::NotEnoughBalanceToStake
+        );
         let swap_result = Self::swap_tao_for_alpha(netuid, tao_paid, limit_price, false)?;
+        // Check the actual execution as well as the quote, including swap fees.
+        // The caller's transaction rolls back the transfer and swap on failure.
+        ensure!(
+            swap_result
+                .amount_paid_in
+                .checked_add(&swap_result.fee_paid)
+                == Some(total_charge),
+            Error::<T>::SlippageTooHigh
+        );
 
         // Fee to block author (same as `stake_into_subnet`).
         let maybe_block_author_coldkey = T::AuthorshipProvider::author();
@@ -311,15 +328,6 @@ impl<T: Config> Pallet<T> {
             )?;
         } else if let Some(subnet_account_id) = Self::get_subnet_account_id(netuid) {
             let _ = Self::burn_tao(&subnet_account_id, swap_result.fee_to_block_author.into());
-        }
-
-        let consumed_tao = swap_result
-            .amount_paid_in
-            .saturating_add(swap_result.fee_paid);
-        let refund_tao = tao_paid.saturating_sub(consumed_tao);
-        if !refund_tao.is_zero() {
-            Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
-            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(refund_tao));
         }
 
         Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
@@ -374,7 +382,9 @@ impl<T: Config> Pallet<T> {
         }
 
         Self::cleanup_lock_if_zero(coldkey, netuid);
-        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
+        if netuid.is_root() {
+            Self::touch_root_stake_age(coldkey, hotkey);
+        }
 
         let lock_tao = if total_w == 0 {
             TaoBalance::ZERO
@@ -519,7 +529,13 @@ impl<T: Config> Pallet<T> {
         if emission.is_zero() {
             return AlphaBalance::ZERO;
         }
-        let old_locked = Self::get_miner_collateral_locked(netuid, hotkey, owner);
+        let Some(previous) = MinerCollateral::<T>::get((netuid, hotkey, owner)) else {
+            // Do not issue a storage delete for every ordinary miner without
+            // collateral. Still repair a stale reverse index if one exists.
+            Self::deindex_coldkey_collateral_hotkey(netuid, owner, hotkey);
+            return AlphaBalance::ZERO;
+        };
+        let old_locked = previous.locked;
         let captured =
             MinerCollateral::<T>::mutate_exists((netuid, hotkey, owner), |maybe_state| {
                 let Some(state) = maybe_state else {
@@ -535,9 +551,7 @@ impl<T: Config> Pallet<T> {
                         return AlphaBalance::ZERO;
                     }
                     if credit_captured_stake {
-                        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                            hotkey, owner, netuid, captured,
-                        );
+                        Self::credit_epoch_owner_emission(hotkey, owner, netuid, captured);
                     }
                     state.locked = state.locked.saturating_add(captured);
                     return captured;

@@ -7,17 +7,24 @@ description: "Register a hotkey on the root network (netuid 0)."
 
 Joins the hotkey to the root network, the TAO staking pool (netuid 0 has
 no miners and no alpha; validators register here to receive root stake).
-Placement is stake-based rather than burn-based: root slots are limited, so
-joining a full root network evicts the member with the least stake, and a
-hotkey without enough stake behind it will not hold a seat. Root
-registrations are also capped per block (`max_registrations_per_block`)
-and per interval (three times `target_registrations_per_interval`);
-hitting either cap fails until the window passes. Use
-`burned_register` for ordinary subnets.
+Admission is burn-based, like subnet registration: the coldkey pays the
+root burn price (recycled out of issuance, demand-priced — each
+registration bumps it and it decays back toward the floor). No prior
+stake is required, but root slots are limited: joining a full root
+network evicts the lowest-staked non-immune member
+(`ImmunityPeriod`). If every seat is still immune, registration
+fails with `NoNeuronIdAvailable`. A seat is only held by keeping
+stake behind the hotkey after that window. Root registrations are
+also capped per block (`max_registrations_per_block`) and per
+interval (three times `target_registrations_per_interval`); hitting
+either cap fails until the window passes. After a successful
+registration the hotkey is auto-childkeyed to every existing subnet
+owner (full proportion) unless the validator opted out of auto parent
+delegation. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L809-L813) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L839-L849) |
 
 ## Parameters
 
@@ -34,8 +41,8 @@ Preview with `--dry-run` (shows fee, effects, and policy result without
 submitting), then submit:
 
 ```bash
-btcli tx root-register --dry-run
-btcli tx root-register -w my_coldkey
+btcli root register --dry-run
+btcli root register -w my_coldkey
 ```
 
 ## Python
@@ -64,16 +71,22 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L811`](/code/pallets/subtensor/src/macros/dispatches.rs#L809-L813):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L841`](/code/pallets/subtensor/src/macros/dispatches.rs#L839-L849):
 
 ```rust
 #[pallet::call_index(62)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
-pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-    Self::do_root_register(origin, hotkey)
+#[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
+pub fn root_register(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+) -> DispatchResultWithPostInfo {
+    let (base, _) = Self::root_register_weight_parts();
+    let mut work = crate::staking::BasketFlushWork::default();
+    let result = Self::do_root_register_with_flush_work(origin, hotkey, &mut work);
+    Self::with_actual_weight(result, base.saturating_add(Self::basket_flush_weight(work)))
 }
 ```
 
-Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77).
+Delegates to [`root_register_weight_parts`](/code/pallets/subtensor/src/coinbase/root.rs#L76), [`do_root_register_with_flush_work`](/code/pallets/subtensor/src/coinbase/root.rs#L147), [`with_actual_weight`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1778).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

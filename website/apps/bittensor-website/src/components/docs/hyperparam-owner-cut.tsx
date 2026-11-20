@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat, ExplainerToggle } from './explainer-panel';
 
-const OWNER_CUT_FRACTION = 11_796 / 65_535; // SubnetOwnerCut default, ≈18%
+const OWNER_CUT_FRACTION = 11_796 / 65_535; // default owner emission slot, ≈18%
 
 function formatAlpha(value: number): string {
   return `${value.toFixed(1)} α`;
@@ -39,7 +39,7 @@ function BarSegment({
 function focusCaption(focus: string | undefined): string {
   switch (focus) {
     case 'owner_cut_enabled':
-      return ' Focused on owner_cut_enabled: flip the highlighted toggle off and the owner segment vanishes — the full alpha_out flows to miners and validators, and the forgone cut is never stashed or paid retroactively.';
+      return ' Focused on owner_cut_enabled: flip the highlighted toggle off (owner slot = 0) and the owner segment vanishes — the full alpha_out flows to miners and validators, and the forgone cut is never stashed or paid retroactively.';
     case 'owner_cut_auto_lock_enabled':
       return ' Focused on owner_cut_auto_lock_enabled: flip the highlighted toggle on and the owner segment turns hatched — the same cut is paid, then immediately conviction-locked on the owner coldkey instead of staying liquid.';
     default:
@@ -67,7 +67,7 @@ export function HyperparamOwnerCut({ focus }: { focus?: string }) {
   return (
     <ExplainerPanel
       title="One tempo's alpha emission split"
-      caption={`alpha_out accrued over one tempo, divided at the epoch. Owner cut is 18% (SubnetOwnerCut) when owner_cut_enabled; the remainder splits 50/50 between miners and validators + stakers (root proportion omitted for clarity).${focusCaption(focus)}`}
+      caption={`alpha_out accrued over one tempo, divided at the epoch. Shown at the default emission weight vector: the owner slot is 18% when owner_cut_enabled (owner slot > 0) and the remainder splits 50/50 between miners and validators + stakers; owners can move all three slots within chain bounds (root proportion omitted for clarity).${focusCaption(focus)}`}
     >
       <div className="flex h-10 w-full border border-line">
         {ownerLiquid > 0 && (

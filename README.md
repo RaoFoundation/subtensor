@@ -105,11 +105,12 @@ docker run --rm --name local_chain \
   ghcr.io/raofoundation/subtensor-localnet:devnet
 ```
 
-Use `:testnet` for the commit deployed to testnet or `:main` for the current
-main-branch candidate; `:latest` is an alias for `:main`. The `:devnet` and
-`:testnet` tags move only after the release train verifies that commit on the
-corresponding live network. Immutable `:sha-<commit>` tags are also published
-for reproducible CI.
+Use `:testnet` for the commit deployed to testnet, `:mainnet` for the commit
+running on mainnet, or `:main` for the current main-branch candidate;
+`:latest` is an alias for `:main`. The `:devnet`, `:testnet`, and `:mainnet`
+tags move only after that commit is verified on the corresponding live
+network. Immutable `:sha-<commit>` and `:v<spec_version>` release tags are
+also published for reproducible CI.
 
 Then connect with `btcli --network local query is-fast-blocks` or
 `bittensor.Client("local")`. See

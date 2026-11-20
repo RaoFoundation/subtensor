@@ -224,7 +224,7 @@ async function setupBasketFixture(netuid) {
 async function setRootWeights(netuid) {
   await submitAndWait(
     validatorHotkey,
-    api.tx.subtensorModule.setRootWeights([netuid], [65_535], await rootVersionKey()),
+    api.tx.subtensorModule.setRootWeights([netuid], [65_535]),
     "set_root_weights"
   );
   const uid = (await api.query.subtensorModule.uids(0, validatorHotkey.address)).unwrap().toNumber();
@@ -235,14 +235,14 @@ async function setRootWeights(netuid) {
 
 async function assertRootWeightValidation(netuid) {
   await assert.rejects(
-    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.setRootWeights([0], [65_535], await rootVersionKey()), "set invalid root weight"),
+    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.setRootWeights([0], [65_535]), "set invalid root weight"),
     (error: any) => {
       assert.match(error.message, /\bUidVecContainInvalidOne\b/);
       return true;
     }
   );
   await assert.rejects(
-    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.setRootWeights([netuid, netuid], [1, 2], await rootVersionKey()), "set duplicate root weight"),
+    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.setRootWeights([netuid, netuid], [1, 2]), "set duplicate root weight"),
     (error: any) => {
       assert.match(error.message, /\bDuplicateUids\b/);
       return true;
@@ -458,16 +458,6 @@ async function getSubnetAccountId(netuid) {
   const account = api.createType("Option<AccountId32>", Uint8Array.from(encoded));
   assert.ok(account.isSome, `subnet account id not found for netuid ${netuid}`);
   return account.unwrap().toString();
-}
-
-async function rootVersionKey() {
-  if (api.query.subtensorModule.weightsVersionKey) {
-    return (await api.query.subtensorModule.weightsVersionKey(0)).toBigInt();
-  }
-  if (api.query.subtensorModule.weightsVersionKeyV2) {
-    return (await api.query.subtensorModule.weightsVersionKeyV2(0)).toBigInt();
-  }
-  return 0n;
 }
 
 async function currentBlockNumber() {

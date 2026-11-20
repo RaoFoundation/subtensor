@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: mev_shield_set_stored_extrinsic_lifetime
+expression: fee
+---
+68118

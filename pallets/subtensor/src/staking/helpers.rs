@@ -1,4 +1,6 @@
+use crate::migrations::migrate_alpha_v2::retired::Alpha;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use safe_math::*;
 use share_pool::SafeFloat;
 use sp_runtime::PerU16;
@@ -128,15 +130,20 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
     ) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
+        // An in-flight coldkey-swap announcement reserves its destination so a
+        // third party cannot register that address as a hotkey during the delay
+        // and force NewColdKeyIsHotkey at execute (recovery-denial griefing).
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(hotkey)?;
 
         if !Self::hotkey_account_exists(hotkey) {
+            Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
             Owner::<T>::insert(hotkey, coldkey);
-
             // Update OwnedHotkeys map
             let mut hotkeys = OwnedHotkeys::<T>::get(coldkey);
             if !hotkeys.contains(hotkey) {
@@ -155,13 +162,32 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn set_hotkey_owner(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+        Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
+        // Same reservation guard as create_account: hotkey-swap must not assign
+        // Owner to a reserved coldkey-swap destination during the announce delay.
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(hotkey)?;
         Owner::<T>::insert(hotkey, coldkey);
         Ok(())
+    }
+
+    pub fn ensure_hotkey_owner_policy(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            T::HotkeyOwnerPolicy::allows_owner(coldkey, hotkey),
+            Error::<T>::HotkeyOwnerPolicyViolation
+        );
+        Ok(())
+    }
+
+    pub fn hotkey_owner_policy_weight() -> Weight {
+        T::HotkeyOwnerPolicy::weight()
     }
 
     //// If the hotkey is not a delegate, make it a delegate.
@@ -230,6 +256,14 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         netuid: NetUid,
     ) {
+        // The beta-basket escrow holds validator basket holdings `(hotkey, escrow, netuid)`, which
+        // are not nominations. Sweeping one would force-unstake the holding into the keyless
+        // escrow account (stranded, no controller) while leaving `BasketShares` untouched,
+        // silently shrinking the fund NAV that backs every staker's `owed * N/P` payout.
+        if *coldkey == Self::get_beta_escrow_account_id() {
+            return;
+        }
+
         // Verify if the account is a nominator account by checking ownership of the hotkey by the coldkey.
         if !Self::coldkey_owns_hotkey(coldkey, hotkey) {
             // If the stake is non-zero and below the minimum required, it's considered a small nomination and needs to be cleared.
@@ -253,6 +287,7 @@ impl<T: Config> Pallet<T> {
                     alpha_stake,
                     T::SwapInterface::min_price(),
                     false,
+                    false,
                 )
                 .is_err()
                 {
@@ -263,6 +298,7 @@ impl<T: Config> Pallet<T> {
                     Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                         hotkey, coldkey, netuid, alpha,
                     );
+                    Self::maybe_remove_staking_hotkey(hotkey, coldkey);
                 }
 
                 // Reduce lock (if exists) by the cleaned stake amount
@@ -282,58 +318,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// The function clears Alpha map in batches. Each run will check ALPHA_MAP_BATCH_SIZE
-    /// alphas. It keeps the alpha value stored when it's >= than MIN_ALPHA.
-    /// The function uses AlphaMapLastKey as a storage for key iterator between runs.
-    pub fn populate_root_coldkey_staking_maps() {
-        // Get starting key for the batch. Get the first key if we restart the process.
-        let mut new_starting_raw_key = AlphaMapLastKey::<T>::get();
-        let mut starting_key = None;
-        if new_starting_raw_key.is_none() {
-            starting_key = Alpha::<T>::iter_keys().next();
-            new_starting_raw_key = starting_key.as_ref().map(Alpha::<T>::hashed_key_for);
-        }
-
-        if let Some(starting_raw_key) = new_starting_raw_key {
-            // Get the key batch
-            let mut keys = Alpha::<T>::iter_keys_from(starting_raw_key)
-                .take(ALPHA_MAP_BATCH_SIZE)
-                .collect::<Vec<_>>();
-
-            // New iteration: insert the starting key in the batch if it's a new iteration
-            // iter_keys_from() skips the starting key
-            if let Some(starting_key) = starting_key {
-                if keys.len() == ALPHA_MAP_BATCH_SIZE {
-                    keys.remove(keys.len().saturating_sub(1));
-                }
-                keys.insert(0, starting_key);
-            }
-
-            let mut new_starting_key = None;
-            let new_iteration = keys.len() < ALPHA_MAP_BATCH_SIZE;
-
-            // Check and remove alphas if necessary
-            for key in keys {
-                let (_, coldkey, netuid) = key.clone();
-
-                if netuid == NetUid::ROOT {
-                    Self::maybe_add_coldkey_index(&coldkey);
-                }
-
-                new_starting_key = Some(Alpha::<T>::hashed_key_for(key));
-            }
-
-            // Restart the process if it's the last batch
-            if new_iteration {
-                new_starting_key = None;
-            }
-
-            AlphaMapLastKey::<T>::put(new_starting_key);
-        }
-    }
-
-    // Same thing as populate_root_coldkey_staking_maps, but for AlphaV2
-    // TODO: Remove this function and AlphaV2MapLastKey when slow migration is finished
+    /// Populate the root claimant index from current shares.
     pub fn populate_root_coldkey_staking_maps_v2() {
         // Get starting key for the batch. Get the first key if we restart the process.
         let mut new_starting_raw_key = AlphaV2MapLastKey::<T>::get();
@@ -381,31 +366,17 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Several alpha iteration helpers that merge key space from Alpha and AlphaV2 maps
+    /// Alpha position iteration helpers. Production runtimes use AlphaV2 only; the
+    /// legacy merge exists solely for migration test runtimes.
     pub fn alpha_iter() -> impl Iterator<Item = ((T::AccountId, T::AccountId, NetUid), SafeFloat)> {
-        // Old Alpha shares format: U64F64 -> SafeFloat
-        let legacy = Alpha::<T>::iter().map(|(key, val_u64f64)| {
-            let sf: SafeFloat = val_u64f64.into();
-            (key, sf)
-        });
-
-        // New Alpha shares format
-        let v2 = AlphaV2::<T>::iter();
-
-        // Merge and prefer v2 on duplicates
-        let merged: BTreeMap<_, SafeFloat> =
-            legacy
-                .chain(v2)
-                .fold(BTreeMap::new(), |mut acc, (key, val)| {
-                    acc.entry(key)
-                        .and_modify(|existing| {
-                            *existing = val.clone();
-                        })
-                        .or_insert(val);
-                    acc
-                });
-
-        merged.into_iter()
+        if !T::LegacyAlphaCompatibility::get() {
+            return AlphaV2::<T>::iter().collect::<Vec<_>>().into_iter();
+        }
+        let merged: BTreeMap<_, SafeFloat> = Alpha::<T>::iter()
+            .map(|(key, value)| (key, SafeFloat::from(value)))
+            .chain(AlphaV2::<T>::iter())
+            .collect();
+        merged.into_iter().collect::<Vec<_>>().into_iter()
     }
 
     pub fn alpha_iter_prefix(
@@ -414,31 +385,21 @@ impl<T: Config> Pallet<T> {
     where
         T::AccountId: Clone,
     {
-        // Old Alpha shares format: U64F64 -> SafeFloat
-        let legacy = Alpha::<T>::iter_prefix(prefix).map(|(netuid, val_u64f64)| {
-            let sf: SafeFloat = val_u64f64.into();
-            (netuid, sf)
-        });
-
-        // New Alpha shares format
-        let v2 = AlphaV2::<T>::iter_prefix(prefix);
-
-        // Merge by netuid and sum SafeFloat values
-        let merged: BTreeMap<NetUid, SafeFloat> =
-            legacy
-                .chain(v2)
-                .fold(BTreeMap::new(), |mut acc, (netuid, sf)| {
-                    acc.entry(netuid)
-                        .and_modify(|existing| {
-                            *existing = sf.clone();
-                        })
-                        .or_insert(sf);
-                    acc
-                });
-
+        if !T::LegacyAlphaCompatibility::get() {
+            return AlphaV2::<T>::iter_prefix(prefix)
+                .filter(|(_, alpha_share)| !alpha_share.is_zero())
+                .collect::<Vec<_>>()
+                .into_iter();
+        }
+        let merged: BTreeMap<NetUid, SafeFloat> = Alpha::<T>::iter_prefix(prefix)
+            .map(|(netuid, value)| (netuid, SafeFloat::from(value)))
+            .chain(AlphaV2::<T>::iter_prefix(prefix))
+            .collect();
         merged
             .into_iter()
             .filter(|(_, alpha_share)| !alpha_share.is_zero())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub fn alpha_iter_single_prefix(
@@ -447,30 +408,21 @@ impl<T: Config> Pallet<T> {
     where
         T::AccountId: Clone,
     {
-        // Old Alpha shares format: U64F64 -> SafeFloat
-        let legacy =
-            Alpha::<T>::iter_prefix((prefix.clone(),)).map(|((coldkey, netuid), val_u64f64)| {
-                let sf: SafeFloat = val_u64f64.into();
-                ((coldkey, netuid), sf)
-            });
-
-        // New Alpha shares format
-        let v2 = AlphaV2::<T>::iter_prefix((prefix,));
-
+        if !T::LegacyAlphaCompatibility::get() {
+            return AlphaV2::<T>::iter_prefix((prefix,))
+                .map(|((coldkey, netuid), sf)| (coldkey, netuid, sf))
+                .collect::<Vec<_>>()
+                .into_iter();
+        }
         let merged: BTreeMap<(T::AccountId, NetUid), SafeFloat> =
-            legacy
-                .chain(v2)
-                .fold(BTreeMap::new(), |mut acc, (key, sf)| {
-                    acc.entry(key)
-                        .and_modify(|existing| {
-                            *existing = sf.clone();
-                        })
-                        .or_insert(sf);
-                    acc
-                });
-
+            Alpha::<T>::iter_prefix((prefix.clone(),))
+                .map(|((coldkey, netuid), value)| ((coldkey, netuid), SafeFloat::from(value)))
+                .chain(AlphaV2::<T>::iter_prefix((prefix,)))
+                .collect();
         merged
             .into_iter()
             .map(|((coldkey, netuid), sf)| (coldkey, netuid, sf))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }

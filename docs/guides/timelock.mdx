@@ -81,6 +81,51 @@ btcli timelock show <hex>                # when it unlocks, without decrypting
 `--file`); files may hold raw bytes or hex text. `decrypt --out` writes the
 plaintext bytes to a file — useful for binary payloads.
 
+## Publish a timelocked commitment on chain
+
+The Commitments pallet accepts the inner TLE ciphertext and reveal round as a
+`TimelockEncrypted` field. Sign this call with the registered hotkey:
+
+```python
+import bittensor as bt
+
+sealed = bt.timelock.encrypt("embargoed result", reveal_in="1h")
+call = bt.calls.Commitments.set_commitment(
+    netuid=42,
+    info={
+        "fields": [[{
+            "TimelockEncrypted": {
+                "encrypted": sealed.encrypted,
+                "reveal_round": sealed.reveal_round,
+            }
+        }]]
+    },
+)
+result = await client.submit_call(call, wallet, signer="hotkey")
+```
+
+`sealed.encrypted` is the pallet-native inner ciphertext. The portable
+`bytes(sealed)` / `sealed.hex()` envelope includes the reveal-round trailer;
+v446 accepts either representation on chain.
+
+Once the pulse exists, the chain attempts the reveal automatically. A
+successful plaintext is written to `RevealedCommitments` and emits
+`CommitmentRevealed`. A commitment that is still waiting for a current or
+future pulse remains `TimelockEncrypted` and stays pending.
+
+V446 makes terminal reveal failures explicit. Corrupt ciphertext, a round
+mismatch, an invalid quicknet point, or a pulse that has already expired is
+rewritten in place as `TimelockRevealFailed` and emits
+`CommitmentRevealFailed` once. The failed field remains in `CommitmentOf` for
+audit, but is removed from the reveal index and is not retried. Users cannot
+submit `TimelockRevealFailed` directly; it is a runtime-only state.
+
+Inspect all states with:
+
+```bash
+btcli query commitments --netuid 42 --json
+```
+
 ## Use cases
 
 - **Sealed challenge answers** — a subnet mechanism publishes the answer

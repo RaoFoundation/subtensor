@@ -10,6 +10,9 @@ usage() {
 [[ $# -ge 1 && $# -le 2 ]] || usage
 output_file="$1"
 max_wait_seconds="${2:-360}"
+producer_max_wait_seconds="${PRODUCER_MAX_WAIT_SECONDS:-420}"
+producer_artifact_grace_seconds="${PRODUCER_ARTIFACT_GRACE_SECONDS:-30}"
+poll_seconds="${SELECTOR_POLL_SECONDS:-15}"
 
 : "${GH_TOKEN:?GH_TOKEN must contain a short-lived Actions token}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
@@ -21,16 +24,46 @@ max_wait_seconds="${2:-360}"
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || usage
 [[ "$GITHUB_PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || usage
 [[ "$max_wait_seconds" =~ ^[0-9]+$ ]] || usage
+[[ "$producer_max_wait_seconds" =~ ^[0-9]+$ ]] || usage
+[[ "$producer_artifact_grace_seconds" =~ ^[0-9]+$ ]] || usage
+[[ "$poll_seconds" =~ ^[0-9]+$ ]] || usage
 
 artifact_name="node-subtensor-release-$GITHUB_SHA"
 workflow_path=.github/workflows/runtime-checks.yml
 started=$(date -u +%s)
+producer_completed_seen=
+producer_run_id=
+producer_job_status=
+producer_job_conclusion=
+last_producer_state=
 
 write_miss() {
   {
     echo "found=false"
     echo "waited_seconds=$(($(date -u +%s) - started))"
   } >> "$output_file"
+}
+
+find_latest_producer_run() {
+  local producer_runs
+  producer_runs=$(gh api \
+    -H 'Accept: application/vnd.github+json' \
+    "repos/$GITHUB_REPOSITORY/actions/runs?event=pull_request&head_sha=$GITHUB_PR_HEAD_SHA&per_page=100" \
+    2>/dev/null || true)
+  jq -er \
+    --arg repository_id "$GITHUB_REPOSITORY_ID" \
+    --arg sha "$GITHUB_PR_HEAD_SHA" \
+    --arg workflow_path "$workflow_path" '
+      [.workflow_runs[]
+        | select(.head_sha == $sha)
+        | select((.head_repository.id | tostring) == $repository_id)
+        | select(.path == $workflow_path)
+        | select(.event == "pull_request")
+        | select((.id | type) == "number" and .id > 0)]
+      | sort_by(.created_at)
+      | reverse
+      | (.[0].id // empty)
+    ' <<< "$producer_runs" 2>/dev/null || true
 }
 
 while true; do
@@ -94,13 +127,76 @@ while true; do
     )
   fi
 
+  if [[ -z "$producer_run_id" ]]; then
+    producer_run_id=$(find_latest_producer_run)
+  fi
+
+  # Once discovered, latch the exact release-producing job. Transient API
+  # failures must not make us forget a producer and cross back to the shorter
+  # discovery timeout.
+  if [[ -n "$producer_run_id" ]]; then
+    producer_jobs=$(gh api \
+      -H 'Accept: application/vnd.github+json' \
+      "repos/$GITHUB_REPOSITORY/actions/runs/$producer_run_id/jobs?filter=latest&per_page=100" \
+      2>/dev/null || true)
+    producer_job=$(
+      jq -cer '
+        [.jobs[] | select(.name == "build release node")]
+        | sort_by(.started_at // .created_at)
+        | reverse
+        | .[0]
+      ' <<< "$producer_jobs" 2>/dev/null || true
+    )
+    current_status=$(jq -r '.status // empty' <<< "$producer_job" 2>/dev/null || true)
+    if [[ -n "$current_status" ]]; then
+      producer_job_status=$current_status
+      producer_job_conclusion=$(jq -r '.conclusion // empty' <<< "$producer_job" 2>/dev/null || true)
+    fi
+  fi
+
+  producer_state=not-found
+  if [[ -n "$producer_run_id" ]]; then
+    producer_state=${producer_job_status:-job-pending}
+    [[ -z "$producer_job_conclusion" ]] || producer_state="$producer_state/$producer_job_conclusion"
+  fi
+  if [[ "$producer_state" != "$last_producer_state" ]]; then
+    echo "Runtime Checks release producer: $producer_state"
+    last_producer_state=$producer_state
+  fi
+
   elapsed=$(($(date -u +%s) - started))
-  if (( elapsed >= max_wait_seconds )); then
+  if [[ "$producer_job_status" == completed && "$producer_job_conclusion" == success ]]; then
+    [[ -n "$producer_completed_seen" ]] || producer_completed_seen=$(date -u +%s)
+    completed_elapsed=$(($(date -u +%s) - producer_completed_seen))
+    if (( completed_elapsed >= producer_artifact_grace_seconds )); then
+      write_miss
+      echo "Runtime Checks release producer completed without a verified artifact after ${completed_elapsed}s of API propagation grace; using the local build fallback."
+      exit 0
+    fi
+  elif [[ "$producer_job_status" == completed ]]; then
+    replacement_run_id=$(find_latest_producer_run)
+    if [[ -n "$replacement_run_id" && "$replacement_run_id" != "$producer_run_id" ]]; then
+      echo "Runtime Checks replaced producer run $producer_run_id with $replacement_run_id."
+      producer_run_id=$replacement_run_id
+      producer_job_status=
+      producer_job_conclusion=
+      producer_completed_seen=
+      continue
+    fi
     write_miss
-    echo "No exact-commit TypeScript release artifact appeared after ${elapsed}s; using the local build fallback."
+    echo "Runtime Checks release producer completed (${producer_job_conclusion:-unknown}); using the local build fallback."
+    exit 0
+  elif [[ -n "$producer_run_id" ]]; then
+    producer_completed_seen=
+    if (( elapsed >= producer_max_wait_seconds )); then
+      write_miss
+      echo "Runtime Checks release producer was still ${producer_job_status:-pending} after ${elapsed}s; using the local build fallback."
+      exit 0
+    fi
+  elif (( elapsed >= max_wait_seconds )); then
+    write_miss
+    echo "No exact-commit Runtime Checks producer appeared after ${elapsed}s; using the local build fallback."
     exit 0
   fi
-  remaining=$((max_wait_seconds - elapsed))
-  (( remaining > 10 )) || sleep "$remaining"
-  (( remaining <= 10 )) || sleep 10
+  sleep "$poll_seconds"
 done

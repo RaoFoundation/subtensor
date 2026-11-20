@@ -1,0 +1,59 @@
+---
+title: Leasing
+description: Reference for the deployed LeasingPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `LeasingPrecompile` |
+| Solidity interface | `ILeasing` |
+| Address | `0x000000000000000000000000000000000000080a` |
+| Status | Deployed |
+
+## Views
+
+```text
+getLease(uint32)
+getContributorShare(uint32,bytes32)
+getLeaseIdForSubnet(uint16)
+getNextLeaseId()
+getAccumulatedLeaseDividends(uint32)
+```
+
+## Operations
+
+```text
+createLeaseCrowdloan(uint64,uint64,uint64,uint32,uint8,bool,uint32)
+terminateLease(uint32,bytes32)
+```
+
+Both operations are `payable`.
+
+Before handing over the residual stake, final settlement allocates every
+contributor's share of accumulated dividends to that contributor. Funded final
+payments include dust below the ordinary stake-transfer minimum; they are not
+written off or reassigned to the beneficiary.
+
+The first successful `terminateLease` hands ownership to the beneficiary and
+removes the beneficiary proxy. If genuine unpaid debts remain, the lease record
+stays available for recovery. Later calls and the ended-lease hook settle those
+debts without taking ownership away from a conviction winner or removing the
+proxy again. Old partially terminated records are recognized as well.
+
+Once contributors are fully settled, the synthetic account's remaining stake
+and its lock follow the beneficiary, including dust whose current TAO valuation
+rounds to zero. Lock aggregates follow the same owner/hotkey transition rules
+as conviction-based ownership changes. Ordinary user transfers retain their
+minimum. Unfunded debts or real lock conflicts still preserve the debt and its
+backing for a later retry.
+
+## Added operation
+
+| Function | Source extrinsic |
+|---|---|
+| `startCall` | `SubtensorModule.start_call` |
+
+`startCall` accepts a signed subnet owner. The Root-only start-call delay
+configuration is not exposed.
+
+Source: [`leasing.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/leasing.sol)

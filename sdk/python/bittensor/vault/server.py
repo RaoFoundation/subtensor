@@ -36,6 +36,12 @@ _SPECS_PNG = _STATIC_DIR / "bittensor-chain-specs.png"
 
 logger = logging.getLogger(__name__)
 
+# Browsers speculatively open (and silently drop) TCP connections to the page's
+# port, which the websockets server logs as a full InvalidMessage traceback.
+# Route its logging to a muted logger: handshake noise is meaningless here.
+_WS_LOGGER = logging.getLogger(__name__ + ".ws")
+_WS_LOGGER.setLevel(logging.CRITICAL)
+
 
 class VaultPageError(BittensorError):
     """The vault page reported a failure (camera denied, user cancelled, ...)."""
@@ -66,6 +72,7 @@ class VaultSessionServer:
             self.host,
             self.port,
             process_request=self._process_request,
+            logger=_WS_LOGGER,
         )
         self.port = self._server.sockets[0].getsockname()[1]
         logger.debug(f"vault page server listening on {self.http_url}")

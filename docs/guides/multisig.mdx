@@ -83,6 +83,47 @@ btcli addresses add carol 5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
 btcli addresses list
 ```
 
+## Mixing signing schemes
+
+Members can use Sr25519 or Ed25519 independently, with either
+standard accounts or hashed rotating accounts. For example:
+
+```bash
+btcli wallet create -w rotating --crypto-type ed --type hashed
+btcli wallet create -w classical --crypto-type sr
+btcli wallet create -w third --crypto-type ed
+btcli multisig add mixed --threshold 2 --signatories rotating,classical,third
+```
+
+Fund each member for approval fees and deposits, then fund the multisig address
+for its payments. For hashed members, use the complete receiving address so
+ordinary transfers can register the account when needed. Creating a multisig
+does not register its members. The CLI accepts wallet names and receiving
+addresses; `client.multisig()` accepts receiving addresses or ordinary SS58.
+Rotating a member's signing key does not change its account or multisig address.
+Registration itself is direct-only: before a multisig pays a new hashed
+recipient, register that recipient through a direct sponsor wallet. The CLI
+reports this requirement before opening an approval operation.
+
+After funding, any two members can approve the same payment:
+
+```bash
+btcli wallet transfer -w mixed --dest receiver --amount 1 --signatory rotating
+btcli wallet transfer -w mixed --dest receiver --amount 1 --signatory classical
+```
+
+A multisig address does not inherit its members' registered account protection.
+It cannot act as a proxy or hotkey owner where the runtime requires a registered
+hashed authority. The approval threshold still determines which members can
+jointly authorize an operation.
+
+A standard [Polkadot Vault](/docs/guides/vault) account can be another member:
+save its address as a contact, include that contact in the signer set, and pass
+`--signatory contact-name=vault` for its approval. Use
+`--signatory rotating=wallet` for the local hashed member. Vault cannot sign
+as a hashed account; that member must use the local wallet backend.
+The CLI rejects those unsupported Vault selections before opening the QR flow.
+
 ## Step 2 — save the signer set and derive the address
 
 `btcli multisig add` stores a named signer set in your local multisig book and
@@ -138,12 +179,40 @@ btcli wallet regen-coldkeypub -w team-treasury --ss58 5Fmulti...sigAddress
 btcli wallet balance team-treasury
 ```
 
-## Step 4 — spend: open the operation
+## Step 4 — spend: treat the multisig like a wallet
 
-Alice proposes paying 10 TAO out of the treasury. The inner call is an intent
-spec — `{"op": <intent name>, ...args}`, same shape as a batch child — with
-fully explicit arguments. As always, `--dry-run` previews fee and effects
-without submitting:
+Once the signer set is saved (`btcli multisig add`), pass the **multisig name**
+as `-w`. Any coldkey-signed command — transfer, stake, raw `call`, … — detects
+the book entry, picks a local member coldkey to sign, and opens or completes the
+approval round. Co-signers re-run the **same** command; the CLI fills the
+pending timepoint automatically:
+
+```bash
+# Alice (has the alice coldkey locally)
+btcli wallet transfer --dest 5DevPayee... --amount-tao 10 -w team-treasury
+
+# Bob (has the bob coldkey locally) — identical command
+btcli wallet transfer --dest 5DevPayee... --amount-tao 10 -w team-treasury
+```
+
+Works the same for intents and the raw-call escape hatch:
+
+```bash
+btcli tx add-stake --netuid 1 --amount-tao 5 -w team-treasury
+btcli call Balances.transfer_keep_alive \
+  --args '{"dest":"5DevPayee...","value":10000000000}' \
+  -w team-treasury
+```
+
+If several member coldkeys are present locally, the CLI prompts which one
+signs (or pass `-w alice --multisig team-treasury` to pin one). Each member
+still needs a little free TAO for fees and the opener's deposit.
+
+### Manual approval round (optional)
+
+You can still drive the round explicitly with intent specs — useful when you
+want to paste exact co-signer commands. `--other-signatories` lists every
+member *except* the signer:
 
 ```bash
 btcli tx multisig-execute \
@@ -159,16 +228,10 @@ btcli tx multisig-execute \
   -w alice
 ```
 
-`--other-signatories` lists every member *except* the signer; the CLI adds
-Alice's coldkey and sorts the set. Since no timepoint was passed, this opens
-the operation: Alice's deposit is reserved, and nothing executes yet.
-
 After submission the CLI prints the operation's `call_hash`, `call_data`, the
 opening `timepoint`, and **ready-to-run commands for each remaining
-co-signer** — copy-paste them to Bob and Carol over your team channel. The
-opening extrinsic embeds the full call, so co-signers can also recover
-everything from chain state alone (next step); no out-of-band call data is
-required.
+co-signer**. The opening extrinsic embeds the full call, so co-signers can also
+recover everything from chain state alone (next step).
 
 ## Step 5 — view pending operations
 
@@ -199,9 +262,13 @@ compromised — don't co-sign, and rotate that member out.
 
 ## Step 6 — approve and execute
 
-Bob was handed a ready-to-run command by `pending` (or by Alice). Because his
-approval is the one that reaches the threshold, it must be
-`multisig-execute` with the full call — the chain needs the call to run it.
+Prefer the short form from step 4: Bob runs the same `btcli wallet transfer
+-w team-treasury ...` (or whatever command Alice opened). The CLI finds the
+pending operation by call hash and supplies the timepoint.
+
+For the explicit path, Bob was handed a ready-to-run command by `pending` (or
+by Alice). Because his approval is the one that reaches the threshold, it must
+be `multisig-execute` with the full call — the chain needs the call to run it.
 The timepoint identifies the pending operation:
 
 ```bash

@@ -20,8 +20,12 @@ run_sdk_drift=${RUN_SDK_DRIFT:-false}
   exit 2
 }
 
+sdk_sync_pid=""
+sdk_sync_log=""
+
 cleanup() {
   local status=$?
+  [[ -z "$sdk_sync_pid" ]] || kill "$sdk_sync_pid" 2>/dev/null || true
   "$SCRIPT_DIR/stop-local-clone.sh" || true
   exit "$status"
 }
@@ -54,20 +58,43 @@ run_pristine() {
   run_regressions pristine
 }
 
-run_sdk_metadata_drift() {
+# `uv sync` builds the SDK's Rust extension (~1.5 min). Start it before the
+# clone boots so it overlaps the upgrade and regression tests instead of
+# extending this required gate; the drift check itself still runs afterwards
+# against the upgraded chain.
+start_sdk_sync() {
   [[ "$run_sdk_drift" == true ]] || return 0
   if ! command -v uv >/dev/null 2>&1; then
     curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
   fi
+  sdk_sync_log=$(mktemp)
   (
     cd "$REPO_ROOT/sdk/python"
     uv sync --locked --all-extras --dev
+  ) >"$sdk_sync_log" 2>&1 &
+  sdk_sync_pid=$!
+}
+
+run_sdk_metadata_drift() {
+  [[ "$run_sdk_drift" == true ]] || return 0
+  local sync_status=0
+  wait "$sdk_sync_pid" || sync_status=$?
+  sdk_sync_pid=""
+  cat "$sdk_sync_log"
+  rm -f "$sdk_sync_log"
+  if [[ "$sync_status" -ne 0 ]]; then
+    echo "SDK environment sync failed (exit $sync_status)" >&2
+    return "$sync_status"
+  fi
+  (
+    cd "$REPO_ROOT/sdk/python"
     uv run python -m codegen.check --drift "${WS_ENDPOINT:-ws://127.0.0.1:9944}"
   )
 }
 
 run_remaining() {
+  start_sdk_sync
   start_clone
   upgrade_runtime
   (

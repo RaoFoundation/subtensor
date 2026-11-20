@@ -12,10 +12,11 @@ use std::collections::BTreeSet;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use bittensor_core::client::{as_str, as_u128, field, value_bytes, variant_name};
+use bittensor_core::client::{as_str, as_u128, field, value_bytes};
 use bittensor_core::codec::Value;
 use bittensor_core::transaction::{Executor, IntentCall, Policy, SignerRole, Spend, Wallet};
 use bittensor_core::CoreError;
+use codec::Encode;
 use e2e_support::*;
 
 fn value_list(value: &Value) -> &[Value] {
@@ -64,6 +65,20 @@ fn value_contains_u128(value: &Value, expected: u128) -> bool {
     }
 }
 
+fn revealed_commitment_contains(value: &Value, expected: &[u8]) -> bool {
+    let Value::List(reveals) = value else {
+        return false;
+    };
+    reveals.iter().any(|reveal| {
+        let Value::Tuple(fields) = reveal else {
+            return false;
+        };
+        matches!(fields.as_slice(), [data, block]
+            if value_bytes(data).as_deref() == Some(expected)
+                && as_u128(block).is_some_and(|block| block > 0))
+    })
+}
+
 macro_rules! intent_plan_test {
     ($name:ident, $op:literal) => {
         #[test]
@@ -90,6 +105,7 @@ intent_plan_test!(intent_associate_hotkey, "associate_hotkey");
 intent_plan_test!(intent_batch, "batch");
 intent_plan_test!(intent_burned_register, "burned_register");
 intent_plan_test!(intent_claim_root, "claim_root");
+intent_plan_test!(intent_claim_root_with_hotkey, "claim_root_with_hotkey");
 intent_plan_test!(
     intent_clear_coldkey_swap_announcement,
     "clear_coldkey_swap_announcement"
@@ -138,8 +154,8 @@ intent_plan_test!(intent_set_hyperparameter, "set_hyperparameter");
 intent_plan_test!(intent_set_identity, "set_identity");
 intent_plan_test!(intent_set_mechanism_count, "set_mechanism_count");
 intent_plan_test!(intent_set_perpetual_lock, "set_perpetual_lock");
-intent_plan_test!(intent_set_root_claim_type, "set_root_claim_type");
 intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
+
 intent_plan_test!(intent_set_take, "set_take");
 intent_plan_test!(intent_set_weights, "set_weights");
 intent_plan_test!(intent_stake_burn, "stake_burn");
@@ -446,7 +462,7 @@ fn test_compose_nested_sudo_call() {
 }
 
 #[test]
-fn test_raw_call_escape_hatch_and_commitment() {
+fn test_regular_commitment_stays_readable() {
     let ctx = TestContext::new();
     let netuid = ctx.owned_subnet();
     let hotkey = ctx.alice.hotkey.ss58_address();
@@ -491,8 +507,13 @@ fn test_raw_call_escape_hatch_and_commitment() {
         )
         .expect("commitment read");
     assert!(!matches!(commitment, Value::Null));
-    assert!(
-        value_contains_str(&commitment, "hello") || value_contains_str(&commitment, "0x68656c6c6f")
+    let fields = field(&commitment, "info")
+        .and_then(|info| field(info, "fields"))
+        .expect("commitment fields");
+    let raw = value_list(fields).first().expect("one commitment field");
+    assert_eq!(
+        field(raw, "Raw5").and_then(value_bytes).as_deref(),
+        Some(b"hello".as_slice())
     );
     let revealed = ctx
         .client
@@ -507,44 +528,126 @@ fn test_raw_call_escape_hatch_and_commitment() {
 }
 
 #[test]
-fn test_root_claim_type_variants() {
+fn test_timelocked_commitment_reveals_plaintext() {
     let ctx = TestContext::new();
     let netuid = ctx.owned_subnet();
-    let coldkey = ctx.alice.coldkey.ss58_address();
+    let hotkey = ctx.alice.hotkey.ss58_address();
+    let plaintext = b"rust-sdk-timelock-e2e";
 
-    for (claim, subnets, expected) in [
-        ("Swap", None, "Swap"),
-        ("KeepSubnets", Some(vec![netuid]), "KeepSubnets"),
-        ("Keep", None, "Keep"),
-    ] {
-        let intent = IntentCall::set_root_claim_type(claim, subnets).expect("valid claim type");
-        let result = ctx
-            .executor()
-            .execute(&intent, &ctx.alice)
-            .expect("claim type submits");
-        assert_success(&result);
-        let stored = ctx
+    // Wait for the localnet's drand bridge to establish its current round,
+    // then leave enough time to encrypt and submit before the target pulse.
+    let drand_deadline = Instant::now() + Duration::from_secs(30);
+    let last_stored_round = loop {
+        let value = ctx
+            .client
+            .query("Drand", "LastStoredRound", &[], None)
+            .expect("last drand round read");
+        if let Some(round) = as_u128(&value).and_then(|round| u64::try_from(round).ok()) {
+            if round > 0 {
+                break round;
+            }
+        }
+        assert!(
+            Instant::now() < drand_deadline,
+            "timed out waiting for the drand bridge to initialize"
+        );
+        thread::sleep(Duration::from_millis(100));
+    };
+    let reveal_round = last_stored_round.saturating_add(2);
+    let (encrypted, encrypted_round) =
+        bittensor_core::timelock::encrypt_at_round(plaintext, reveal_round)
+            .expect("timelock encryption");
+    assert_eq!(encrypted_round, reveal_round);
+
+    let timelocked = Value::Dict(vec![(
+        s("TimelockEncrypted"),
+        record([
+            ("encrypted", bytes(encrypted)),
+            ("reveal_round", u64v(reveal_round)),
+        ]),
+    )]);
+    let info = record([("fields", list([list([timelocked])]))]);
+    let call = IntentCall::new(
+        "raw_timelocked_commitment",
+        SignerRole::Hotkey,
+        "Commitments",
+        "set_commitment",
+        record([("netuid", u(netuid)), ("info", info)]),
+    )
+    .touches([netuid])
+    .raw();
+    let result = ctx
+        .executor()
+        .execute(&call, &ctx.alice)
+        .expect("timelocked commitment submits");
+    assert_success(&result);
+
+    let pending = ctx
+        .client
+        .query(
+            "Commitments",
+            "CommitmentOf",
+            &[u(netuid), s(hotkey.clone())],
+            None,
+        )
+        .expect("pending timelocked commitment read");
+    assert!(!matches!(pending, Value::Null));
+    assert!(value_contains_str(&pending, "TimelockEncrypted"));
+    assert!(value_contains_u128(&pending, u128::from(reveal_round)));
+    let before_reveal = ctx
+        .client
+        .query(
+            "Commitments",
+            "RevealedCommitments",
+            &[u(netuid), s(hotkey.clone())],
+            None,
+        )
+        .expect("revealed commitments read before target round");
+    assert!(matches!(before_reveal, Value::Null));
+
+    let reveal_deadline = Instant::now() + Duration::from_secs(45);
+    let revealed = loop {
+        let value = ctx
             .client
             .query(
-                "SubtensorModule",
-                "RootClaimType",
-                &[s(coldkey.clone())],
+                "Commitments",
+                "RevealedCommitments",
+                &[u(netuid), s(hotkey.clone())],
                 None,
             )
-            .expect("claim type read");
-        assert_eq!(
-            variant_name(&stored).as_deref().or_else(|| as_str(&stored)),
-            Some(expected)
-        );
-        if expected == "KeepSubnets" {
-            assert!(value_contains_u128(&stored, u128::from(netuid)));
+            .expect("revealed commitments read");
+        if revealed_commitment_contains(&value, plaintext) {
+            break value;
         }
-    }
-}
+        if Instant::now() >= reveal_deadline {
+            let current_round = ctx
+                .client
+                .query("Drand", "LastStoredRound", &[], None)
+                .expect("last drand round diagnostic");
+            let pending = ctx
+                .client
+                .query(
+                    "Commitments",
+                    "CommitmentOf",
+                    &[u(netuid), s(hotkey.clone())],
+                    None,
+                )
+                .expect("pending commitment diagnostic");
+            panic!(
+                "timed out waiting for commitment reveal at drand round {reveal_round}; \
+                 LastStoredRound: {current_round:#?}; CommitmentOf: {pending:#?}; \
+                 RevealedCommitments: {value:#?}"
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+    assert!(revealed_commitment_contains(&revealed, plaintext));
 
-#[test]
-fn test_keep_subnets_requires_subnets() {
-    assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
+    let pending_after_reveal = ctx
+        .client
+        .query("Commitments", "CommitmentOf", &[u(netuid), s(hotkey)], None)
+        .expect("commitment read after reveal");
+    assert!(matches!(pending_after_reveal, Value::Null));
 }
 
 #[test]
@@ -571,15 +674,17 @@ fn test_coldkey_swap_announcement_flow() {
         .expect("fund swapper");
     assert_success(&funded);
 
-    let hash = bittensor_core::keys::public_key_from_ss58(&new_cold)
-        .map(|public| sp_core::hashing::blake2_256(&public))
-        .expect("new coldkey public key");
+    let public =
+        bittensor_core::keys::public_key_from_ss58(&new_cold).expect("new coldkey public key");
+    let hash = sp_core::hashing::blake2_256(&(b"coldkey-swap-v2-policy", public, true).encode());
+    // Intent path uses cleartext V2; on-chain announcement stores the
+    // destination-and-policy commitment.
     let announce = IntentCall::new(
         "announce_coldkey_swap",
         SignerRole::Coldkey,
         "SubtensorModule",
-        "announce_coldkey_swap",
-        record([("new_coldkey_hash", bytes(hash.to_vec()))]),
+        "announce_coldkey_swap_v2",
+        record([("new_coldkey", s(new_cold.clone()))]),
     );
     let result = Executor::new(&ctx.client)
         .execute(&announce, &swapper)
@@ -1039,6 +1144,272 @@ fn test_proxy_flow() {
                 .as_ref()
                 .is_some_and(|error| error.semantic_code == "not_proxy")
     );
+}
+
+#[test]
+fn test_gamma_lifecycle() {
+    const TAO_USD_PRICE: u64 = 400_000_000_000;
+    const GAMMA: u128 = 1_000_000_000;
+    let ctx = TestContext::new();
+    let alice = ctx.alice.coldkey.ss58_address();
+    let service = ctx.alice.hotkey.ss58_address();
+    let execute = |intent: &IntentCall, wallet: &Wallet| {
+        let result = ctx
+            .executor()
+            .execute(intent, wallet)
+            .expect("call submits");
+        assert_success(&result);
+        result
+    };
+    let sudo = |function: &str, params: Value| {
+        let inner = ctx
+            .client
+            .compose_call("AdminUtils", function, &params)
+            .expect("admin call composes");
+        let call = IntentCall::new(
+            "raw_sudo",
+            SignerRole::Coldkey,
+            "Sudo",
+            "sudo",
+            record([("call", bytes(inner))]),
+        )
+        .raw();
+        execute(&call, &ctx.alice);
+    };
+    let gamma = |function: &str, params: Value| {
+        IntentCall::new(
+            function,
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            function,
+            params,
+        )
+    };
+    let feed = || {
+        let price = record([("price", u64v(TAO_USD_PRICE))]);
+        execute(&gamma("feed_tao_usd_price", price), &ctx.alice);
+    };
+    let read = |method: &str, params: &[Value]| {
+        ctx.client
+            .runtime_call("GammaRuntimeApi", method, params, None)
+            .unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    // The hotkey, holding no TAO, spends at the service for free.
+    let spend = |netuid: u16, wallet: &Wallet, amount: u128| {
+        let call = IntentCall::new(
+            "spend_gamma",
+            SignerRole::Hotkey,
+            "SubtensorModule",
+            "spend_gamma",
+            record([
+                ("service", s(service.clone())),
+                ("netuid", u(netuid)),
+                ("amount", u128v(amount)),
+            ]),
+        );
+        let result = execute(&call, wallet);
+        value_u128(
+            event_attributes(&result, "SubtensorModule", "GammaSpent").expect("GammaSpent"),
+            "amount",
+        )
+    };
+    let spent = |netuid: u16, hotkey: &str| {
+        let params = [u(netuid), s(service.clone()), s(hotkey)];
+        let spent = ctx
+            .client
+            .query("SubtensorModule", "GammaSpent", &params, None)
+            .expect("spent read");
+        as_u128(&spent).expect("spent")
+    };
+    let balance = |netuid: u16, hotkey: &str| {
+        let info = read("get_gamma_deposit", &[u(netuid), s(hotkey)]);
+        value_u128(field(&info, "deposit").expect("deposit"), "balance")
+    };
+
+    sudo(
+        "sudo_set_admin_freeze_window",
+        record([("window", u16v(0))]),
+    );
+    sudo(
+        "sudo_set_tao_usd_price_oracle",
+        record([("oracle", s(alice.clone()))]),
+    );
+    feed();
+    sudo("sudo_set_gamma_enabled", record([("enabled", boolv(true))]));
+
+    // The owner enables its subnet.
+    let netuid = ctx.owned_subnet();
+    let enable = IntentCall::new(
+        "set_hyperparameter",
+        SignerRole::Coldkey,
+        "AdminUtils",
+        "sudo_set_subnet_gamma_enabled",
+        record([("netuid", u(netuid)), ("enabled", boolv(true))]),
+    );
+    execute(&enable, &ctx.alice);
+
+    // The owner's coldkey publishes the owner hotkey's service.
+    let url = "https://example.com/services.json";
+    let publish = IntentCall::new(
+        "set_service",
+        SignerRole::Coldkey,
+        "SubtensorModule",
+        "set_service",
+        record([
+            ("netuid", u(netuid)),
+            ("hotkey", s(service.clone())),
+            ("url", bytes(url)),
+        ]),
+    );
+    let result = execute(&publish, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "ServiceSet").is_some());
+    let published = ctx
+        .client
+        .query(
+            "SubtensorModule",
+            "Services",
+            &[u(netuid), s(service.clone())],
+            None,
+        )
+        .expect("service read");
+    assert_eq!(
+        field(&published, "url").and_then(text_bytes).as_deref(),
+        Some(url)
+    );
+
+    // Mint with TAO against the quote; the pool can move by a block's emission.
+    let api_wallet = random_wallet();
+    let api_key = api_wallet.hotkey.ss58_address();
+    execute(
+        &gamma(
+            "try_associate_hotkey",
+            record([("hotkey", s(api_key.clone()))]),
+        ),
+        &ctx.alice,
+    );
+    let amount = amount_tao(10);
+    let quote = read("sim_mint_gamma", &[u(netuid), u128v(amount)]);
+    let quoted = as_u128(&tuple(field(&quote, "Ok").expect("quote"))[2]).expect("quoted gamma");
+    let mint = gamma(
+        "mint_gamma",
+        record([
+            ("hotkey", s(api_key.clone())),
+            ("netuid", u(netuid)),
+            ("amount", u128v(amount)),
+            ("min_amount_out", u128v(quoted / 100 * 99)),
+            ("daily_spend_cap", Value::Null),
+        ]),
+    );
+    let result = execute(&mint, &ctx.alice);
+    let minted = event_attributes(&result, "SubtensorModule", "GammaMinted").expect("GammaMinted");
+    let minted_gamma = value_u128(minted, "gamma");
+    assert_eq!(value_u128(minted, "tao"), amount);
+    assert!(minted_gamma.abs_diff(quoted) <= quoted / 100);
+    assert_eq!(balance(netuid, &api_key), minted_gamma);
+
+    let terms = |function: &str, name: &str, value: Value, hotkey: &str| {
+        let params = record([("hotkey", s(hotkey)), ("netuid", u(netuid)), (name, value)]);
+        execute(&gamma(function, params), &ctx.alice);
+    };
+    terms(
+        "set_gamma_deposit_daily_spend_cap",
+        "daily_spend_cap",
+        u128v(GAMMA),
+        &api_key,
+    );
+    assert_eq!(spend(netuid, &api_wallet, GAMMA), GAMMA);
+    assert_eq!(balance(netuid, &api_key), minted_gamma - GAMMA);
+    assert_eq!(spent(netuid, &api_key), GAMMA);
+
+    let moved_wallet = random_wallet();
+    let moved_key = moved_wallet.hotkey.ss58_address();
+    execute(
+        &gamma(
+            "try_associate_hotkey",
+            record([("hotkey", s(moved_key.clone()))]),
+        ),
+        &ctx.alice,
+    );
+    let moving = gamma(
+        "move_gamma",
+        record([
+            ("origin_hotkey", s(api_key.clone())),
+            ("destination_hotkey", s(moved_key.clone())),
+            ("netuid", u(netuid)),
+            ("amount", u128v(u128::from(u64::MAX))),
+        ]),
+    );
+    let result = execute(&moving, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "GammaDepositClosed").is_some());
+    assert!(matches!(
+        read("get_gamma_deposit", &[u(netuid), s(api_key.clone())]),
+        Value::Null
+    ));
+    let moved = read("get_gamma_deposit", &[u(netuid), s(moved_key.clone())]);
+    let terms_moved = field(&moved, "deposit").expect("deposit");
+    let daily_spend_cap = field(terms_moved, "daily_spend_cap").expect("daily spend cap");
+    assert_eq!(value_u128(daily_spend_cap, "cap"), GAMMA);
+    assert_eq!(value_u128(terms_moved, "balance"), minted_gamma - GAMMA);
+
+    terms(
+        "set_gamma_deposit_daily_spend_cap",
+        "daily_spend_cap",
+        Value::Null,
+        &moved_key,
+    );
+    assert_eq!(
+        spend(netuid, &moved_wallet, minted_gamma - GAMMA),
+        minted_gamma - GAMMA
+    );
+    assert_eq!(balance(netuid, &moved_key), 0);
+    assert_eq!(spent(netuid, &moved_key), minted_gamma - GAMMA);
+    let close = gamma(
+        "close_gamma_deposit",
+        record([("hotkey", s(moved_key.clone())), ("netuid", u(netuid))]),
+    );
+    let result = execute(&close, &ctx.alice);
+    assert!(event_attributes(&result, "SubtensorModule", "GammaDepositClosed").is_some());
+
+    let alice_hot = ctx.alice.hotkey.ss58_address();
+    execute(
+        &add_stake(alice_hot.clone(), netuid, amount_tao(10)),
+        &ctx.alice,
+    );
+    feed();
+    let staked_key = random_wallet().hotkey.ss58_address();
+    execute(
+        &gamma(
+            "try_associate_hotkey",
+            record([("hotkey", s(staked_key.clone()))]),
+        ),
+        &ctx.alice,
+    );
+    let alpha = amount_tao(1);
+    assert!(field(
+        &read("sim_mint_gamma_with_stake", &[u(netuid), u128v(alpha)]),
+        "Ok"
+    )
+    .is_some());
+    let mint = gamma(
+        "mint_gamma_with_stake",
+        record([
+            ("origin_hotkey", s(alice_hot)),
+            ("destination_hotkey", s(staked_key.clone())),
+            ("netuid", u(netuid)),
+            ("alpha_amount", u128v(alpha)),
+            ("min_amount_out", u128v(0)),
+            ("daily_spend_cap", Value::Null),
+        ]),
+    );
+    let result = execute(&mint, &ctx.alice);
+    let minted = event_attributes(&result, "SubtensorModule", "GammaMinted").expect("GammaMinted");
+    assert_eq!(value_u128(minted, "tao"), 0);
+    assert_eq!(value_u128(minted, "alpha"), alpha);
+    assert!(event_attributes(&result, "SubtensorModule", "AlphaBurned").is_some());
+
+    let deposits = read("get_gamma_deposits_for_coldkey", &[s(alice.clone())]);
+    assert!(value_contains_str(&deposits, &staked_key));
+    assert!(!value_contains_str(&deposits, &moved_key));
 }
 
 #[test]

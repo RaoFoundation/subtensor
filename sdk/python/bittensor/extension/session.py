@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -85,6 +86,12 @@ def _read_daemon_pid() -> Optional[int]:
     return pid
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex((host, port)) == 0
+
+
 def start_bridge_daemon(
     *,
     host: str = DEFAULT_BRIDGE_HOST,
@@ -93,6 +100,19 @@ def start_bridge_daemon(
     """Spawn a detached bridge process if one is not already running."""
     if _read_daemon_pid() is not None:
         return
+
+    # No pid file of ours, yet something is listening: a bridge owned by a
+    # different environment (another HOME/user) or an unrelated app. A spawned
+    # daemon would fail to bind and die silently, so fail fast and say why —
+    # otherwise the caller polls to a generic 15 s timeout.
+    if _port_in_use(host, port):
+        raise BridgeError(
+            f"cannot start the extension bridge: {host}:{port} is already in use by "
+            "another process — likely a bridge from a different environment "
+            f"(`lsof -nP -i :{port}` shows it; stop it with `btcli misc extension stop` "
+            "from that environment or kill the pid), or run this bridge elsewhere "
+            f"with --extension-bridge http://{host}:{port + 1} (BT_EXTENSION_BRIDGE)"
+        )
 
     pid_path = bridge_pid_path()
     pid_path.parent.mkdir(parents=True, exist_ok=True)

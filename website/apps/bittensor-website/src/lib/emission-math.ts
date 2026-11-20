@@ -1,4 +1,4 @@
-/** Chain-accurate emission helpers mirroring subtensor coinbase/epoch math. */
+/** Runtime-aligned emission helpers for the documentation models. */
 
 export const RAO_PER_TAO = 1_000_000_000;
 export const TOTAL_SUPPLY_TAO = 21_000_000;
@@ -17,9 +17,12 @@ export const DEFAULT_INITIAL_BURN_TAO = 0.1;
 export const MATURITY_RATE_BLOCKS = 934_866;
 export const UNLOCK_RATE_BLOCKS = 934_866;
 export const ONE_YEAR_BLOCKS = 2_629_800;
-export const CONVICTION_OWNERSHIP_THRESHOLD = 0.1;
+export const CONVICTION_OWNERSHIP_THRESHOLD = 0.18;
 export const EMA_HALVING_BLOCKS = 201_600;
 export const SUBNET_MOVING_ALPHA = 0.000003;
+export const DEFAULT_EMISSION_BAR_RANK = 32;
+export const DEFAULT_EMISSION_BAR_QUANTILE = 0.61;
+export const DEFAULT_EMISSION_GATE_EXPONENT = 3;
 
 /** `get_block_emission_for_issuance` in block_emission.rs */
 export function blockEmissionTao(issuanceTao: number): number {
@@ -42,25 +45,94 @@ export function halvingThresholdsTao(count = 8): number[] {
   return thresholds;
 }
 
-/** `get_shares_price_ema` + miner burn penalty in subnet_emissions.rs */
-export function subnetEmissionShares(prices: number[], minerBurned: number[]): number[] {
-  const priceSum = prices.reduce((a, b) => a + b, 0);
-  const priceShares = priceSum > 0 ? prices.map((p) => p / priceSum) : prices.map(() => 0);
+export type SubnetEmissionResult = {
+  demandShares: number[];
+  burnAdjustedShares: number[];
+  gateFactors: number[];
+  shares: number[];
+  gateBar: number;
+};
 
-  const weights = prices.map((p, i) => p * (1 - Math.min(Math.max(minerBurned[i], 0), 1)));
-  const weightSum = weights.reduce((a, b) => a + b, 0);
+/** `maybe_update_emission_gate_bar` in subnet_emissions.rs */
+export function selectEmissionGateBar(
+  demandShares: number[],
+  rank = DEFAULT_EMISSION_BAR_RANK,
+  quantile = DEFAULT_EMISSION_BAR_QUANTILE,
+): number {
+  const positive = demandShares.filter((share) => share > 0).sort((a, b) => b - a);
+  if (positive.length === 0) return 0;
+  if (rank > 0) return positive[Math.min(rank, positive.length) - 1];
 
-  if (weightSum === 0) return priceShares;
-  return weights.map((w) => w / weightSum);
+  let cumulative = 0;
+  for (const share of positive) {
+    cumulative += share;
+    if (cumulative >= quantile) return share;
+  }
+  return positive[positive.length - 1];
+}
+
+/** `get_shares` plus emission-enabled redistribution in subnet_emissions.rs */
+export function subnetEmissionShares(
+  prices: number[],
+  options: {
+    minerBurned?: number[];
+    emissionEnabled?: boolean[];
+    rank?: number;
+    quantile?: number;
+    exponent?: number;
+    gateBar?: number;
+  } = {},
+): SubnetEmissionResult {
+  const safePrices = prices.map((price) => Math.max(price, 0));
+  const priceSum = safePrices.reduce((sum, price) => sum + price, 0);
+  const demandShares = safePrices.map((price) => (priceSum > 0 ? price / priceSum : 0));
+  const minerBurned = options.minerBurned ?? prices.map(() => 0);
+  const burnWeights = demandShares.map(
+    (share, index) => share * (1 - Math.min(Math.max(minerBurned[index] ?? 0, 0), 1)),
+  );
+  const burnWeightSum = burnWeights.reduce((sum, weight) => sum + weight, 0);
+  const burnAdjustedShares =
+    burnWeightSum > 0 ? burnWeights.map((weight) => weight / burnWeightSum) : demandShares;
+  const gateBar =
+    options.gateBar ?? selectEmissionGateBar(burnAdjustedShares, options.rank, options.quantile);
+  const exponent = options.exponent ?? DEFAULT_EMISSION_GATE_EXPONENT;
+  const gateFactors = burnAdjustedShares.map((share) => {
+    if (share <= 0) return 0;
+    if (gateBar <= 0) return 1;
+    return 1 / (1 + (gateBar / share) ** exponent);
+  });
+
+  let gatedWeights = burnAdjustedShares.map((share, index) => share * gateFactors[index]);
+  if (gatedWeights.reduce((sum, weight) => sum + weight, 0) === 0) {
+    gatedWeights = burnAdjustedShares;
+  }
+
+  const emissionEnabled = options.emissionEnabled ?? prices.map(() => true);
+  const enabledTotal = gatedWeights.reduce(
+    (sum, weight, index) => sum + (emissionEnabled[index] === false ? 0 : weight),
+    0,
+  );
+  const shares = gatedWeights.map((weight, index) =>
+    emissionEnabled[index] !== false && enabledTotal > 0 ? weight / enabledTotal : 0,
+  );
+
+  return {demandShares, burnAdjustedShares, gateFactors, shares, gateBar};
 }
 
 /** `update_moving_price` smoothing factor in stake_utils.rs */
-export function emaSmoothingAlpha(blocksSinceStart: number, halvingBlocks = EMA_HALVING_BLOCKS): number {
+export function emaSmoothingAlpha(
+  blocksSinceStart: number,
+  halvingBlocks = EMA_HALVING_BLOCKS,
+): number {
   return (SUBNET_MOVING_ALPHA * blocksSinceStart) / (blocksSinceStart + halvingBlocks);
 }
 
 /** `root_proportion` in block_step.rs (taoWeight is normalized fraction) */
-export function rootProportion(rootTao: number, alphaIssuance: number, taoWeight = DEFAULT_TAO_WEIGHT): number {
+export function rootProportion(
+  rootTao: number,
+  alphaIssuance: number,
+  taoWeight = DEFAULT_TAO_WEIGHT,
+): number {
   const scaled = rootTao * taoWeight;
   const denom = scaled + alphaIssuance;
   return denom > 0 ? scaled / denom : 0;
@@ -199,8 +271,7 @@ export function rollForwardLock(
   } else if (unlockRate === maturityRate) {
     convictionFromMass = lockedMass * (deltaBlocks / maturityRate) * maturityDecay;
   } else if (unlockRate > 0 && maturityRate > 0) {
-    const gamma =
-      (unlockRate * (unlockDecay - maturityDecay)) / (unlockRate - maturityRate);
+    const gamma = (unlockRate * (unlockDecay - maturityDecay)) / (unlockRate - maturityRate);
     convictionFromMass = lockedMass * Math.max(0, gamma);
   }
 
@@ -213,8 +284,13 @@ export function rollForwardLock(
   return {lockedMass: newLockedMass, conviction: newConviction};
 }
 
-export function convictionOwnershipThreshold(alphaOut: number): number {
-  return alphaOut * CONVICTION_OWNERSHIP_THRESHOLD;
+export function convictionOwnershipThreshold(
+  alphaOut: number,
+  protocolAlpha = 0,
+  alphaBurned = 0,
+): number {
+  const eligibleAlpha = Math.max(0, alphaOut - protocolAlpha - alphaBurned);
+  return eligibleAlpha * CONVICTION_OWNERSHIP_THRESHOLD;
 }
 
 export function formatAlpha(value: number, digits = 0): string {

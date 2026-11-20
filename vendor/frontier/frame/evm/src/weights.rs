@@ -49,6 +49,11 @@ use core::marker::PhantomData;
 /// Weight functions needed for pallet_evm.
 pub trait WeightInfo {
 	fn withdraw() -> Weight;
+	/// Native keep-alive transfer into the current EVM balance mapping.
+	/// Runtimes must supply the weight of their currency transfer implementation.
+	fn deposit() -> Weight {
+		Weight::MAX
+	}
 }
 
 /// Weights for pallet_evm using the Substrate node and recommended hardware.

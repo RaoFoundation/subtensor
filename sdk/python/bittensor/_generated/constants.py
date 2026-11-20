@@ -1,7 +1,6 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
 
 Pallet constant descriptors: unpack into substrate.constant.
 """
@@ -147,6 +146,9 @@ class SafeMode:
     ExtendDepositAmount = Item('SafeMode', 'ExtendDepositAmount')
     ReleaseDelay = Item('SafeMode', 'ReleaseDelay')
 
+class EVM:
+    NativeDepositSupported = Item('EVM', 'NativeDepositSupported')
+
 class Drand:
     UnsignedPriority = Item('Drand', 'UnsignedPriority')
     HttpFetchTimeout = Item('Drand', 'HttpFetchTimeout')
@@ -185,4 +187,11 @@ class LimitOrders:
     MaxOrdersPerBatch = Item('LimitOrders', 'MaxOrdersPerBatch')
     PalletId = Item('LimitOrders', 'PalletId')
     PalletHotkey = Item('LimitOrders', 'PalletHotkey')
+    LinkedOutputTtl = Item('LimitOrders', 'LinkedOutputTtl')
 
+class HashedAccounts:
+    RegistrationDeposit = Item('HashedAccounts', 'RegistrationDeposit')
+    MlDsaRegistrationDeposit = Item('HashedAccounts', 'MlDsaRegistrationDeposit')
+    DerivedRegistrationDeposit = Item('HashedAccounts', 'DerivedRegistrationDeposit')
+    MldsaAccountProfiles = Item('HashedAccounts', 'MldsaAccountProfiles')
+    FalconAccountProfiles = Item('HashedAccounts', 'FalconAccountProfiles')

@@ -18,7 +18,6 @@ Usage (from sdk/python, whose environment provides the bittensor SDK):
 from __future__ import annotations
 
 import argparse
-import filecmp
 import functools
 import inspect
 import json
@@ -104,10 +103,15 @@ def body_after_summary(doc: str) -> str:
 # --- Parameter rendering ---------------------------------------------------
 
 
+def _takes_all(fragment: dict) -> bool:
+    """Whether a money fragment accepts the ``"all"`` sentinel."""
+    return any(option.get("enum") == ["all"] for option in fragment["anyOf"])
+
+
 def schema_type(fragment: dict) -> str:
     """Human-readable type from a JSON-schema property fragment."""
     if "anyOf" in fragment:
-        return "number \\| `\"all\"`"
+        return "number \\| `\"all\"`" if _takes_all(fragment) else "number"
     t = fragment.get("type", "any")
     if isinstance(t, list):
         return " \\| ".join(t)
@@ -129,14 +133,14 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
     if field_name.endswith("_ss58"):
         return "<ss58|name>"
     if "anyOf" in fragment:
-        return "<amount|all>"
+        return "<amount|all>" if _takes_all(fragment) else "<amount>"
     t = fragment.get("type")
     if t == "integer":
         return "<int>"
     if t == "number":
         return "<number>"
     if t == "array":
-        return "<a,b,c>"
+        return "'<json>'" if fragment.get("items", {}).get("type") == "object" else "<a,b,c>"
     if t == "object":
         return "'<json>'"
     return "<value>"
@@ -154,7 +158,15 @@ def cli_arg(field_name: str, fragment: dict) -> str:
 def py_placeholder(field_name: str, fragment: dict) -> str:
     if field_name == "netuid":
         return "1"
+    if field_name in {"origin_netuid", "source_netuid"}:
+        return "1"
+    if field_name in {"dest_netuid", "destination_netuid"}:
+        return "2"
     if field_name.endswith("_ss58"):
+        if field_name.startswith(("dest_", "destination_", "new_")):
+            return '"5G...destination"'
+        if field_name.startswith(("origin_", "source_")):
+            return '"5F...origin"'
         return '"5F..."'
     if "anyOf" in fragment:
         return "1.0"
@@ -198,14 +210,15 @@ def params_table(schema: dict) -> str:
 #
 # Each intent declares the chain call(s) it wraps; the pages link (and quote)
 # the actual dispatchable from the Rust source, served by the site's /code
-# viewer. Extraction is deterministic over the checkout, so --check also
-# catches docs whose line anchors drifted after a Rust change.
+# viewer. Extraction is deterministic over the checkout, so --check catches quoted
+# code that changed after a Rust edit (line numbers alone are not checked).
 
 REPO_ROOT = APP_DIR.parents[2]
 
 # Runtime pallet name (as used in Intent.wraps, storage containers, and the
 # chain error catalog) -> in-repo crate directory.
 PALLET_DIRS = {
+    "HashedAccounts": "pallets/hashed-accounts",
     "SubtensorModule": "pallets/subtensor",
     "AdminUtils": "pallets/admin-utils",
     "Commitments": "pallets/commitments",
@@ -637,12 +650,25 @@ def intent_page(op: str, cls) -> str:
     wraps = ", ".join(wrap_link(p, c) for p, c in cls.wraps) or "—"
     body = mdx_escape(body_after_summary(description))
 
-    cli_parts = [f"btcli tx {kebab(op)}"]
-    for name in required:
+    # Intents may pin a friendlier CLI spelling (e.g. root registration goes
+    # through the ordinary `subnets register` command); default to the
+    # generic tx command.
+    # Setters that take exactly one of their optional values show one.
+    examples = {
+        "trim_subnet": {"max_n": "64"},
+        "trim_null_subnet_batch": {"target": "64"},
+        "set_gamma_deposit_daily_spend_cap": {"daily_spend_cap_gamma": "10"},
+    }.get(op, {})
+    shown = required + [n for n in examples if n not in required]
+
+    cli_parts = [getattr(cls, "cli_example", None) or f"btcli tx {kebab(op)}"]
+    for name in shown:
         cli_parts.append(cli_arg(name, props[name]))
     cli_cmd = " \\\n  ".join(cli_parts)
 
-    py_args = ", ".join(f"{n}={py_placeholder(n, props[n])}" for n in required)
+    py_args = ", ".join(
+        f"{n}={examples.get(n, py_placeholder(n, props[n]))}" for n in shown
+    )
     class_name = cls.__name__
 
     return f"""{frontmatter(kebab(op), summary)}
@@ -1325,8 +1351,22 @@ def generate(content_root: Path) -> None:
         )
 
 
+# Source line numbers in /code links and catalog entries move with every unrelated Rust
+# edit. --check masks them so only real drift (wording, snippets, links to a different
+# symbol or file) fails; any regeneration refreshes the numbers.
+_LINE_REF = re.compile(r'(#L)\d+(?:-L\d+)?|("(?:line|end_line)": )\d+')
+
+
+def _same_ignoring_line_numbers(fresh: Path, committed: Path) -> bool:
+    def masked(path: Path) -> str:
+        return _LINE_REF.sub(r"\1\2", path.read_text())
+
+    return masked(fresh) == masked(committed)
+
+
 def check() -> int:
-    """Regenerate into a temp dir and diff against the committed output."""
+    """Regenerate into a temp dir and diff against the committed output, ignoring
+    source line numbers."""
     stale: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         tmp_content = Path(tmp) / "content"
@@ -1343,7 +1383,7 @@ def check() -> int:
                     continue
                 rel = fresh.relative_to(fresh_root)
                 committed = committed_root / rel
-                if not committed.exists() or not filecmp.cmp(fresh, committed, shallow=False):
+                if not committed.exists() or not _same_ignoring_line_numbers(fresh, committed):
                     stale.append(str(committed))
         # Files that were generated once but no longer are (e.g. a removed intent).
         for sub in ("tx", "query", "errors"):

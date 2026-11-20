@@ -36,6 +36,36 @@ class MaxRetriesExceeded(SubstrateRequestException):
     pass
 
 
+class ExtrinsicSubmissionRejected(SubstrateRequestException):
+    """The submission response establishes that the extrinsic was not admitted.
+
+    Transport failures, accepted-watch failures, and already-imported responses
+    cannot establish this and must retain potentially pending nonce reservations.
+    """
+
+
+class RpcPolicyRejection(SubstrateRequestException):
+    """The endpoint explicitly refused traffic under an access or load policy."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: str | None = None,
+        policy: str | None = None,
+        reason: str | None = None,
+        payload: Any = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+        self.policy = policy
+        self.reason = reason
+        if payload is not None:
+            self.payload = payload
+
+
 class StateDiscardedError(SubstrateRequestException):
     def __init__(self, block_hash: str):
         self.block_hash = block_hash

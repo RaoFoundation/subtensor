@@ -1,0 +1,32 @@
+---
+title: Dispatch
+description: SCALE runtime dispatch, input-processing gas, and static-call restrictions.
+---
+
+The generic Dispatch precompile at
+`0x0000000000000000000000000000000000000006` accepts a SCALE-encoded runtime
+call. It preserves the runtime call validator, mapped signed origin, and
+pallet authorization checks. This generic interface depends on the runtime's
+SCALE call format; use typed precompiles when available.
+
+Dispatch unconditionally rejects `STATICCALL`, including static frames
+inherited from a parent contract, with `cannot dispatch in static frame`.
+Static rejection happens before decoding or runtime dispatch, so a static
+frame cannot mutate native state through this precompile.
+
+Before decoding or computing dispatch info, every input byte, including zero
+bytes, costs the EVM configuration's `gas_transaction_non_zero_data`. This
+linear tariff also covers traversal of the decoded call tree. It is based on
+an existing EVM gas constant, not reference-hardware benchmark measurements.
+The processing charge remains spent if decoding, call validation, or later
+dispatch fails.
+
+Input length must not exceed the runtime's normal-block byte limit. Oversized
+input is rejected by a constant-time length check before decoding. The
+existing SCALE depth limit remains in effect (8 by default).
+
+Dispatch weight must fit the gas remaining after input processing. If it does
+not, Dispatch consumes the remaining gas of the current precompile frame and
+returns `OutOfGas`. The parent contract may handle this failed subcall; it is
+not terminated with a fatal error. Successful dispatch additionally charges
+its runtime execution weight as before.

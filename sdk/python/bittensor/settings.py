@@ -13,6 +13,7 @@ TAO_SYMBOL = "\u03c4"  # τ
 ALPHA_SYMBOL = "\u03b1"  # α
 
 RAO_PER_TAO = 10**9
+GAMMA_UNITS = 10**9
 
 # Max value of a u16 weight, used for on-chain weight normalization.
 U16_MAX = 65535
@@ -137,6 +138,12 @@ def query_docs_url(name: str) -> str:
     """Docs page for a read (e.g. subnet_hyperparameters), including the
     storage items and runtime APIs it hits with source links."""
     return f"{DOCS_URL}/query/{name.replace('_', '-')}"
+
+
+def guide_docs_url(slug: str) -> str:
+    """Docs guide page (e.g. staking, conviction, mining/collateral).
+    Command groups link their topic guide from --help."""
+    return f"{DOCS_URL}/guides/{slug}"
 
 
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``

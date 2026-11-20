@@ -5,6 +5,7 @@ use pallet_evm::PrecompileHandle;
 use precompile_utils::{EvmResult, prelude::Address};
 use sp_runtime::traits::{Dispatchable, StaticLookup};
 use sp_std::vec::Vec;
+use subtensor_runtime_common::NetUid;
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
@@ -50,6 +51,22 @@ where
             evm_address.0,
             limit,
         ))
+    }
+
+    #[precompile::public("getAssociatedEvmAddress(uint16,uint16)")]
+    #[precompile::view]
+    fn get_associated_evm_address(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uid: u16,
+    ) -> EvmResult<(bool, Address, u64)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::AssociatedEvmAddress::<R>::get(NetUid::from(netuid), uid) {
+                Some((address, block)) => (true, Address(address), block),
+                None => (false, Address::default(), 0),
+            },
+        )
     }
 }
 
@@ -102,6 +119,32 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
                 .execute_returns_raw(encode_return_value(expected));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getAssociatedEvmAddress(uint16,uint16)"),
+                        (TEST_NETUID_U16, uid),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns((true, Address(evm_address), block_associated));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getAssociatedEvmAddress(uint16,uint16)"),
+                        (TEST_NETUID_U16, uid + 1),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns((false, Address::default(), 0_u64));
         });
     }
 }

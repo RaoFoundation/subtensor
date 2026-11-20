@@ -1,0 +1,6 @@
+---
+source: runtime/tests/fee_baseline.rs
+description: system_kill_prefix
+expression: fee
+---
+106000

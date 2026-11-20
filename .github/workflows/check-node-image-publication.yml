@@ -1,0 +1,20 @@
+name: Validate Node Image Publication
+
+on:
+  pull_request:
+    paths:
+      - ".github/scripts/resolve-node-image.sh"
+      - ".github/scripts/test-resolve-node-image.sh"
+      - ".github/workflows/docker.yml"
+      - ".github/workflows/check-node-image-publication.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: main updates latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./.github/scripts/test-resolve-node-image.sh
