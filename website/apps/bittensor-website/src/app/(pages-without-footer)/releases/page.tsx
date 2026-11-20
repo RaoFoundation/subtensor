@@ -25,10 +25,11 @@ const releases: Release[] = [
   {
     tag: 'v493',
     date: 'Upcoming',
-    title: 'Yuma Commit Limits and Release Announcements',
+    title: 'Hotkey Gamma Spends, Yuma Commit Limits and Release Announcements',
     summary:
-      'Sudo-configurable Yuma timelocked commit limits, with the existing default of 10 and ' +
-      'a zero setting that pauses new commits. Also adds Discord release announcements, ' +
+      'Gamma deposits are spent fee-free by their own hotkey at services listed on the subnet, ' +
+      'replacing the separate spender; gamma integrations must update. Also adds ' +
+      'sudo-configurable Yuma timelocked commit limits, Discord release announcements, ' +
       'standalone stable Python publishing, and required release notes.',
     href: '/releases/v493-upgrade',
   },
