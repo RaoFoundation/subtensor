@@ -121,6 +121,8 @@ run_case live-after-waiting 0 true "$(printf '492 %s\\n' "$other_hash"{,,,,,,,,,
 [ "$(cat "$MOCK_PROBE_CALLS")" -eq 13 ] || { echo "FAIL live-after-waiting: expected 13 probes" >&2; exit 1; }
 [ "$(gh_calls jobs)" -eq 1 ] || { echo "FAIL live-after-waiting: read the jobs API $(gh_calls jobs) times, expected 1" >&2; exit 1; }
 [ "$(gh_calls main)" -eq 3 ] || { echo "FAIL live-after-waiting: read main $(gh_calls main) times, expected 3" >&2; exit 1; }
+grep -qx "code_hash=$code_hash" "$tmp/output-live-after-waiting" \
+  || { echo "FAIL live-after-waiting: code_hash output missing for the pre-publish recheck" >&2; exit 1; }
 
 # A proposal job that is still running is read on every poll until it ends.
 defaults

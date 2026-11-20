@@ -1156,6 +1156,15 @@ jobs:
         if: steps.state.outputs.should_upload == 'true'
         uses: astral-sh/attest-action@f589a42a7efb6fe400b4f400de60b4bc90390027 # v0.0.6
 
+      # The build steps above can take minutes; never upload for a runtime
+      # mainnet replaced in the meantime.
+      - name: Recheck that mainnet still runs this runtime
+        if: steps.state.outputs.should_upload == 'true'
+        env:
+          EXPECTED_SPEC: ${{ needs.build.outputs.spec_version }}
+          EXPECTED_CODE_HASH: ${{ steps.wait.outputs.code_hash }}
+        run: .github/scripts/mainnet-finalized-runtime.sh
+
       - name: Publish to PyPI
         if: steps.state.outputs.should_upload == 'true'
         run: |
@@ -1227,7 +1236,7 @@ jobs:
         if: steps.wait.outputs.live == 'true'
         run: corepack enable
 
-      - name: Deploy to Vercel (production)
+      - name: Build production docs
         if: steps.wait.outputs.live == 'true'
         # Repo root, not website/: the Vercel root directory is resolved
         # against the cwd (see deploy-docs.yml).
@@ -1238,6 +1247,23 @@ jobs:
         run: |
           npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
           npx --yes vercel build --prod --token "$VERCEL_TOKEN"
+
+      # The build can take a while; never promote docs for a runtime mainnet
+      # replaced in the meantime.
+      - name: Recheck that mainnet still runs this runtime
+        if: steps.wait.outputs.live == 'true'
+        env:
+          EXPECTED_SPEC: ${{ needs.build.outputs.spec_version }}
+          EXPECTED_CODE_HASH: ${{ steps.wait.outputs.code_hash }}
+        run: .github/scripts/mainnet-finalized-runtime.sh
+
+      - name: Deploy to Vercel (production)
+        if: steps.wait.outputs.live == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
           # --archive=tgz: the prebuilt output exceeds Vercel's 15k-file
           # upload limit (the generated docs tree alone is >30k files).
           npx --yes vercel deploy --prebuilt --prod --archive=tgz --token "$VERCEL_TOKEN"

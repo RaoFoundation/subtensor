@@ -20,7 +20,8 @@
 #   PROPOSE_JOB       name of the proposal job in this run
 #   RUNTIME_PROBE     command printing finalized spec_version and code_hash
 #
-# Writes live=true|false to $GITHUB_OUTPUT and exits 0 when:
+# Writes code_hash=<blake2_256(WASM)> and live=true|false to $GITHUB_OUTPUT
+# and exits 0 when:
 #   live=true   mainnet finalized SPEC with code hash blake2_256(WASM), and
 #               the immutable tag vSPEC names RELEASE_SHA.
 #   live=false  this train has nothing to publish: mainnet moved past SPEC,
@@ -60,7 +61,10 @@ with open(sys.argv[1], "rb") as wasm:
 echo "waiting for spec $SPEC with code hash $expected_hash from $RELEASE_SHA"
 
 finish() {
-  echo "live=$1" >> "$GITHUB_OUTPUT"
+  {
+    echo "code_hash=$expected_hash"
+    echo "live=$1"
+  } >> "$GITHUB_OUTPUT"
   echo "$2"
   exit 0
 }
