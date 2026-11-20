@@ -116,12 +116,19 @@ def side_caps(
     ceiling_bps: int = 5000,
     split_short_bps: int = 5000,
     thin_tao: float = 3000.0,
+    thin_blend_tao: float = 3000.0,
     ref_tao: float = 1000.0,
     move_bps: int = 1000,
 ) -> dict:
     """Mirror LiftParams::side_caps_at at full ramp, G_ref = y (no open book)."""
     g = y
-    f_bps = thin_floor_bps if g < thin_tao else floor_bps
+    if g <= thin_tao or thin_blend_tao <= 0:
+        f_bps = float(thin_floor_bps if g <= thin_tao else floor_bps)
+    elif g >= thin_tao + thin_blend_tao:
+        f_bps = float(floor_bps)
+    else:
+        t = (g - thin_tao) / thin_blend_tao
+        f_bps = thin_floor_bps + t * (floor_bps - thin_floor_bps)
     floor_cap = g * f_bps / 10_000.0
     ceiling_cap = g * ceiling_bps / 10_000.0
     impact_cap = max(0.0, g - y_star(w_b, ref_tao, move_bps))
@@ -130,7 +137,7 @@ def side_caps(
     cap_long = raw_cap - cap_short
     return {
         "G": g,
-        "thin": g < thin_tao,
+        "thin": g <= thin_tao,
         "Cap": raw_cap,
         "Cap_short": cap_short,
         "Cap_long": cap_long,

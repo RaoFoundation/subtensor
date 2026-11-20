@@ -131,6 +131,13 @@ fn quote_weight_parts() -> u64 {
 fn set_quote_weight_parts(parts: u64) {
     write(&key(b"test/quote_weight_parts", netuid()), parts);
 }
+/// Optional override for MockPool `buy_depth_threshold` (0 = use formula).
+fn buy_depth_override() -> u64 {
+    read(&key(b"test/buy_depth_override", netuid()))
+}
+fn set_buy_depth_override(y_star: u64) {
+    write(&key(b"test/buy_depth_override", netuid()), y_star);
+}
 fn alpha_out() -> u64 {
     read(&key(b"test/alpha_out", netuid()))
 }
@@ -548,6 +555,10 @@ impl LendingPoolInterface<Account> for MockPool {
     }
 
     fn buy_depth_threshold(_: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance {
+        let override_y = buy_depth_override();
+        if override_y > 0 {
+            return override_y.into();
+        }
         // y* ≈ ref / ((1+bps)^1 - 1) for equal weights ≈ ref * 10000 / move_bps
         let r = ref_tao.to_u64();
         let b = u64::from(move_bps).max(1);
@@ -3150,8 +3161,216 @@ fn migration_appends_expiry_max_slippage_bps() {
         assert_eq!(after.expiry_max_slippage_bps, 200);
         assert_eq!(after.ema_band_bps, 1_500);
         assert_eq!(after.max_expiry_settlements_per_block, 16);
+        assert_eq!(after.thin_blend_tao, 3_000_000_000_000);
         let _ = migrations::migrate_lift_params_expiry_slippage::<Test>();
         assert_eq!(LiftParamsStore::<Test>::get(), after);
+    });
+}
+
+#[test]
+fn migration_appends_thin_blend_tao() {
+    new_test_ext().execute_with(|| {
+        let key = BoundedVec::truncate_from(b"migrate_lift_params_thin_blend_v1".to_vec());
+        HasMigrationRun::<Test>::remove(&key);
+        let before = LiftParamsBeforeThinBlend {
+            floor_bps: 3_300,
+            thin_floor_bps: 1_500,
+            ref_tao: 1_000_000_000_000,
+            move_bps: 1_000,
+            ceiling_bps: 5_000,
+            split_short_bps: 5_000,
+            rebalance_target_bps: 0,
+            rebalance_rate_bps: 0,
+            thin_tao: 3_000_000_000_000,
+            ltv_short_bps: 2_500,
+            ltv_long_bps: 2_500,
+            thin_ltv_long_bps: 1_500,
+            apr_long_bps: 10_000,
+            apr_short_bps: 10_000,
+            slice_bps: 1,
+            crash_guard_bps: 9_500,
+            total_tao_ema_blocks: 7_200,
+            new_subnet_min_age: 50_400,
+            new_subnet_ramp: 216_000,
+            ema_band_bps: 1_500,
+            max_loan_duration: 216_000,
+            max_settlement_deferral: 50_400,
+            young_short_settlement_window: 25_200,
+            minimum_loan_value: 1_000_000_000,
+            max_expiry_settlements_per_block: 16,
+            expiry_max_slippage_bps: 200,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &LiftParamsStore::<Test>::hashed_key(),
+            &before.encode(),
+        );
+        let _ = migrations::migrate_lift_params_thin_blend::<Test>();
+        assert!(HasMigrationRun::<Test>::get(&key));
+        let after = LiftParamsStore::<Test>::get();
+        assert_eq!(after.thin_blend_tao, 3_000_000_000_000);
+        assert_eq!(after.expiry_max_slippage_bps, 200);
+        assert_eq!(after.floor_bps, 3_300);
+        let _ = migrations::migrate_lift_params_thin_blend::<Test>();
+        assert_eq!(LiftParamsStore::<Test>::get(), after);
+    });
+}
+
+#[test]
+fn thin_depth_blend_bps_continuous_at_both_ends() {
+    let p = LiftParams::default();
+    assert_eq!(p.thin_tao, 3_000_000_000_000);
+    assert_eq!(p.thin_blend_tao, 3_000_000_000_000);
+    let end = p.thin_tao.saturating_add(p.thin_blend_tao);
+    // Floor: thin at/below thin_tao, full at/above thin_tao + blend.
+    assert_eq!(
+        p.thin_depth_blend_bps(p.thin_tao, p.thin_floor_bps, p.floor_bps),
+        p.thin_floor_bps
+    );
+    assert_eq!(
+        p.thin_depth_blend_bps(p.thin_tao.saturating_sub(1), p.thin_floor_bps, p.floor_bps),
+        p.thin_floor_bps
+    );
+    assert_eq!(
+        p.thin_depth_blend_bps(end, p.thin_floor_bps, p.floor_bps),
+        p.floor_bps
+    );
+    assert_eq!(
+        p.thin_depth_blend_bps(end.saturating_add(1), p.thin_floor_bps, p.floor_bps),
+        p.floor_bps
+    );
+    // Midpoint ≈ halfway between thin and full (truncation toward thin).
+    let mid = p.thin_tao.saturating_add(p.thin_blend_tao / 2);
+    let mid_floor = p.thin_depth_blend_bps(mid, p.thin_floor_bps, p.floor_bps);
+    assert_eq!(mid_floor, 2_400); // 1500 + (3300-1500)/2
+    // Long LTV blend endpoints.
+    assert_eq!(
+        p.thin_depth_blend_bps(p.thin_tao, p.thin_ltv_long_bps, p.ltv_long_bps),
+        p.thin_ltv_long_bps
+    );
+    assert_eq!(
+        p.thin_depth_blend_bps(end, p.thin_ltv_long_bps, p.ltv_long_bps),
+        p.ltv_long_bps
+    );
+    // Monotone across the window (1 τ steps at the ends; 100 τ through the middle).
+    let mut prev = p.thin_depth_blend_bps(0, p.thin_floor_bps, p.floor_bps);
+    for g in (0u64..=end.saturating_add(1_000_000_000_000)).step_by(100_000_000_000) {
+        let next = p.thin_depth_blend_bps(g, p.thin_floor_bps, p.floor_bps);
+        assert!(next >= prev, "floor blend must be non-decreasing at g={g}");
+        prev = next;
+    }
+}
+
+#[test]
+fn capacity_continuous_at_floor_and_ceiling_crossovers() {
+    // Spec §10: with live Balancer y* ≈ 20_488 τ, the 33% floor↔impact crossover
+    // sits at G = y*/(1−0.33) ≈ 30_579 τ and the impact↔ceiling crossover at
+    // G = 2·y* ≈ 40_976 τ. Cap must stay continuous there under the thin blend.
+    new_test_ext().execute_with(|| {
+        const Y_STAR: u64 = 20_488_000_000_000;
+        const FLOOR_X: u64 = 30_579_000_000_000;
+        const CEIL_X: u64 = 40_976_000_000_000;
+        set_buy_depth_override(Y_STAR);
+        let params = test_lift_params();
+        assert_eq!(params.thin_blend_tao, 3_000_000_000_000);
+
+        let cap_at = |g: u64| -> u64 {
+            // Keep spot ≥ g_ema so G_ref = g_ema.
+            set_pool(g.saturating_mul(2), g.saturating_mul(2));
+            Lifts::<Test>::mutate(netuid(), |book| {
+                book.g_ema = g;
+                book.last = params.total_tao_ema_blocks;
+                book.l_s = 0;
+                book.l_l = 0;
+            });
+            let f_bps = params.thin_depth_blend_bps(g, params.thin_floor_bps, params.floor_bps);
+            let floor_cap = g.saturating_mul(u64::from(f_bps)) / 10_000;
+            let ceiling_cap = g.saturating_mul(u64::from(params.ceiling_bps)) / 10_000;
+            let impact_cap = g.saturating_sub(Y_STAR);
+            floor_cap.max(impact_cap.min(ceiling_cap))
+        };
+
+        // Neighbor continuity: Cap(G) and Cap(G±1 τ) differ by at most the
+        // local slope (~floor_bps/1e4 + 1), never by the old 18%-of-G cliff.
+        for &g in &[
+            FLOOR_X,
+            CEIL_X,
+            params.thin_tao,
+            params.thin_tao + params.thin_blend_tao,
+        ] {
+            let c0 = cap_at(g);
+            let c_lo = cap_at(g.saturating_sub(1_000_000_000));
+            let c_hi = cap_at(g.saturating_add(1_000_000_000));
+            let max_jump = (g / 50).max(1); // ≪ 18%·G cliff (≈ g/5.5)
+            assert!(
+                c0.abs_diff(c_lo) <= max_jump && c0.abs_diff(c_hi) <= max_jump,
+                "Cap discontinuous near {g}: lo={c_lo} mid={c0} hi={c_hi}"
+            );
+        }
+        // At the thin_tao left endpoint Cap uses thin floor exactly.
+        let thin_cap = cap_at(params.thin_tao);
+        assert_eq!(
+            thin_cap,
+            params
+                .thin_tao
+                .saturating_mul(u64::from(params.thin_floor_bps))
+                / 10_000
+        );
+    });
+}
+
+#[test]
+fn thin_blend_bounds_deposit_open_withdraw_manipulation() {
+    // Crossing the old thin_tao cliff with a deposit→open→withdraw cycle used
+    // to unlock the full 15%→25% LTV / 15%→33% floor jump. With the blend, a
+    // deposit of size D can raise long LTV by at most
+    // (ltv_long − thin_ltv) · D / thin_blend.
+    new_test_ext().execute_with(|| {
+        let params = test_lift_params();
+        let deposit = 500_000_000_000u64; // 500 τ ≪ 3000 τ blend
+        let g0 = params.thin_tao; // start exactly at the thin end
+        set_pool(g0.saturating_mul(2), g0.saturating_mul(2));
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = g0;
+            book.last = params.total_tao_ema_blocks;
+        });
+        let ltv0 = params.thin_depth_blend_bps(g0, params.thin_ltv_long_bps, params.ltv_long_bps);
+        assert_eq!(ltv0, params.thin_ltv_long_bps);
+
+        let g1 = g0.saturating_add(deposit);
+        let ltv1 = params.thin_depth_blend_bps(g1, params.thin_ltv_long_bps, params.ltv_long_bps);
+        let max_ltv_gain = u64::from(params.ltv_long_bps.saturating_sub(params.thin_ltv_long_bps))
+            .saturating_mul(deposit)
+            / params.thin_blend_tao.max(1);
+        let gained = u64::from(ltv1.saturating_sub(ltv0));
+        assert!(
+            gained <= max_ltv_gain.saturating_add(1),
+            "LTV gain {gained} exceeds blend bound {max_ltv_gain} for deposit {deposit}"
+        );
+        // Old cliff would have jumped the full 1000 bps immediately past thin_tao.
+        assert!(
+            gained < 1_000,
+            "blend must not unlock the full thin→full LTV cliff on a 500 τ deposit"
+        );
+
+        // Capacity floor gain is likewise blend-bounded (not a 1800 bps step).
+        let f0 = params.thin_depth_blend_bps(g0, params.thin_floor_bps, params.floor_bps);
+        let f1 = params.thin_depth_blend_bps(g1, params.thin_floor_bps, params.floor_bps);
+        let max_floor_gain = u64::from(params.floor_bps.saturating_sub(params.thin_floor_bps))
+            .saturating_mul(deposit)
+            / params.thin_blend_tao.max(1);
+        assert!(u64::from(f1.saturating_sub(f0)) <= max_floor_gain.saturating_add(1));
+
+        // Reject oversize blend width.
+        assert_noop!(
+            Lending::set_lift_params(
+                RuntimeOrigin::root(),
+                LiftParams {
+                    thin_blend_tao: MAX_THIN_BLEND_TAO.saturating_add(1),
+                    ..params
+                }
+            ),
+            Error::<Test>::InvalidLiftParams
+        );
     });
 }
 
@@ -12614,6 +12833,10 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
             },
             LiftParams {
                 new_subnet_min_age: MAX_NEW_SUBNET_MIN_AGE + 1,
+                ..test_lift_params()
+            },
+            LiftParams {
+                thin_blend_tao: MAX_THIN_BLEND_TAO + 1,
                 ..test_lift_params()
             },
         ] {

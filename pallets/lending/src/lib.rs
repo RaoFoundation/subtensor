@@ -475,8 +475,11 @@ pub enum Side {
     Long,
 }
 
+/// Inclusive upper bound on [`LiftParams::thin_blend_tao`] (1e6 τ in rao).
+pub const MAX_THIN_BLEND_TAO: u64 = 1_000_000_000_000_000;
+
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("dad07fb438136915")]
+#[freeze_struct("97615bc6620b6d51")]
 #[derive(
     Encode,
     Decode,
@@ -492,7 +495,7 @@ pub enum Side {
 pub struct LiftParams {
     /// Floor capacity as fraction of G_ref (default 3300 = 33%).
     pub floor_bps: u16,
-    /// Thin-pool floor when G_ref < thin_tao (default 1500 = 15%).
+    /// Thin-pool floor when G_ref ≤ thin_tao (default 1500 = 15%).
     pub thin_floor_bps: u16,
     /// Reference buy size for impact rule (default 1000 τ).
     pub ref_tao: u64,
@@ -506,13 +509,15 @@ pub struct LiftParams {
     pub rebalance_target_bps: u16,
     /// Max rebalance of Cap per day in bps (unused while target is 0).
     pub rebalance_rate_bps: u16,
-    /// Thin-pool threshold on G_ref (default 3000 τ).
+    /// Thin-pool threshold on G_ref (default 3000 τ). Below/at this depth the
+    /// thin floor and thin long LTV apply; above it they blend toward the full
+    /// values over [`Self::thin_blend_tao`].
     pub thin_tao: u64,
     /// Short LTV (default 2500 = 25%).
     pub ltv_short_bps: u16,
     /// Long LTV (default 2500 = 25%).
     pub ltv_long_bps: u16,
-    /// Thin long LTV when G_ref < thin_tao (default 1500 = 15%).
+    /// Thin long LTV when G_ref ≤ thin_tao (default 1500 = 15%).
     pub thin_ltv_long_bps: u16,
     /// Long APR in bps (default 10000 = 100%). Split from legacy `apr_bps`.
     pub apr_long_bps: u16,
@@ -573,6 +578,41 @@ pub struct LiftParams {
     /// until execution is inside the band or the owner closes (wallet repay
     /// unconstrained; AMM close under the same realized bound).
     pub expiry_max_slippage_bps: u16,
+    /// Width of the continuous thin→full blend on G_ref (default 3000 τ).
+    ///
+    /// Capacity floor and long LTV use thin values at `G_ref ≤ thin_tao`, full
+    /// values at `G_ref ≥ thin_tao + thin_blend_tao`, and linear interpolation
+    /// in between (Greg Shorting 102513 / Karl). `0` collapses to a step at
+    /// `thin_tao` (≤ thin, > full). Bounded by [`MAX_THIN_BLEND_TAO`].
+    pub thin_blend_tao: u64,
+}
+
+impl LiftParams {
+    /// Linear blend of `thin_bps` → `full_bps` across
+    /// `[thin_tao, thin_tao + thin_blend_tao]` on `g_ref`.
+    pub fn thin_depth_blend_bps(&self, g_ref: u64, thin_bps: u16, full_bps: u16) -> u16 {
+        if g_ref <= self.thin_tao {
+            return thin_bps;
+        }
+        let blend = self.thin_blend_tao;
+        if blend == 0 {
+            return full_bps;
+        }
+        let end = self.thin_tao.saturating_add(blend);
+        if g_ref >= end {
+            return full_bps;
+        }
+        let span = g_ref.saturating_sub(self.thin_tao);
+        // thin + (full − thin) · span / blend, rounded toward thin (truncation).
+        let thin_i = i128::from(thin_bps);
+        let full_i = i128::from(full_bps);
+        let delta = (full_i - thin_i)
+            .saturating_mul(i128::from(span))
+            .checked_div(i128::from(blend))
+            .unwrap_or(0);
+        let out = thin_i.saturating_add(delta);
+        out.clamp(0, 10_000) as u16
+    }
 }
 
 /// Inclusive lower bound on [`LiftParams::max_loan_duration`] (≈ 1 day at 12 s).
@@ -611,6 +651,7 @@ impl Default for LiftParams {
             minimum_loan_value: 1_000_000_000,
             max_expiry_settlements_per_block: 16,
             expiry_max_slippage_bps: 200,
+            thin_blend_tao: 3_000_000_000_000,
         }
     }
 }
@@ -701,6 +742,7 @@ impl LiftParamsBeforeEconomic {
             max_expiry_settlements_per_block: LiftParams::default()
                 .max_expiry_settlements_per_block,
             expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
+            thin_blend_tao: LiftParams::default().thin_blend_tao,
         }
     }
 }
@@ -766,6 +808,74 @@ impl LiftParamsBeforeExpirySlippage {
             minimum_loan_value: self.minimum_loan_value,
             max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
             expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
+            thin_blend_tao: LiftParams::default().thin_blend_tao,
+        }
+    }
+}
+
+/// Post-expiry-slippage, pre-`thin_blend_tao` LiftParams layout.
+///
+/// Decoded by [`migrations::migrate_lift_params_thin_blend`].
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LiftParamsBeforeThinBlend {
+    pub floor_bps: u16,
+    pub thin_floor_bps: u16,
+    pub ref_tao: u64,
+    pub move_bps: u16,
+    pub ceiling_bps: u16,
+    pub split_short_bps: u16,
+    pub rebalance_target_bps: u16,
+    pub rebalance_rate_bps: u16,
+    pub thin_tao: u64,
+    pub ltv_short_bps: u16,
+    pub ltv_long_bps: u16,
+    pub thin_ltv_long_bps: u16,
+    pub apr_long_bps: u16,
+    pub apr_short_bps: u16,
+    pub slice_bps: u16,
+    pub crash_guard_bps: u16,
+    pub total_tao_ema_blocks: u64,
+    pub new_subnet_min_age: u64,
+    pub new_subnet_ramp: u64,
+    pub ema_band_bps: u16,
+    pub max_loan_duration: u64,
+    pub max_settlement_deferral: u64,
+    pub young_short_settlement_window: u64,
+    pub minimum_loan_value: u64,
+    pub max_expiry_settlements_per_block: u32,
+    pub expiry_max_slippage_bps: u16,
+}
+
+impl LiftParamsBeforeThinBlend {
+    pub(crate) fn into_current(self) -> LiftParams {
+        LiftParams {
+            floor_bps: self.floor_bps,
+            thin_floor_bps: self.thin_floor_bps,
+            ref_tao: self.ref_tao,
+            move_bps: self.move_bps,
+            ceiling_bps: self.ceiling_bps,
+            split_short_bps: self.split_short_bps,
+            rebalance_target_bps: self.rebalance_target_bps,
+            rebalance_rate_bps: self.rebalance_rate_bps,
+            thin_tao: self.thin_tao,
+            ltv_short_bps: self.ltv_short_bps,
+            ltv_long_bps: self.ltv_long_bps,
+            thin_ltv_long_bps: self.thin_ltv_long_bps,
+            apr_long_bps: self.apr_long_bps,
+            apr_short_bps: self.apr_short_bps,
+            slice_bps: self.slice_bps,
+            crash_guard_bps: self.crash_guard_bps,
+            total_tao_ema_blocks: self.total_tao_ema_blocks,
+            new_subnet_min_age: self.new_subnet_min_age,
+            new_subnet_ramp: self.new_subnet_ramp,
+            ema_band_bps: self.ema_band_bps,
+            max_loan_duration: self.max_loan_duration,
+            max_settlement_deferral: self.max_settlement_deferral,
+            young_short_settlement_window: self.young_short_settlement_window,
+            minimum_loan_value: self.minimum_loan_value,
+            max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
+            expiry_max_slippage_bps: self.expiry_max_slippage_bps,
+            thin_blend_tao: LiftParams::default().thin_blend_tao,
         }
     }
 }
@@ -2164,7 +2274,8 @@ pub mod pallet {
                     && p.max_expiry_settlements_per_block > 0
                     && p.max_expiry_settlements_per_block <= T::MaxExpirySettlementsPerBlock::get()
                     && p.expiry_max_slippage_bps > 0
-                    && p.expiry_max_slippage_bps <= 10_000,
+                    && p.expiry_max_slippage_bps <= 10_000
+                    && p.thin_blend_tao <= MAX_THIN_BLEND_TAO,
                 Error::<T>::InvalidLiftParams
             );
             Ok(())
@@ -2652,11 +2763,7 @@ pub mod pallet {
             let y_star =
                 T::Pool::buy_depth_threshold(netuid, params.ref_tao.into(), params.move_bps)
                     .to_u64();
-            let f_bps = if g_ref < params.thin_tao {
-                params.thin_floor_bps
-            } else {
-                params.floor_bps
-            };
+            let f_bps = params.thin_depth_blend_bps(g_ref, params.thin_floor_bps, params.floor_bps);
             let floor_cap = Self::mul_bps(g_ref, f_bps)?;
             let ceiling_cap = Self::mul_bps(g_ref, params.ceiling_bps)?;
             let impact_cap = g_ref.saturating_sub(y_star);
@@ -2789,11 +2896,11 @@ pub mod pallet {
                 Side::Long => {
                     let book = Lifts::<T>::get(netuid);
                     let g_ref = Self::g_ref(netuid, &book);
-                    if g_ref < params.thin_tao {
-                        params.thin_ltv_long_bps
-                    } else {
-                        params.ltv_long_bps
-                    }
+                    params.thin_depth_blend_bps(
+                        g_ref,
+                        params.thin_ltv_long_bps,
+                        params.ltv_long_bps,
+                    )
                 }
             }
         }

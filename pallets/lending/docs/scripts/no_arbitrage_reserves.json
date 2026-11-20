@@ -9,6 +9,7 @@
     "ceiling_bps": 5000,
     "split_short_bps": 5000,
     "thin_tao": 3000.0,
+    "thin_blend_tao": 3000.0,
     "ref_tao": 1000.0,
     "move_bps": 1000
   },

@@ -89,7 +89,7 @@ integers.
 - Hard max loan duration: **216_000 blocks (~30 days)** default; renew via
   `roll` only (terms v2). Root can change duration for **new opens / rolls**
   without rewriting live `expires_at`.
-- Caps: floor 33%, thin floor 15% below 3k τ, 50/50 split → 7.5% per side on thin
+- Caps: floor 33%, thin floor 15% at ≤3k τ blending linearly to full over `thin_blend_tao` (default 3k τ), 50/50 split → 7.5% per side when fully thin
   pools (to be raised after launch). LTV 25% (15% thin longs). APR long/short
   split (default 100% each). All of these are root-settable via `set_lift_params`.
 - Volatility-targeting controller is **not** in V1.

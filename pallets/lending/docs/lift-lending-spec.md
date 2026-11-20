@@ -44,6 +44,7 @@
 | `rebalance_target_bps` | 0 (off) | ≤ 10_000 | `set_lift_params` |
 | `rebalance_rate_bps` | 0 | ≤ 10_000 | `set_lift_params` |
 | `thin_tao` | 3000 τ | ≥ 0 | `set_lift_params` |
+| `thin_blend_tao` | 3000 τ | ≤ 1e6 τ | `set_lift_params` — continuous thin→full blend width on G_ref (Greg 102513 / Karl); 0 = step at `thin_tao` |
 | `slice_bps` | 1 | ≤ 10_000 | `set_lift_params` |
 | `crash_guard_bps` | 9500 | ≤ 10_000 | `set_lift_params` |
 | `total_tao_ema_blocks` | 7200 | > 0 | `set_lift_params` (EMA window for total TAO = LP TAO + lifted TAO; feeds dissolution `t_ema`; was `settle_ema_blocks`) |
@@ -234,19 +235,21 @@ Ship with these values; raise the thin-side caps after launch once the book is o
 * **Smoothing:**
   * `G_ema`: 24 h half-life geometric EMA, using #3211's `EMA_WEIGHT_BITS`, updated in `on_finalize` for every subnet.
   * `G_ref = min(G_spot, G_ema)`.
-* **Rule.** Governance parameters: `floor = 33%`; **`thin_floor = 15%`, on by default (locked)**, when `G_ref < thin_tao = 3,000 τ` (§10.5); `ref = 1,000 τ`; `move = 10%`; `ceiling = 50%`; `split_short = 50%`. Today 32 pools are thin: their total capacity is 15% of `G` (7.5% per side), and their longs use the 15% LTV tier (§5).
+* **Rule.** Governance parameters: `floor = 33%`; **`thin_floor = 15%`, on by default (locked)**; `thin_tao = 3,000 τ`; **`thin_blend_tao = 3,000 τ`** (continuous linear blend — Greg Shorting 102513 / Karl; replaces the old step cliff); `ref = 1,000 τ`; `move = 10%`; `ceiling = 50%`; `split_short = 50%`. Deep pools use the full floor/LTV; shallow pools use the thin values; depths in between interpolate.
 ```
-f         = (G_ref < thin_tao) ? thin_floor : floor
+f         = blend(G_ref; thin_floor, floor, thin_tao, thin_blend_tao)
+            // G_ref ≤ thin_tao → thin_floor; G_ref ≥ thin_tao + thin_blend_tao → floor;
+            // else linear in between. Same blend drives long LTV (thin_ltv_long → ltv_long).
 Cap       = ramp(age) · max( f·G_ref ,  min( G_ref − y* ,  ceiling·G_ref ) )      // ramp = 1 for every subnet past the new-subnet ramp (§2.3)
 Cap_short = split_short · Cap ,   Cap_long = (1 − split_short) · Cap
 open short iff  L_S + ΔL ≤ Cap_short ;   open long iff  L_L + ΔL ≤ Cap_long
 always:  y − ΔL ≥ MinimumReserve
 ```
 * In words: capacity = MAX(floor % of pool, the depth above which a 1k τ buy moves price 10%), capped by the 50% ceiling, then split 50/50 between sides.
-* `floor` and `thin_floor` are set by root via `set_lift_params`, bounded to ≤ `ceiling`. Lowering them never recalls anything (§7).
+* `floor`, `thin_floor`, and `thin_blend_tao` are set by root via `set_lift_params`, with `floor`/`thin_floor` bounded to ≤ `ceiling` and `thin_blend_tao` ≤ 1e6 τ. Lowering them never recalls anything (§7).
 * **No cross-borrowing:** unused capacity on one side never carries over to the other.
 * **No per-account, per-hotkey or per-position caps** (§5).
-* The thin tier switches on `G_ref`, the same smoothed depth as the rest of the rule, so a one-block buy can't lift a pool out of the thin tier. Crossing 3,000 τ moves capacity from 15% to 33% of `G` (450 τ to 990 τ at the boundary). Crossing back blocks new opens on any side that is now over its cap; nothing is recalled (§7).
+* The thin blend keys off `G_ref`, the same smoothed depth as the rest of the rule, so a one-block buy can't jump the whole window. A deposit of size `D` raises floor/LTV by at most `(full − thin) · D / thin_blend_tao` — not the old 15%→33% / 15%→25% step. Cap stays continuous at the floor↔impact (~30,579 τ) and impact↔ceiling (~40,976 τ) crossovers. Dropping back below the blend window blocks new opens on any side that is now over its cap; nothing is recalled (§7).
 * **Future parameter (off by default):** `rebalance_target` (for example 60/40 toward the busier side) with `rebalance_rate` (at most a few % of `Cap` per day). It moves `split_short` slowly, and only within the unused headroom of the side being reduced.
 
 ### 2.3 New subnets: minimum age, then a capacity ramp
@@ -493,7 +496,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
   * `Positions` (add `lift_tao`, `lift_alpha`; `proceeds` = short escrow TAO; new `escrow_alpha` = long escrow `A`; `custody` = the position's custody coldkey, stored rather than re-derived, so a coldkey swap doesn't move funds; **no stored hotkey**, §14), `OpenByNetuid`, `PositionCount`, `TotalPositions`, `EscrowOwner`, `References`, `Due`, `NextDue`, `Expiry`, `NextExpiry`, `PalletHotkey`;
   * new: `Lifts: NetUid → {L_S, L_L, B_L, held_tao, held_alpha, escrow_tao, escrow_alpha, long_collateral_alpha, g_ema, t_ema, last}`, `LongInterestPending`, `LiftParams`, `SettleSnapshot: NetUid → {t_flag, t_ema_flag, moving_price}` (§13.2; `Δ0` and `T_settle` are computed at the start of `LendingSettlement`).
   * `t_ema` (§13.2): EMA of the subnet's pot TAO, updated once per block in `on_finalize` for every **live, non-dissolving** subnet, next to `g_ema`. It is frozen once the dissolving flag is set. The migration initialises it to the current `SubnetTAO` on every subnet; a newly registered subnet starts at its `SubnetTAO` at registration.
-* `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short`, `rebalance_target` (off), `rebalance_rate`, `thin_tao`, `ltv_short`, `ltv_long`, `thin_ltv_long`, `apr`, `slice_bps`, `crash_guard`, `total_tao_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `thin_tao` [3,000 τ], `thin_ltv_long` [1,500 bps], `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3), `ema_band_bps` [**1,500 bps**, §5.4].
+* `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short`, `rebalance_target` (off), `rebalance_rate`, `thin_tao` [3,000 τ], `thin_blend_tao` [3,000 τ], `ltv_short`, `ltv_long`, `thin_ltv_long` [1,500 bps], `apr`, `slice_bps`, `crash_guard`, `total_tao_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3), `ema_band_bps` [**1,500 bps**, §5.4].
 * Calls:
   * `open`, `open_exact`, `close`; the short path always sells, and **the long path always buys and escrows** (no TAO payout);
   * **new `repay`** (partial repay, §4.4);

@@ -1916,6 +1916,8 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsEconomicMigration<Runtime>,
     // Append expiry_max_slippage_bps (default 200) for expiry AMM MEV bound.
     pallet_lending::migrations::LiftParamsExpirySlippageMigration<Runtime>,
+    // Append thin_blend_tao (default 3000 τ) for continuous thin→full floor/LTV.
+    pallet_lending::migrations::LiftParamsThinBlendMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

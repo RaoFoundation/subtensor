@@ -1854,8 +1854,10 @@ def show_params(ctx: typer.Context):
         "move_bps",
         "ref_tao",
         "thin_tao",
+        "thin_blend_tao",
         "total_tao_ema_blocks",
         "crash_guard_bps",
+        "expiry_max_slippage_bps",
     ]
     rows: list[list[str]] = [["Enabled", str(bool(enabled))]]
     seen: set[str] = set()
