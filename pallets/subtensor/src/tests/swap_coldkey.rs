@@ -2322,7 +2322,6 @@ fn seed_gamma_deposits(netuid: NetUid, coldkey: U256, hotkeys: core::ops::Range<
             U256::from(hotkey),
             GammaDeposit {
                 coldkey,
-                spender: U256::from(77),
                 balance: GammaBalance::from(hotkey),
                 daily_spend_cap: Some(GammaDailySpendCap {
                     cap: GammaBalance::from(5u64),
@@ -2535,7 +2534,6 @@ fn test_do_swap_coldkey_migrates_gamma_deposits() {
                 GammaDeposits::<Test>::get(netuid, U256::from(hotkey)),
                 Some(GammaDeposit {
                     coldkey: new_coldkey,
-                    spender: U256::from(77),
                     balance: GammaBalance::from(hotkey),
                     daily_spend_cap: Some(GammaDailySpendCap {
                         cap: GammaBalance::from(5u64),

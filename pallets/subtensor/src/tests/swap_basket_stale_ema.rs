@@ -497,10 +497,8 @@ fn test_e8_stale_low_ema_sell_extraction_closed_by_fast_anchor() {
 // Honest trading still fills
 // =============================================================================
 
-/// When the anchors agree with spot an in-band trade fills on both legs, and when the fast
-/// EMA has followed a genuine move it lets the fund trade at the new level even though the
-/// slow EMA is still stale (the slow EMA remains the level cap in the direction it always
-/// was).
+/// Default legacy trading fills when the EMAs agree with spot or have followed a genuine
+/// move. A stale same-block lift remains refused, as before this storage-control change.
 #[test]
 fn test_e8_honest_trade_at_spot_still_fills() {
     new_test_ext(1).execute_with(|| {

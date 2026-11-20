@@ -255,11 +255,42 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ColdkeyGammaHotkeys::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            GammaSpent::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             UnconvertedGammaEmission::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {
             return false;
+        }
+
+        let queue_cleanup = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateTargets::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateMoveQueue::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateMoveOrigins::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateMechanismMoves::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegatePurgeQueue::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            MechWeightDelegateRetirementQueue::<T>::clear_prefix(netuid, limit, None)
+        });
+        if !queue_cleanup {
+            return false;
+        }
+
+        // Retirement may still be queued when dissolution starts. Delete grants
+        // for every possible mechanism index, not only the current count, before
+        // clearing that retirement metadata so netuid reuse cannot revive them.
+        for subid in 0..super::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET {
+            if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                let index = Self::get_mechanism_storage_index(netuid, subid.into());
+                MechWeightDelegate::<T>::clear_prefix((index,), limit, None)
+            }) {
+                return false;
+            }
         }
 
         let read_weight = T::DbWeight::get().reads(1);
@@ -293,6 +324,8 @@ impl<T: Config> Pallet<T> {
                 Bonds::<T>::clear_prefix(netuid_index, limit, None)
             }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 Weights::<T>::clear_prefix(netuid_index, limit, None)
+            }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+                MechWeightDelegate::<T>::clear_prefix((netuid_index,), limit, None)
             });
 
             if !result {
@@ -415,6 +448,7 @@ impl<T: Config> Pallet<T> {
         BondsPenalty::<T>::remove(netuid);
         BondsResetOn::<T>::remove(netuid);
         WeightsSetRateLimit::<T>::remove(netuid);
+        MaxTimelockedCommitsPerHotkey::<T>::remove(netuid);
         ValidatorPruneLen::<T>::remove(netuid);
         ScalingLawPower::<T>::remove(netuid);
         TargetRegistrationsPerInterval::<T>::remove(netuid);

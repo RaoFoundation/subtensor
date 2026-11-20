@@ -24,6 +24,7 @@ frame-support.workspace = true
 frame-system.workspace = true
 sp-runtime.workspace = true
 sp-std.workspace = true
+substrate-fixed.workspace = true
 enumflags2.workspace = true
 
 pallet-drand.workspace = true
@@ -63,6 +64,7 @@ std = [
 	"sp-runtime/std",
 	"sp-std/std",
 	"subtensor-runtime-common/std",
+	"substrate-fixed/std",
 	"tle/std",
 	"w3f-bls/std",
 ]

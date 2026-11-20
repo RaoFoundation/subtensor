@@ -14,7 +14,7 @@ use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
-/// Basis-point denominator for [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`].
+/// Basis-point denominator for [`crate::BasketTradeMaxSlippageBps`].
 const BPS_DENOMINATOR: u64 = 10_000;
 
 /// Scale of the AMM `price_limit` argument (TAO per alpha × 10⁹), see `order_swap.rs`.
@@ -45,6 +45,10 @@ struct BasketTradeOutcome {
 struct BasketTradeState {
     rows: Vec<(NetUid, u64)>,
     guarded_nav: u64,
+    max_slippage_bps: u16,
+    refill_blocks: u64,
+    price_reference: BasketTradePriceReference,
+    moving_prices: Vec<(NetUid, U64F64)>,
 }
 
 struct BasketTradeFailure {
@@ -96,9 +100,10 @@ impl<T: Config> Pallet<T> {
     /// untouched: only the composition of the escrow holdings changes.
     ///
     /// Guardrails (see the storage docs on [`crate::BasketDailyTurnoverCap`]):
-    /// * each AMM leg must fill fully within [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of
-    ///   the strictest of the subnet's slow moving (EMA) price, its fast moving price, and
-    ///   its spot price ([`Self::basket_trade_price_limit`]);
+    /// * each AMM leg must fill fully within [`crate::BasketTradeMaxSlippageBps`] of the
+    ///   reference selected by [`crate::BasketTradePriceReferenceMode`] — the strictest of
+    ///   the slow EMA, fast EMA, and spot by default, or spot only after governance opts in
+    ///   ([`Self::basket_trade_price_limit`]);
     /// * the TAO through the middle is taken from the fund's turnover bucket, sized from
     ///   the fund's guarded NAV ([`Self::guarded_basket_holding_value`]);
     /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
@@ -355,11 +360,11 @@ impl<T: Config> Pallet<T> {
     /// Conservative weight charged by transaction validation for one basket leg. Validation
     /// repeats the read-only dispatch prechecks and simulates the sell against a rollback
     /// overlay. A benchmarked one-row trade bounds that work without inventing a separate
-    /// unmeasured weight.
+    /// unmeasured weight, plus the minimum-trade and three configured-control reads.
     pub fn swap_basket_validation_weight() -> Weight {
         Self::swap_basket_precheck_weight()
             .saturating_add(<T as crate::pallet::Config>::WeightInfo::swap_basket(1))
-            .saturating_add(T::DbWeight::get().reads(1))
+            .saturating_add(T::DbWeight::get().reads(4))
     }
 
     /// Reject an uneconomic basket leg during transaction validation, before it can enter the
@@ -370,11 +375,19 @@ impl<T: Config> Pallet<T> {
         amount: u64,
     ) -> Result<(), Error<T>> {
         ensure!(amount > 0, Error::<T>::AmountTooLow);
+        let state = BasketTradeState {
+            rows: Vec::new(),
+            guarded_nav: 0,
+            max_slippage_bps: BasketTradeMaxSlippageBps::<T>::get(),
+            refill_blocks: BasketTradeRefillBlocks::<T>::get().max(1),
+            price_reference: BasketTradePriceReferenceMode::<T>::get(),
+            moving_prices: Vec::new(),
+        };
 
         let tao_mid = if origin_netuid.is_root() || SubnetMechanism::<T>::get(origin_netuid) != 1 {
             amount
         } else {
-            let floor = Self::basket_trade_price_limit(origin_netuid, Leg::Sell)
+            let floor = Self::basket_trade_price_limit(origin_netuid, Leg::Sell, &state)
                 .map_err(|_| Error::<T>::SlippageTooHigh)?;
             let order = GetTaoForAlpha::<T>::with_amount(amount);
             let out = T::SwapInterface::swap(origin_netuid.into(), order, floor, false, true)
@@ -419,6 +432,14 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    fn moving_price(netuid: NetUid, moving_prices: &[(NetUid, U64F64)]) -> U64F64 {
+        moving_prices
+            .iter()
+            .find(|(row, _)| *row == netuid)
+            .map(|(_, price)| *price)
+            .unwrap_or_else(|| Self::get_moving_alpha_price(netuid))
+    }
+
     /// Load the guarded value of every holding once for a single trade or multi-leg call.
     fn basket_trade_state(hotkey: &T::AccountId) -> Result<BasketTradeState, DispatchError> {
         // Every holding is valued twice: at its realizable quote (the NAV the fund could
@@ -426,21 +447,30 @@ impl<T: Config> Pallet<T> {
         // slow-EMA value of the alpha — the figure the turnover budget and the
         // concentration cap are measured against, see [`Self::guarded_basket_holding_value`]).
         let before = Self::try_valued_basket_holdings(hotkey)?;
-        let guarded_before: Vec<(NetUid, u64)> = before
-            .iter()
-            .map(|(netuid, alpha, value)| {
-                (
-                    *netuid,
-                    Self::guarded_basket_holding_value(*netuid, alpha.to_u64(), *value),
-                )
-            })
-            .collect();
-        let guarded_nav: u64 = guarded_before
-            .iter()
-            .fold(0u64, |nav, (_, value)| nav.saturating_add(*value));
+        // Read each EMA once for the existing guarded valuation, then reuse it for the
+        // legacy price limit and post-trade marks.
+        let mut guarded_before = Vec::with_capacity(before.len());
+        let mut moving_prices = Vec::with_capacity(before.len());
+        let mut guarded_nav = 0u64;
+        for (netuid, alpha, realizable) in before {
+            let moving_price = Self::get_moving_alpha_price(netuid);
+            let guarded = Self::guarded_basket_holding_value_with_moving_price(
+                netuid,
+                alpha.to_u64(),
+                realizable,
+                moving_price,
+            );
+            guarded_nav = guarded_nav.saturating_add(guarded);
+            guarded_before.push((netuid, guarded));
+            moving_prices.push((netuid, moving_price));
+        }
         Ok(BasketTradeState {
             rows: guarded_before,
             guarded_nav,
+            max_slippage_bps: BasketTradeMaxSlippageBps::<T>::get(),
+            refill_blocks: BasketTradeRefillBlocks::<T>::get().max(1),
+            price_reference: BasketTradePriceReferenceMode::<T>::get(),
+            moving_prices,
         })
     }
 
@@ -462,7 +492,8 @@ impl<T: Config> Pallet<T> {
         let holdings_before = state.rows.len() as u64;
 
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
-        let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
+        let tao_mid: u64 =
+            Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into(), state)?;
         ensure!(
             tao_mid >= Self::minimum_basket_trade_tao(),
             Error::<T>::AmountTooLow
@@ -470,7 +501,7 @@ impl<T: Config> Pallet<T> {
 
         // --- 2. Turnover budget, charged on the TAO through the middle and sized from the
         // guarded (un-pumpable) NAV.
-        Self::consume_basket_trade_budget(hotkey, guarded_nav_before, tao_mid)?;
+        Self::consume_basket_trade_budget(hotkey, guarded_nav_before, tao_mid, state)?;
 
         // --- 3. Move the cash from the origin pot to the destination pot.
         let destination_account =
@@ -479,7 +510,7 @@ impl<T: Config> Pallet<T> {
 
         // --- 4. Buy leg: TAO -> destination holding.
         let alpha_bought =
-            Self::buy_basket_leg(hotkey, escrow, destination_netuid, tao_mid.into())?;
+            Self::buy_basket_leg(hotkey, escrow, destination_netuid, tao_mid.into(), state)?;
 
         // --- 4a. Caller's floor on the credited amount (fees already settled in the leg).
         // The unit follows the destination: alpha, or rao of TAO for the root cash slot.
@@ -493,7 +524,12 @@ impl<T: Config> Pallet<T> {
         // more than that share in one refill window (the standing holding resets
         // on unwind; the flow counter does not).
         Self::ensure_within_liquidity_cap(hotkey, escrow, destination_netuid)?;
-        Self::consume_basket_liquidity_flow(hotkey, destination_netuid, alpha_bought.to_u64())?;
+        Self::consume_basket_liquidity_flow(
+            hotkey,
+            destination_netuid,
+            alpha_bought.to_u64(),
+            state,
+        )?;
 
         // --- 5. Shape rule on the post-trade fund. The trade moved only the origin and
         // destination pools (root is 1:1), so every other row's mark is unchanged and the
@@ -502,9 +538,9 @@ impl<T: Config> Pallet<T> {
         // the fund it is measured against is the guarded NAV, which a same-block pump of
         // any held pool cannot inflate.
         let (origin_exists, _, origin_after) =
-            Self::basket_holding_marks(hotkey, escrow, origin_netuid)?;
+            Self::basket_holding_marks(hotkey, escrow, origin_netuid, state)?;
         let (destination_exists, destination_value, destination_after) =
-            Self::basket_holding_marks(hotkey, escrow, destination_netuid)?;
+            Self::basket_holding_marks(hotkey, escrow, destination_netuid, state)?;
         let guarded_nav_after: u64 = guarded_nav_before
             .saturating_sub(guarded_origin_before)
             .saturating_sub(guarded_destination_before)
@@ -530,6 +566,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         escrow: &T::AccountId,
         netuid: NetUid,
+        state: &BasketTradeState,
     ) -> Result<(bool, u64, u64), DispatchError> {
         let held =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid).to_u64();
@@ -537,7 +574,16 @@ impl<T: Config> Pallet<T> {
         Ok((
             held != 0,
             realizable,
-            Self::guarded_basket_holding_value(netuid, held, realizable),
+            if netuid.is_root() {
+                realizable
+            } else {
+                Self::guarded_basket_holding_value_with_moving_price(
+                    netuid,
+                    held,
+                    realizable,
+                    Self::moving_price(netuid, &state.moving_prices),
+                )
+            },
         ))
     }
 
@@ -553,10 +599,24 @@ impl<T: Config> Pallet<T> {
     /// trading above its monthly EMA — or above parity, where the slow EMA clamps at 1.0 —
     /// is under-marked, which only tightens the guards (smaller budget, stricter cap).
     pub(crate) fn guarded_basket_holding_value(netuid: NetUid, alpha: u64, realizable: u64) -> u64 {
+        Self::guarded_basket_holding_value_with_moving_price(
+            netuid,
+            alpha,
+            realizable,
+            Self::get_moving_alpha_price(netuid),
+        )
+    }
+
+    fn guarded_basket_holding_value_with_moving_price(
+        netuid: NetUid,
+        alpha: u64,
+        realizable: u64,
+        moving_price: U64F64,
+    ) -> u64 {
         if netuid.is_root() {
             return realizable;
         }
-        let ema_value: u64 = Self::get_moving_alpha_price(netuid)
+        let ema_value: u64 = moving_price
             .saturating_mul(U64F64::saturating_from_num(alpha))
             .saturating_to_num::<u64>();
         realizable.min(ema_value)
@@ -570,6 +630,7 @@ impl<T: Config> Pallet<T> {
         escrow: &T::AccountId,
         netuid: NetUid,
         alpha: AlphaBalance,
+        state: &BasketTradeState,
     ) -> Result<u64, DispatchError> {
         // Only alpha that really left the holding may be sold (or, on root, moved on): a
         // short debit would otherwise still be swapped for TAO in full, letting the fund sell
@@ -585,7 +646,7 @@ impl<T: Config> Pallet<T> {
         let alpha_removed =
             Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid, alpha);
         ensure!(alpha_removed == alpha, Error::<T>::NotEnoughStakeToWithdraw);
-        let floor = Self::basket_trade_price_limit(netuid, Leg::Sell)?;
+        let floor = Self::basket_trade_price_limit(netuid, Leg::Sell, state)?;
         let out = Self::swap_alpha_for_tao(netuid, alpha, floor, false)?;
         let consumed = out.amount_paid_in.saturating_add(out.fee_paid);
         ensure!(consumed == alpha, Error::<T>::SlippageTooHigh);
@@ -604,12 +665,13 @@ impl<T: Config> Pallet<T> {
         escrow: &T::AccountId,
         netuid: NetUid,
         tao: TaoBalance,
+        state: &BasketTradeState,
     ) -> Result<AlphaBalance, DispatchError> {
         if netuid.is_root() {
             Self::credit_root_slot(hotkey, escrow, tao);
             return Ok(tao.to_u64().into());
         }
-        let ceiling = Self::basket_trade_price_limit(netuid, Leg::Buy)?;
+        let ceiling = Self::basket_trade_price_limit(netuid, Leg::Buy, state)?;
         let out = Self::swap_tao_for_alpha(netuid, tao, ceiling, false)?;
         let consumed = out.amount_paid_in.saturating_add(out.fee_paid);
         ensure!(consumed == tao, Error::<T>::SlippageTooHigh);
@@ -627,48 +689,57 @@ impl<T: Config> Pallet<T> {
         Ok(out.amount_paid_out)
     }
 
-    /// AMM `price_limit` (TAO per alpha × 10⁹) for one trade leg: the strictest of the
-    /// subnet's slow moving (emission EMA) price, its fast moving price
-    /// ([`crate::SubnetFastMovingPrice`]), and its spot price, shifted by
-    /// [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] against the trade (up for a buy ceiling,
-    /// down for a sell floor).
+    /// AMM `price_limit` (TAO per alpha × 10⁹) for one trade leg, shifted against the trade
+    /// by [`crate::BasketTradeMaxSlippageBps`] (up for a buy ceiling, down for a sell floor).
     ///
-    /// Each anchor closes a different hole. Spot caps the trade's own price impact. The fast
-    /// EMA (two-hour half-life, updated from the previous block's closing spot) is a price
-    /// nobody can move inside a block: a key holder who lifts spot and has the fund buy, or
-    /// dumps spot and has the fund sell, finds the fund bound to within 2% of where the pool
-    /// traded before the move, so the fund never fills at the manipulated price. Pulling
-    /// the anchor along means holding the pump — and the capital behind it — against
-    /// arbitrage for several half-lives. The slow EMA (monthly) stays in the min/max as the
-    /// level cap on how far even a held pump can carry the fund. A subnet missing either
-    /// EMA (never emitted, or not yet updated since the fast series was introduced) is
-    /// refused.
+    /// [`crate::BasketTradePriceReferenceMode`] selects the reference:
+    /// * `SpotOnly` (governance opt-in): current spot for both legs. The slow and fast EMAs
+    ///   are not read or required, so a subnet with a valid spot remains tradeable before its
+    ///   moving prices exist and after a spot move leaves its EMAs behind.
+    /// * `StrictestEmaAndSpot` (default): sell floor from `max(slow EMA, fast EMA, spot)` and
+    ///   buy ceiling from `min(slow EMA, fast EMA, spot)`. This retains the legacy anchors
+    ///   against same-block and held price manipulation, but refuses a trade when either EMA
+    ///   is missing or zero.
     ///
-    /// When spot has already crossed the anchored bound the engine would reject the order
-    /// with its own `PriceLimitExceeded`; refusing here keeps the caller-facing error
-    /// `SlippageTooHigh` for every way a leg can miss the band.
-    fn basket_trade_price_limit(netuid: NetUid, leg: Leg) -> Result<TaoBalance, DispatchError> {
-        let slow: U64F64 = Self::get_moving_alpha_price(netuid);
-        ensure!(
-            slow > U64F64::saturating_from_num(0),
-            Error::<T>::SlippageTooHigh
-        );
-        let fast: U64F64 =
-            SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
-        ensure!(
-            fast > U64F64::saturating_from_num(0),
-            Error::<T>::SlippageTooHigh
-        );
+    /// Governance can tune the band with `AdminUtils::sudo_set_basket_trade_max_slippage_bps`
+    /// and select either mode with `AdminUtils::sudo_set_basket_trade_price_reference`.
+    /// A zero or missing spot is refused in both modes. When spot has already crossed the
+    /// bound, refusing here keeps the caller-facing error `SlippageTooHigh` rather than the
+    /// engine's `PriceLimitExceeded`.
+    fn basket_trade_price_limit(
+        netuid: NetUid,
+        leg: Leg,
+        state: &BasketTradeState,
+    ) -> Result<TaoBalance, DispatchError> {
         let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
-        let (reference, bps) = match leg {
-            Leg::Buy => (
-                slow.min(fast).min(spot),
-                BPS_DENOMINATOR.saturating_add(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
-            ),
-            Leg::Sell => (
-                slow.max(fast).max(spot),
-                BPS_DENOMINATOR.saturating_sub(crate::BASKET_TRADE_MAX_SLIPPAGE_BPS),
-            ),
+        ensure!(
+            spot > U64F64::saturating_from_num(0),
+            Error::<T>::SlippageTooHigh
+        );
+        let reference = match state.price_reference {
+            BasketTradePriceReference::SpotOnly => spot,
+            BasketTradePriceReference::StrictestEmaAndSpot => {
+                let slow = Self::moving_price(netuid, &state.moving_prices);
+                ensure!(
+                    slow > U64F64::saturating_from_num(0),
+                    Error::<T>::SlippageTooHigh
+                );
+                let fast: U64F64 =
+                    SubnetFastMovingPrice::<T>::get(netuid).ok_or(Error::<T>::SlippageTooHigh)?;
+                ensure!(
+                    fast > U64F64::saturating_from_num(0),
+                    Error::<T>::SlippageTooHigh
+                );
+                match leg {
+                    Leg::Buy => slow.min(fast).min(spot),
+                    Leg::Sell => slow.max(fast).max(spot),
+                }
+            }
+        };
+        let band = u64::from(state.max_slippage_bps);
+        let bps = match leg {
+            Leg::Buy => BPS_DENOMINATOR.saturating_add(band),
+            Leg::Sell => BPS_DENOMINATOR.saturating_sub(band),
         };
         let bound: U64F64 = reference
             .saturating_mul(U64F64::saturating_from_num(bps))
@@ -683,17 +754,37 @@ impl<T: Config> Pallet<T> {
         Ok(limit.saturating_to_num::<u64>().into())
     }
 
+    /// Test-only access to the leg bound in integer TAO per alpha, scaled by 10⁹.
+    #[cfg(test)]
+    pub(crate) fn basket_trade_price_limit_for_test(
+        netuid: NetUid,
+        buy: bool,
+    ) -> Result<u64, DispatchError> {
+        let state = BasketTradeState {
+            rows: Vec::new(),
+            guarded_nav: 0,
+            max_slippage_bps: BasketTradeMaxSlippageBps::<T>::get(),
+            refill_blocks: BasketTradeRefillBlocks::<T>::get().max(1),
+            price_reference: BasketTradePriceReferenceMode::<T>::get(),
+            moving_prices: Vec::new(),
+        };
+        Self::basket_trade_price_limit(netuid, if buy { Leg::Buy } else { Leg::Sell }, &state)
+            .map(|limit| limit.to_u64())
+    }
+
     /// Take `tao_mid` out of the fund's turnover bucket after refilling it for the blocks
     /// elapsed (capacity `nav_before × BasketDailyTurnoverCap / u16::MAX` with `nav_before`
-    /// the guarded NAV, full refill over [`crate::BASKET_TRADE_REFILL_BLOCKS`]).
+    /// the guarded NAV, full refill over [`crate::BasketTradeRefillBlocks`]).
     fn consume_basket_trade_budget(
         hotkey: &T::AccountId,
         nav_before: u64,
         tao_mid: u64,
+        state: &BasketTradeState,
     ) -> DispatchResult {
         let now = Self::get_current_block_as_u64();
         let budget = Self::basket_trade_budget_tao(nav_before);
-        let available = Self::basket_trade_bucket_at(hotkey, now, budget);
+        let available =
+            Self::basket_trade_bucket_at_with_refill(hotkey, now, budget, state.refill_blocks);
         let remaining = available
             .checked_sub(tao_mid)
             .ok_or(Error::<T>::BasketTurnoverBudgetExceeded)?;
@@ -702,17 +793,23 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Cumulative destination flow in the current refill window. Decays linearly
-    /// to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`]. Missing row is zero.
-    fn basket_liquidity_used_at(hotkey: &T::AccountId, netuid: NetUid, now: u64) -> u64 {
+    /// to zero over [`crate::BasketTradeRefillBlocks`]. Missing row is zero.
+    fn basket_liquidity_used_at(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        now: u64,
+        state: &BasketTradeState,
+    ) -> u64 {
         match BasketLiquidityUsed::<T>::get(hotkey, netuid) {
             None => 0,
             Some((used, last_block)) => {
+                let refill_blocks = state.refill_blocks;
                 let elapsed = now.saturating_sub(last_block);
-                if elapsed >= crate::BASKET_TRADE_REFILL_BLOCKS {
+                if elapsed >= refill_blocks {
                     0
                 } else {
-                    let remaining = crate::BASKET_TRADE_REFILL_BLOCKS.saturating_sub(elapsed);
-                    Self::mul_div_u64(used, remaining, crate::BASKET_TRADE_REFILL_BLOCKS)
+                    let remaining = refill_blocks.saturating_sub(elapsed);
+                    Self::mul_div_u64(used, remaining, refill_blocks)
                 }
             }
         }
@@ -726,12 +823,13 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         netuid: NetUid,
         alpha_bought: u64,
+        state: &BasketTradeState,
     ) -> DispatchResult {
         if netuid.is_root() {
             return Ok(());
         }
         let now = Self::get_current_block_as_u64();
-        let used = Self::basket_liquidity_used_at(hotkey, netuid, now);
+        let used = Self::basket_liquidity_used_at(hotkey, netuid, now, state);
         let new_used = used.saturating_add(alpha_bought);
         let reserve = SubnetAlphaIn::<T>::get(netuid).to_u64();
         let cap = BasketLiquidityCap::<T>::get() as u64;
@@ -801,9 +899,11 @@ impl<T: Config> Pallet<T> {
     /// settlement plus the pre-trade realizable-NAV sweep and the two post-trade re-quotes
     /// (origin and destination), as benchmarked.
     ///
-    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination and
-    /// one `BasketMinTradeTao` read per leg. Do not invent
-    /// CPU time here — CI's reference `bench-patch` updates
+    /// Plus one `BasketLiquidityUsed` get/insert on a non-root destination. The existing
+    /// benchmark includes the minimum-trade lookup and more EMA reads than the now-cached
+    /// execution path; its allowance also covers the once-per-dispatch band, reference, and
+    /// refill reads. Legacy mode still reads each leg's fast EMA, as the benchmark does.
+    /// Do not invent CPU time here — CI's reference `bench-patch` updates
     /// [`WeightInfo::swap_basket`](crate::weights::WeightInfo::swap_basket).
     pub fn swap_basket_weight(num_holdings: u64) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::swap_basket(

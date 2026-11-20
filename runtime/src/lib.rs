@@ -280,10 +280,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 492,
+    spec_version: 493,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 1,
+    transaction_version: 2,
     system_version: 1,
 };
 
@@ -820,11 +820,17 @@ impl CommitmentsInterface<AccountId> for CommitmentsI {
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
-        pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
+        pallet_commitments::Pallet::<Runtime>::purge_channel_netuid(netuid, weight_meter)
+            && pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
     }
 
     fn purge_neuron(netuid: NetUid, account: &AccountId) {
         pallet_commitments::Pallet::<Runtime>::purge_neuron(netuid, account);
+        pallet_commitments::Pallet::<Runtime>::purge_channel_neuron(netuid, account);
+    }
+
+    fn swap_neuron(netuid: NetUid, old_hotkey: &AccountId, new_hotkey: &AccountId) {
+        pallet_commitments::Pallet::<Runtime>::swap_neuron(netuid, old_hotkey, new_hotkey);
     }
 }
 
@@ -971,6 +977,7 @@ impl pallet_commitments::Config for Runtime {
     type InitialDeposit = CommitmentInitialDeposit;
     type FieldDeposit = CommitmentFieldDeposit;
     type TempoInterface = TempoInterface;
+    type CommitBurn = SubtensorModule;
 }
 
 pub struct TempoInterface;
@@ -2726,9 +2733,20 @@ impl_runtime_apis! {
         }
     }
 
+    #[api_version(2)]
     impl subtensor_custom_rpc_runtime_api::SubnetRegistrationRuntimeApi<Block> for Runtime {
         fn get_network_registration_cost() -> TaoBalance {
             SubtensorModule::get_network_lock_cost()
+        }
+        fn get_commit_burn(netuid: NetUid, mecid: MechId, channel: u8) -> Option<pallet_commitments::CommitBurnParameters> {
+            SubtensorModule::get_commit_burn(netuid, mecid, channel)
+        }
+        fn get_channel_commitment(netuid: NetUid, mecid: MechId, channel: u8, hotkey: AccountId32) -> Option<Vec<u8>> {
+            Commitments::get_channel_commitment(netuid, mecid, channel, &hotkey).map(|registration| registration.encode())
+        }
+        fn get_mech_weight_delegate(netuid: NetUid, mecid: MechId, hotkey: AccountId32) -> Option<AccountId32> {
+            let index = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
+            pallet_subtensor::MechWeightDelegate::<Runtime>::get((index, hotkey))
         }
     }
 

@@ -19,6 +19,7 @@ use sp_core::{Get, Pair, U256, ed25519};
 use sp_runtime::PerU16;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
+mod commit_burn;
 pub mod mock;
 mod pow_difficulty;
 mod swap_basket_liquidity_cap;
@@ -333,6 +334,51 @@ fn test_sudo_set_weights_set_rate_limit() {
             SubtensorModule::get_weights_set_rate_limit(netuid),
             to_be_set
         );
+    });
+}
+
+#[test]
+fn test_sudo_set_max_timelocked_commits_per_hotkey() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+            10
+        );
+
+        assert_noop!(
+            AdminUtils::sudo_set_max_timelocked_commits_per_hotkey(
+                RuntimeOrigin::signed(U256::from(1)),
+                netuid,
+                1,
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_max_timelocked_commits_per_hotkey(
+                RuntimeOrigin::root(),
+                netuid.next(),
+                1,
+            ),
+            Error::<Test>::SubnetDoesNotExist
+        );
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+            10
+        );
+
+        for max_commits in [1, 0, 11, u8::MAX, 10] {
+            assert_ok!(AdminUtils::sudo_set_max_timelocked_commits_per_hotkey(
+                RuntimeOrigin::root(),
+                netuid,
+                max_commits,
+            ));
+            assert_eq!(
+                SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+                max_commits
+            );
+        }
     });
 }
 
@@ -4329,6 +4375,105 @@ fn burn_toggle_obeys_owner_cooldown_and_freeze() {
 }
 
 #[test]
+fn test_sudo_set_basket_trade_max_slippage_bps() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            BasketTradeMaxSlippageBps::<Test>::get(),
+            DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS
+        );
+        assert_eq!(DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS, 200);
+
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_max_slippage_bps(
+                RuntimeOrigin::signed(U256::from(1)),
+                500
+            ),
+            DispatchError::BadOrigin
+        );
+        for bps in [0, 10_001] {
+            assert_noop!(
+                AdminUtils::sudo_set_basket_trade_max_slippage_bps(RuntimeOrigin::root(), bps),
+                Error::<Test>::ValueNotInBounds
+            );
+        }
+        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 200);
+
+        assert_ok!(AdminUtils::sudo_set_basket_trade_max_slippage_bps(
+            RuntimeOrigin::root(),
+            500
+        ));
+        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 500);
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradeMaxSlippageBpsSet { bps: 500 },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trade_refill_blocks() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            BasketTradeRefillBlocks::<Test>::get(),
+            DEFAULT_BASKET_TRADE_REFILL_BLOCKS
+        );
+        assert_eq!(DEFAULT_BASKET_TRADE_REFILL_BLOCKS, 7200);
+
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_refill_blocks(
+                RuntimeOrigin::signed(U256::from(1)),
+                14_400
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_refill_blocks(RuntimeOrigin::root(), 0),
+            Error::<Test>::ValueNotInBounds
+        );
+        assert_eq!(BasketTradeRefillBlocks::<Test>::get(), 7200);
+
+        assert_ok!(AdminUtils::sudo_set_basket_trade_refill_blocks(
+            RuntimeOrigin::root(),
+            14_400
+        ));
+        assert_eq!(BasketTradeRefillBlocks::<Test>::get(), 14_400);
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradeRefillBlocksSet { blocks: 14_400 },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trade_price_reference() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            BasketTradePriceReferenceMode::<Test>::get(),
+            BasketTradePriceReference::StrictestEmaAndSpot
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trade_price_reference(
+                RuntimeOrigin::signed(U256::from(1)),
+                BasketTradePriceReference::SpotOnly
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_basket_trade_price_reference(
+            RuntimeOrigin::root(),
+            BasketTradePriceReference::SpotOnly
+        ));
+        assert_eq!(
+            BasketTradePriceReferenceMode::<Test>::get(),
+            BasketTradePriceReference::SpotOnly
+        );
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradePriceReferenceSet {
+                reference: BasketTradePriceReference::SpotOnly,
+            },
+        ));
+    });
+}
+
+#[test]
 fn test_sudo_set_basket_min_trade_tao() {
     new_test_ext().execute_with(|| {
         assert_eq!(BasketMinTradeTao::<Test>::get(), 500_000_000);
@@ -4352,6 +4497,57 @@ fn test_sudo_set_basket_min_trade_tao() {
 // =============================================================================
 // Emission weight vector (etao)
 // =============================================================================
+
+#[test]
+fn test_sudo_set_subnet_emission_weights_rate_limit() {
+    new_test_ext().execute_with(|| {
+        assert!(!SubnetEmissionWeightsRateLimit::<Test>::exists());
+        assert_eq!(
+            SubnetEmissionWeightsRateLimit::<Test>::get(),
+            DefaultSubnetEmissionWeightsRateLimit::<Test>::get()
+        );
+        SubnetEmissionWeightsRateLimit::<Test>::put(if cfg!(feature = "fast-runtime") {
+            1
+        } else {
+            360
+        });
+        let netuid = NetUid::from(1);
+        let owner = U256::from(1324);
+        emission_weights_call_setup(netuid, owner);
+        let (uids, values) =
+            emission_weights_full(emission_fraction(10, 100), emission_fraction(40, 100));
+
+        assert_noop!(
+            AdminUtils::sudo_set_subnet_emission_weights_rate_limit(
+                RuntimeOrigin::signed(owner),
+                360
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            uids,
+            values
+        ));
+        assert_ok!(AdminUtils::sudo_set_subnet_emission_weights_rate_limit(
+            RuntimeOrigin::root(),
+            360
+        ));
+        assert_eq!(SubnetEmissionWeightsRateLimit::<Test>::get(), 360);
+        System::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::SubnetEmissionWeightsRateLimitSet { rate_limit: 360 },
+        ));
+
+        let last_block = SubtensorModule::get_current_block_as_u64().max(361);
+        System::set_block_number(last_block);
+        let limit_tx = TransactionType::from(Hyperparameter::EmissionWeights);
+        limit_tx.set_last_block_on_subnet::<Test>(&owner, netuid, last_block.saturating_sub(359));
+        assert!(!limit_tx.passes_rate_limit_on_subnet::<Test>(&owner, netuid));
+        limit_tx.set_last_block_on_subnet::<Test>(&owner, netuid, last_block.saturating_sub(360));
+        assert!(limit_tx.passes_rate_limit_on_subnet::<Test>(&owner, netuid));
+    });
+}
 
 fn emission_weights_call_setup(netuid: NetUid, owner: U256) {
     add_network(netuid, 10);
@@ -4409,7 +4605,7 @@ fn test_sudo_set_subnet_emission_weights_owner_and_rate_limit() {
             SubnetEmissionWeightsRateLimit::<Test>::get()
         );
 
-        // An immediate second owner call is blocked by the weekly limit...
+        // An immediate second owner call is blocked by the configured limit...
         let (uids2, values2) = emission_weights_full(0, emission_fraction(45, 100));
         assert_noop!(
             AdminUtils::sudo_set_subnet_emission_weights(
@@ -4766,7 +4962,7 @@ fn test_sudo_set_subnet_emission_weights_v2() {
             vec![(target, share)]
         );
 
-        // The owner shares the weekly limit with the fixed-slot setter; root is not limited.
+        // The owner shares the configured limit with the fixed-slot setter; root is not limited.
         let (uids, values) = emission_weights_full(owner_share, validator);
         assert_noop!(
             AdminUtils::sudo_set_subnet_emission_weights(

@@ -39,15 +39,14 @@ pub trait WeightInfo {
     // Reference CI replaces these fallback aliases before release.
     fn pow_register() -> Weight { Self::register() }
     fn check_pow_registration() -> Weight { Self::register() }
+    fn spend_gamma() -> Weight { Self::move_gamma() }
 
 	fn feed_tao_usd_price() -> Weight;
 	fn mint_gamma() -> Weight;
 	fn mint_gamma_with_stake() -> Weight;
 	fn move_gamma() -> Weight;
 	fn close_gamma_deposit() -> Weight;
-	fn set_gamma_deposit_spender() -> Weight;
 	fn set_gamma_deposit_daily_spend_cap() -> Weight;
-	fn spend_gamma(n: u32, ) -> Weight;
     fn set_service() -> Weight;
 	fn register() -> Weight;
 	fn set_weights() -> Weight;
@@ -4747,33 +4746,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::GammaDeposits` (r:1 w:1)
 	/// Proof: `SubtensorModule::GammaDeposits` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Owner` (r:1 w:0)
-	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Services` (r:1 w:0)
-	/// Proof: `SubtensorModule::Services` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetLeases` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetLeases` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_gamma_deposit_spender() -> Weight {
-		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
-		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
-		// Proof Size summary in bytes:
-		//  Measured:  `1438`
-		//  Estimated: `4903`
-		// Minimum local execution time: 33_000_000 picoseconds.
-		Weight::from_parts(58_312_125, 4903)
-			.saturating_add(T::DbWeight::get().reads(8_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
-	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::GammaDeposits` (r:1 w:1)
-	/// Proof: `SubtensorModule::GammaDeposits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_gamma_deposit_daily_spend_cap() -> Weight {
 		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
 		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
@@ -4784,26 +4756,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(25_725_938, 4260)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
-	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::GammaDeposits` (r:512 w:512)
-	/// Proof: `SubtensorModule::GammaDeposits` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// The range of component `n` is `[1, 512]`.
-	fn spend_gamma(n: u32, ) -> Weight {
-		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
-		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
-		// Proof Size summary in bytes:
-		//  Measured:  `633 + n * (153 ±0)`
-		//  Estimated: `4089 + n * (2629 ±0)`
-		// Minimum local execution time: 15_000_000 picoseconds.
-		Weight::from_parts(25_725_938, 4089)
-			// Local Standard Error: 13_181
-			.saturating_add(Weight::from_parts(9_746_339, 0).saturating_mul(n.into()))
-			.saturating_add(T::DbWeight::get().reads(1_u64))
-			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
-			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 2629).saturating_mul(n.into()))
 	}
 }
 
@@ -9350,33 +9302,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::GammaDeposits` (r:1 w:1)
 	/// Proof: `SubtensorModule::GammaDeposits` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Owner` (r:1 w:0)
-	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Services` (r:1 w:0)
-	/// Proof: `SubtensorModule::Services` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetLeases` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetLeases` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_gamma_deposit_spender() -> Weight {
-		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
-		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
-		// Proof Size summary in bytes:
-		//  Measured:  `1438`
-		//  Estimated: `4903`
-		// Minimum local execution time: 33_000_000 picoseconds.
-		Weight::from_parts(58_312_125, 4903)
-			.saturating_add(RocksDbWeight::get().reads(8_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
-	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::GammaDeposits` (r:1 w:1)
-	/// Proof: `SubtensorModule::GammaDeposits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_gamma_deposit_daily_spend_cap() -> Weight {
 		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
 		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
@@ -9387,25 +9312,5 @@ impl WeightInfo for () {
 		Weight::from_parts(25_725_938, 4260)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
-	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::GammaDeposits` (r:512 w:512)
-	/// Proof: `SubtensorModule::GammaDeposits` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// The range of component `n` is `[1, 512]`.
-	fn spend_gamma(n: u32, ) -> Weight {
-		// Local WASM measurement: CPU scaled by 1.7150625, rounded up to integer ps.
-		// See .maintain/gamma-order-weight-calibration.md; proof and DB I/O unscaled.
-		// Proof Size summary in bytes:
-		//  Measured:  `633 + n * (153 ±0)`
-		//  Estimated: `4089 + n * (2629 ±0)`
-		// Minimum local execution time: 15_000_000 picoseconds.
-		Weight::from_parts(25_725_938, 4089)
-			// Local Standard Error: 13_181
-			.saturating_add(Weight::from_parts(9_746_339, 0).saturating_mul(n.into()))
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(n.into())))
-			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(n.into())))
-			.saturating_add(Weight::from_parts(0, 2629).saturating_mul(n.into()))
 	}
 }

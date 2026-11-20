@@ -19,7 +19,7 @@ use sp_runtime::{
 };
 use sp_std::collections::vec_deque::VecDeque;
 use substrate_fixed::types::I32F32;
-use subtensor_runtime_common::NetUidStorageIndex;
+use subtensor_runtime_common::{MechId, NetUidStorageIndex};
 use tle::{
     curves::drand::TinyBLS381,
     ibe::fullident::{Ciphertext as IBECiphertext, Identity},
@@ -6297,6 +6297,127 @@ fn test_batch_set_weights_item_failure_event_includes_netuid() {
             failures,
             vec![netuid_a, netuid_b],
             "BatchWeightItemFailed events should carry each failing netuid in batch order"
+        );
+    });
+}
+
+#[test]
+fn test_crv3_yuma_timelocked_commit_limit_is_configurable_per_subnet() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let other_netuid = NetUid::from(2);
+        let hotkey_one = U256::from(1);
+        let hotkey_two = U256::from(2);
+        let hotkey_three = U256::from(5);
+        let other_mechanism = MechId::from(1u8);
+        let reveal_round = 1000;
+
+        add_network(netuid, 5, 0);
+        add_network(other_netuid, 5, 0);
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2u8));
+        register_ok_neuron(netuid, hotkey_one, U256::from(3), 100_000);
+        register_ok_neuron(netuid, hotkey_two, U256::from(4), 100_000);
+        register_ok_neuron(netuid, hotkey_three, U256::from(6), 100_000);
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+            10
+        );
+        SubtensorModule::set_max_timelocked_commits_per_hotkey(netuid, 2);
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+            2
+        );
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(other_netuid),
+            10,
+        );
+
+        let version = SubtensorModule::get_commit_reveal_weights_version();
+        let commit = |who, mecid, byte| {
+            SubtensorModule::do_commit_timelocked_mechanism_weights(
+                RuntimeOrigin::signed(who),
+                netuid,
+                mecid,
+                vec![byte; 5].try_into().unwrap(),
+                reveal_round,
+                version,
+            )
+        };
+
+        assert_ok!(commit(hotkey_one, MechId::MAIN, 1));
+        assert_ok!(commit(hotkey_one, MechId::MAIN, 2));
+        assert_err!(
+            commit(hotkey_one, MechId::MAIN, 3),
+            Error::<Test>::TooManyUnrevealedCommits,
+        );
+        // A different hotkey and mechanism retain independent allowances.
+        assert_ok!(commit(hotkey_two, MechId::MAIN, 4));
+        assert_ok!(commit(hotkey_one, other_mechanism, 5));
+        assert_ok!(commit(hotkey_one, other_mechanism, 6));
+        assert_err!(
+            commit(hotkey_one, other_mechanism, 7),
+            Error::<Test>::TooManyUnrevealedCommits,
+        );
+
+        let epoch = SubtensorModule::current_epoch_with_lookahead(netuid);
+        let main_index = SubtensorModule::get_mechanism_storage_index(netuid, MechId::MAIN);
+        let other_index = SubtensorModule::get_mechanism_storage_index(netuid, other_mechanism);
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(main_index, epoch).len(),
+            3
+        );
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(other_index, epoch).len(),
+            2
+        );
+
+        // Reducing the cap restricts future admission without deleting commitments
+        // that were accepted under the earlier cap.
+        SubtensorModule::set_max_timelocked_commits_per_hotkey(netuid, 1);
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(main_index, epoch).len(),
+            3
+        );
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(other_index, epoch).len(),
+            2
+        );
+        assert_err!(
+            commit(hotkey_one, MechId::MAIN, 8),
+            Error::<Test>::TooManyUnrevealedCommits,
+        );
+
+        // Zero is an emergency admission stop, including for a hotkey with no
+        // commitments in this epoch; existing entries remain scheduled.
+        SubtensorModule::set_max_timelocked_commits_per_hotkey(netuid, 0);
+        assert_err!(
+            commit(hotkey_three, MechId::MAIN, 9),
+            Error::<Test>::TooManyUnrevealedCommits,
+        );
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(main_index, epoch).len(),
+            3
+        );
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(other_index, epoch).len(),
+            2
+        );
+
+        // The sudo setting can also raise the limit above the old fixed value.
+        SubtensorModule::set_max_timelocked_commits_per_hotkey(netuid, 11);
+        for byte in 10u8..21u8 {
+            assert_ok!(commit(hotkey_three, MechId::MAIN, byte));
+        }
+        assert_err!(
+            commit(hotkey_three, MechId::MAIN, 21),
+            Error::<Test>::TooManyUnrevealedCommits,
+        );
+        assert_eq!(
+            TimelockedWeightCommits::<Test>::get(main_index, epoch).len(),
+            14
         );
     });
 }

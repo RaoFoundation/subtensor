@@ -255,8 +255,8 @@ against different things, and you control only one of them.
 
 | | Protocol band (`SlippageTooHigh`) | Your floor (`BasketMinOutNotMet`) |
 |---|---|---|
-| Who sets it | The runtime: a 2% constant, per leg. | You: `min_amount_out`, per trade. |
-| What it measures | Each leg's fill **price** against the subnet's moving and spot price. | The **amount** the buy leg credits, after fees, against your number. |
+| Who sets it | Governance: `BasketTradeMaxSlippageBps`, 2% by default, per leg. | You: `min_amount_out`, per trade. |
+| What it measures | Each leg's fill **price** against the configured reference: the strictest of EMAs and spot by default, or spot only after governance opts in. | The **amount** the buy leg credits, after fees, against your number. |
 | What it protects | The fund from a stolen key or a pumped pool: a leg can never fill far from the reference price. | You from a fill that is worse than the quote you signed on, because the pool moved between quote and execution. |
 | Can it be switched off | No. | Yes: `min_amount_out = 0` (btcli: `--max-slippage 100`). |
 
@@ -272,8 +272,8 @@ Pick `--max-slippage` from the quote, not from the band. Both legs pay the
 AMM fee and their own price impact, and the quote already includes those,
 so 1% (the default) is room for the pool to move against you, not for the
 trade's own cost. A floor tighter than the movement you expect between
-signing and inclusion (a block or two) fails often; a floor looser than 2%
-per leg adds nothing the band does not already give.
+signing and inclusion (a block or two) fails often; a floor looser than the
+configured band per leg adds nothing the band does not already give.
 
 ## The guardrails
 
@@ -282,54 +282,47 @@ pass every check below. The numbers are the launch defaults;
 [governance](#governance-knobs) can move the caps and the budget. Each
 check names the exact error you see when it refuses the trade.
 
-### 2% price band per leg → `SlippageTooHigh`
+### Configurable price band per leg → `SlippageTooHigh`
 
-Each leg must fill **completely** within 2% of the strictest of three
-reference prices:
+Each leg must fill **completely** within `BasketTradeMaxSlippageBps` of the
+reference selected by `BasketTradePriceReference`. The defaults are **200 bps
+(2%)** and **the strictest of slow EMA, fast EMA, and spot**: a buy ceiling of
+`1.02 × min(slow, fast, spot)` and a sell floor of `0.98 × max(slow, fast, spot)`.
+Spot must be valid and nonzero, and both moving prices must exist and be nonzero.
+A leg that would cross its bound fails with `SlippageTooHigh` and nothing moves.
 
-- the subnet's **slow moving price** (`SubnetMovingPrice`, the emission
-  EMA — an exponential moving average with a half-life of about a month on
-  mainnet, capped at 1 τ per α);
-- its **fast moving price** (`SubnetFastMovingPrice`, an EMA of spot with a
-  600-block half-life, about two hours, written once per block from the
-  previous block's closing price and not capped);
-- its **spot price**.
+The default retains the legacy EMA anchors against same-block and held price
+manipulation. A lagging EMA can therefore prevent an exit after a real price move
+until the averages catch up.
 
-A buy may not fill above `1.02 × min(slow, fast, spot)`. A sell may not fill
-below `0.98 × max(slow, fast, spot)`.
+Governance can instead select `SpotOnly`: a buy ceiling of `(1 + band) × spot`
+and a sell floor of `(1 - band) × spot`. The moving prices are not required in
+that mode, but the fast-EMA bound on chained same-block manipulation no longer
+applies. A manipulated spot within the band can be traded against, so spot-only
+is a deliberate governance choice rather than the default. The EMAs remain in
+use for emission, guarded NAV, dividend valuation, and other paths regardless of
+the selected trade reference.
 
-Each anchor closes a different hole. Spot caps the trade's own price impact.
-The fast anchor is a price nobody can move inside a block: if someone lifts
-spot and then has the fund buy — or dumps spot and has the fund sell — the
-fund is still bound to within 2% of where the pool traded before the move,
-so it never fills at the manipulated price. Pulling the fast anchor along
-means holding the pump, and the capital behind it, against arbitrage for
-several half-lives. The slow anchor is the level cap: even a pump held for
-hours cannot carry the fund past 2% of the monthly average. If either leg
-would cross its bound, the trade fails with `SlippageTooHigh` and nothing
-moves. Practical consequences:
+Practical consequences of the default:
 
-- **Size legs to the pool.** On a constant-product pool a buy of about 1% of
-  the TAO reserve moves the price about 2%. Split larger positions into
-  slices and let the pool settle between them.
-- **You cannot trade a move that just happened.** Legs are bound to within
-  2% of the last couple of hours' average price. After a real 5% move, the
-  fast anchor is back within the band about four hours later; the slow
-  anchor still applies on top, so a holding whose spot has fallen more than
-  2% below its monthly average cannot be sold until that average catches
-  up (weeks after a large drop), and the same holds for buying after a
-  spike. Stop-losses are not possible by design.
-- A subnet with no moving price yet (before `start_call`, or a subnet that
-  does not emit) cannot be traded. The slow price is capped at 1 τ per α,
-  so a subnet trading above that cannot be bought within the band.
+- **Size legs to the pool.** On a constant-product pool a buy of about 1% of the
+  TAO reserve moves the price about 2%. Split larger positions into slices and
+  let the pool settle between them.
+- **A lagging EMA can lock an exit.** A holding whose spot has fallen too far
+  below its moving averages cannot be sold in the default mode. Governance may
+  select spot-only to remove that EMA constraint, accepting its manipulation
+  trade-off.
+- **A subnet without moving prices cannot trade in the default mode.** Its spot
+  must still be valid and nonzero; selecting spot-only removes the moving-price
+  requirements.
 
 ### Turnover budget: a token bucket of 10% of NAV per day → `BasketTurnoverBudgetExceeded`
 
 Each fund has a **bucket** whose capacity is `BasketDailyTurnoverCap` of
 its current **guarded NAV** — default 10%. The guarded NAV marks every
 holding at the lower of its realizable value and its alpha times the slow
-moving price (the concentration cap section below explains why). Every trade takes `tao_mid` out of the bucket. The bucket refills continuously at `capacity / 7200` per block, so
-an empty bucket is full again after one day (7200 blocks at 12 seconds).
+moving price (the concentration cap section below explains why). Every trade takes `tao_mid` out of the bucket. The bucket refills continuously at `capacity / BasketTradeRefillBlocks` per block, so
+an empty bucket is full again after one refill period (7200 blocks by default).
 
 Two properties follow:
 
@@ -434,7 +427,7 @@ gates and the bucket for one validator:
 | `remaining_tao` | What is in the bucket now — the largest `tao_mid` a trade at this block could push through. |
 | `used_tao` | `budget_tao − remaining_tao`. |
 | `refill_per_block_tao` | How much the bucket gains every block: `budget_tao / refill_blocks`. |
-| `refill_blocks` | Blocks for an empty bucket to fill completely (7200). |
+| `refill_blocks` | Blocks for an empty bucket to fill completely (`BasketTradeRefillBlocks`, 7200 by default). |
 
 To size a trade: estimate `tao_mid` as the origin amount times the origin
 subnet's price (or the TAO amount itself when selling cash), and keep it
@@ -461,7 +454,7 @@ falling NAV can lower `remaining_tao` without any trade.
 
 ## Governance knobs
 
-All five setters are root-only calls on `AdminUtils`:
+All eight setters are root-only calls on `AdminUtils`:
 
 | Call | Effect | Default |
 |---|---|---|
@@ -470,40 +463,38 @@ All five setters are root-only calls on `AdminUtils`:
 | `sudo_set_basket_daily_turnover_cap(cap)` | Bucket capacity as a u16 share of NAV (`65535` = 100%). Zero is rejected. | `6553` (10%) |
 | `sudo_set_basket_liquidity_cap(cap)` | Largest share of a pool's alpha reserve a fund may hold after a buy (`65535` = 100%). Zero is rejected. | `6553` (10%) |
 | `sudo_set_basket_concentration_cap(cap)` | Largest share of fund NAV one holding may reach through a buy (`65535` = 100%). Zero is rejected. | `4096` (1/16) |
+| `sudo_set_basket_trade_max_slippage_bps(bps)` | Per-leg band from the selected price reference. Must be in `1..=10000`. | `200` (2%) |
+| `sudo_set_basket_trade_refill_blocks(blocks)` | Full turnover-bucket refill and destination-flow decay period. Zero is rejected. | `7200` blocks |
+| `sudo_set_basket_trade_price_reference(reference)` | Legacy `StrictestEmaAndSpot`, or governance-selected `SpotOnly`. | `StrictestEmaAndSpot` |
 
-The 2% band and the 7200-block refill period are runtime constants, not
-hyperparameters.
+The runtime upgrade alone preserves existing behavior through storage defaults;
+no post-upgrade sudo call is needed to retain the 2% band, strictest EMA/spot
+reference, or 7200-block refill. To opt into a 5% spot-only band, governance
+must separately submit `sudo_set_basket_trade_max_slippage_bps(500)` followed by
+`sudo_set_basket_trade_price_reference(SpotOnly)`.
+To set the per-holding concentration cap to approximately 15%, submit
+`AdminUtils.sudo_set_basket_concentration_cap(9830)`, since
+`9830 / 65535 ≈ 15.00%`. That cap is a separate governance choice, not changed
+by this runtime upgrade.
 
 Raise the liquidity cap if funds legitimately need larger positions in
 mid-depth pools; lower it to tighten the per-pool value at risk. Raise the
 turnover cap only once the liquidity cap is in place.
 
-**What a stolen trader key can extract.** The band is what bounds this, so
-the number depends on which price the band is anchored to.
+**What a stolen trader key can extract.** The band, its reference, and the
+liquidity and turnover caps all bound this. Under spot-only reference, each leg
+can re-anchor to the spot left by the previous leg, so a stolen key can move a
+pool across slices while paying AMM fees and price impact on each one. The
+liquidity cap still bounds accumulation in a thin pool and the turnover bucket
+still bounds throughput; a 5% spot-only band does not restore the legacy fast
+or slow EMA ceilings.
 
-- *Attacks inside a block, or shorter than a few fast half-lives.* The fund
-  can only fill within 2% of a price the attacker did not move. Replaying
-  the audit's lift-buy-dump and dump-sell-buyback sequences at slow-EMA/spot
-  divergences of 1.35×, 2× and 4× against the fixed band, the attacker's
-  cash profit is at most rounding (≤ 0.01% of NAV) on either leg and the
-  fund fills at most one in-band leg. Before the fast anchor the same
-  sequences took 1.1% / 4.1% / 6.9% of NAV per day on the buy leg and 1.1% /
-  3.1% / 4.7% on the sell leg, because the band re-anchored to the
-  manipulated spot on every leg while the stale slow price stayed the only
-  smoothed reference.
-- *A pump held for most of a day.* An attacker who buys 30–100% of a pool's
-  TAO reserve and holds that price against arbitrage for roughly five fast
-  half-lives (about ten hours) drags the fast anchor to the held level; the
-  slow anchor still caps how far. Only then does the older analysis apply:
-  with the default 10% budget and 10% liquidity cap the most a stolen key
-  and a willing counterparty can extract is about 13% of the TAO traded —
-  9% through a thin pool and 4% at the edges of the band, plus fees — which
-  is about 1.3% of NAV per full bucket, about that much per day until
-  governance freezes the fund, and now at the capital-time cost of the held
-  pump rather than for free. That bound assumes pools near the 0.5
-  balancer-weight equilibrium; if a pool's balancer weights skew far from
-  equilibrium, the price-impact estimate behind the 9% figure becomes less
-  accurate, while the 2% band and the turnover bucket still hold exactly.
+The default `StrictestEmaAndSpot` mode retains the legacy behavior: a short-lived
+manipulation cannot immediately pull the trade reference to the manipulated
+spot, and a held manipulation must move both the fast and slow anchors before
+the fund can fill at that level. Governance should include that trade-off when
+selecting a mode or widening the band, rather than treating a 5% spot-only
+configuration as interchangeable with a 5% EMA-anchored band.
 
 The guarded NAV keeps the budget and the cap honest through all of this: a
 same-block pump of a held pool no longer enlarges the bucket or admits an

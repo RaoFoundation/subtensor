@@ -135,6 +135,10 @@ INTENT_SAMPLES: dict[str, dict] = {
     "set_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
     "commit_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
     "reveal_weights": {"netuid": 1, "uids": [0], "weights": [1.0], "salt": [1, 2, 3]},
+    "commit_weight_hash": {"netuid": 1, "commit_hash": "0x" + "ab" * 32},
+    "set_mech_weight_delegate": {"netuid": 1, "delegate": BOB},
+    "set_channel_commitment": {"netuid": 1, "data": "hello", "max_burn_tao": 1},
+    "set_commit_burn": {"netuid": 1, "name": "enabled", "value": "true"},
     "add_proxy": {"delegate_ss58": BOB, "proxy_type": "Transfer"},
     "remove_proxy": {"delegate_ss58": BOB, "proxy_type": "Transfer"},
     "remove_proxies": {},
@@ -218,16 +222,12 @@ INTENT_SAMPLES: dict[str, dict] = {
         "amount_gamma": "all",
     },
     "close_gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
-    "set_gamma_deposit_spender": {"netuid": 1, "hotkey_ss58": BOB_HOT, "spender_ss58": BOB},
     "set_gamma_deposit_daily_spend_cap": {
         "netuid": 1,
         "hotkey_ss58": BOB_HOT,
         "daily_spend_cap_gamma": 10,
     },
-    "spend_gamma": {
-        "netuid": 1,
-        "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": 0.5, "reference": "0x" + "ab" * 32}],
-    },
+    "spend_gamma": {"netuid": 1, "service_hotkey_ss58": BOB_HOT, "amount_gamma": 0.5},
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -302,6 +302,7 @@ READ_SAMPLES: dict[str, dict] = {
     "subnet_collateral": {"netuid": 1},
     "gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
     "gamma_deposits": {"coldkey_ss58": ALICE},
+    "gamma_spent": {"netuid": 1, "service_hotkey_ss58": BOB_HOT, "hotkey_ss58": ALICE_HOT},
     "quote_mint_gamma": {"netuid": 1, "amount_tao": 1.0},
     "quote_mint_gamma_with_stake": {"netuid": 1, "amount_alpha": 1.0},
     "tao_usd_price": {},
@@ -310,6 +311,9 @@ READ_SAMPLES: dict[str, dict] = {
     "commit_reveal_enabled": {"netuid": 1},
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "commitments": {"netuid": 1},
+    "channel_commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
+    "commit_burn": {"netuid": 1},
+    "mech_weight_delegate": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "crowdloan": {"crowdloan_id": 0},
     "crowdloan_contributors": {"crowdloan_id": 0},
     "crowdloans": {},
@@ -431,10 +435,25 @@ INTENT_SAMPLES.update(
 INTENT_SAMPLES["execute_batched_orders"] = {**INTENT_SAMPLES["execute_orders"], "netuid": 1}
 
 
-def seed_gamma(substrate, owner: str) -> None:
-    """Gamma deposits at the samples' hotkeys, owned and spent by ``owner`` (the one at
-    ``BOB_HOT`` empty, so it can close)."""
-    for hotkey, balance in ((ALICE_HOT, 10**9), (BOB_HOT, 0)):
-        deposit = {"coldkey": owner, "spender": owner, "balance": balance,
-                   "daily_spend_cap": None}  # fmt: skip
-        substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposit)
+def seed_gamma(substrate, owner: str, signer_hotkey: str = ALICE_HOT) -> None:
+    """Gamma deposits of ``owner`` at the samples' hotkeys (the one at ``BOB_HOT`` empty, so it
+    can close) and at ``signer_hotkey``, which signs the spend sample, and a service at
+    ``BOB_HOT`` to spend at."""
+    deposits = {}
+    for hotkey, balance in ((ALICE_HOT, 10**9), (signer_hotkey, 10**9), (BOB_HOT, 0)):
+        deposits[hotkey] = {"coldkey": owner, "balance": balance, "daily_spend_cap": None}
+        substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposits[hotkey])
+    substrate.seed("SubtensorModule", "Services", [1, BOB_HOT], {"url": "https://a.example"})
+
+    def info(params):
+        deposit = deposits.get(params[1])
+        if deposit is None:
+            return None
+        return {
+            "netuid": 1,
+            "hotkey": params[1],
+            "deposit": deposit,
+            "spendable": deposit["balance"],
+        }
+
+    substrate.seed_runtime("GammaRuntimeApi", "get_gamma_deposit", info)

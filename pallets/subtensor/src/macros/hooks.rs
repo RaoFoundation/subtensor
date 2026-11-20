@@ -227,6 +227,8 @@ mod hooks {
                 // Rebuild every hotkey's lock aggregates from the individual locks and drop
                 // the former owner aggregates.
                 .saturating_add(migrations::migrate_one_lock_bucket_per_hotkey::migrate_one_lock_bucket_per_hotkey::<T>())
+                // Drop the spender from gamma deposits and services; a deposit's hotkey spends it.
+                .saturating_add(migrations::migrate_drop_gamma_spenders::migrate_drop_gamma_spenders::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
@@ -245,6 +247,12 @@ mod hooks {
 
         #[cfg(feature = "try-runtime")]
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
+            // Childkey dividend normalization still pays the original budget after recycling.
+            // Read storage because AdminUtils::sudo_set_ck_burn can override the default.
+            ensure!(
+                CKBurn::<T>::get() == 0,
+                "CKBurn is nonzero: childkey dividend payouts must conserve alpha before enabling burn"
+            );
             // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
             migrations::migrate_subnet_state::subnet_state::try_state::<T>()
@@ -269,6 +277,12 @@ mod hooks {
 
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_network_registration_queue());
+            }
+
+            if weight.all_lt(limit) {
+                let mut meter = WeightMeter::with_limit(limit.saturating_sub(weight));
+                Self::drain_mech_weight_delegate_lifecycle(&mut meter);
+                weight.saturating_accrue(meter.consumed());
             }
 
             // Parents whose stake just changed: re-check the childkey threshold here, metered,

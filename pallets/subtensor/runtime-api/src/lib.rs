@@ -90,6 +90,15 @@ sp_api::decl_runtime_apis! {
 
     pub trait SubnetRegistrationRuntimeApi {
         fn get_network_registration_cost() -> TaoBalance;
+        /// Current lazily decayed channel commitment price and its parameters.
+        #[api_version(2)]
+        fn get_commit_burn(netuid: NetUid, mecid: MechId, channel: u8) -> Option<pallet_commitments::CommitBurnParameters>;
+        /// Current channel commitment; `None` means absent or disabled target.
+        #[api_version(2)]
+        fn get_channel_commitment(netuid: NetUid, mecid: MechId, channel: u8, hotkey: AccountId32) -> Option<Vec<u8>>;
+        /// Optional weight delegate query for one validator and mechanism.
+        #[api_version(2)]
+        fn get_mech_weight_delegate(netuid: NetUid, mecid: MechId, hotkey: AccountId32) -> Option<AccountId32>;
     }
 
     pub trait ProxyFilterRuntimeApi {
@@ -167,8 +176,9 @@ sp_api::decl_runtime_apis! {
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
     }
 
+    #[api_version(2)]
     pub trait GammaRuntimeApi {
-        /// The deposit at a hotkey on a subnet, and what its spender can spend from it now.
+        /// The deposit at a hotkey on a subnet, and what its hotkey can spend from it now.
         fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
         /// Every deposit of a coldkey, on every subnet.
         fn get_gamma_deposits_for_coldkey(coldkey: AccountId32) -> Vec<GammaDepositInfo<AccountId32>>;

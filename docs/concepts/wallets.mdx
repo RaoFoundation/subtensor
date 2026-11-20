@@ -203,9 +203,7 @@ swap is a two-step, delayed process:
    the delay, moving the coldkey's Subtensor-managed state — transferable TAO,
    stake, conviction locks (including accrued conviction), hotkeys,
    registrations, subnet ownership, and gamma deposits — to the destination.
-   Proxy grants and reserved balances do not move. Gamma deposits and
-   [services](/docs/guides/services) that name the old coldkey as their spender
-   keep it until their owners re-point them. Before announcing,
+   Proxy grants and reserved balances do not move. Before announcing,
    remove proxies whose deposits you need to recover and leave enough
    transferable TAO to recreate the proxies you still need. Use a verified
    destination that is not a hotkey and has no stake or active locked mass;

@@ -242,15 +242,21 @@ class Gamma(_ReadNamespace):
     async def gamma_deposit(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
         """The gamma deposit at a hotkey on a subnet, or None.
 
-        Its `netuid`, `hotkey`, `coldkey`, `spender`, and `balance_gamma`,
+        Its `netuid`, `hotkey`, `coldkey`, and `balance_gamma`,
         `daily_spend_cap_gamma` and `spendable_gamma` as exact decimal strings of
         gamma. A `daily_spend_cap_gamma` of None is no cap, and "0" pauses the
         deposit. `spendable_gamma` is the balance within what its daily spend cap
-        allows now.
+        allows now, or 0 when that is below 0.1 gamma and short of the balance.
         """
 
     async def gamma_deposits(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """Every gamma deposit of a coldkey, on every subnet."""
+
+    async def gamma_spent(self, netuid: int, service_hotkey_ss58: str, hotkey_ss58: str, *, block: Optional[int] = None) -> str:
+        """The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.
+
+        It only grows, until the subnet is dissolved, which clears it.
+        """
 
     async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> dict:
         """The alpha burned, its TAO value, and the gamma `mint_gamma` would mint now.
@@ -304,6 +310,24 @@ class Hyperparameters(_ReadNamespace):
 
 class Identity(_ReadNamespace):
     """On-chain identities and commitments."""
+
+    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[Commitment]:
+        """One hotkey's independent channel commitment, or None when absent.
+
+        Reads the v2 runtime API and decodes the returned SCALE registration. On a
+        node without v2, reads the equivalent channel storage instead; both paths
+        distinguish this target from the legacy `commitment` read.
+        """
+
+    async def commit_burn(self, netuid: int, mechid: int = 0, channel: int = 0, *, block: Optional[int] = None) -> Optional[dict]:
+        """Live decayed channel burn price and its stored configuration.
+
+        `burn` is the price a commitment would pay now, or None when the burn is
+        disabled/unconfigured. The runtime API returns no record when disabled, so
+        this read also inspects `CommitBurnConfig` to show `enabled` and the other
+        parameters. Direct storage readers should not treat stored `burn` as live:
+        decay is lazy; this read's `price_is_decayed` marks the runtime quote.
+        """
 
     async def commitment(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[Commitment]:
         """The commitment a hotkey has published on a subnet, or None."""
@@ -505,7 +529,7 @@ class Staking(_ReadNamespace):
         pumped pool cannot enlarge it), `remaining_tao` what a trade right
         now could push through the fund, `used_tao` the difference, and the bucket
         refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
-        a full refill over `refill_blocks` = 7200 blocks).
+        a full refill over the configured `refill_blocks`, 7200 by default).
         """
 
     async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:
@@ -704,11 +728,10 @@ class Subnets(_ReadNamespace):
         """Every service published on a subnet, by hotkey.
 
         Each `url` points to its hotkey's own document of its services and the
-        payments they accept; the chain does not check what it says. `spender` is
-        the spender customers name on gamma deposits for the service. `owner`
-        marks the subnet owner's hotkey while the owner owns it, whose spender new
-        deposits name by default. A url that is not printable text is returned as
-        0x-hex.
+        payments they accept; the chain does not check what it says. Gamma is
+        spent at a service's hotkey with `spend_gamma`. `owner` marks the subnet
+        owner's hotkey while the owner owns it. A url that is not printable text
+        is returned as 0x-hex.
         """
 
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:
@@ -796,6 +819,9 @@ class Weights(_ReadNamespace):
         scaled by the u16 maximum (1.0 = the largest bond the chain can store)
         rather than row-normalized.
         """
+
+    async def mech_weight_delegate(self, netuid: int, mechid: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[str]:
+        """The account authorized to set weights for this hotkey/mechanism, or None."""
 
     async def timelocked_weight_commits(self, netuid: int, mechid: int = 0, *, block: Optional[int] = None) -> dict[int, list[dict]]:
         """Pending (still-encrypted) commit-reveal weight commits, grouped by epoch.

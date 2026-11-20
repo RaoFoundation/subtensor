@@ -947,8 +947,6 @@ mod events {
             coldkey: T::AccountId,
             /// Hotkey of the deposit credited.
             hotkey: T::AccountId,
-            /// The deposit's spender.
-            spender: T::AccountId,
             /// The deposit's daily spend cap.
             daily_spend_cap: Option<GammaBalance>,
             /// TAO taken from the coldkey's balance; zero when minting with stake.
@@ -982,7 +980,8 @@ mod events {
             /// Hotkey of the deposit.
             hotkey: T::AccountId,
         },
-        /// A gamma deposit's spender was set.
+        /// A gamma deposit's spender was set (deprecated: deposits have no spender).
+        #[deprecated(note = "Deposits have no spender; their hotkey spends them")]
         GammaDepositSpenderSet {
             /// Subnet of the deposit.
             netuid: NetUid,
@@ -1004,22 +1003,19 @@ mod events {
             /// The new cap; `None` is no cap.
             daily_spend_cap: Option<GammaBalance>,
         },
-        /// Gamma was spent from a deposit and burned.
+        /// A hotkey spent gamma from its deposit at a service; the gamma is burned.
         GammaSpent {
-            /// Subnet of the deposit.
+            /// Subnet of the deposit and the service.
             netuid: NetUid,
-            /// Coldkey owning the deposit.
-            coldkey: T::AccountId,
-            /// Hotkey of the deposit.
+            /// Hotkey of the deposit, which signed the spend.
             hotkey: T::AccountId,
-            /// The deposit's spender, which signed the spend.
-            spender: T::AccountId,
+            /// Hotkey of the service.
+            service: T::AccountId,
             /// Gamma spent.
             amount: GammaBalance,
-            /// The spend entry's reference.
-            reference: [u8; 32],
         },
-        /// A spend entry was skipped, and spent nothing.
+        /// A spend entry was skipped, and spent nothing (deprecated: spends are not batched).
+        #[deprecated(note = "Spends are not batched; an invalid spend fails")]
         GammaSpendSkipped {
             /// Subnet of the spend.
             netuid: NetUid,
@@ -1042,8 +1038,6 @@ mod events {
             hotkey: T::AccountId,
             /// The service's url.
             url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-            /// The spender customers name for the service.
-            spender: T::AccountId,
         },
         /// A hotkey's service was removed from a subnet.
         ServiceRemoved {
@@ -1069,8 +1063,6 @@ mod events {
             coldkey: T::AccountId,
             /// Hotkey of the deposit credited.
             hotkey: T::AccountId,
-            /// The deposit's spender.
-            spender: T::AccountId,
             /// Alpha of `netuid` the sale took.
             alpha_sold: AlphaBalance,
             /// TAO the sale returned and the purchase spent.
@@ -1081,6 +1073,19 @@ mod events {
             value: TaoBalance,
             /// Gamma credited.
             gamma: GammaBalance,
+        },
+        /// Maximum Yuma timelocked commits per hotkey and queue epoch was set.
+        MaxTimelockedCommitsPerHotkeySet(NetUid, u8),
+        /// A validator changed its weight delegate on one mechanism.
+        MechWeightDelegateSet {
+            /// Base subnet.
+            netuid: NetUid,
+            /// Exact mechanism the authorization applies to.
+            mecid: MechId,
+            /// Validator granting or revoking the authorization.
+            hotkey: T::AccountId,
+            /// Authorized account, or `None` after revocation.
+            delegate: Option<T::AccountId>,
         },
     }
 }

@@ -411,7 +411,7 @@ def protect_account(
         None,
         "--allow",
         help="Zero-delay restricted proxy to grant (repeatable). Known items: "
-        "staking, childkeys, basket/basket-swaps, gamma, "
+        "staking, childkeys, basket/basket-swaps, "
         "root-claim, validate, weights, owner, swap-hotkey, subnet-lease. "
         "Each token grants its complete runtime ProxyType, not only the named command. "
         "Use a separate --allow-key and review the warning before accepting. "

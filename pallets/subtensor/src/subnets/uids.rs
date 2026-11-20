@@ -119,6 +119,7 @@ impl<T: Config> Pallet<T> {
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+        Self::purge_mech_weight_delegates(netuid, &old_hotkey, Some(uid_to_replace));
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
@@ -202,6 +203,16 @@ impl<T: Config> Pallet<T> {
         Dividends::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         ValidatorTrust::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         ValidatorPermit::<T>::mutate(netuid, |v| v.push(false));
+
+        // This is a new logical registration. A reverse hotkey swap may have
+        // restored a grant to this SS58 for its previous UID; never carry that
+        // authorization into the new registration.
+        if MechWeightDelegateTargets::<T>::iter_key_prefix((netuid, new_hotkey))
+            .next()
+            .is_some()
+        {
+            Self::purge_mech_weight_delegates(netuid, new_hotkey, None);
+        }
 
         // 4. Insert new account information.
         Keys::<T>::insert(netuid, next_uid, new_hotkey.clone()); // Make hotkey - uid association.
@@ -391,6 +402,7 @@ impl<T: Config> Pallet<T> {
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
                         T::CommitmentsInterface::purge_neuron(netuid, &hotkey);
+                        Self::purge_mech_weight_delegates(netuid, &hotkey, Some(neuron_uid));
 
                         // Same root-churn finalization as `replace_neuron`: deposit while
                         // still on root, then recycle leftover dust after membership drops.
@@ -630,6 +642,27 @@ impl<T: Config> Pallet<T> {
                     // Get the hotkey using Keys map and new UID.
                     let hotkey = Keys::<T>::get(netuid, *new_uid as u16);
                     Uids::<T>::insert(netuid, hotkey, *new_uid as u16);
+                }
+            }
+
+            // Remap pending delegate moves with the same registration, before
+            // draining resumes. A source purge may already have removed an
+            // invalid move, so absence remains a no-op.
+            for (old_uid, new_uid) in &old_to_new_uid {
+                let Some(destination) = Keys::<T>::try_get(netuid, *new_uid as u16).ok() else {
+                    continue;
+                };
+                let incoming =
+                    MechWeightDelegateMoveOrigins::<T>::iter_key_prefix((netuid, &destination))
+                        .collect::<Vec<_>>();
+                for (source, mecid) in incoming {
+                    if let Some(mut pending) =
+                        MechWeightDelegateMoveQueue::<T>::get((netuid, &source, mecid))
+                        && usize::from(pending.uid) == *old_uid
+                    {
+                        pending.uid = *new_uid as u16;
+                        MechWeightDelegateMoveQueue::<T>::insert((netuid, source, mecid), pending);
+                    }
                 }
             }
 

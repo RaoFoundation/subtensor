@@ -13,7 +13,6 @@ mod dispatches {
 
     use crate::MAX_BASKET_SWAP_LEGS;
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
-    use crate::MAX_GAMMA_SPENDS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     use crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
@@ -2289,9 +2288,12 @@ mod dispatches {
         /// side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker
         /// entitlements are unchanged; only the fund's composition moves.
         ///
-        /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
+        /// Guardrails: each AMM leg must fill fully within the configured
+        /// `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (2% from the
+        /// strictest EMA/spot reference by default; spot-only is available through governance);
         /// the TAO through the middle is taken from the fund's turnover bucket
-        /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
+        /// (`BasketDailyTurnoverCap` of NAV,
+        /// refilling over `BasketTradeRefillBlocks`); the destination holding may not
         /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
         /// `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for
         /// the hotkey by governance. On top of the protocol band the caller may set its own
@@ -2305,7 +2307,7 @@ mod dispatches {
         /// * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root).
         /// * `min_amount_out`: Least amount the buy leg must credit to the destination
         ///   holding, in `destination_netuid` alpha (rao of TAO when the destination is
-        ///   root), after fees. `0` sets no floor; the 2% protocol band still applies.
+        ///   root), after fees. `0` sets no floor; the configured protocol band still applies.
         ///
         /// # Events
         /// * `BasketSwapped`: On success, with the amounts on both legs.
@@ -2316,7 +2318,7 @@ mod dispatches {
         /// * `NonAssociatedColdKey`: Caller does not own `hotkey`.
         /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
-        /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
+        /// * `SlippageTooHigh`: A leg could not fill within the configured price band.
         /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
         /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
         /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
@@ -3152,10 +3154,9 @@ mod dispatches {
         }
 
         /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
-        /// signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap`
-        /// when they are given, or opens with them, `None` being the default spender and no cap.
-        /// Fails below `min_amount_out` gamma.
-        #[pallet::call_index(158)]
+        /// signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or
+        /// opens with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(166)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma(
             origin: OriginFor<T>,
@@ -3163,7 +3164,6 @@ mod dispatches {
             netuid: NetUid,
             amount: TaoBalance,
             min_amount_out: GammaBalance,
-            spender: Option<T::AccountId>,
             daily_spend_cap: Option<GammaBalance>,
         ) -> DispatchResult {
             Self::do_mint_gamma(
@@ -3172,17 +3172,15 @@ mod dispatches {
                 netuid,
                 amount,
                 min_amount_out,
-                spender,
                 daily_spend_cap,
             )
         }
 
         /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as
         /// `burn_alpha` does, and credits its gamma to the signer's deposit at
-        /// `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they
-        /// are given, or opens with them, `None` being the default spender and no cap. Fails
-        /// below `min_amount_out` gamma.
-        #[pallet::call_index(159)]
+        /// `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens
+        /// with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(167)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_with_stake(
             origin: OriginFor<T>,
@@ -3191,7 +3189,6 @@ mod dispatches {
             netuid: NetUid,
             alpha_amount: AlphaBalance,
             min_amount_out: GammaBalance,
-            spender: Option<T::AccountId>,
             daily_spend_cap: Option<GammaBalance>,
         ) -> DispatchResult {
             Self::do_mint_gamma_with_stake(
@@ -3201,13 +3198,13 @@ mod dispatches {
                 netuid,
                 alpha_amount,
                 min_amount_out,
-                spender,
                 daily_spend_cap,
             )
         }
 
         /// Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to
-        /// `destination_hotkey`. A move that empties the origin closes it.
+        /// `destination_hotkey`: the whole balance, or at least 0.1 gamma leaving at least as
+        /// much. A move that empties the origin closes it.
         #[pallet::call_index(160)]
         #[pallet::weight((<T as Config>::WeightInfo::move_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn move_gamma(
@@ -3231,20 +3228,9 @@ mod dispatches {
             Self::do_close_gamma_deposit(origin, hotkey, netuid)
         }
 
-        /// Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default
-        /// spender: the spender of the subnet owner hotkey's service while the owner owns that
-        /// hotkey, otherwise the subnet owner, or its lease's beneficiary while the lease owns the
-        /// subnet.
-        #[pallet::call_index(162)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_gamma_deposit_spender(), DispatchClass::Normal, Pays::Yes))]
-        pub fn set_gamma_deposit_spender(
-            origin: OriginFor<T>,
-            hotkey: T::AccountId,
-            netuid: NetUid,
-            spender: Option<T::AccountId>,
-        ) -> DispatchResult {
-            Self::do_set_gamma_deposit_spender(origin, hotkey, netuid, spender)
-        }
+        // Call indices 158 (`mint_gamma`), 159 (`mint_gamma_with_stake`), 164 (`spend_gamma`) and
+        // 165 (`set_service`) took a deposit's spender, and 162 (`set_gamma_deposit_spender`) set
+        // it; they are retired: a deposit's hotkey spends it. Do not reuse these indices.
 
         /// Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it.
         /// A changed cap keeps what the deposit can spend now, up to the new cap.
@@ -3259,45 +3245,135 @@ mod dispatches {
             Self::do_set_gamma_deposit_daily_spend_cap(origin, hotkey, netuid, daily_spend_cap)
         }
 
-        /// Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries
-        /// whose hotkey has no deposit, whose deposit names another spender, or whose amount is
-        /// zero or above the deposit's balance or what its daily spend cap allows, are skipped.
-        /// Each entry's reference is repeated in its `GammaSpent` event, or in its
-        /// `GammaSpendSkipped` event with the reason, and not otherwise read. A skipped entry is
-        /// charged as a spent one, less its write.
-        #[pallet::call_index(164)]
-        #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(spends.len() as u32), DispatchClass::Normal, Pays::Yes))]
+        /// Spends `amount` of the signer's gamma deposit on `netuid` at `service`, a hotkey with
+        /// a service on the subnet, and adds it to what the signer has spent there. The amount is
+        /// at least 0.1 gamma unless it empties the deposit, and within the deposit's balance
+        /// and what its daily spend cap allows. Pays no fee: an invalid spend is refused before
+        /// it enters a block, and a valid one burns its amount.
+        #[pallet::call_index(168)]
+        #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(), DispatchClass::Normal, Pays::No))]
         pub fn spend_gamma(
             origin: OriginFor<T>,
+            service: T::AccountId,
             netuid: NetUid,
-            spends: BoundedVec<(T::AccountId, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>>,
-        ) -> DispatchResultWithPostInfo {
-            let spent = Self::do_spend_gamma(origin, netuid, &spends)?;
-            let skipped = (spends.len() as u32).saturating_sub(spent);
-            Ok((
-                Some(
-                    <T as Config>::WeightInfo::spend_gamma(spends.len() as u32)
-                        .saturating_sub(T::DbWeight::get().writes(skipped.into())),
-                ),
-                Pays::Yes,
-            )
-                .into())
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_spend_gamma(origin, service, netuid, amount)
         }
 
         /// Sets the service of the coldkey's hotkey on the subnet: the url where it describes its
-        /// services and the spender customers name for them. The hotkey must be registered on the
-        /// subnet with a validator permit, or be the subnet owner's hotkey signed for by the
-        /// subnet owner. An empty url removes the service.
-        #[pallet::call_index(165)]
+        /// services. The hotkey must be registered on the subnet with a validator permit, or be
+        /// the subnet owner's hotkey signed for by the subnet owner. An empty url removes the
+        /// service.
+        #[pallet::call_index(169)]
         #[pallet::weight((<T as Config>::WeightInfo::set_service(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_service(
             origin: OriginFor<T>,
             netuid: NetUid,
             hotkey: T::AccountId,
             url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-            spender: T::AccountId,
         ) -> DispatchResult {
-            Self::do_set_service(origin, netuid, hotkey, url, spender)
+            Self::do_set_service(origin, netuid, hotkey, url)
+        }
+
+        /// Authorizes an account to set weights for this registered hotkey on one mechanism.
+        #[pallet::call_index(170)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(5, 2))]
+        pub fn set_mech_weight_delegate(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            delegate: Option<T::AccountId>,
+        ) -> DispatchResult {
+            Self::do_set_mech_weight_delegate(origin, netuid, mecid, delegate)
+        }
+
+        /// Sets weights as the validator's authorized delegate on this mechanism only.
+        #[pallet::call_index(171)]
+        #[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            dests: Vec<u16>,
+            weights: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            if Self::get_commit_reveal_weights_enabled(netuid) {
+                Err(Error::<T>::CommitRevealEnabled.into())
+            } else {
+                Self::do_set_mechanism_weights_for(
+                    origin,
+                    netuid,
+                    mecid,
+                    hotkey,
+                    dests,
+                    weights,
+                    version_key,
+                )
+            }
+        }
+
+        /// Commits a weight hash for the validator through its mechanism delegate.
+        #[pallet::call_index(172)]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights().saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn commit_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            commit_hash: H256,
+        ) -> DispatchResult {
+            Self::do_commit_mechanism_weights_for(origin, netuid, mecid, hotkey, commit_hash)
+        }
+
+        /// Reveals a validator's hash commit through its mechanism delegate.
+        #[pallet::call_index(173)]
+        #[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn reveal_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            uids: Vec<u16>,
+            values: Vec<u16>,
+            salt: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            Self::do_reveal_mechanism_weights_for(
+                origin,
+                netuid,
+                mecid,
+                hotkey,
+                uids,
+                values,
+                salt,
+                version_key,
+            )
+        }
+
+        /// Commits timelocked weights for a validator through its mechanism delegate.
+        #[pallet::call_index(174)]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn commit_timelocked_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+            reveal_round: u64,
+            commit_reveal_version: u16,
+        ) -> DispatchResult {
+            Self::do_commit_timelocked_mechanism_weights_for(
+                origin,
+                netuid,
+                mecid,
+                hotkey,
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            )
         }
     }
 }

@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 493,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v493-upgrade/page.tsx",
+  "public_path": "/releases/v493-upgrade",
+  "audiences": ["node operators", "validators", "subnet owners"],
+  "summary": "V493 lets a gamma deposit's hotkey spend at a service and migrates deposits and services to remove the old spender. It adds optional coldkey-funded commitment burns, per-mechanism weight delegation, sudo basket controls with legacy defaults, and an Etao owner-update limit of 360 blocks. The transaction version is 2 because gamma removes and renumbers calls. Release workflows announce upgrades and stable Python releases, with stable publishing through the mainnet watcher. Gamma cap validation and try-runtime childkey alpha conservation guards are included."
+}

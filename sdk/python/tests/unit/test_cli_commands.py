@@ -140,9 +140,8 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
 def fake(isolated_cli, monkeypatch, wallet_dir) -> FakeSubstrate:
     substrate = FakeSubstrate()
     _seed_tx_preview(substrate)
-    seed_gamma(
-        substrate, wallets.open_wallet(_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
-    )
+    wallet = wallets.open_wallet(_WALLET_NAME, path=wallet_dir)
+    seed_gamma(substrate, wallet.coldkeypub.ss58_address, wallet.hotkey.ss58_address)
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)
@@ -184,6 +183,15 @@ def test_help_exits_zero(path: tuple[str, ...]):
     assert result.exception is None, result.exception
     assert result.exit_code == 0, result.output
     assert "Traceback" not in result.output
+
+
+def test_colored_help_preserves_literal_long_and_short_options(monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("COLUMNS", "80")
+    result = CliRunner().invoke(app, ["commitments", "commit", "--help"], color=True)
+    assert result.exit_code == 0
+    for flag in ("--mechid", "--channel", "--max-burn", "--data"):
+        assert flag in result.output
 
 
 @pytest.mark.parametrize("op", sorted(INTENT_REGISTRY))

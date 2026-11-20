@@ -127,6 +127,15 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             Pallet::<T>::check_pow_registration(who, *netuid, *work_block, *nonce, work, hotkey)?;
         }
 
+        if let Some(Call::spend_gamma {
+            service,
+            netuid,
+            amount,
+        }) = call.is_sub_type()
+        {
+            Pallet::<T>::gamma_deposit_after_spend(*netuid, who, service, *amount)?;
+        }
+
         let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
         if let Some(pallet_commitments::Call::set_commitment { netuid, .. }) = commitment_call {
             CommitmentPolicy::<T>::validate(*netuid, who)?;
@@ -159,8 +168,8 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
     /// Each dispatched call must pass the runtime's base call filter and the checks it would face
     /// as the outer call of the account it dispatches as, every proxy hop must resolve to a
     /// zero-delay delegation whose type (and every outer hop's type) admits the dispatched calls,
-    /// and no two calls may share a pool tag (PoW solution or rate-limited commit). Returns those
-    /// tags for the pool.
+    /// and no two calls may share a pool tag (PoW solution, rate-limited commit or gamma spend).
+    /// Returns those tags for the pool.
     fn check_fee_free_wrapped_calls(
         who: &T::AccountId,
         call: &CallOf<T>,
@@ -180,16 +189,16 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
     {
         use frame_support::traits::{Contains, InstanceFilter};
 
-        let mut pending = Vec::new();
-        if !Self::push_dispatched_calls(who, call, &[], &mut pending)? {
-            return Ok(Vec::new());
-        }
         // Signed dispatch applies the runtime's base filter (safe mode, no nested batches) to
-        // the wrapper and to every call it dispatches.
+        // the call and to every call it dispatches.
         ensure!(
             <T as frame_system::Config>::BaseCallFilter::contains(call),
             CustomTransactionError::BadRequest
         );
+        let mut pending = Vec::new();
+        if !Self::push_dispatched_calls(who, call, &[], &mut pending)? {
+            return Ok(Vec::new());
+        }
 
         let mut tags: Vec<Vec<u8>> = Vec::new();
         while let Some((signer, call, filters)) = pending.pop() {
@@ -507,8 +516,9 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         }
     }
 
-    /// Pool tags for `call` dispatched as `who`: one PoW solution and one rate-limited weight
-    /// commit per tag.
+    /// Pool tags for `call` dispatched as `who`: one PoW solution, one rate-limited weight
+    /// commit and one gamma spend from a deposit per tag, so a second spend is refused until the
+    /// first is in a block.
     fn provides_tags(who: &T::AccountId, call: &CallOf<T>) -> Vec<Vec<u8>>
     where
         CallOf<T>: IsSubType<Call<T>>,
@@ -516,6 +526,9 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         let mut tags: Vec<Vec<u8>> = Self::pow_registration_tag(call).into_iter().collect();
         if let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to) {
             tags.extend(CheckRateLimits::<T>::provides_tags(who, call));
+        }
+        if let Some(Call::<T>::spend_gamma { netuid, .. }) = call.is_sub_type() {
+            tags.push((b"gamma-spend", who, netuid).encode());
         }
         tags
     }
@@ -537,6 +550,12 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         } else {
             Weight::zero()
         };
+        // The subnet, the service and the deposit.
+        let spend_weight = if matches!(call.is_sub_type(), Some(Call::<T>::spend_gamma { .. })) {
+            T::DbWeight::get().reads(3)
+        } else {
+            Weight::zero()
+        };
         <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
             .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
@@ -545,6 +564,7 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(Self::commitment_weight(call))
             .saturating_add(pow_weight)
+            .saturating_add(spend_weight)
     }
 
     /// Weight of [`Self::check_fee_free_wrapped_calls`]: the per-call checks of every dispatched
@@ -956,6 +976,163 @@ mod tests {
             assert_eq!(
                 validate_signed(hotkey, &set_weights).unwrap_err(),
                 CustomTransactionError::BadRequest.into()
+            );
+        });
+    }
+
+    // A free `spend_gamma` that would fail at dispatch is refused at validation, and spends from
+    // one deposit share a pool tag, so only spends that burn gamma enter a block.
+    #[test]
+    fn pays_no_spend_gamma_that_would_fail_is_rejected_at_validate() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let (hotkey, service) = (U256::from(1), U256::from(2));
+            let minimum = crate::MIN_GAMMA_AMOUNT;
+            add_network(netuid, 1, 0);
+            let spend = |amount: u64| {
+                RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma {
+                    service,
+                    netuid,
+                    amount: amount.into(),
+                })
+            };
+            assert_eq!(spend(minimum).get_dispatch_info().pays_fee, Pays::No);
+            let bad_request = CustomTransactionError::BadRequest.into();
+
+            // No service, then no deposit.
+            crate::GammaDeposits::<Test>::insert(
+                netuid,
+                hotkey,
+                crate::GammaDeposit {
+                    coldkey: U256::from(3),
+                    balance: (2 * minimum).into(),
+                    daily_spend_cap: None,
+                },
+            );
+            assert_eq!(validate_signed(hotkey, &spend(minimum)), Err(bad_request));
+            let url = frame_support::BoundedVec::truncate_from(b"u".to_vec());
+            crate::Services::<Test>::insert(netuid, service, crate::ServiceInfo { url });
+            assert_eq!(
+                validate_signed(U256::from(4), &spend(minimum)),
+                Err(bad_request)
+            );
+            assert_eq!(
+                validate_signed(hotkey, &spend(minimum - 1)),
+                Err(CustomTransactionError::StakeAmountTooLow.into())
+            );
+            assert_eq!(
+                validate_signed(hotkey, &spend(2 * minimum + 1)),
+                Err(bad_request)
+            );
+            let first = validate_signed(hotkey, &spend(minimum)).unwrap();
+            let second = validate_signed(hotkey, &spend(2 * minimum)).unwrap();
+            assert_eq!(first.provides.len(), 1);
+            assert_eq!(first.provides, second.provides);
+
+            // A free batch is checked spend by spend and holds one spend per deposit.
+            let batch = |calls: Vec<RuntimeCall>| {
+                let call = RuntimeCall::Utility(pallet_subtensor_utility::Call::batch { calls });
+                assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
+                SubtensorTransactionExtension::<Test>::new()
+                    .validate(
+                        RawOrigin::Signed(hotkey).into(),
+                        &call,
+                        &call.get_dispatch_info(),
+                        0,
+                        (),
+                        &TxBaseImplication(()),
+                        TransactionSource::External,
+                    )
+                    .map(|(validity, _, _)| validity.provides)
+            };
+            assert_eq!(batch(vec![spend(minimum)]), Ok(first.provides));
+            assert_eq!(batch(vec![spend(2 * minimum + 1)]), Err(bad_request));
+            assert_eq!(
+                batch(vec![spend(minimum), spend(minimum)]),
+                Err(CustomTransactionError::RateLimitExceeded.into())
+            );
+        });
+    }
+
+    // A proxied spend is checked and tagged as a spend of the real hotkey, and only under a
+    // proxy type that admits it.
+    #[test]
+    fn proxied_spend_gamma_is_checked_as_the_real_hotkeys_spend() {
+        new_test_ext(1).execute_with(|| {
+            use subtensor_runtime_common::{ProxyType, TaoBalance};
+            let netuid = NetUid::from(1);
+            let (hotkey, service, delegate) = (U256::from(1), U256::from(2), U256::from(4));
+            let minimum = crate::MIN_GAMMA_AMOUNT;
+            add_network(netuid, 1, 0);
+            let url = frame_support::BoundedVec::truncate_from(b"u".to_vec());
+            crate::Services::<Test>::insert(netuid, service, crate::ServiceInfo { url });
+            let spend = RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma {
+                service,
+                netuid,
+                amount: minimum.into(),
+            });
+            let proxied = RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                real: hotkey,
+                force_proxy_type: None,
+                call: Box::new(spend.clone()),
+            });
+            assert_eq!(proxied.get_dispatch_info().pays_fee, Pays::No);
+            let validate = |signer: U256, call: &RuntimeCall| {
+                SubtensorTransactionExtension::<Test>::new()
+                    .validate(
+                        RawOrigin::Signed(signer).into(),
+                        call,
+                        &call.get_dispatch_info(),
+                        0,
+                        (),
+                        &TxBaseImplication(()),
+                        TransactionSource::External,
+                    )
+                    .map(|(validity, _, _)| validity.provides)
+            };
+            add_balance_to_coldkey_account(&hotkey, TaoBalance::new(1_000_000_000));
+            assert_ok!(Proxy::add_proxy(
+                RuntimeOrigin::signed(hotkey),
+                delegate,
+                ProxyType::Any,
+                0
+            ));
+            crate::GammaDeposits::<Test>::insert(
+                netuid,
+                delegate,
+                crate::GammaDeposit {
+                    coldkey: U256::from(3),
+                    balance: minimum.into(),
+                    daily_spend_cap: None,
+                },
+            );
+            assert_eq!(
+                validate(delegate, &proxied),
+                Err(CustomTransactionError::BadRequest.into())
+            );
+
+            crate::GammaDeposits::<Test>::insert(
+                netuid,
+                hotkey,
+                crate::GammaDeposit {
+                    coldkey: U256::from(3),
+                    balance: minimum.into(),
+                    daily_spend_cap: None,
+                },
+            );
+            assert_eq!(validate(delegate, &proxied), validate(hotkey, &spend));
+            assert_ne!(validate(delegate, &proxied), validate(delegate, &spend));
+
+            assert_ok!(Proxy::remove_proxies(RuntimeOrigin::signed(hotkey)));
+            assert_ok!(Proxy::add_proxy(
+                RuntimeOrigin::signed(hotkey),
+                delegate,
+                ProxyType::Lock,
+                0
+            ));
+            assert_eq!(
+                validate(delegate, &proxied),
+                Err(CustomTransactionError::InvalidRealAccount.into())
             );
         });
     }

@@ -118,7 +118,7 @@ class SetSubnetEmissionWeights(Intent):
     plan shows that share and what alpha validators are left with, and lists
     every rule the chain would reject (including a validator share at or below
     the baseline), so a bad vector is caught before signing. Owners may change
-    the vector once per week per subnet.
+    the vector once per configured rate-limit interval per subnet.
     """
 
     op = "set_subnet_emission_weights"

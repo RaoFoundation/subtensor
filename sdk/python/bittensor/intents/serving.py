@@ -163,13 +163,13 @@ class ServePrometheus(Intent):
 @dataclass
 class SetService(Intent):
     """Publish this hotkey's service on a subnet, with the url where it describes
-    its services and the spender customers name on their gamma deposits.
+    its services.
 
-    The chain stores the url and the spender only; the document the url points
-    to (the services and their interfaces) is the publisher's. Without
-    ``spender_ss58`` the spender is the coldkey. Signed by the coldkey; the
-    hotkey must hold a validator permit on the subnet, or be the subnet owner's
-    hotkey with the subnet owner signing. An empty url removes the service.
+    The chain stores the url only; the document the url points to (the
+    services and their interfaces) is the publisher's. Signed by the coldkey;
+    the hotkey must hold a validator permit on the subnet, or be the subnet
+    owner's hotkey with the subnet owner signing. An empty url removes the
+    service.
     """
 
     op = "set_service"
@@ -184,10 +184,6 @@ class SetService(Intent):
     )
     hotkey_ss58: Optional[str] = field(
         default=None, metadata={"help": "Hotkey whose service it is; defaults to the wallet's."}
-    )
-    spender_ss58: Optional[str] = field(
-        default=None,
-        metadata={"help": "The spender customers name for the service; defaults to the coldkey."},
     )
 
     def __post_init__(self):
@@ -206,15 +202,13 @@ class SetService(Intent):
                 netuid=self.netuid,
                 hotkey=self.hotkey_address(wallet, self.hotkey_ss58),
                 url=self.url.encode(),
-                spender=self.spender_ss58 or self.coldkey_address(wallet),
             )
         )
 
     def summary(self) -> str:
         if not self.url:
             return f"remove the service on netuid {self.netuid}"
-        spender = "" if self.spender_ss58 is None else f", spent by {self.spender_ss58}"
-        return f"set the service {self.url} on netuid {self.netuid}{spender}"
+        return f"set the service {self.url} on netuid {self.netuid}"
 
 
 @register

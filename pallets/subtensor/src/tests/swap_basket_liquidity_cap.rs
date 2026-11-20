@@ -637,6 +637,7 @@ fn test_profit_taking_after_run_up_is_paced_by_fast_anchor() {
         );
         make_fund_with_cash(coldkey, hotkey, 100 * TAO);
         hold(&hotkey, a, 1_000_000 * TAO);
+        // This test specifically covers the default legacy fast-EMA pacing of chained legs.
         // Run-up ×4 that the fast anchor has followed (pinned to spot by `appreciate`),
         // with the slow EMA left where it was (price 1.0): spot is 4× the slow EMA.
         appreciate(a, 2);

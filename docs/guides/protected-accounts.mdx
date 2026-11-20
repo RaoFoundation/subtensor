@@ -49,8 +49,8 @@ btcli proxy protect --wallet main --delay 36h \
 ```
 
 Each `--allow` maps to an existing runtime `ProxyType` at delay 0. Known items:
-`staking`, `childkeys`, `basket` / `basket-swaps`, `gamma`, `root-claim`,
-`validate`, `weights`, `owner`, `swap-hotkey`, and `subnet-lease`.
+`staking`, `childkeys`, `basket` / `basket-swaps`, `root-claim`, `validate`,
+`weights`, `owner`, `swap-hotkey`, and `subnet-lease`.
 
 The CLI prints every call authorized by each selected runtime filter before it
 creates the grant. Names do not imply narrower authority: for example,

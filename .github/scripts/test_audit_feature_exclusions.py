@@ -36,6 +36,17 @@ class AuditExclusions(unittest.TestCase):
             with self.subTest(features=features):
                 self.assertTrue(module.violations(f"wasmtime v8.0.1 {features}"))
 
+    def test_quic_wasi_and_dnssec_exclusions_fail_if_reachable(self):
+        for package in (
+            "libp2p v0.54.1 dns,quic,tokio",
+            "wasmtime-wasi v8.0.1 default",
+            "wasmtime-wasi-http v8.0.1 default",
+            "hickory-resolver v0.24.4 dnssec-ring,tokio",
+            "hickory-resolver v0.25.2 dnssec-aws-lc-rs,tokio",
+        ):
+            with self.subTest(package=package):
+                self.assertTrue(module.violations(package))
+
 
 if __name__ == "__main__":
     unittest.main()

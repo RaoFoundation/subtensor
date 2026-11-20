@@ -105,8 +105,26 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 132,
-          "url": "/code/pallets/commitments/src/lib.rs#L132",
+          "line": 235,
+          "url": "/code/pallets/commitments/src/lib.rs#L235",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
+    "AccountNotAuthorized": {
+      "code": "not_authorized",
+      "description": "The signing coldkey does not own the target registered hotkey. Sign `set_commitment_to` with the hotkey's owner coldkey; hotkeys cannot fund channel commitments.",
+      "docs_url": "/docs/errors/chain/AccountNotAuthorized",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AccountNotAuthorized/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 245,
+          "url": "/code/pallets/commitments/src/lib.rs#L245",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -401,7 +419,7 @@
     },
     "AmountTooLow": {
       "code": "limit_exceeded",
-      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
+      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend cap was between 0 and 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
@@ -635,7 +653,7 @@
     },
     "BasketMinOutNotMet": {
       "code": "insufficient_liquidity",
-      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the 2% protocol band still applies.",
+      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the configured protocol band still applies.",
       "docs_url": "/docs/errors/chain/BasketMinOutNotMet",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketMinOutNotMet/content.md",
       "pallets": [
@@ -725,7 +743,7 @@
     },
     "BasketTurnoverBudgetExceeded": {
       "code": "rate_limited",
-      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over 7200 blocks and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
+      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over `BasketTradeRefillBlocks` (7200 by default) and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
       "docs_url": "/docs/errors/chain/BasketTurnoverBudgetExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketTurnoverBudgetExceeded/content.md",
       "pallets": [
@@ -825,8 +843,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 252,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L252",
+          "line": 285,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L285",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -846,6 +864,24 @@
           "line": 434,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L434",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "BurnPriceLimitExceeded": {
+      "code": "limit_exceeded",
+      "description": "The channel's current burn price exceeds the caller's `max_burn`. Query the live decayed price and raise `max_burn`, or retry after the price decays.",
+      "docs_url": "/docs/errors/chain/BurnPriceLimitExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BurnPriceLimitExceeded/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 247,
+          "url": "/code/pallets/commitments/src/lib.rs#L247",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
     },
@@ -1099,6 +1135,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/ChangePending/content.md",
       "pallets": [
         "Grandpa"
+      ]
+    },
+    "ChannelMigrationPending": {
+      "code": "too_early",
+      "description": "A bounded hotkey-swap migration is still moving this hotkey's channel commitments. Wait for the migration to finish before publishing another channel commitment.",
+      "docs_url": "/docs/errors/chain/ChannelMigrationPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ChannelMigrationPending/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 251,
+          "url": "/code/pallets/commitments/src/lib.rs#L251",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
       ]
     },
     "ChildParentInconsistency": {
@@ -1410,8 +1464,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 276,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L276",
+          "line": 309,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L309",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1428,8 +1482,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 274,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L274",
+          "line": 307,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L307",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1779,8 +1833,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 272,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L272",
+          "line": 305,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L305",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2314,6 +2368,24 @@
         }
       ]
     },
+    "FreeCommitmentDisabled": {
+      "code": "not_authorized",
+      "description": "Burning is enabled for mechanism 0, channel 0, so the legacy free `set_commitment` call is unavailable. Use the coldkey-signed `set_commitment_to` with an adequate burn limit.",
+      "docs_url": "/docs/errors/chain/FreeCommitmentDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FreeCommitmentDisabled/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 249,
+          "url": "/code/pallets/commitments/src/lib.rs#L249",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
     "FundsNotSettled": {
       "code": "policy_violation",
       "description": "`finalize` ran the configured `call`, but the raised funds were still in the crowdloan's funds account afterwards, so finalization was refused. This happens when the call does not spend the raised amount, or when a wrapper such as `Utility.batch` returns Ok after its inner call failed. Fix the finalization call so it consumes the full `raised` amount, then `finalize` again.",
@@ -2334,7 +2406,7 @@
     },
     "GammaDepositDailySpendCapExceeded": {
       "code": "limit_exceeded",
-      "description": "A spend entry was skipped because its amount is above what the gamma deposit's daily spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what an entry can spend now.",
+      "description": "The spend is above what the gamma deposit's daily spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
       "docs_url": "/docs/errors/chain/GammaDepositDailySpendCapExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositDailySpendCapExceeded/content.md",
       "pallets": [
@@ -2388,7 +2460,7 @@
     },
     "GammaDepositNotEmpty": {
       "code": "invalid_argument",
-      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its spender has spent it to zero, close it.",
+      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its hotkey has spent it to zero, close it.",
       "docs_url": "/docs/errors/chain/GammaDepositNotEmpty",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositNotEmpty/content.md",
       "pallets": [
@@ -2406,7 +2478,7 @@
     },
     "GammaDepositSpenderMismatch": {
       "code": "invalid_argument",
-      "description": "A mint named a spender, but the gamma deposit it credits already names another. A named spender opens a new deposit and must match an existing one. Mint without naming one, or change the deposit's spender with `set_gamma_deposit_spender` first.",
+      "description": "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it.",
       "docs_url": "/docs/errors/chain/GammaDepositSpenderMismatch",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositSpenderMismatch/content.md",
       "pallets": [
@@ -2551,8 +2623,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 278,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L278",
+          "line": 311,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L311",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2838,7 +2910,7 @@
     },
     "InsufficientGammaBalance": {
       "code": "insufficient_balance",
-      "description": "A spend entry was skipped because its amount is above the gamma deposit's balance. An entry spends its whole amount or nothing. The `gamma_deposit` read gives `spendable_gamma`, what an entry can spend now.",
+      "description": "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
       "docs_url": "/docs/errors/chain/InsufficientGammaBalance",
       "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientGammaBalance/content.md",
       "pallets": [
@@ -3486,7 +3558,7 @@
     },
     "InvalidValue": {
       "code": "invalid_argument",
-      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, an empty `spend_gamma`, or a gamma share naming its own subnet.",
+      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, or a gamma share naming its own subnet.",
       "docs_url": "/docs/errors/chain/InvalidValue",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidValue/content.md",
       "pallets": [
@@ -3504,8 +3576,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 266,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L266",
+          "line": 299,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L299",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3864,8 +3936,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 250,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L250",
+          "line": 283,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L283",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3882,8 +3954,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 264,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L264",
+          "line": 297,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L297",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3900,8 +3972,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 262,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L262",
+          "line": 295,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L295",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3972,8 +4044,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 248,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L248",
+          "line": 281,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L281",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4030,6 +4102,7 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/MechanismDoesNotExist/content.md",
       "pallets": [
         "SubtensorModule",
+        "Commitments",
         "Swap"
       ],
       "sources": [
@@ -4039,6 +4112,13 @@
           "line": 174,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L174",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        },
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 243,
+          "url": "/code/pallets/commitments/src/lib.rs#L243",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         },
         {
           "pallet": "Swap",
@@ -4070,8 +4150,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 258,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L258",
+          "line": 291,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L291",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4088,8 +4168,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 260,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L260",
+          "line": 293,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L293",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4205,8 +4285,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 254,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L254",
+          "line": 287,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L287",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4737,7 +4817,7 @@
     },
     "NotGammaDepositSpender": {
       "code": "not_authorized",
-      "description": "A spend entry was skipped because its gamma deposit names another spender. Only the deposit's spender, or its `GammaSpend` proxy, spends it.",
+      "description": "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it.",
       "docs_url": "/docs/errors/chain/NotGammaDepositSpender",
       "markdown_url": "/llms.mdx/docs/errors/chain/NotGammaDepositSpender/content.md",
       "pallets": [
@@ -4749,6 +4829,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 485,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L485",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NotMechWeightDelegate": {
+      "code": "not_authorized",
+      "description": "The signer is not the validator's currently authorized delegate for this exact netuid and mechanism, or the validator's grant is still moving after a hotkey change. Query the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the validator grant or renew the delegation before retrying.",
+      "docs_url": "/docs/errors/chain/NotMechWeightDelegate",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotMechWeightDelegate/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 507,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L507",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4783,8 +4881,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 268,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L268",
+          "line": 301,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L301",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5151,8 +5249,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 270,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L270",
+          "line": 303,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L303",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5769,6 +5867,24 @@
         "Multisig"
       ]
     },
+    "ServiceDoesNotExist": {
+      "code": "not_found",
+      "description": "Gamma is spent only at a hotkey listed as a service on the deposit's subnet, and this one is not. List the subnet's services with the `services` read.",
+      "docs_url": "/docs/errors/chain/ServiceDoesNotExist",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ServiceDoesNotExist/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 505,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "ServingRateLimitExceeded": {
       "code": "rate_limited",
       "description": "`serve_axon` or `serve_prometheus` was called again before enough blocks passed since the neuron's last serving update. Check the axon's last update block in `Axons` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait.",
@@ -5844,8 +5960,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 134,
-          "url": "/code/pallets/commitments/src/lib.rs#L134",
+          "line": 237,
+          "url": "/code/pallets/commitments/src/lib.rs#L237",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6024,8 +6140,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 246,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L246",
+          "line": 279,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L279",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -6248,8 +6364,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 138,
-          "url": "/code/pallets/commitments/src/lib.rs#L138",
+          "line": 241,
+          "url": "/code/pallets/commitments/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6366,8 +6482,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 130,
-          "url": "/code/pallets/commitments/src/lib.rs#L130",
+          "line": 233,
+          "url": "/code/pallets/commitments/src/lib.rs#L233",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6545,7 +6661,7 @@
     },
     "TooManyUnrevealedCommits": {
       "code": "limit_exceeded",
-      "description": "`commit_weights` (or a CRv3 commit) failed because the hotkey already has 10 unrevealed commits queued on the subnet. Inspect `WeightCommits` for the hotkey and reveal or let old commits expire before committing again.",
+      "description": "Legacy hash commits (`commit_weights` and `commit_mechanism_weights`) reached their fixed limit of 10 unexpired entries in `WeightCommits` for this hotkey and mechanism. Reveal one or wait for it to expire. For a Yuma CRv3 timelocked commit, the hotkey reached the subnet's `MaxTimelockedCommitsPerHotkey` limit in the current mechanism and commit epoch. Check that setting and `TimelockedWeightCommits`. A setting of 0 pauses new Yuma commits even with an empty queue; root must raise it before retrying. Otherwise, retry in a later commit epoch or after root raises the cap.",
       "docs_url": "/docs/errors/chain/TooManyUnrevealedCommits",
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyUnrevealedCommits/content.md",
       "pallets": [
@@ -6835,8 +6951,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 136,
-          "url": "/code/pallets/commitments/src/lib.rs#L136",
+          "line": 239,
+          "url": "/code/pallets/commitments/src/lib.rs#L239",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6979,8 +7095,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 256,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L256",
+          "line": 289,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L289",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

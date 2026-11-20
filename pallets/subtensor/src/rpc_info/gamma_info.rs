@@ -7,14 +7,15 @@ use subtensor_swap_interface::SwapHandler;
 
 use super::*;
 
-/// A gamma deposit and what its spender can spend from it now.
-#[freeze_struct("1fbec154e8c48c46")]
+/// A gamma deposit and what its hotkey can spend from it now.
+#[freeze_struct("668aa00c4a8f9a0a")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct GammaDepositInfo<AccountId: TypeInfo + Encode + Decode> {
     pub netuid: NetUid,
     pub hotkey: AccountId,
     pub deposit: GammaDeposit<AccountId>,
-    /// The deposit's balance within what its daily spend cap allows now.
+    /// The most a spend can burn now: the deposit's balance within what its daily spend cap
+    /// allows, or 0 when that is below the spend minimum and short of the balance.
     pub spendable: GammaBalance,
 }
 
@@ -26,6 +27,13 @@ impl<T: Config> Pallet<T> {
     ) -> GammaDepositInfo<T::AccountId> {
         let spendable = Self::gamma_allowance(&deposit, Self::get_current_block_as_u64())
             .map_or(deposit.balance, |allowance| allowance.min(deposit.balance));
+        // A spend below the minimum must empty the deposit.
+        let spendable =
+            if spendable.to_u64() < crate::MIN_GAMMA_AMOUNT && spendable != deposit.balance {
+                GammaBalance::ZERO
+            } else {
+                spendable
+            };
         GammaDepositInfo {
             netuid,
             hotkey,
