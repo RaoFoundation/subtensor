@@ -138,10 +138,11 @@ DESCRIPTIONS: dict[str, str] = {
     "SettlementPriceOutsideEmaBand": (
         "Permissionless / protocol-forced settle saw realized AMM execution (or per-block "
         "cumulative impact) outside expiry_max_slippage_bps of the lending EMA (default 2%), "
-        "or the wider 15% §5.4 spot band on interest-exhaustion forfeit pre-checks. The claim "
-        "is deferred and retried; there is no unbounded AMM escape after max_settlement_deferral. "
-        "Increases and rolls stay frozen while deferred. Close or repay when realized execution "
-        "is inside the band (wallet repay is unconstrained)."
+        "or the wider 15% directional spot band on interest-exhaustion forfeit pre-checks. The "
+        "claim is deferred and retried; there is no unbounded AMM escape after "
+        "max_settlement_deferral (default 50_400 blocks / ~7 days). Increases and rolls stay "
+        "frozen while deferred. Close or repay when realized execution is inside the band "
+        "(wallet repay is unconstrained)."
     ),
     "SettlementFrozen": (
         "This position has an active settlement deferral (BandDeferralSince). Increases and "
