@@ -48,12 +48,16 @@ name: Release Train
 # without publishing when mainnet moves past this spec or main carries a
 # newer one, and fail after 20 hours so a stuck release is visible.
 #
-# A late upgrade never makes publishing impossible. Once the runtime is live:
+# A late upgrade never makes publishing impossible. When the runtime goes
+# live and these jobs are no longer on it (they gave up, stopped for a newer
+# spec, or failed), the scheduled watch-mainnet-release.yml run that
+# finalizes the release asks for the PyPI and docs approval itself, exactly
+# as before this train published. Also, once the runtime is live:
 #   - dispatch watch-mainnet-release.yml: rebuilds from the v<spec> tag and
 #     publishes, for as long as that runtime is the one on mainnet; or
 #   - re-run this run's failed jobs: within GitHub's 30-day re-run window
 #     (the stable dist is kept as long), when no newer train is running.
-# Both ask for one fresh `mainnet` approval; re-run publishing jobs start
+# Each asks for one fresh `mainnet` approval; re-run publishing jobs start
 # together, so one click covers PyPI and docs.
 #
 # The whole run, including the wait, holds the release-train concurrency
@@ -62,8 +66,7 @@ name: Release Train
 #
 # After the multisig executes on chain, watch-mainnet-release.yml cuts the
 # release without another approval: mainnet mirror (and with it the mainnet
-# Docker images) and GitHub release. It no longer requests PyPI or docs
-# approvals on its schedule; a manual dispatch is the retry path.
+# Docker images) and GitHub release.
 #
 # Discord (secret DISCORD_WEBHOOK_URL on mainnet and mainnet-release only):
 # one post when this train's propose job submits a mainnet upgrade, one from
@@ -528,6 +531,7 @@ jobs:
           core=$(jq -er '.core' <<<"$versions")
           runtime=$(.github/scripts/mainnet-finalized-runtime.sh)
           chain=$(sed -n 's/^spec_version=//p' <<<"$runtime")
+          : "${chain:?could not read the mainnet spec_version}"
           needed=false
           if [ "$SPEC" -le "$chain" ]; then
             echo "spec $SPEC is not newer than mainnet's $chain; this train publishes no stable Python."
@@ -1047,7 +1051,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      actions: read # read this run's jobs while waiting
+      # Read this run's jobs while waiting; dispatch the watcher if the
+      # upload fails after the upgrade is live.
+      actions: write
     outputs:
       uploaded: ${{ steps.state.outputs.should_upload }}
       sdk: ${{ steps.state.outputs.sdk }}
@@ -1104,7 +1110,9 @@ jobs:
           BUILD_JOB: Build the stable SDK distribution
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 60); do
+          # A re-run may rebuild the plan, the full core wheel matrix (macOS
+          # included) and the SDK next to this already-approved job.
+          for attempt in $(seq 1 150); do
             state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
               | jq -r --arg name "$BUILD_JOB" \
                 'first(.jobs[] | select(.name == $name) | "\(.status) \(.conclusion // "")") // ""') \
@@ -1115,14 +1123,14 @@ jobs:
                 exit 0
                 ;;
               completed*)
-                echo "::error::$BUILD_JOB finished as '${state#completed }', so there is nothing to upload. Fix it and re-run the failed jobs; this job then asks for one more mainnet approval."
+                echo "::error::$BUILD_JOB finished as '${state#completed }', so there is nothing to upload. Re-run the failed jobs if it was flaky (this job then asks for one more mainnet approval); a code fix needs a new commit, so dispatch watch-mainnet-release.yml instead."
                 exit 1
                 ;;
             esac
-            echo "$BUILD_JOB is '${state:-not listed}'; waiting ($attempt/60)."
+            echo "$BUILD_JOB is '${state:-not listed}'; waiting ($attempt/150)."
             sleep 60
           done
-          echo "::error::$BUILD_JOB did not finish within an hour."
+          echo "::error::$BUILD_JOB did not finish within 150 minutes."
           exit 1
 
       - name: Install uv 0.11.28
@@ -1195,6 +1203,19 @@ jobs:
           done
           echo "PyPI did not expose the complete attested release within two minutes."
           exit 1
+
+      # Once the upgrade is live, a failure here (stable build missing, PyPI
+      # rejecting the upload, a network error) must leave a pending approval,
+      # as the watcher did before the train published: the watcher's
+      # finalizing run may already have seen this job in progress and left
+      # PyPI to it. The dispatched run rebuilds from the v<spec> tag.
+      - name: Hand the upload to the release watcher
+        if: failure() && steps.wait.outputs.live == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run watch-mainnet-release.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "::error::The stable Python upload failed after spec ${{ needs.build.outputs.spec_version }} went live. Dispatched watch-mainnet-release.yml, which asks for one mainnet approval to publish it."
 
   deploy-docs-on-enactment:
     name: Deploy production docs once mainnet runs this upgrade

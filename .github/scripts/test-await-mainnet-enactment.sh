@@ -32,10 +32,16 @@ case "$endpoint" in
   */actions/runs/*/jobs*)
     echo jobs >> "$MOCK_GH_CALLS"
     jq -n --arg status "$MOCK_PROPOSE_STATUS" --arg conclusion "$MOCK_PROPOSE_CONCLUSION" \
+      --arg submit "$MOCK_SUBMIT_CONCLUSION" \
       '{jobs: [
-        {name: "Publish stable Python packages once mainnet runs this upgrade", status: "in_progress", conclusion: null},
+        {name: "Publish stable Python packages once mainnet runs this upgrade", status: "in_progress", conclusion: null, steps: []},
         {name: "Propose mainnet upgrade (multisig)", status: $status,
-         conclusion: (if $conclusion == "" then null else $conclusion end)}
+         conclusion: (if $conclusion == "" then null else $conclusion end),
+         steps: [
+           {name: "Reserve immutable release tag", conclusion: "success"},
+           {name: "Submit multisig proposal (CI half of deployment multisig)",
+            conclusion: (if $submit == "" then null else $submit end)}
+         ]}
       ]}'
     ;;
   */contents/runtime/src/lib.rs*)
@@ -111,6 +117,7 @@ defaults() {
   export MOCK_TAG_SHA="$release_sha"
   export MOCK_PROPOSE_STATUS=completed
   export MOCK_PROPOSE_CONCLUSION=success
+  export MOCK_SUBMIT_CONCLUSION=success
   export MOCK_MAIN_SPEC=493
 }
 
@@ -136,8 +143,15 @@ run_case transient-rpc-error 0 true "fail\n493 $code_hash"
 defaults
 run_case superseded-on-chain 0 false "494 $other_hash"
 
+# vSPEC on this commit but another wasm live under SPEC: refuse loudly.
 defaults
 run_case other-runtime-at-spec 1 "" "493 $other_hash"
+
+# A stale train at the live spec (no bump, different wasm, tag elsewhere) is
+# not this train's release and must not fail.
+defaults
+export MOCK_TAG_SHA="$other_sha"
+run_case stale-train-at-live-spec 0 false "493 $other_hash"
 
 defaults
 export MOCK_TAG_SHA="$other_sha"
@@ -148,17 +162,26 @@ export MOCK_TAG_SHA=""
 run_case tag-missing 0 false "493 $code_hash"
 
 defaults
-export MOCK_PROPOSE_CONCLUSION=failure
+export MOCK_PROPOSE_CONCLUSION=failure MOCK_SUBMIT_CONCLUSION=skipped
 run_case proposal-failed 1 "" "492 $other_hash"
 
+# The multisig went on chain, then a later step of propose-mainnet failed:
+# keep waiting and publish when it executes.
 defaults
-export MOCK_PROPOSE_CONCLUSION=skipped
+export MOCK_PROPOSE_CONCLUSION=failure MOCK_SUBMIT_CONCLUSION=success
+run_case proposal-failed-after-submit 0 true "492 $other_hash\n492 $other_hash\n493 $code_hash"
+grep -q '^::warning::propose-mainnet finished as .failure. after the multisig was submitted' "$tmp/log-proposal-failed-after-submit" \
+  || { echo "FAIL proposal-failed-after-submit: missing warning" >&2; exit 1; }
+[ "$(gh_calls jobs)" -eq 1 ] || { echo "FAIL proposal-failed-after-submit: expected 1 jobs read" >&2; exit 1; }
+
+defaults
+export MOCK_PROPOSE_CONCLUSION=skipped MOCK_SUBMIT_CONCLUSION=""
 run_case proposal-skipped 0 false "492 $other_hash"
 
 defaults
 export MOCK_MAIN_SPEC=494
 run_case newer-train-queued 0 false "492 $other_hash"
-grep -q '^::warning::main now carries spec 494.*dispatch watch-mainnet-release.yml' "$tmp/log-newer-train-queued" \
+grep -q '^::warning::main now carries spec 494.*scheduled watcher asks for the PyPI and docs approval' "$tmp/log-newer-train-queued" \
   || { echo "FAIL newer-train-queued: missing warning with publish guidance" >&2; exit 1; }
 
 defaults

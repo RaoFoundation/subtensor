@@ -18,6 +18,7 @@
 #   MAIN_EVERY        check main's spec_version every Nth poll (default 5);
 #                     GITHUB_TOKEN shares a per-repository hourly API budget
 #   PROPOSE_JOB       name of the proposal job in this run
+#   SUBMIT_STEP       name of its step that puts the multisig on chain
 #   RUNTIME_PROBE     command printing finalized spec_version and code_hash
 #
 # Writes code_hash=<blake2_256(WASM)> and live=true|false to $GITHUB_OUTPUT
@@ -28,12 +29,15 @@
 #               main now carries a newer spec (a newer train is queued behind
 #               this one), propose-mainnet was skipped, or vSPEC names another
 #               commit.
-# Exits non-zero when this run's proposal job failed, when mainnet runs a
-# different runtime under SPEC, or when SPEC is not live within WAIT_MINUTES.
+# Exits non-zero when this run's proposal job failed before submitting the
+# multisig, when mainnet runs a different runtime under SPEC with vSPEC on
+# RELEASE_SHA, or when SPEC is not live within WAIT_MINUTES.
 #
-# Giving up never makes the publication impossible. While SPEC is the runtime
-# on mainnet, dispatching watch-mainnet-release.yml rebuilds from the v<spec>
-# tag and publishes it (one `mainnet` approval), with no deadline.
+# Giving up never makes the publication impossible. When SPEC goes live and
+# no train job is publishing it, the scheduled watch-mainnet-release.yml run
+# asks for the PyPI and docs approval itself, and while SPEC is the runtime on
+# mainnet a dispatch of that workflow rebuilds from the v<spec> tag and
+# publishes it (one `mainnet` approval), with no deadline.
 
 set -euo pipefail
 
@@ -51,7 +55,18 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 wait_minutes="${WAIT_MINUTES:-1200}"
 poll_seconds="${POLL_SECONDS:-120}"
 propose_job="${PROPOSE_JOB:-Propose mainnet upgrade (multisig)}"
+submit_step="${SUBMIT_STEP:-Submit multisig proposal (CI half of deployment multisig)}"
 runtime_probe="${RUNTIME_PROBE:-$script_dir/mainnet-finalized-runtime.sh}"
+
+# A hung GitHub call must fail one poll, not stall the loop past its
+# deadline.
+gh_api() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 60 gh api "$@"
+  else
+    gh api "$@"
+  fi
+}
 
 expected_hash="0x$(python3 -c '
 import hashlib, sys
@@ -74,7 +89,7 @@ finish() {
 tag_commit() {
   local json err
   err=$(mktemp)
-  if json=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$SPEC" 2>"$err"); then
+  if json=$(gh_api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$SPEC" 2>"$err"); then
     rm -f "$err"
     jq -er 'select(.object.type == "commit") | .object.sha' <<<"$json"
     return
@@ -88,16 +103,21 @@ tag_commit() {
   return 1
 }
 
-# Prints "<status> <conclusion>" for the proposal job of this run's latest
-# attempt, or nothing when the job is not listed.
+# Prints "<status> <conclusion> <submit-step conclusion>" for the proposal
+# job of this run's latest attempt, or nothing when the job is not listed.
+# The step matters because propose-mainnet can fail after the multisig is
+# already on chain (recording, manifest, artifact or pre-release steps), and
+# re-running it then cannot submit the same approval again.
 propose_state() {
-  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
-    | jq -r --arg name "$propose_job" \
-      'first(.jobs[] | select(.name == $name) | "\(.status) \(.conclusion // "")") // ""'
+  gh_api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+    | jq -r --arg name "$propose_job" --arg step "$submit_step" \
+      'first(.jobs[] | select(.name == $name)
+        | "\(.status) \(.conclusion // "-") \(first(.steps[]? | select(.name == $step) | .conclusion // "-") // "-")")
+       // ""'
 }
 
 main_spec() {
-  gh api -H "Accept: application/vnd.github.raw+json" \
+  gh_api -H "Accept: application/vnd.github.raw+json" \
     "repos/$GITHUB_REPOSITORY/contents/runtime/src/lib.rs?ref=main" \
     | grep -Eo 'spec_version: *[0-9]+' | head -n 1 | grep -Eo '[0-9]+'
 }
@@ -116,13 +136,15 @@ while :; do
         finish false "mainnet runs spec $chain_spec, past $SPEC; this train has nothing to publish."
       fi
       if [ "$chain_spec" -eq "$SPEC" ]; then
-        if [ "$chain_hash" != "$expected_hash" ]; then
-          echo "mainnet runs spec $SPEC with code hash $chain_hash, not this train's $expected_hash." >&2
-          exit 1
-        fi
+        # The tag decides whose release this is. A stale train at the live
+        # spec (same spec_version, different wasm, no bump) is not an error.
         if tag=$(tag_commit); then
           [ "$tag" = "$RELEASE_SHA" ] \
             || finish false "v$SPEC names ${tag:-no commit}, not $RELEASE_SHA; this train is not the release."
+          if [ "$chain_hash" != "$expected_hash" ]; then
+            echo "::error::mainnet runs spec $SPEC with code hash $chain_hash, not this train's $expected_hash; refusing to publish." >&2
+            exit 1
+          fi
           finish true "mainnet finalized spec $SPEC ($chain_hash) built from $RELEASE_SHA."
         fi
         echo "could not read tag v$SPEC; retrying." >&2
@@ -138,15 +160,20 @@ while :; do
   # attempt, so stop spending API calls on it.
   if [ "$propose_succeeded" != true ]; then
     if state=$(propose_state); then
-      case "$state" in
+      read -r job_status job_conclusion submit_conclusion <<<"${state:-- - -}"
+      case "$job_status $job_conclusion" in
         "completed success") propose_succeeded=true ;;
-        "" | queued* | in_progress* | waiting* | pending* | requested*) ;;
         "completed skipped")
           finish false "propose-mainnet was skipped; this train proposed nothing."
           ;;
         completed*)
-          echo "propose-mainnet finished as '${state#completed }'; there is no proposal to wait for." >&2
-          exit 1
+          if [ "$submit_conclusion" = success ]; then
+            echo "::warning::propose-mainnet finished as '$job_conclusion' after the multisig was submitted; still waiting for it to execute. Do not re-run propose-mainnet: the CI approval is already on chain."
+            propose_succeeded=true
+          else
+            echo "::error::propose-mainnet finished as '$job_conclusion' before submitting the multisig; there is no proposal to wait for." >&2
+            exit 1
+          fi
           ;;
       esac
     else
@@ -156,13 +183,13 @@ while :; do
 
   if (( polls % main_every == 0 )) \
     && newer=$(main_spec) && [[ "$newer" =~ ^[0-9]+$ ]] && [ "$newer" -gt "$SPEC" ]; then
-    echo "::warning::main now carries spec $newer, so a newer train is queued behind this one and this job stops waiting. If spec $SPEC still goes live on mainnet, dispatch watch-mainnet-release.yml to publish it."
+    echo "::warning::main now carries spec $newer, so a newer train is queued behind this one and this job stops waiting. If spec $SPEC still goes live on mainnet, the scheduled watcher asks for the PyPI and docs approval itself."
     finish false "stopped waiting for spec $SPEC."
   fi
   polls=$((polls + 1))
 
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "::error::spec $SPEC is not live on mainnet after $wait_minutes minutes. Once it goes live, dispatch watch-mainnet-release.yml (works for as long as spec $SPEC is the mainnet runtime) or re-run the failed jobs of this run (within 30 days, when no newer train is running). Either asks for one mainnet approval." >&2
+    echo "::error::spec $SPEC is not live on mainnet after $wait_minutes minutes. When it goes live, the scheduled watcher asks for the PyPI and docs approval itself; you can also dispatch watch-mainnet-release.yml (for as long as spec $SPEC is the mainnet runtime) or re-run the failed jobs of this run (within 30 days, when no newer train is running)." >&2
     exit 1
   fi
   sleep "$poll_seconds"
