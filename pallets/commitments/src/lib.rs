@@ -1911,6 +1911,11 @@ impl<T: Config> Pallet<T> {
 
     pub fn purge_channel_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         let write_weight = T::DbWeight::get().writes(1);
+        let read_weight = T::DbWeight::get().reads(1);
+        if !weight_meter.can_consume(read_weight) {
+            return false;
+        }
+        weight_meter.consume(read_weight);
         if !ChannelPurgePending::<T>::get(netuid) {
             if !weight_meter.can_consume(write_weight) {
                 return false;
@@ -1958,8 +1963,8 @@ impl<T: Config> Pallet<T> {
             );
             weight_meter.consume(completion_weight);
         }
-        ChannelTimelockRevealCursor::<T>::kill();
         if weight_meter.can_consume(write_weight.saturating_mul(3)) {
+            ChannelTimelockRevealCursor::<T>::kill();
             ChannelPurgePending::<T>::remove(netuid);
             ChannelNetuidPurgeMechanism::<T>::remove(netuid);
             weight_meter.consume(write_weight.saturating_mul(3));

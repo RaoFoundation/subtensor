@@ -691,7 +691,7 @@ fn channel_purge_pending_keeps_bounded_cleanup_retriable() {
             }),
             TaoBalance::ZERO,
         ));
-        let unit = RocksDbWeight::get().writes(1);
+        let unit = RocksDbWeight::get().reads_writes(1, 1);
         let mut meter = frame_support::weights::WeightMeter::with_limit(unit);
         assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut meter));
         assert!(ChannelPurgePending::<Test>::get(netuid));
@@ -1302,7 +1302,7 @@ fn dissolution_charges_partial_config_cleanup_to_parent_meter() {
         let spent = before.saturating_sub(meter.remaining());
         // The parent is charged for the initial pending write and every child
         // operation, including the reserved completion budget left unused.
-        assert_eq!(spent, Weight::from_parts(51_150_000_000, 0));
+        assert_eq!(spent, Weight::from_parts(51_175_000_000, 0));
     });
 }
 
@@ -1326,16 +1326,65 @@ fn dissolution_charges_resume_cursor_read() {
         let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
         let before = retry.remaining();
         assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
-        // The two empty-prefix cleanup checks and the resume cursor read are
-        // all charged before the next row check fails.
+        // The pending read and two empty-prefix cleanup checks are charged;
+        // the remaining budget is then too small for the resume cursor read.
         assert_eq!(
             before.saturating_sub(retry.remaining()),
-            RocksDbWeight::get().reads_writes(58, 0)
+            RocksDbWeight::get().reads_writes(55, 0)
         );
         assert_eq!(
             crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
             Some(MechId::from(1))
         );
+    });
+}
+
+// A dissolution attempt with no idle budget must not read the pending flag or
+// create it before reporting that cleanup cannot proceed.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_pending_flag_read_before_access() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mut blocked = frame_support::weights::WeightMeter::with_limit(Weight::zero());
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut blocked));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        let budget = RocksDbWeight::get().reads(1);
+        let mut one_read = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut one_read));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(one_read.remaining(), Weight::zero());
+    });
+}
+
+// A bounded completion deferral must leave the reveal cursor intact until all
+// three final writes fit in the idle budget.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_defers_reveal_cursor_deletion_without_completion_budget() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        ChannelPurgePending::<Test>::insert(netuid, true);
+        crate::ChannelNetuidPurgeMechanism::<Test>::insert(netuid, MechId::from(16));
+        crate::ChannelTimelockRevealCursor::<Test>::put(vec![7]);
+        // Pending read, two swap-prefix checks, resume read, and the first row
+        // check are affordable, but the three final writes are not.
+        let budget = RocksDbWeight::get().reads_writes(59, 0);
+        let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
+        assert_eq!(
+            crate::ChannelTimelockRevealCursor::<Test>::get(),
+            Some(vec![7])
+        );
+        assert!(ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(16))
+        );
+        let mut finish = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        assert_eq!(crate::ChannelTimelockRevealCursor::<Test>::get(), None);
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
     });
 }
 
@@ -1358,7 +1407,7 @@ fn dissolution_charges_final_reveal_cursor_deletion() {
         // completion writes after the last mechanism's cleanup.
         assert_eq!(
             before.saturating_sub(finish.remaining()),
-            Weight::from_parts(51_950_000_000, 0)
+            Weight::from_parts(51_975_000_000, 0)
         );
         assert!(!ChannelPurgePending::<Test>::get(netuid));
     });
