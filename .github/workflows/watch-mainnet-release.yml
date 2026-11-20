@@ -14,20 +14,27 @@ name: Watch Mainnet Release
 #   2. The release train's pre-release v<spec_version> becomes the final,
 #      latest GitHub release, with the verified srtool wasm, digest, and
 #      multisig call data attached.
+# Stable PyPI and the production docs are normally published by the release
+# train itself, in jobs approved together with propose-mainnet that wait for
+# this same on-chain execution (release-train.yml). This workflow is the
+# fallback, and is never worse than before the train published:
 #   3. Stable Python SDK + bittensor-core wheels are published to PyPI.
 #   4. The production website/docs are deployed to Vercel.
-# Steps 3 and 4 still wait for a `mainnet` environment approval because the
-# PyPI trusted publisher and the production Vercel token are bound to that
-# environment. They are requested once, by the run that finalizes the
-# release, and never block steps 1 and 2. PyPI is the terminal state for
-# Python publication; a manual dispatch retries an incomplete upload.
+# The run that finalizes the release requests 3 and/or 4 only when no
+# release-train job for the release commit is still publishing them (the
+# train stopped for a newer spec, gave up, or failed, or the runtime was
+# deployed outside the train). A manual dispatch retries an incomplete PyPI
+# upload at any time; a missed docs deploy uses deploy-docs.yml. Both wait for
+# a `mainnet` environment approval because the PyPI trusted publisher and the
+# production Vercel token are bound to that environment. PyPI is the terminal
+# state for Python publication.
 #
 # Discord posts use mainnet-release (DISCORD_WEBHOOK_URL). One post runs
-# after this workflow finalizes the GitHub release. Another runs after the
-# stable PyPI publish. ANNOUNCE_OPENAI_API_KEY on that environment may
-# rewrite only the prose section from the committed summary. A rejected or
-# failed rewrite posts the human summary. A failed post does not move the
-# mainnet mirror back.
+# after this workflow finalizes the GitHub release. Another runs after this
+# workflow's stable PyPI publish; the release train posts its own.
+# ANNOUNCE_OPENAI_API_KEY on that environment may rewrite only the prose
+# section from the committed summary. A rejected or failed rewrite posts the
+# human summary. A failed post does not move the mainnet mirror back.
 # Merging this file does not announce a release that is already final.
 # workflow_dispatch input retry_announce posts only when that box is checked
 # and the commit status for that event is not already success.
@@ -70,6 +77,8 @@ jobs:
       code_hash: ${{ steps.compare.outputs.code_hash }}
       sdk_version: ${{ steps.compare.outputs.sdk_version }}
       core_version: ${{ steps.compare.outputs.core_version }}
+      train_publishes_python: ${{ steps.compare.outputs.train_publishes_python }}
+      train_deploys_docs: ${{ steps.compare.outputs.train_deploys_docs }}
     steps:
       - uses: actions/checkout@v4
 
@@ -212,7 +221,19 @@ jobs:
               "$chain_spec" "$release_sha" "$chain_code_hash")
             : ${artifact_id:?no artifact matches the immutable tag and finalized runtime}
             echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
-            python_needed=true
+            # The release train may already have published. Finalizing never
+            # waits on PyPI: an unreadable PyPI counts as incomplete.
+            python_status=0
+            python3 .github/scripts/check-python-release.py \
+              --sdk-version "$sdk_version" \
+              --core-version "$core_version" \
+              --repository "$GITHUB_REPOSITORY" || python_status=$?
+            if [ "$python_status" -eq 0 ]; then
+              echo "Stable Python packages are already complete on PyPI."
+              python_needed=false
+            else
+              python_needed=true
+            fi
           elif python3 .github/scripts/check-python-release.py \
               --sdk-version "$sdk_version" \
               --core-version "$core_version" \
@@ -230,8 +251,28 @@ jobs:
             fi
           fi
 
-          echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
-          echo "python_needed=$python_needed" >> "$GITHUB_OUTPUT"
+          # The release train publishes stable PyPI and production docs from
+          # jobs approved with its proposal that wait for this upgrade. The
+          # run that finalizes the release asks for this workflow's own
+          # `mainnet` approval only for what no train job is still handling:
+          # they stopped for a newer spec, gave up, or failed, or the runtime
+          # was deployed outside the train. An API failure counts as not
+          # handled, which is the behavior before the train published.
+          train_publishes_python=false
+          train_deploys_docs=false
+          if [ "$release_needed" = true ]; then
+            train_state=$(.github/scripts/release-train-enactment-state.sh "$release_sha")
+            train_publishes_python=$(sed -n 's/^train_publishes_python=//p' <<<"$train_state")
+            train_deploys_docs=$(sed -n 's/^train_deploys_docs=//p' <<<"$train_state")
+            echo "release train publishing stable Python: $train_publishes_python; deploying docs: $train_deploys_docs"
+          fi
+
+          {
+            echo "release_needed=$release_needed"
+            echo "python_needed=$python_needed"
+            echo "train_publishes_python=$train_publishes_python"
+            echo "train_deploys_docs=$train_deploys_docs"
+          } >> "$GITHUB_OUTPUT"
 
   release:
     name: Cut GitHub release v${{ needs.check.outputs.spec_version }}
@@ -375,10 +416,20 @@ jobs:
   # The notes file is read from the tagged commit. The checker itself is
   # the one on this workflow's checkout, so a release older than the checker
   # still runs. Grandfathered versions pass without a file.
+  # On a schedule this runs only in the run that finalizes the release and
+  # only when no release-train job is publishing the packages; a dispatch
+  # always retries.
   check-python-notes:
     name: Check Python release notes
     needs: check
-    if: inputs.announce_dry_run != true && needs.check.outputs.python_needed == 'true'
+    if: >-
+      inputs.announce_dry_run != true &&
+      needs.check.outputs.python_needed == 'true' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (needs.check.outputs.release_needed == 'true' &&
+         needs.check.outputs.train_publishes_python != 'true')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -403,9 +454,13 @@ jobs:
 
   # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
   # sdist) at the released commit; the SDK's committed .dev0 is stamped stable.
-  # Only the run that finalized the release requests stable Python
-  # publication, so an unanswered approval never stacks up across polls. A
-  # manual dispatch retries an incomplete PyPI publication.
+  # The release train normally publishes stable Python from the job approved
+  # together with propose-mainnet. The scheduled run that finalizes the
+  # release asks for this workflow's own approval only when no train job is
+  # publishing (it stopped for a newer spec, gave up, or failed, or the
+  # runtime was deployed outside the train), so a release is never left
+  # without a pending approval and none stacks up across polls. A manual
+  # dispatch retries an incomplete PyPI publication.
   build-core:
     name: Build bittensor-core wheels
     needs: [check, release, check-python-notes]
@@ -421,7 +476,9 @@ jobs:
       needs.check.outputs.python_needed == 'true' &&
       (
         (needs.release.result == 'success' &&
-         needs.release.outputs.finalized == 'true') ||
+         needs.release.outputs.finalized == 'true' &&
+         (github.event_name == 'workflow_dispatch' ||
+          needs.check.outputs.train_publishes_python != 'true')) ||
         (github.event_name == 'workflow_dispatch' &&
          needs.check.outputs.release_needed == 'false' &&
          needs.release.result == 'skipped')
@@ -561,10 +618,17 @@ jobs:
           echo "PyPI did not expose the complete attested release within two minutes."
           exit 1
 
+  # The release train deploys production docs once its upgrade executes. The
+  # run that finalizes the release asks for this approval only when no train
+  # job is deploying or has deployed them (it stopped, gave up, or failed, or
+  # the runtime was deployed outside the train). That holds for dispatches
+  # too, so a dispatch sent by a failed train upload does not ask twice.
   promote-website:
     name: Deploy production website and docs
     needs: [check, release]
-    if: needs.release.outputs.finalized == 'true'
+    if: >-
+      needs.release.outputs.finalized == 'true' &&
+      needs.check.outputs.train_deploys_docs != 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     # The production Vercel credentials live in the mainnet environment.
     # deploy-docs.yml can redeploy production manually if this is missed.

@@ -14,9 +14,14 @@ executes.
 ```
 push to main
   └─ srtool build (once per train)
-       └─ deploy devnet ───── smoke-check devnet
-            └─ deploy testnet ── smoke-check testnet ── publish SDK rc to PyPI
-                 └─ propose mainnet upgrade (multisig)
+       ├─ deploy devnet ───── smoke-check devnet
+       │    └─ deploy testnet ── smoke-check testnet ── publish SDK rc to PyPI
+       └─ plan stable Python ── build stable wheels + SDK (no credentials)
+
+one `mainnet` approval starts three jobs together:
+  ├─ propose mainnet upgrade (multisig)
+  ├─ wait for mainnet to run this wasm ── publish stable Python to PyPI
+  └─ wait for mainnet to run this wasm ── deploy production docs
 ```
 
 ### Build once (srtool)
@@ -49,7 +54,7 @@ Human approval lives in GitHub **environment settings**, not workflow code:
 |-------|-------------|------|
 | devnet | `devnet` | none — deploys automatically, then runs the devnet smoke suite |
 | testnet | `testnet` | environment reviewers (one-click approval), then smoke suite; the SDK release candidate to PyPI asks for its own `testnet` approval |
-| mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below |
+| mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below; the one approval also starts the stable PyPI and production docs jobs, which publish once the upgrade executes |
 | release | `mainnet-release` | none — the executed multisig is the approval; see [the release watcher](#the-release-watcher) |
 
 Deploys to devnet and testnet are direct `setCode` transactions via the CI
@@ -95,34 +100,91 @@ has no reviewers, and holds only the mirror deploy key. It rechecks the
 finalized runtime before touching the mirror and never rewrites a final
 release.
 
-The same run then requests two publications that still wait for a `mainnet`
-environment approval, because the PyPI trusted publisher and the production
-Vercel token are bound to that environment:
+### Stable Python and docs: one approval
+
+Stable PyPI packages and the production docs need credentials that live in
+the `mainnet` environment. GitHub asks for a new approval for every job that
+reaches a protected environment after the click, so the release train
+creates those jobs next to `propose-mainnet` with the same `needs`. They
+reach the environment together and the one "deploy to mainnet" approval
+starts all three:
 
 3. **Python SDK + bittensor-core wheels** to PyPI (trusted publishing, with
    PEP 740 provenance attestations)
 4. **Production website/docs** to Vercel
 
-They are requested once per release and never block steps 1 and 2. Each
-rechecks the finalized runtime after approval, so a late approval cannot
-publish packages or docs for a runtime mainnet has already replaced.
+Each job waits inside the approved job, polling finalized mainnet every two
+minutes, until the runtime is this train's exact wasm (spec and `:code` hash)
+and the immutable `v<spec_version>` tag names this train's commit. Then it
+publishes. The wheels and SDK are built earlier in the train, beside the
+devnet/testnet stages, in jobs with no environment and no id-token, and that
+build is not a dependency of the proposal: a Python failure never blocks or
+re-runs `propose-mainnet`.
+
+| What happens | Result |
+|---|---|
+| Upgrade executes | publish, usually within two minutes of finality |
+| Mainnet moves past this spec, or `main` carries a newer spec | stop without publishing (a newer train is queued); if this spec still goes live, the watcher falls back (below) |
+| `propose-mainnet` fails before submitting the multisig | the waiting jobs fail too |
+| `propose-mainnet` fails after submitting the multisig | keep waiting; do not re-run `propose-mainnet` (its on-chain approval already exists) |
+| Mainnet runs a different wasm under this spec and tag | fail, nothing is published |
+| Not executed within 20 hours | fail; the watcher falls back when it goes live |
+| Upload fails after the upgrade is live (stable build missing, PyPI rejects it) | the job dispatches the watcher, which asks for one approval and rebuilds from the tag |
+
+**The watcher is the fallback, and never worse than before.** When an
+upgrade goes live, the scheduled `watch-mainnet-release.yml` run that
+finalizes the GitHub release checks the release train's jobs for that
+commit. If no train job is still publishing stable Python or deploying the
+docs (the train stopped for a newer spec, gave up, or failed, or the runtime
+was deployed outside the train), it asks for its own `mainnet` approval for
+what is missing, exactly as it did before the train published. A GitHub API
+failure counts as "not publishing".
+
+**Publishing after a late upgrade.** A staggered testnet → mainnet rollout
+never makes publishing impossible. Besides the automatic fallback, once the
+runtime is live on mainnet you can:
+
+- dispatch `watch-mainnet-release.yml` from `main`. It rebuilds the wheels
+  from the `v<spec_version>` tag and publishes whatever PyPI is missing. It
+  has no deadline: it works for as long as that runtime is the one on
+  mainnet. Redeploy the docs with `deploy-docs.yml` (production). Or
+- re-run the train's failed jobs, for flaky failures. This works within
+  GitHub's 30-day re-run window (the stable dist artifact is kept as long)
+  and when no newer train is running, because the re-run joins the
+  `release-train` queue. The PyPI and docs jobs start together, so one click
+  covers both. A code fix needs a new commit, so use the watcher instead.
+
+Each path asks for one `mainnet` approval. Avoid dispatching the watcher
+while the train's PyPI job is uploading: two separately built uploads of the
+same version make one of them fail on the hash mismatch. Packages are only
+ever published for the runtime mainnet is running: once a newer runtime goes
+live, the older runtime's stable versions are skipped, and the newer runtime
+ships its own.
+
+While these jobs wait (up to 20 hours; the job's `GITHUB_TOKEN` cannot
+outlive 24), the run holds the `release-train` concurrency group, so a newer
+train queues behind it. That is why waiting stops as soon as `main` carries a
+newer `spec_version`.
 
 This ordering means the release always reflects what is *actually running on
 mainnet*, not what was merged.
 
-PyPI is the terminal state for stable Python publication. The watcher requires
-the SDK wheel and source distribution plus the full `bittensor-core` Linux and
-macOS wheel matrix and source distribution. Every file must carry a PEP 740
-attestation from this repository's mainnet release workflow. Dispatch the
-watcher to retry a failed, partial, or unapproved upload, even if the GitHub
-release already exists or the release-train artifact has expired. Retries
-require the release target, immutable tag, protected `mainnet` mirror, and
-finalized runtime bytes to agree. The SDK's committed `X.Y.Z.dev0` version is
-stamped to `X.Y.Z` for this build. The release train rejects a base SDK or
-core version that already exists on PyPI before publishing release candidates.
-Releases through v432 predate automated stable Python publication and are
-handled as historical state. A missed website deployment can be redeployed
-with `deploy-docs.yml` (production).
+PyPI is the terminal state for stable Python publication. Completeness
+requires the SDK wheel and source distribution plus the full `bittensor-core`
+Linux and macOS wheel matrix and source distribution. Every file must carry a
+PEP 740 attestation from this repository's release train, release watcher, or
+stable Python workflow on the `mainnet` environment. Dispatch the watcher to
+retry a failed, partial, or missed upload, even if the GitHub release already
+exists or the release-train artifact has expired. That retry asks for its
+own `mainnet` approval. Retries require the release target, immutable tag,
+protected `mainnet` mirror, and finalized runtime bytes to agree. The SDK's
+committed `X.Y.Z.dev0` version is stamped to `X.Y.Z` for this build. The
+release train rejects a base SDK or core version that already exists on PyPI
+before publishing release candidates, and warns when a runtime would ship no
+new stable packages for the same reason. Releases through v432 predate
+automated stable Python publication and are handled as historical state. A
+missed website deployment can be redeployed with `deploy-docs.yml`
+(production).
 
 ### Docker images
 
