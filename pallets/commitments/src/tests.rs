@@ -1302,7 +1302,65 @@ fn dissolution_charges_partial_config_cleanup_to_parent_meter() {
         let spent = before.saturating_sub(meter.remaining());
         // The parent is charged for the initial pending write and every child
         // operation, including the reserved completion budget left unused.
-        assert_eq!(spent, RocksDbWeight::get().reads_writes(1, 511));
+        assert_eq!(spent, Weight::from_parts(51_150_000_000, 0));
+    });
+}
+
+// Every resume of a dissolved channel must charge the cursor read, even after
+// swap cleanup has spent most of the idle budget.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_resume_cursor_read() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let budget = RocksDbWeight::get().reads_writes(20, 511);
+        let mut first = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut first));
+        let mut second = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut second));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+        let budget = RocksDbWeight::get().reads_writes(10, 15);
+        let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
+        let before = retry.remaining();
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
+        // The two empty-prefix cleanup checks and the resume cursor read are
+        // all charged before the next row check fails.
+        assert_eq!(
+            before.saturating_sub(retry.remaining()),
+            RocksDbWeight::get().reads_writes(58, 0)
+        );
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+    });
+}
+
+// The final reveal-cursor deletion must be charged with the two completion
+// writes, and must not repeat for free on every bounded retry.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_final_reveal_cursor_deletion() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mut first = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut first));
+        ChannelPurgePending::<Test>::insert(netuid, true);
+        crate::ChannelNetuidPurgeMechanism::<Test>::insert(netuid, MechId::from(15));
+        let budget = RocksDbWeight::get().reads_writes(20, 536);
+        let mut finish = frame_support::weights::WeightMeter::with_limit(budget);
+        let before = finish.remaining();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        // The final reveal deletion is charged together with the two
+        // completion writes after the last mechanism's cleanup.
+        assert_eq!(
+            before.saturating_sub(finish.remaining()),
+            Weight::from_parts(51_950_000_000, 0)
+        );
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
     });
 }
 
