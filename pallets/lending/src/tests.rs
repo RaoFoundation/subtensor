@@ -11132,6 +11132,116 @@ fn position_max_duration_migration_try_runtime_checks_pass() {
     });
 }
 
+/// Audit M3 — try-runtime fingerprint covers economic fields and must fail
+/// when a preserved field is corrupted after the rewrite.
+#[cfg(feature = "try-runtime")]
+#[test]
+fn position_max_duration_try_runtime_fingerprint_detects_economic_corruption() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.terms_version = TERMS_VERSION_V1;
+            }
+        });
+        CurrentTermsVersion::<Test>::put(TERMS_VERSION_V1);
+        HasMigrationRun::<Test>::remove(max_duration_migration_key());
+
+        let state =
+            <migrations::PositionMaxDurationMigration<Test> as OnRuntimeUpgrade>::pre_upgrade()
+                .expect("pre_upgrade");
+        let _ = <migrations::PositionMaxDurationMigration<Test> as OnRuntimeUpgrade>::on_runtime_upgrade(
+        );
+        // Corrupt a preserved economic field after migration.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.principal = p.principal.saturating_add(1);
+            }
+        });
+        assert!(
+            <migrations::PositionMaxDurationMigration<Test> as OnRuntimeUpgrade>::post_upgrade(
+                state
+            )
+            .is_err(),
+            "fingerprint must reject economic-field corruption"
+        );
+    });
+}
+
+/// Audit M2 — hop-capped DueTail rebuild must not stamp or publish an
+/// intermediate tail; resume finishes and then stamps.
+#[test]
+fn rebuild_due_tail_hop_cap_does_not_stamp_until_complete() {
+    new_test_ext().execute_with(|| {
+        let key = migrations::rebuild_due_tail_migration_key();
+        HasMigrationRun::<Test>::remove(&key);
+        DueTail::<Test>::kill();
+        DueTailRebuildCursor::<Test>::kill();
+
+        // Linked list of 5 due buckets; walk with max_hops=2 so two passes remain.
+        let head = 100u64;
+        NextDue::<Test>::put(head);
+        let mut prev = head;
+        for at in [110u64, 120, 130, 140] {
+            DueNext::<Test>::insert(prev, at);
+            DuePrev::<Test>::insert(at, prev);
+            prev = at;
+        }
+        let true_tail = prev;
+
+        let _w1 = migrations::migrate_rebuild_due_tail_limited::<Test>(2);
+        assert!(
+            !HasMigrationRun::<Test>::get(&key),
+            "must not stamp while hops remain"
+        );
+        assert!(
+            DueTail::<Test>::get().is_none(),
+            "must not publish an intermediate DueTail"
+        );
+        let cursor_after_pass1 = DueTailRebuildCursor::<Test>::get();
+        assert!(
+            cursor_after_pass1.is_some(),
+            "cursor must persist for resume"
+        );
+        assert!(migrations::rebuild_due_tail_pending::<Test>());
+
+        let _w2 = migrations::migrate_rebuild_due_tail_limited::<Test>(2);
+        assert!(!HasMigrationRun::<Test>::get(&key));
+        assert!(DueTail::<Test>::get().is_none());
+        assert_ne!(
+            DueTailRebuildCursor::<Test>::get(),
+            cursor_after_pass1,
+            "resume must advance the cursor"
+        );
+
+        let _w3 = migrations::migrate_rebuild_due_tail_limited::<Test>(2);
+        assert!(
+            HasMigrationRun::<Test>::get(&key),
+            "stamp only after the walk ends"
+        );
+        assert_eq!(DueTail::<Test>::get(), Some(true_tail));
+        assert!(DueTailRebuildCursor::<Test>::get().is_none());
+        assert!(!migrations::rebuild_due_tail_pending::<Test>());
+
+        // Idempotent afterwards.
+        let _w4 = migrations::migrate_rebuild_due_tail_limited::<Test>(2);
+        assert_eq!(DueTail::<Test>::get(), Some(true_tail));
+        assert!(HasMigrationRun::<Test>::get(&key));
+    });
+}
+
 #[test]
 fn young_short_v2_opened_at_uses_max_loan_duration() {
     new_test_ext().execute_with(|| {

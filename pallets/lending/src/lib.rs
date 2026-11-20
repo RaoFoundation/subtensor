@@ -1094,6 +1094,10 @@ pub mod pallet {
     /// Latest due-bucket in the sorted schedule (for O(1) append).
     #[pallet::storage]
     pub type DueTail<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+    /// Multi-block resume cursor for [`migrations::migrate_rebuild_due_tail`].
+    /// Present only while the hop-capped walk is incomplete (audit M2).
+    #[pallet::storage]
+    pub type DueTailRebuildCursor<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
     /// Resume point inside the current due bucket: (owner, netuid).
     #[pallet::storage]
     pub type DueBucketCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
@@ -1654,6 +1658,25 @@ pub mod pallet {
 
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
             let mut meter = WeightMeter::with_limit(remaining);
+            // Resume hop-capped DueTail rebuild before queue collectors (audit M2).
+            if migrations::rebuild_due_tail_pending::<T>() {
+                let hop = T::DbWeight::get().reads(1);
+                let overhead = T::DbWeight::get().reads_writes(4, 3);
+                if meter.remaining().all_gte(overhead.saturating_add(hop)) {
+                    let room = meter.remaining().saturating_sub(overhead);
+                    let hops = room
+                        .ref_time()
+                        .checked_div(hop.ref_time().max(1))
+                        .unwrap_or(0)
+                        .min(u64::from(migrations::MAX_DUE_TAIL_WALK));
+                    if let Ok(hops) = u32::try_from(hops) {
+                        if hops > 0 {
+                            let used = migrations::migrate_rebuild_due_tail_limited::<T>(hops);
+                            let _ = meter.try_consume(used);
+                        }
+                    }
+                }
+            }
             Self::collect_due(now, &mut meter);
             Self::collect_interest_retries(now, &mut meter);
             // Metered fallback after the bounded on_initialize drain.

@@ -536,6 +536,7 @@ class Lending:
     DuePrev = Item('Lending', 'DuePrev', 'u32')
     NextDue = Item('Lending', 'NextDue', 'u32')
     DueTail = Item('Lending', 'DueTail', 'u32')
+    DueTailRebuildCursor = Item('Lending', 'DueTailRebuildCursor', 'u32')
     DueBucketCursor = Item('Lending', 'DueBucketCursor', '(AccountId32, NetUid)')
     Expiry = Item('Lending', 'Expiry', '()')
     ExpiryIndex = Item('Lending', 'ExpiryIndex', 'u32')

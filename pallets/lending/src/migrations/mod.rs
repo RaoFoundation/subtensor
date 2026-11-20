@@ -46,7 +46,8 @@ pub use migrate_position_terms_version::{
 };
 #[allow(unused_imports)]
 pub use migrate_rebuild_due_tail::{
-    Migration as RebuildDueTailMigration, migrate_rebuild_due_tail,
+    MAX_DUE_TAIL_WALK, Migration as RebuildDueTailMigration, migrate_rebuild_due_tail,
+    migrate_rebuild_due_tail_limited, rebuild_due_tail_migration_key, rebuild_due_tail_pending,
 };
 #[allow(unused_imports)]
 pub use migrate_reset_n24_shortfall_counters::{
