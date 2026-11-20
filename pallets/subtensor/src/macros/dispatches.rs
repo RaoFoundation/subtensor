@@ -13,7 +13,6 @@ mod dispatches {
 
     use crate::MAX_BASKET_SWAP_LEGS;
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
-    use crate::MAX_GAMMA_SPENDS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     use crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
@@ -3152,10 +3151,9 @@ mod dispatches {
         }
 
         /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
-        /// signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap`
-        /// when they are given, or opens with them, `None` being the default spender and no cap.
-        /// Fails below `min_amount_out` gamma.
-        #[pallet::call_index(158)]
+        /// signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or
+        /// opens with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(166)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma(
             origin: OriginFor<T>,
@@ -3163,7 +3161,6 @@ mod dispatches {
             netuid: NetUid,
             amount: TaoBalance,
             min_amount_out: GammaBalance,
-            spender: Option<T::AccountId>,
             daily_spend_cap: Option<GammaBalance>,
         ) -> DispatchResult {
             Self::do_mint_gamma(
@@ -3172,17 +3169,15 @@ mod dispatches {
                 netuid,
                 amount,
                 min_amount_out,
-                spender,
                 daily_spend_cap,
             )
         }
 
         /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as
         /// `burn_alpha` does, and credits its gamma to the signer's deposit at
-        /// `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they
-        /// are given, or opens with them, `None` being the default spender and no cap. Fails
-        /// below `min_amount_out` gamma.
-        #[pallet::call_index(159)]
+        /// `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens
+        /// with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(167)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_with_stake(
             origin: OriginFor<T>,
@@ -3191,7 +3186,6 @@ mod dispatches {
             netuid: NetUid,
             alpha_amount: AlphaBalance,
             min_amount_out: GammaBalance,
-            spender: Option<T::AccountId>,
             daily_spend_cap: Option<GammaBalance>,
         ) -> DispatchResult {
             Self::do_mint_gamma_with_stake(
@@ -3201,13 +3195,13 @@ mod dispatches {
                 netuid,
                 alpha_amount,
                 min_amount_out,
-                spender,
                 daily_spend_cap,
             )
         }
 
         /// Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to
-        /// `destination_hotkey`. A move that empties the origin closes it.
+        /// `destination_hotkey`: the whole balance, or at least 0.1 gamma leaving at least as
+        /// much. A move that empties the origin closes it.
         #[pallet::call_index(160)]
         #[pallet::weight((<T as Config>::WeightInfo::move_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn move_gamma(
@@ -3231,20 +3225,9 @@ mod dispatches {
             Self::do_close_gamma_deposit(origin, hotkey, netuid)
         }
 
-        /// Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default
-        /// spender: the spender of the subnet owner hotkey's service while the owner owns that
-        /// hotkey, otherwise the subnet owner, or its lease's beneficiary while the lease owns the
-        /// subnet.
-        #[pallet::call_index(162)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_gamma_deposit_spender(), DispatchClass::Normal, Pays::Yes))]
-        pub fn set_gamma_deposit_spender(
-            origin: OriginFor<T>,
-            hotkey: T::AccountId,
-            netuid: NetUid,
-            spender: Option<T::AccountId>,
-        ) -> DispatchResult {
-            Self::do_set_gamma_deposit_spender(origin, hotkey, netuid, spender)
-        }
+        // Call indices 158 (`mint_gamma`), 159 (`mint_gamma_with_stake`), 164 (`spend_gamma`) and
+        // 165 (`set_service`) took a deposit's spender, and 162 (`set_gamma_deposit_spender`) set
+        // it; they are retired: a deposit's hotkey spends it. Do not reuse these indices.
 
         /// Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it.
         /// A changed cap keeps what the deposit can spend now, up to the new cap.
@@ -3259,45 +3242,35 @@ mod dispatches {
             Self::do_set_gamma_deposit_daily_spend_cap(origin, hotkey, netuid, daily_spend_cap)
         }
 
-        /// Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries
-        /// whose hotkey has no deposit, whose deposit names another spender, or whose amount is
-        /// zero or above the deposit's balance or what its daily spend cap allows, are skipped.
-        /// Each entry's reference is repeated in its `GammaSpent` event, or in its
-        /// `GammaSpendSkipped` event with the reason, and not otherwise read. A skipped entry is
-        /// charged as a spent one, less its write.
-        #[pallet::call_index(164)]
-        #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(spends.len() as u32), DispatchClass::Normal, Pays::Yes))]
+        /// Spends `amount` of the signer's gamma deposit on `netuid` at `service`, a hotkey with
+        /// a service on the subnet, and adds it to what the signer has spent there. The amount is
+        /// at least 0.1 gamma unless it empties the deposit, and within the deposit's balance
+        /// and what its daily spend cap allows. Pays no fee: an invalid spend is refused before
+        /// it enters a block, and a valid one burns its amount.
+        #[pallet::call_index(168)]
+        #[pallet::weight((<T as Config>::WeightInfo::spend_gamma(), DispatchClass::Normal, Pays::No))]
         pub fn spend_gamma(
             origin: OriginFor<T>,
+            service: T::AccountId,
             netuid: NetUid,
-            spends: BoundedVec<(T::AccountId, GammaBalance, [u8; 32]), ConstU32<MAX_GAMMA_SPENDS>>,
-        ) -> DispatchResultWithPostInfo {
-            let spent = Self::do_spend_gamma(origin, netuid, &spends)?;
-            let skipped = (spends.len() as u32).saturating_sub(spent);
-            Ok((
-                Some(
-                    <T as Config>::WeightInfo::spend_gamma(spends.len() as u32)
-                        .saturating_sub(T::DbWeight::get().writes(skipped.into())),
-                ),
-                Pays::Yes,
-            )
-                .into())
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_spend_gamma(origin, service, netuid, amount)
         }
 
         /// Sets the service of the coldkey's hotkey on the subnet: the url where it describes its
-        /// services and the spender customers name for them. The hotkey must be registered on the
-        /// subnet with a validator permit, or be the subnet owner's hotkey signed for by the
-        /// subnet owner. An empty url removes the service.
-        #[pallet::call_index(165)]
+        /// services. The hotkey must be registered on the subnet with a validator permit, or be
+        /// the subnet owner's hotkey signed for by the subnet owner. An empty url removes the
+        /// service.
+        #[pallet::call_index(169)]
         #[pallet::weight((<T as Config>::WeightInfo::set_service(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_service(
             origin: OriginFor<T>,
             netuid: NetUid,
             hotkey: T::AccountId,
             url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-            spender: T::AccountId,
         ) -> DispatchResult {
-            Self::do_set_service(origin, netuid, hotkey, url, spender)
+            Self::do_set_service(origin, netuid, hotkey, url)
         }
     }
 }

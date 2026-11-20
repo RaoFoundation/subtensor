@@ -349,18 +349,18 @@ class SubtensorModule:
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
-    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
-        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them, `None` being the default spender and no cap. Fails below `min_amount_out` gamma."
-        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
+    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
-    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', spender: 'Any', daily_spend_cap: 'Any') -> Call:
-        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must name `spender` and have `daily_spend_cap` when they are given, or opens with them, `None` being the default spender and no cap. Fails below `min_amount_out` gamma."
-        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'spender': spender, 'daily_spend_cap': daily_spend_cap})
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
+        return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
     def move_gamma(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
-        "Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to `destination_hotkey`. A move that empties the origin closes it."
+        "Moves up to `amount` gamma from the signer's deposit at `origin_hotkey` to `destination_hotkey`: the whole balance, or at least 0.1 gamma leaving at least as much. A move that empties the origin closes it."
         return Call('SubtensorModule', 'move_gamma', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
@@ -514,11 +514,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
-    def set_gamma_deposit_spender(hotkey: 'AccountId32', netuid: 'NetUid', spender: 'Any') -> Call:
-        "Sets the spender of the signer's gamma deposit at `hotkey`; `None` names the default spender: the spender of the subnet owner hotkey's service while the owner owns that hotkey, otherwise the subnet owner, or its lease's beneficiary while the lease owns the subnet."
-        return Call('SubtensorModule', 'set_gamma_deposit_spender', {'hotkey': hotkey, 'netuid': netuid, 'spender': spender})
-
-    @staticmethod
     def set_identity(name: 'Any', url: 'Any', github_repo: 'Any', image: 'Any', discord: 'Any', description: 'Any', additional: 'Any') -> Call:
         'Set prometheus information for the neuron. # Arguments * `origin`: The signature of the calling hotkey.  * `netuid`: The u16 network identifier.  * `version`: The bittensor version identifier.  * `ip`: The prometheus ip information as a u128 encoded integer.  * `port`: The prometheus port information as a u16 encoded integer.  * `ip_type`: The ip type v4 or v6.'
         return Call('SubtensorModule', 'set_identity', {'name': name, 'url': url, 'github_repo': github_repo, 'image': image, 'discord': discord, 'description': description, 'additional': additional})
@@ -554,9 +549,9 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_staking_hotkey_growth', {'enabled': enabled})
 
     @staticmethod
-    def set_service(netuid: 'NetUid', hotkey: 'AccountId32', url: 'BoundedVec', spender: 'AccountId32') -> Call:
-        "Sets the service of the coldkey's hotkey on the subnet: the url where it describes its services and the spender customers name for them. The hotkey must be registered on the subnet with a validator permit, or be the subnet owner's hotkey signed for by the subnet owner. An empty url removes the service."
-        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'hotkey': hotkey, 'url': url, 'spender': spender})
+    def set_service(netuid: 'NetUid', hotkey: 'AccountId32', url: 'BoundedVec') -> Call:
+        "Sets the service of the coldkey's hotkey on the subnet: the url where it describes its services. The hotkey must be registered on the subnet with a validator permit, or be the subnet owner's hotkey signed for by the subnet owner. An empty url removes the service."
+        return Call('SubtensorModule', 'set_service', {'netuid': netuid, 'hotkey': hotkey, 'url': url})
 
     @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
@@ -574,9 +569,9 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
-    def spend_gamma(netuid: 'NetUid', spends: 'BoundedVec') -> Call:
-        "Spends, in order, each entry's amount from the gamma deposit at its hotkey. Entries whose hotkey has no deposit, whose deposit names another spender, or whose amount is zero or above the deposit's balance or what its daily spend cap allows, are skipped. Each entry's reference is repeated in its `GammaSpent` event, or in its `GammaSpendSkipped` event with the reason, and not otherwise read. A skipped entry is charged as a spent one, less its write."
-        return Call('SubtensorModule', 'spend_gamma', {'netuid': netuid, 'spends': spends})
+    def spend_gamma(service: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Spends `amount` of the signer's gamma deposit on `netuid` at `service`, a hotkey with a service on the subnet, and adds it to what the signer has spent there. The amount is at least 0.1 gamma unless it empties the deposit, and within the deposit's balance and what its daily spend cap allows. Pays no fee: an invalid spend is refused before it enters a block, and a valid one burns its amount."
+        return Call('SubtensorModule', 'spend_gamma', {'service': service, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
     def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
@@ -1269,6 +1264,11 @@ class AdminUtils:
     def sudo_set_max_registrations_per_block(netuid: 'NetUid', max_registrations_per_block: 'u16') -> Call:
         'The extrinsic sets the maximum registrations per block for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the maximum registrations per block.'
         return Call('AdminUtils', 'sudo_set_max_registrations_per_block', {'netuid': netuid, 'max_registrations_per_block': max_registrations_per_block})
+
+    @staticmethod
+    def sudo_set_max_timelocked_commits_per_hotkey(netuid: 'NetUid', max_commits: 'u8') -> Call:
+        'Sets the maximum number of timelocked commitments a hotkey may queue in one Yuma subnet mechanism and commit epoch. Zero pauses new admissions; already queued commitments remain eligible to reveal. Root-only.'
+        return Call('AdminUtils', 'sudo_set_max_timelocked_commits_per_hotkey', {'netuid': netuid, 'max_commits': max_commits})
 
     @staticmethod
     def sudo_set_mechanism_count(netuid: 'NetUid', mechanism_count: 'MechId') -> Call:

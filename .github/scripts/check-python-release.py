@@ -17,6 +17,18 @@ from urllib.request import Request, urlopen
 
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# Stable publishes are attested by one of these workflow files, always on the
+# mainnet environment. release-train.yml publishes a runtime's stable packages
+# once mainnet runs that runtime, under the approval that proposed it; its rc
+# uploads use the testnet environment and never count here. The watcher keeps
+# its publisher for manual retries. publish-python-stable.yml is the extra path
+# for a release with no runtime upgrade. TestPyPI workflows are absent on
+# purpose.
+PUBLISHER_WORKFLOWS = (
+    "release-train.yml",
+    "watch-mainnet-release.yml",
+    "publish-python-stable.yml",
+)
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 PUBLISH_PREDICATE = "https://docs.pypi.org/attestations/publish/v1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -206,7 +218,7 @@ def _matching_publish_attestation(
     filename: str,
     sha256: str,
     repository: str,
-    workflow: str,
+    workflows: tuple[str, ...],
     environment: str,
 ) -> bool:
     if provenance.get("version") != 1:
@@ -222,7 +234,7 @@ def _matching_publish_attestation(
             (
                 publisher.get("kind") != "GitHub",
                 publisher.get("repository") != repository,
-                publisher.get("workflow") != workflow,
+                publisher.get("workflow") not in workflows,
                 publisher.get("environment") != environment,
             )
         ):
@@ -268,7 +280,7 @@ def check_release(
     sdk_version: str,
     core_version: str,
     repository: str,
-    workflow: str,
+    workflows: tuple[str, ...],
     environment: str,
     base_url: str = "https://pypi.org",
     get_json: Callable[[str], dict[str, Any] | None] = fetch_json,
@@ -302,7 +314,7 @@ def check_release(
             filename=filename,
             sha256=entry["digests"]["sha256"],
             repository=repository,
-            workflow=workflow,
+            workflows=workflows,
             environment=environment,
         ):
             raise IncompleteRelease(
@@ -317,7 +329,12 @@ def main() -> int:
     parser.add_argument("--sdk-version", required=True)
     parser.add_argument("--core-version", required=True)
     parser.add_argument("--repository", required=True)
-    parser.add_argument("--workflow", default="watch-mainnet-release.yml")
+    parser.add_argument(
+        "--workflow",
+        action="append",
+        default=None,
+        help="Trusted publisher workflow filename. Repeat to allow more than one.",
+    )
     parser.add_argument("--environment", default="mainnet")
     parser.add_argument("--base-url", default="https://pypi.org")
     arguments = parser.parse_args()
@@ -326,7 +343,7 @@ def main() -> int:
             sdk_version=arguments.sdk_version,
             core_version=arguments.core_version,
             repository=arguments.repository,
-            workflow=arguments.workflow,
+            workflows=tuple(arguments.workflow or PUBLISHER_WORKFLOWS),
             environment=arguments.environment,
             base_url=arguments.base_url.rstrip("/"),
         )

@@ -67,9 +67,11 @@ DESCRIPTIONS: dict[str, str] = {
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
         "minimum stake threshold after fees and slippage, a gamma mint came to less than "
-        "0.1 gamma, or a gamma move found its origin deposit empty. Compare the amount against the "
-        "`DefaultMinStake` storage item and the subnet's alpha price before retrying with a "
-        "larger amount."
+        "0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a "
+        "gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend "
+        "cap was between 0 and 0.1 gamma. Compare the amount "
+        "against the `DefaultMinStake` storage item and the subnet's alpha price before "
+        "retrying with a larger amount."
     ),
     "AnnouncedColdkeyHashDoesNotMatch": (
         "The `new_coldkey` passed to `swap_coldkey_announced` (`btcli wallet swap-coldkey`) "
@@ -505,7 +507,7 @@ DESCRIPTIONS: dict[str, str] = {
         "emission splits summing away from 65535, max UIDs or take bounds. Check the specific "
         "argument against the min/max storage items the extrinsic validates (e.g. "
         "`MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the "
-        "same hotkey, an empty `spend_gamma`, or a gamma share naming its own subnet."
+        "same hotkey, or a gamma share naming its own subnet."
     ),
     "InvalidVotingPowerEmaAlpha": (
         "The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. "
@@ -954,9 +956,13 @@ DESCRIPTIONS: dict[str, str] = {
         "mechanism count so their product stays within the limit."
     ),
     "TooManyUnrevealedCommits": (
-        "`commit_weights` (or a CRv3 commit) failed because the hotkey already has 10 "
-        "unrevealed commits queued on the subnet. Inspect `WeightCommits` for the hotkey and "
-        "reveal or let old commits expire before committing again."
+        "Legacy hash commits (`commit_weights` and `commit_mechanism_weights`) reached their "
+        "fixed limit of 10 unexpired entries in `WeightCommits` for this hotkey and mechanism. "
+        "Reveal one or wait for it to expire. For a Yuma CRv3 timelocked commit, the hotkey "
+        "reached the subnet's `MaxTimelockedCommitsPerHotkey` limit in the current mechanism "
+        "and commit epoch. Check that setting and `TimelockedWeightCommits`. A setting of 0 "
+        "pauses new Yuma commits even with an empty queue; root must raise it before retrying. "
+        "Otherwise, retry in a later commit epoch or after root raises the cap."
     ),
     "TransactorAccountShouldBeHotKey": (
         "The extrinsic must be signed by the hotkey itself, but a different account (typically "
@@ -1073,12 +1079,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "GammaDepositNotEmpty": (
         "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` "
-        "closes it; once its spender has spent it to zero, close it."
+        "closes it; once its hotkey has spent it to zero, close it."
     ),
     "GammaDepositSpenderMismatch": (
-        "A mint named a spender, but the gamma deposit it credits already names another. A "
-        "named spender opens a new deposit and must match an existing one. Mint without naming "
-        "one, or change the deposit's spender with `set_gamma_deposit_spender` first."
+        "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it."
     ),
     "GammaDepositDailySpendCapMismatch": (
         "A mint named a daily spend cap, but the gamma deposit it credits has another. A named "
@@ -1086,18 +1090,20 @@ DESCRIPTIONS: dict[str, str] = {
         "change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first."
     ),
     "NotGammaDepositSpender": (
-        "A spend entry was skipped because its gamma deposit names another spender. Only the "
-        "deposit's spender, or its `GammaSpend` proxy, spends it."
+        "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it."
     ),
     "InsufficientGammaBalance": (
-        "A spend entry was skipped because its amount is above the gamma deposit's balance. An "
-        "entry spends its whole amount or nothing. The `gamma_deposit` read gives "
-        "`spendable_gamma`, what an entry can spend now."
+        "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives "
+        "`spendable_gamma`, what the hotkey can spend now."
     ),
     "GammaDepositDailySpendCapExceeded": (
-        "A spend entry was skipped because its amount is above what the gamma deposit's daily "
-        "spend cap allows now. The cap refills over a day. The `gamma_deposit` read gives "
-        "`spendable_gamma`, what an entry can spend now."
+        "The spend is above what the gamma deposit's daily spend cap allows now. The cap "
+        "refills over a day. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey "
+        "can spend now."
+    ),
+    "ServiceDoesNotExist": (
+        "Gamma is spent only at a hotkey listed as a service on the deposit's subnet, and this "
+        "one is not. List the subnet's services with the `services` read."
     ),
     "ColdkeySwapDestinationReserved": (
         "This account is reserved as the destination of an in-flight coldkey-swap "

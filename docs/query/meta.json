@@ -36,6 +36,7 @@
     "---Gamma---",
     "gamma-deposit",
     "gamma-deposits",
+    "gamma-spent",
     "quote-mint-gamma",
     "quote-mint-gamma-with-stake",
     "tao-usd-price",

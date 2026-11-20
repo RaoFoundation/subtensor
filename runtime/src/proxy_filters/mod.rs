@@ -72,9 +72,9 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// wrappers (they re-dispatch on a fresh origin that drops this filter),
 /// `MevShield::store_encrypted` (decrypt-and-dispatch drops the filter),
 /// owner-key rotation, deferred order approvals, protected-account creation,
-/// crediting gamma to a hotkey, changing a gamma deposit's spending authority,
-/// or naming a service's spender, and basket trading and gamma spending (which
-/// need the explicit `BasketTrading` and `GammaSpend` grants). Sudo is excluded
+/// crediting gamma to a hotkey, lifting a gamma deposit's daily spend cap,
+/// or listing a service, basket trading (which needs the explicit
+/// `BasketTrading` grant) and gamma spending (only `Any`). Sudo is excluded
 /// because a sudo-key principal would otherwise hand the delegate root,
 /// including forced transfers.
 /// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
@@ -122,8 +122,8 @@ type NonFungibleAllowed = (
 /// network dissolution, root/burned registration, coldkey swaps, Crowdloan
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
 /// Multisig wrappers, `store_encrypted`, owner-key rotation, deferred order approvals,
-/// protected-account creation, basket trading or gamma spending (which need the
-/// explicit `BasketTrading` and `GammaSpend` grants). EVM execution can
+/// protected-account creation, basket trading (which needs the explicit
+/// `BasketTrading` grant) or gamma spending (only `Any`). EVM execution can
 /// reconstruct an unrestricted native origin through precompiles, so it requires
 /// full authority even when the requested target is an ordinary contract.
 type NonCriticalAllowed = (
@@ -178,12 +178,12 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::Validate => ValidateAllowed::contains(call),
         ProxyType::Weights => WeightsAllowed::contains(call),
         ProxyType::Lock => LockAllowed::contains(call),
-        ProxyType::GammaSpend => GammaSpendCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
         | ProxyType::Governance
-        | ProxyType::RootWeights => false,
+        | ProxyType::RootWeights
+        | ProxyType::GammaSpend => false,
     }
 }
 
@@ -201,7 +201,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             // move value must not become addable through `NonTransfer` by
             // default. `SudoUncheckedSetCode` is not listed: `NonTransfer`
             // no longer reaches Sudo. `SubnetLeaseBeneficiary` is not listed: it
-            // names the spender of the subnet's service.
+            // lists the subnet's service.
             (
                 ProxyType::NonTransfer,
                 ProxyType::Owner
@@ -254,12 +254,12 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
         ProxyType::Lock => FilterMode::Allow(LockAllowed::call_infos()),
-        ProxyType::GammaSpend => FilterMode::Allow(GammaSpendCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
         | ProxyType::Governance
-        | ProxyType::RootWeights => FilterMode::Allow(Vec::new()),
+        | ProxyType::RootWeights
+        | ProxyType::GammaSpend => FilterMode::Allow(Vec::new()),
     };
     if supports_recipient_guards(&proxy_type)
         && let FilterMode::Allow(ref mut calls) = mode
@@ -388,6 +388,7 @@ mod tests {
             ProxyType::Senate,
             ProxyType::Governance,
             ProxyType::RootWeights,
+            ProxyType::GammaSpend,
         ] {
             assert!(allowed_calls(deprecated).is_empty());
         }
@@ -604,30 +605,21 @@ mod tests {
         }
     }
 
-    /// A `NonTransfer` delegate must not be able to turn itself into a direct
-    /// gamma spender and then escape the proxy filter. Removing the cap is part
-    /// of the same authority escalation and is denied with the spender change.
+    /// A `NonTransfer` delegate must not be able to lift the daily spend cap
+    /// that limits what a gamma deposit's hotkey may spend.
     // PROTECTED_REGRESSION: non transfer cannot grant itself gamma spending authority; changes require explicit human approval.
     #[test]
     fn non_transfer_cannot_grant_itself_gamma_spending_authority() {
         use subtensor_runtime_common::{AccountId, NetUid};
 
-        let delegate = AccountId::new([8; 32]);
         let hotkey = AccountId::new([7; 32]);
-        let authority_changes = [
-            RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_gamma_deposit_spender {
-                hotkey: hotkey.clone(),
+        let authority_changes = [RuntimeCall::SubtensorModule(
+            pallet_subtensor::Call::set_gamma_deposit_daily_spend_cap {
+                hotkey,
                 netuid: NetUid::from(1),
-                spender: Some(delegate),
-            }),
-            RuntimeCall::SubtensorModule(
-                pallet_subtensor::Call::set_gamma_deposit_daily_spend_cap {
-                    hotkey,
-                    netuid: NetUid::from(1),
-                    daily_spend_cap: None,
-                },
-            ),
-        ];
+                daily_spend_cap: None,
+            },
+        )];
 
         for call in &authority_changes {
             let metadata = call.get_call_metadata();
@@ -1105,10 +1097,6 @@ mod tests {
                 "SubtensorModule::swap_basket",
                 "SubtensorModule::swap_basket_many",
             ])
-        );
-        assert_eq!(
-            allowed_calls(ProxyType::GammaSpend),
-            expected(&["SubtensorModule::spend_gamma"])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
@@ -1690,21 +1678,6 @@ mod tests {
         assert_eq!(
             supersets,
             [ProxyType::Any, ProxyType::BasketTrading]
-                .into_iter()
-                .collect::<BTreeSet<_>>()
-        );
-    }
-
-    // Only `Any` covers the gamma spending grant.
-    #[test]
-    fn gamma_spend_supersets() {
-        let supersets = all_proxy_types()
-            .into_iter()
-            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::GammaSpend))
-            .collect::<BTreeSet<_>>();
-        assert_eq!(
-            supersets,
-            [ProxyType::Any, ProxyType::GammaSpend]
                 .into_iter()
                 .collect::<BTreeSet<_>>()
         );

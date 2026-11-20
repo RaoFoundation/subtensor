@@ -191,8 +191,8 @@ the subnet sells the alpha down to 2% below the higher of its fast moving and
 spot prices, buys the target's alpha with all of the TAO up to 2% above the
 lower of the target's two, and burns it. The gamma, valued as a
 [mint](/docs/guides/gamma#minting) values it, is credited to the subnet owner's
-deposit at the subnet owner hotkey on the target, which opens with the
-target's default spender and no daily spend cap, and `GammaEmissionMinted`
+deposit at the subnet owner hotkey on the target, which opens with a daily
+spend cap of 0 until its coldkey sets one, and `GammaEmissionMinted`
 reports it. Alpha the pools cannot take in one conversion waits for the next
 epoch, and so does all of it while a price is past its bound, the subnet's
 subtoken is disabled, gamma cannot be minted on the target, the TAO/USD price

@@ -788,7 +788,6 @@ fn test_swap_service() {
         let netuid = NetUid::from(0u16);
         let info = ServiceInfo {
             url: BoundedVec::truncate_from(b"https://example.com".to_vec()),
-            spender: U256::from(9),
         };
         let mut weight = Weight::zero();
 

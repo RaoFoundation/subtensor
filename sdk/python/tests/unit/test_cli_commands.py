@@ -140,9 +140,8 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
 def fake(isolated_cli, monkeypatch, wallet_dir) -> FakeSubstrate:
     substrate = FakeSubstrate()
     _seed_tx_preview(substrate)
-    seed_gamma(
-        substrate, wallets.open_wallet(_WALLET_NAME, path=wallet_dir).coldkeypub.ss58_address
-    )
+    wallet = wallets.open_wallet(_WALLET_NAME, path=wallet_dir)
+    seed_gamma(substrate, wallet.coldkeypub.ss58_address, wallet.hotkey.ss58_address)
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)

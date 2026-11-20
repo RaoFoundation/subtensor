@@ -33,10 +33,10 @@ impl<T: Config> Pallet<T> {
         } else {
             // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
             // LastHotkeySwap, successor clear+insert, root insert; +1 read / +2 writes for the
-            // service move.
+            // service move; +8 reads / +4 writes for the gamma deposit move.
             Weight::from_parts(275_300_000, 0)
-                .saturating_add(T::DbWeight::get().reads(54_u64))
-                .saturating_add(T::DbWeight::get().writes(41_u64))
+                .saturating_add(T::DbWeight::get().reads(62_u64))
+                .saturating_add(T::DbWeight::get().writes(45_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
             .saturating_add(Self::hotkey_owner_policy_weight().saturating_mul(2))
@@ -1086,6 +1086,17 @@ impl<T: Config> Pallet<T> {
             Services::<T>::remove(netuid, old_hotkey);
             Services::<T>::insert(netuid, new_hotkey, old_service);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
+        }
+
+        // 3.11. Move the coldkey's gamma deposit, so the old hotkey no longer spends it.
+        weight.saturating_accrue(T::DbWeight::get().reads(1));
+        if Self::swap_hotkey_gamma_deposit(
+            netuid,
+            old_hotkey,
+            new_hotkey,
+            &Owner::<T>::get(new_hotkey),
+        )? {
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(7, 4));
         }
 
         // 4. Swap ChildKeys.

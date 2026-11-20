@@ -1170,11 +1170,10 @@ fn test_set_subnet_identity_dispatch_info_ok() {
 }
 
 #[test]
-fn test_set_service_sets_the_url_and_spender() {
+fn test_set_service_sets_the_url() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
         let coldkey = U256::from(66);
-        let spender = U256::from(2);
         let netuid = NetUid::from(1);
         let url: BoundedVec<u8, _> = BoundedVec::truncate_from(b"https://example.com".to_vec());
         add_network(netuid, 13, 0);
@@ -1185,7 +1184,6 @@ fn test_set_service_sets_the_url_and_spender() {
             netuid,
             hotkey,
             url: url.clone(),
-            spender,
         };
         assert_eq!(call.get_dispatch_info().pays_fee, Pays::Yes);
         let set = |url: &BoundedVec<u8, _>| {
@@ -1194,23 +1192,18 @@ fn test_set_service_sets_the_url_and_spender() {
                 netuid,
                 hotkey,
                 url.clone(),
-                spender,
             )
         };
         assert_ok!(set(&url));
         assert_eq!(
             Services::<Test>::get(netuid, hotkey),
-            Some(ServiceInfo {
-                url: url.clone(),
-                spender
-            })
+            Some(ServiceInfo { url: url.clone() })
         );
         System::assert_last_event(
             Event::ServiceSet {
                 netuid,
                 hotkey,
                 url,
-                spender,
             }
             .into(),
         );
@@ -1236,7 +1229,6 @@ fn test_set_service_requires_a_validator_or_the_owner() {
                 netuid,
                 hotkey,
                 BoundedVec::truncate_from(url.to_vec()),
-                coldkey,
             )
         };
         let url = b"https://example.com";

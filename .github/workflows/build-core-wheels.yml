@@ -10,10 +10,13 @@ name: Build bittensor-core wheels
 #   macos-15; x86_64 is cross-compiled — Xcode carries both SDKs), plus an
 #   sdist fallback for everything else (requires a Rust toolchain to build).
 #
-# Callers: release-train.yml (rc channel) and watch-mainnet-release.yml
-# (stable). Each job uploads its output as a core-dist-* artifact; the
-# caller's publish job downloads them next to the SDK wheel and pushes
-# everything in one `uv publish`.
+# Callers: release-train.yml (rc channel, and the stable wheels it publishes
+# once its mainnet upgrade executes), watch-mainnet-release.yml (stable
+# retries), and publish-python-stable.yml (stable, with no runtime upgrade).
+# Each job uploads its output as a <artifact-prefix>-* artifact; the caller's
+# publish job downloads them next to the SDK wheel and pushes everything in
+# one `uv publish`. A caller that builds twice in one run (the release train
+# builds rc and stable wheels) passes a distinct prefix for each build.
 
 on:
   workflow_call:
@@ -28,6 +31,12 @@ on:
           building (empty = build the committed version)
         type: string
         default: ""
+      artifact-prefix:
+        description: >-
+          Artifact name prefix. Callers that build more than once per run
+          must keep the names distinct.
+        type: string
+        default: core-dist
 
 jobs:
   linux:
@@ -115,7 +124,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: core-dist-linux-${{ matrix.target }}
+          name: ${{ inputs.artifact-prefix }}-linux-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -177,7 +186,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: core-dist-macos-${{ matrix.target }}
+          name: ${{ inputs.artifact-prefix }}-macos-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
           retention-days: 30

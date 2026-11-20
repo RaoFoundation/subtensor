@@ -337,6 +337,51 @@ fn test_sudo_set_weights_set_rate_limit() {
 }
 
 #[test]
+fn test_sudo_set_max_timelocked_commits_per_hotkey() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+            10
+        );
+
+        assert_noop!(
+            AdminUtils::sudo_set_max_timelocked_commits_per_hotkey(
+                RuntimeOrigin::signed(U256::from(1)),
+                netuid,
+                1,
+            ),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_max_timelocked_commits_per_hotkey(
+                RuntimeOrigin::root(),
+                netuid.next(),
+                1,
+            ),
+            Error::<Test>::SubnetDoesNotExist
+        );
+        assert_eq!(
+            SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+            10
+        );
+
+        for max_commits in [1, 0, 11, u8::MAX, 10] {
+            assert_ok!(AdminUtils::sudo_set_max_timelocked_commits_per_hotkey(
+                RuntimeOrigin::root(),
+                netuid,
+                max_commits,
+            ));
+            assert_eq!(
+                SubtensorModule::get_max_timelocked_commits_per_hotkey(netuid),
+                max_commits
+            );
+        }
+    });
+}
+
+#[test]
 fn test_sudo_set_adjustment_interval() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);

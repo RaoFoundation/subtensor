@@ -142,7 +142,6 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
         )
     ),
     "close_gamma_deposit": _GAMMA_DEPOSIT,
-    "set_gamma_deposit_spender": _GAMMA_DEPOSIT,
     "set_gamma_deposit_daily_spend_cap": _GAMMA_DEPOSIT,
 }
 

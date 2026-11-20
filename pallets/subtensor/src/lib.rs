@@ -90,6 +90,8 @@ pub type OriginFor<T> = <T as frame_system::Config>::RuntimeOrigin;
 /// SCALE bound includes room for a full 4,096-entry encrypted weight row.
 pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 32 * 1024;
 pub const YUMA_COMMIT_SIZE_BYTES: u32 = 5000;
+/// Existing per-hotkey, per-mechanism, per-epoch Yuma timelock admission limit.
+pub const DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY: u8 = 10;
 /// Bound ciphertext storage and decryption work per Null subnet epoch,
 /// shared across all emission mechanisms.
 pub const NULL_COMMIT_QUEUE_BYTES: usize = 64 * 1024;
@@ -269,16 +271,14 @@ pub const MAX_COLDKEY_COLLATERAL_HOTKEYS: u32 = 32;
 /// Maximum number of gamma deposits one coldkey holds on a single subnet.
 pub const MAX_GAMMA_DEPOSITS: u32 = 64;
 
-/// Maximum number of entries in one `spend_gamma` call.
-pub const MAX_GAMMA_SPENDS: u32 = 512;
-
 /// Maximum number of gamma deposits one coldkey swap admits, counting both coldkeys.
 pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
 
 /// Blocks over which a daily spend cap refills in full: one day.
 pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 
-/// Smallest gamma a mint credits: 0.1 gamma.
+/// Smallest gamma a mint credits, and a spend or move takes, or a move leaves, unless it empties
+/// the deposit: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
 /// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
@@ -317,8 +317,8 @@ pub mod pallet {
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
     use crate::{
-        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS,
-        MAX_SERVICE_URL_LEN, RateLimitKey,
+        DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY, MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS,
+        MAX_COLDKEY_COLLATERAL_HOTKEYS, MAX_GAMMA_DEPOSITS, MAX_SERVICE_URL_LEN, RateLimitKey,
     };
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -486,13 +486,11 @@ pub mod pallet {
     }
 
     /// Data structure for a hotkey's service.
-    #[crate::freeze_struct("c935eafd53bad00")]
+    #[crate::freeze_struct("202c7e535885758")]
     #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug)]
-    pub struct ServiceInfo<AccountId> {
+    pub struct ServiceInfo {
         /// Url of the document describing the hotkey's services.
         pub url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
-        /// The spender customers name for the service.
-        pub spender: AccountId,
     }
 
     ///  Struct for ChainIdentities. (DEPRECATED for V2)
@@ -688,26 +686,24 @@ pub mod pallet {
     }
 
     /// A coldkey's gamma on one subnet, held at a hotkey.
-    #[crate::freeze_struct("add2766284b67826")]
+    #[crate::freeze_struct("adba87f00d4f97af")]
     #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
     pub struct GammaDeposit<AccountId> {
         /// The coldkey that owns the deposit.
         pub coldkey: AccountId,
-        /// The account that spends the deposit.
-        pub spender: AccountId,
         /// The gamma held.
         pub balance: GammaBalance,
         /// The deposit's daily spend cap; `None` is no cap.
         pub daily_spend_cap: Option<GammaDailySpendCap>,
     }
 
-    /// The gamma a deposit's spender may spend per day, and what it allows as of a block.
+    /// The gamma a deposit's hotkey may spend per day, and what it allows as of a block.
     #[crate::freeze_struct("b0a2e67c2cd32b3")]
     #[derive(
         Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
     )]
     pub struct GammaDailySpendCap {
-        /// The gamma the spender may spend per day.
+        /// The gamma the hotkey may spend per day.
         pub cap: GammaBalance,
         /// What the cap allows, and its block.
         pub bucket: (GammaBalance, u64),
@@ -1247,6 +1243,12 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultWeightsSetRateLimit<T: Config>() -> u64 {
         100
+    }
+
+    /// Default maximum Yuma timelocked commits per hotkey, mechanism, and epoch.
+    #[pallet::type_value]
+    pub fn DefaultMaxTimelockedCommitsPerHotkey<T: Config>() -> u8 {
+        DEFAULT_MAX_TIMELOCKED_COMMITS_PER_HOTKEY
     }
 
     /// Default block number at registration.
@@ -2906,6 +2908,11 @@ pub mod pallet {
     pub type WeightsSetRateLimit<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultWeightsSetRateLimit<T>>;
 
+    /// MAP ( netuid ) --> maximum Yuma timelocked commits per hotkey and queue epoch.
+    #[pallet::storage]
+    pub type MaxTimelockedCommitsPerHotkey<T> =
+        StorageMap<_, Identity, NetUid, u8, ValueQuery, DefaultMaxTimelockedCommitsPerHotkey<T>>;
+
     /// MAP ( netuid ) --> validator_prune_len
     #[pallet::storage]
     pub type ValidatorPruneLen<T> =
@@ -3284,7 +3291,7 @@ pub mod pallet {
         NetUid,
         Blake2_128Concat,
         T::AccountId,
-        ServiceInfo<T::AccountId>,
+        ServiceInfo,
         OptionQuery,
     >;
 
@@ -4024,6 +4031,20 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         BoundedVec<T::AccountId, ConstU32<MAX_GAMMA_DEPOSITS>>,
+        ValueQuery,
+    >;
+
+    /// NMAP ( netuid, service, hotkey ) --> gamma | The gamma the hotkey has spent at the
+    /// service on the subnet.
+    #[pallet::storage]
+    pub type GammaSpent<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        GammaBalance,
         ValueQuery,
     >;
 

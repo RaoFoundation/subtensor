@@ -126,7 +126,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `CommittingWeightsTooFast`: Raised if the hotkey's commit rate exceeds the permitted limit.
     ///
-    /// * `TooManyUnrevealedCommits`: Raised if the hotkey has reached the maximum number of unrevealed commits.
+    /// * `TooManyUnrevealedCommits`: The hotkey has 10 unexpired hash commits in
+    ///   `WeightCommits` for this subnet mechanism.
     ///
     /// # Events
     /// * `WeightsCommitted`: Emitted upon successfully storing the weight hash.
@@ -324,8 +325,10 @@ impl<T: Config> Pallet<T> {
     /// 2. Ensures commit-reveal is enabled **and** the supplied
     ///    `commit_reveal_version` is current.
     /// 3. Enforces per-neuron rate-limiting via [`Pallet::check_rate_limit`].
-    /// 4. Rejects the call when the hotkey already has ≥ 10 unrevealed commits in
-    ///    the current epoch.
+    /// 4. For Yuma, rejects the call when the hotkey has reached the subnet's
+    ///    `MaxTimelockedCommitsPerHotkey` for this mechanism and commit epoch.
+    ///    A configured cap of zero rejects new commits even for an empty queue.
+    ///    Null consensus has separate queue admission limits.
     /// 5. Appends `(hotkey, commit_block, commit, reveal_round)` to
     ///    `TimelockedWeightCommits[netuid][epoch]`.
     /// 6. Emits `TimelockedWeightsCommitted` with the Blake2 hash of `commit`.
@@ -337,7 +340,8 @@ impl<T: Config> Pallet<T> {
     /// * `IncorrectCommitRevealVersion` – Provided version ≠ runtime version.
     /// * `HotKeyNotRegisteredInSubNet` – Caller’s hotkey is not registered.
     /// * `CommittingWeightsTooFast` – Caller exceeds commit-rate limit.
-    /// * `TooManyUnrevealedCommits` – Caller already has 10 unrevealed commits.
+    /// * `TooManyUnrevealedCommits` – On Yuma, the hotkey has reached the
+    ///   configured timelocked commit cap (which may be zero).
     ///
     /// # Events
     /// * `TimelockedWeightsCommitted(hotkey, netuid, commit_hash, reveal_round)` – Fired after the commit is successfully stored.
@@ -452,6 +456,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CommitPayloadTooLarge
         );
 
+        let max_commits = usize::from(Self::get_max_timelocked_commits_per_hotkey(netuid));
+
         TimelockedWeightCommits::<T>::try_mutate(
             netuid_index,
             cur_epoch,
@@ -463,7 +469,7 @@ impl<T: Config> Pallet<T> {
                     .filter(|(account, _, _, _)| account == &who)
                     .count();
                 ensure!(
-                    unrevealed_commits_for_who < 10,
+                    unrevealed_commits_for_who < max_commits,
                     Error::<T>::TooManyUnrevealedCommits
                 );
 

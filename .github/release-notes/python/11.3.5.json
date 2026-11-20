@@ -1,0 +1,11 @@
+{
+  "kind": "python",
+  "packages": [
+    {"name": "bittensor", "version": "11.3.5"},
+    {"name": "bittensor-core", "version": "0.1.12"}
+  ],
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v493-upgrade/page.tsx",
+  "public_path": "/releases/v493-upgrade",
+  "audiences": ["Python SDK users", "gamma holders", "service providers"],
+  "summary": "This is the Python SDK for runtime 493, where gamma deposits are spent by their own hotkey. SpendGamma now takes a service hotkey and an amount and is signed by the deposit's hotkey, and the new gamma_spent read returns what a hotkey has spent at a service. SetGammaDepositSpender, btcli gamma set-spender, and the mint spender and service-hotkey options are removed, and a daily spend cap must be zero or at least 0.1 gamma. Earlier SDKs cannot mint, spend, or read gamma deposits once runtime 493 is live, so upgrade before using gamma."
+}

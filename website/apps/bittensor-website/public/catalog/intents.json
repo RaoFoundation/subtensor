@@ -62,9 +62,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3102,
-        "end_line": 3110,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3100-L3110",
+        "line": 3100,
+        "end_line": 3108,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3098-L3108",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -92,7 +92,7 @@
         },
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -327,8 +327,8 @@
         "call": "announce_coldkey_swap_v2",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2474,
-        "end_line": 2518,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2518",
+        "end_line": 2517,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2469-L2517",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -780,9 +780,9 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2784,
-        "end_line": 2801,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2778-L2801",
+        "line": 2783,
+        "end_line": 2800,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2777-L2800",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -827,9 +827,9 @@
         "pallet": "SubtensorModule",
         "call": "close_gamma_deposit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3227,
-        "end_line": 3233,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3225-L3233",
+        "line": 3220,
+        "end_line": 3226,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3218-L3226",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1087,7 +1087,7 @@
       "properties": {
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -1216,9 +1216,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2612,
-        "end_line": 2630,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2610-L2630",
+        "line": 2611,
+        "end_line": 2629,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2609-L2629",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1765,9 +1765,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2875,
-        "end_line": 2883,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2873-L2883",
+        "line": 2874,
+        "end_line": 2882,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2872-L2882",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1775,7 +1775,7 @@
   {
     "name": "mint_gamma",
     "summary": "Mint gamma with TAO into your deposit at an API-key hotkey.",
-    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy.\nA new deposit's spender is the spender of the subnet owner's service,\notherwise the subnet owner, or a leased subnet's beneficiary, unless\n`spender_ss58` names another or `service_hotkey_ss58` names a service\npublished on the subnet, whose spender it takes. It has\nno daily spend cap unless `daily_spend_cap_gamma` sets one. A mint\nnaming either fails on a deposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the quote's `gamma`,\n`minimum_gamma`, `alpha_burned` and `tao_value`, and the deposit's\nbalance, spender and cap as `deposit_balance_gamma` (None when the mint\nopens it), `spender_ss58` (None for the default spender) and\n`daily_spend_cap_gamma`. The result's `data[\"minted\"]` holds the\ndeposit's `hotkey_ss58`, `spender_ss58` and `daily_spend_cap_gamma`,\nand the `alpha_burned`, `tao_value` and `gamma` minted.",
+    "description": "Mint gamma with TAO into your deposit at an API-key hotkey.\n\nBuys the subnet's alpha with `amount_tao`, burns it, and credits its value\nin gamma, one per US dollar, to the deposit at `hotkey_ss58`, opening it\nwhen absent. The alpha is valued at the lower of the subnet's gamma price\nand its spot price before the buy. The hotkey spends the deposit with\n`spend_gamma`. A new deposit has no daily spend cap unless\n`daily_spend_cap_gamma` sets one, and a mint naming a cap fails on a\ndeposit with another.\nFails rather than minting less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the quote's `gamma`,\n`minimum_gamma`, `alpha_burned` and `tao_value`, and the deposit's\nbalance and cap as `deposit_balance_gamma` (None when the mint opens it)\nand `daily_spend_cap_gamma`. The result's `data[\"minted\"]` holds the\ndeposit's `hotkey_ss58` and `daily_spend_cap_gamma`, and the\n`alpha_burned`, `tao_value` and `gamma` minted.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1814,14 +1814,6 @@
           "type": "number",
           "description": "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
         },
-        "spender_ss58": {
-          "type": "string",
-          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
-        },
-        "service_hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
-        },
         "daily_spend_cap_gamma": {
           "anyOf": [
             {
@@ -1833,7 +1825,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
+          "description": "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
         }
       },
       "required": [
@@ -1851,9 +1843,9 @@
         "pallet": "SubtensorModule",
         "call": "mint_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3161,
-        "end_line": 3179,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3159-L3179",
+        "line": 3158,
+        "end_line": 3174,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3156-L3174",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1861,7 +1853,7 @@
   {
     "name": "mint_gamma_with_stake",
     "summary": "Mint gamma by burning your stake into your deposit at an API-key hotkey.",
-    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and\n`daily_spend_cap_gamma` name the deposit's spender and cap as for\n`mint_gamma`. Fails rather than minting less than the current quote\nless `rate_tolerance`. Its plan's `preview` and result's\n`data[\"minted\"]` are as for `mint_gamma`.",
+    "description": "Mint gamma by burning your stake into your deposit at an API-key hotkey.\n\nBurns up to `amount_alpha` (`all` for the whole stake) of your stake\non `origin_hotkey_ss58` and credits its value in gamma to the deposit at\n`hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is\ndestroyed, not moved. `daily_spend_cap_gamma` names the deposit's cap as\nfor `mint_gamma`. Fails rather than minting less than the current quote\nless `rate_tolerance`. Its plan's `preview` and result's\n`data[\"minted\"]` are as for `mint_gamma`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1910,14 +1902,6 @@
           "type": "number",
           "description": "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
         },
-        "spender_ss58": {
-          "type": "string",
-          "description": "The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
-        },
-        "service_hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
-        },
         "daily_spend_cap_gamma": {
           "anyOf": [
             {
@@ -1929,7 +1913,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
+          "description": "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none."
         }
       },
       "required": [
@@ -1948,9 +1932,9 @@
         "pallet": "SubtensorModule",
         "call": "mint_gamma_with_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3188,
-        "end_line": 3208,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3186-L3208",
+        "line": 3182,
+        "end_line": 3200,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3180-L3200",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1958,7 +1942,7 @@
   {
     "name": "move_gamma",
     "summary": "Move gamma between two of your deposits on a subnet.",
-    "description": "Move gamma between two of your deposits on a subnet.\n\nMoves up to `amount_gamma` (`all` for the whole balance) from the\ndeposit at `origin_hotkey_ss58` to the one at\n`destination_hotkey_ss58`. A destination with no deposit is opened with\nthe origin's spender and daily spend cap, and a move that empties the\norigin closes it.",
+    "description": "Move gamma between two of your deposits on a subnet.\n\nMoves up to `amount_gamma` (`all` for the whole balance) from the\ndeposit at `origin_hotkey_ss58` to the one at\n`destination_hotkey_ss58`: the whole balance, or at least 0.1 gamma\nleaving at least as much. A destination with no deposit is opened with the\norigin's daily spend cap, and a move that empties the origin closes it.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2020,9 +2004,9 @@
         "pallet": "SubtensorModule",
         "call": "move_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3214,
-        "end_line": 3222,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3212-L3222",
+        "line": 3207,
+        "end_line": 3215,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3205-L3215",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -2067,9 +2051,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2899,
-        "end_line": 2906,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2897-L2906",
+        "line": 2898,
+        "end_line": 2905,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2896-L2905",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -2821,9 +2805,9 @@
         "pallet": "SubtensorModule",
         "call": "release_own_coldkey_swap_destination_reservation",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2813,
-        "end_line": 2819,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2809-L2819",
+        "line": 2812,
+        "end_line": 2818,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2808-L2818",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3745,7 +3729,7 @@
   {
     "name": "set_gamma_deposit_daily_spend_cap",
     "summary": "Set or remove the daily spend cap of your gamma deposit.",
-    "description": "Set or remove the daily spend cap of your gamma deposit.\n\nWhat the spender can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. A changed cap keeps what\nthe spender can spend now, up to the new cap. Set exactly one of\n`daily_spend_cap_gamma` or `remove_cap`.",
+    "description": "Set or remove the daily spend cap of your gamma deposit.\n\nWhat the hotkey can spend refills linearly at the cap per 7200 blocks, up\nto the cap, and a cap of zero pauses the deposit. A changed cap keeps what\nthe hotkey can spend now, up to the new cap. Set exactly one of\n`daily_spend_cap_gamma` or `remove_cap`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3778,7 +3762,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "The cap, in gamma; 0 pauses the deposit."
+          "description": "The cap, in gamma: 0 pauses the deposit, any other is at least 0.1."
         },
         "remove_cap": {
           "type": "boolean",
@@ -3799,68 +3783,9 @@
         "pallet": "SubtensorModule",
         "call": "set_gamma_deposit_daily_spend_cap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3254,
-        "end_line": 3261,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3252-L3261",
-        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      }
-    ]
-  },
-  {
-    "name": "set_gamma_deposit_spender",
-    "summary": "Set who may spend your gamma deposit.",
-    "description": "Set who may spend your gamma deposit.\n\nTakes effect at once; a deposit opened by a move inherits it. Set exactly\none of `spender_ss58`, `service_hotkey_ss58` or `default_spender`.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "SubtensorModule",
-        "set_gamma_deposit_spender"
-      ]
-    ],
-    "docs_url": "/docs/tx/set-gamma-deposit-spender",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet of the deposit."
-        },
-        "hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey of the deposit."
-        },
-        "spender_ss58": {
-          "type": "string",
-          "description": "The account that spends the deposit."
-        },
-        "service_hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes."
-        },
-        "default_spender": {
-          "type": "boolean",
-          "description": "Name the default spender: the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet."
-        }
-      },
-      "required": [
-        "netuid",
-        "hotkey_ss58"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx set-gamma-deposit-spender --netuid <int> --hotkey <ss58|name>",
-    "python_class": "SetGammaDepositSpender",
-    "markdown_url": "/llms.mdx/docs/tx/set-gamma-deposit-spender/content.md",
-    "sources": [
-      {
-        "pallet": "SubtensorModule",
-        "call": "set_gamma_deposit_spender",
-        "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3241,
-        "end_line": 3248,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3239-L3248",
+        "line": 3236,
+        "end_line": 3243,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3234-L3243",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4503,9 +4428,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3137,
-        "end_line": 3144,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3135-L3144",
+        "line": 3135,
+        "end_line": 3142,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3133-L3142",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4550,9 +4475,9 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2915,
-        "end_line": 2922,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2913-L2922",
+        "line": 2914,
+        "end_line": 2921,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2912-L2921",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4592,9 +4517,9 @@
         "pallet": "SubtensorModule",
         "call": "set_reject_locked_alpha",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2971,
-        "end_line": 2976,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2969-L2976",
+        "line": 2969,
+        "end_line": 2974,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2967-L2974",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4634,9 +4559,9 @@
         "pallet": "SubtensorModule",
         "call": "set_reject_staking_hotkey_growth",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2982,
-        "end_line": 2998,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2980-L2998",
+        "line": 2980,
+        "end_line": 2996,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2978-L2996",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4699,7 +4624,7 @@
   {
     "name": "set_service",
     "summary": "Publish this hotkey's service on a subnet, with the url where it describes",
-    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services and the spender customers name on their gamma deposits.\n\nThe chain stores the url and the spender only; the document the url points\nto (the services and their interfaces) is the publisher's. Without\n`spender_ss58` the spender is the coldkey. Signed by the coldkey; the\nhotkey must hold a validator permit on the subnet, or be the subnet owner's\nhotkey with the subnet owner signing. An empty url removes the service.",
+    "description": "Publish this hotkey's service on a subnet, with the url where it describes\nits services.\n\nThe chain stores the url only; the document the url points to (the\nservices and their interfaces) is the publisher's. Signed by the coldkey;\nthe hotkey must hold a validator permit on the subnet, or be the subnet\nowner's hotkey with the subnet owner signing. An empty url removes the\nservice.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -4724,10 +4649,6 @@
         "hotkey_ss58": {
           "type": "string",
           "description": "Hotkey whose service it is; defaults to the wallet's."
-        },
-        "spender_ss58": {
-          "type": "string",
-          "description": "The spender customers name for the service; defaults to the coldkey."
         }
       },
       "required": [
@@ -4744,9 +4665,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3294,
-        "end_line": 3302,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3292-L3302",
+        "line": 3267,
+        "end_line": 3274,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3265-L3274",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5150,9 +5071,9 @@
   },
   {
     "name": "spend_gamma",
-    "summary": "Spend gamma from the deposits you are the spender of.",
-    "description": "Spend gamma from the deposits you are the spender of.\n\nSpends, in order, each entry's `amount_gamma` from the deposit at its\n`hotkey_ss58`. Entries whose hotkey has no deposit, whose deposit you are\nnot the spender of, or whose amount is zero or above the deposit's balance\nor what its daily spend cap allows, are skipped. Spent gamma is destroyed.\nEach entry's optional `reference`, 32 bytes as hex, is repeated in its\n`GammaSpent` or `GammaSpendSkipped` event; by convention it is the\nservice's own id for the request it pays for, returned with its response.\nSign as the spender, or as its `GammaSpend` proxy. The result's\n`data[\"spent\"]` lists, in order, each entry that spent, with its\n`hotkey_ss58`, `amount_gamma` and `reference`, and\n`data[\"skipped\"]` each entry that was skipped, with the chain error that\nskipped it as `reason`.",
-    "signer": "coldkey",
+    "summary": "Spend gamma from the deposit at this hotkey, at a service on its subnet.",
+    "description": "Spend gamma from the deposit at this hotkey, at a service on its subnet.\n\nDestroys `amount_gamma` of the deposit and adds it to what the hotkey has\nspent at the service at `service_hotkey_ss58`, which credits it. The\namount is at least 0.1 gamma unless it empties the deposit, and within its\nbalance and what its daily spend cap allows. Signed by the hotkey, which\npays no fee: the chain refuses an invalid spend before it enters a block.",
+    "signer": "hotkey",
     "origin": "signed",
     "verify": null,
     "wraps": [
@@ -5167,23 +5088,34 @@
       "properties": {
         "netuid": {
           "type": "integer",
-          "description": "Subnet of the deposits."
+          "description": "Subnet of the deposit and the service."
         },
-        "spends": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          },
-          "description": "One to 512 objects of hotkey_ss58, amount_gamma and an optional 32-byte hex reference, spent in order."
+        "service_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the service spent at."
+        },
+        "amount_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Gamma spent."
         }
       },
       "required": [
         "netuid",
-        "spends"
+        "service_hotkey_ss58",
+        "amount_gamma"
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx spend-gamma --netuid <int> --spends '<json>'",
+    "cli": "btcli tx spend-gamma --netuid <int> --service-hotkey <ss58|name> --amount-gamma <amount>",
     "python_class": "SpendGamma",
     "markdown_url": "/llms.mdx/docs/tx/spend-gamma/content.md",
     "sources": [
@@ -5191,9 +5123,9 @@
         "pallet": "SubtensorModule",
         "call": "spend_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3271,
-        "end_line": 3286,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3269-L3286",
+        "line": 3252,
+        "end_line": 3259,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3250-L3259",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5259,9 +5191,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2764,
-        "end_line": 2772,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2762-L2772",
+        "line": 2763,
+        "end_line": 2771,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2761-L2771",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5540,9 +5472,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2530,
-        "end_line": 2601,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2528-L2601",
+        "line": 2529,
+        "end_line": 2600,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2527-L2600",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5929,9 +5861,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3039,
-        "end_line": 3062,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3032-L3062",
+        "line": 3037,
+        "end_line": 3060,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3030-L3060",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
