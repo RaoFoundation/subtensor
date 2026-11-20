@@ -1914,6 +1914,8 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
     // Split apr_bps and append root-settable duration / min-loan / settle knobs.
     pallet_lending::migrations::LiftParamsEconomicMigration<Runtime>,
+    // Append expiry_max_slippage_bps (default 200) for expiry AMM MEV bound.
+    pallet_lending::migrations::LiftParamsExpirySlippageMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

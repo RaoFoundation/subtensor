@@ -54,6 +54,7 @@
 | `young_short_settlement_window` | 25_200 | > 0 | `set_lift_params` |
 | `minimum_loan_value` | 1e9 rao | > 0 | `set_lift_params` |
 | `max_expiry_settlements_per_block` | 16 | 1..=hard Config cap | `set_lift_params` |
+| `expiry_max_slippage_bps` | 200 (2%) | 1..=10_000 | `set_lift_params` — post-trade spot vs lending EMA on every expiry AMM step; defer + max-deferral force (Greg MEV 2026-11-20) |
 | `Enabled` | false (dark launch) | bool | `set_enabled` |
 
 ## Changelog: v5.9 vs v5.8

@@ -476,7 +476,7 @@ pub enum Side {
 }
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("5a58938064e011ba")]
+#[freeze_struct("aa009a16d3a7c23c")]
 #[derive(
     Encode,
     Decode,
@@ -550,6 +550,13 @@ pub struct LiftParams {
     /// must be ≤ the compile-time [`Config::MaxExpirySettlementsPerBlock`] hard
     /// cap used for weight safety.
     pub max_expiry_settlements_per_block: u32,
+    /// Max post-trade spot deviation from the lending EMA on **expiry** AMM
+    /// trades (default 200 = 2%). Checked after every buyback / forced-sell step
+    /// so same-block batching cannot compound past the bound. Outside: defer via
+    /// [`Error::SettlementPriceOutsideEmaBand`] + [`BandDeferralSince`]; after
+    /// [`Self::max_settlement_deferral`] the bound lifts (same force path as the
+    /// 15% settlement band). Manual `close` / `repay` ignore this.
+    pub expiry_max_slippage_bps: u16,
 }
 
 /// Inclusive lower bound on [`LiftParams::max_loan_duration`] (≈ 1 day at 12 s).
@@ -587,6 +594,7 @@ impl Default for LiftParams {
             young_short_settlement_window: 25_200,
             minimum_loan_value: 1_000_000_000,
             max_expiry_settlements_per_block: 16,
+            expiry_max_slippage_bps: 200,
         }
     }
 }
@@ -676,6 +684,72 @@ impl LiftParamsBeforeEconomic {
             minimum_loan_value: LiftParams::default().minimum_loan_value,
             max_expiry_settlements_per_block: LiftParams::default()
                 .max_expiry_settlements_per_block,
+            expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
+        }
+    }
+}
+
+/// Post-economic, pre-`expiry_max_slippage_bps` LiftParams layout.
+///
+/// Decoded by [`migrations::migrate_lift_params_expiry_slippage`].
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LiftParamsBeforeExpirySlippage {
+    pub floor_bps: u16,
+    pub thin_floor_bps: u16,
+    pub ref_tao: u64,
+    pub move_bps: u16,
+    pub ceiling_bps: u16,
+    pub split_short_bps: u16,
+    pub rebalance_target_bps: u16,
+    pub rebalance_rate_bps: u16,
+    pub thin_tao: u64,
+    pub ltv_short_bps: u16,
+    pub ltv_long_bps: u16,
+    pub thin_ltv_long_bps: u16,
+    pub apr_long_bps: u16,
+    pub apr_short_bps: u16,
+    pub slice_bps: u16,
+    pub crash_guard_bps: u16,
+    pub total_tao_ema_blocks: u64,
+    pub new_subnet_min_age: u64,
+    pub new_subnet_ramp: u64,
+    pub ema_band_bps: u16,
+    pub max_loan_duration: u64,
+    pub max_settlement_deferral: u64,
+    pub young_short_settlement_window: u64,
+    pub minimum_loan_value: u64,
+    pub max_expiry_settlements_per_block: u32,
+}
+
+impl LiftParamsBeforeExpirySlippage {
+    pub(crate) fn into_current(self) -> LiftParams {
+        LiftParams {
+            floor_bps: self.floor_bps,
+            thin_floor_bps: self.thin_floor_bps,
+            ref_tao: self.ref_tao,
+            move_bps: self.move_bps,
+            ceiling_bps: self.ceiling_bps,
+            split_short_bps: self.split_short_bps,
+            rebalance_target_bps: self.rebalance_target_bps,
+            rebalance_rate_bps: self.rebalance_rate_bps,
+            thin_tao: self.thin_tao,
+            ltv_short_bps: self.ltv_short_bps,
+            ltv_long_bps: self.ltv_long_bps,
+            thin_ltv_long_bps: self.thin_ltv_long_bps,
+            apr_long_bps: self.apr_long_bps,
+            apr_short_bps: self.apr_short_bps,
+            slice_bps: self.slice_bps,
+            crash_guard_bps: self.crash_guard_bps,
+            total_tao_ema_blocks: self.total_tao_ema_blocks,
+            new_subnet_min_age: self.new_subnet_min_age,
+            new_subnet_ramp: self.new_subnet_ramp,
+            ema_band_bps: self.ema_band_bps,
+            max_loan_duration: self.max_loan_duration,
+            max_settlement_deferral: self.max_settlement_deferral,
+            young_short_settlement_window: self.young_short_settlement_window,
+            minimum_loan_value: self.minimum_loan_value,
+            max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
+            expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
         }
     }
 }
@@ -1504,9 +1578,11 @@ pub mod pallet {
         /// this; permissionless settlement uses
         /// [`Self::SettlementPriceOutsideEmaBand`] instead.
         PriceTooFarFromEma,
-        /// Permissionless settle (expiry / interest-exhaustion forfeit) saw
-        /// spot outside the §5.4 EMA band and the max-deferral window has not
-        /// yet elapsed. Defers via `SettlementDeferred` / `InterestDeferred`.
+        /// Permissionless settle saw spot outside its EMA band and the
+        /// max-deferral window has not yet elapsed. Covers the 15% §5.4 band on
+        /// interest-exhaustion forfeit and the tighter
+        /// [`LiftParams::expiry_max_slippage_bps`] band on expiry AMM steps.
+        /// Defers via `SettlementDeferred` / `InterestDeferred`.
         SettlementPriceOutsideEmaBand,
         /// Principal, principal_part, or borrow amount is zero.
         PrincipalZero,
@@ -2044,7 +2120,9 @@ pub mod pallet {
                     && p.young_short_settlement_window > 0
                     && p.minimum_loan_value > 0
                     && p.max_expiry_settlements_per_block > 0
-                    && p.max_expiry_settlements_per_block <= T::MaxExpirySettlementsPerBlock::get(),
+                    && p.max_expiry_settlements_per_block <= T::MaxExpirySettlementsPerBlock::get()
+                    && p.expiry_max_slippage_bps > 0
+                    && p.expiry_max_slippage_bps <= 10_000,
                 Error::<T>::InvalidLiftParams
             );
             Ok(())
@@ -2101,6 +2179,24 @@ pub mod pallet {
             spot >= floor && spot <= ceiling
         }
 
+        /// True when spot is inside the tight expiry execution band
+        /// `[EMA·(1−expiry_max_slippage), EMA·(1+expiry_max_slippage)]`.
+        /// Missing reference → treat as inside (same stall policy as the 15% band).
+        fn spot_within_expiry_slippage(netuid: NetUid) -> bool {
+            let Some(reference) = References::<T>::get(netuid) else {
+                return true;
+            };
+            let band = u32::from(Self::lift_params().expiry_max_slippage_bps);
+            let denom = U64F64::from_num(10_000u32);
+            let ema = reference.price;
+            let ceiling =
+                ema.saturating_mul(U64F64::from_num(10_000u32.saturating_add(band))) / denom;
+            let floor =
+                ema.saturating_mul(U64F64::from_num(10_000u32.saturating_sub(band))) / denom;
+            let spot = T::Pool::current_alpha_price(netuid);
+            spot >= floor && spot <= ceiling
+        }
+
         /// Force permissionless settle after [`LiftParams::max_settlement_deferral`]
         /// blocks from the first band deferral.
         fn force_settlement_despite_band(
@@ -2113,8 +2209,8 @@ pub mod pallet {
                 .unwrap_or(false)
         }
 
-        /// Gate permissionless expiry / interest-exhaustion forfeit on the
-        /// §5.4 EMA band. Manual close / repay never call this. Returns
+        /// Gate permissionless interest-exhaustion forfeit on the §5.4 EMA band.
+        /// Manual close / repay never call this. Returns
         /// [`Error::SettlementPriceOutsideEmaBand`] so collectors defer with
         /// the existing retry / `LastDeferral` machinery.
         fn ensure_settlement_ema_band(
@@ -2127,6 +2223,26 @@ pub mod pallet {
             }
             ensure!(
                 Self::spot_within_settlement_band(netuid),
+                Error::<T>::SettlementPriceOutsideEmaBand
+            );
+            Ok(())
+        }
+
+        /// Gate fixed-term expiry AMM steps on [`LiftParams::expiry_max_slippage_bps`].
+        /// Checked before settle and after every buyback / forced-sell so a
+        /// same-block batch cannot walk spot past the bound. Reuses
+        /// [`Error::SettlementPriceOutsideEmaBand`] + [`BandDeferralSince`] /
+        /// max-deferral force. Manual close / repay never call this.
+        fn ensure_expiry_execution_band(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            now: BlockNumberFor<T>,
+        ) -> DispatchResult {
+            if Self::force_settlement_despite_band(owner, netuid, now) {
+                return Ok(());
+            }
+            ensure!(
+                Self::spot_within_expiry_slippage(netuid),
                 Error::<T>::SettlementPriceOutsideEmaBand
             );
             Ok(())
@@ -2784,7 +2900,7 @@ pub mod pallet {
                 Self::ensure_matching_side(position, side)?;
             }
             if let Some(mut position) = existing.take() {
-                Self::charge_interest(owner, netuid, &mut position, now, false, false)?;
+                Self::charge_interest(owner, netuid, &mut position, now, false, false, false)?;
                 if Positions::<T>::contains_key(owner, netuid) {
                     Positions::<T>::insert(owner, netuid, &position);
                     existing = Some(position);
@@ -3154,7 +3270,7 @@ pub mod pallet {
             )?;
 
             // Accrue through now before LTV / cap checks.
-            Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
+            Self::charge_interest(&owner, netuid, &mut position, now, false, false, false)?;
             if !Positions::<T>::contains_key(&owner, netuid) {
                 // Exhausted and forfeited during charge — nothing left to roll.
                 return Err(Error::<T>::PositionMissing.into());
@@ -3263,7 +3379,7 @@ pub mod pallet {
                 ensure!(now < position.expires_at, Error::<T>::DeadlinePassed);
             }
             if let Some(mut position) = existing.take() {
-                Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
+                Self::charge_interest(&owner, netuid, &mut position, now, false, false, false)?;
                 if Positions::<T>::contains_key(&owner, netuid) {
                     // Persist accrued collateral so aggregate `a_ahead` exclusion
                     // matches pending interest already moved off the book.
@@ -3590,7 +3706,7 @@ pub mod pallet {
             // Versioned close path (wallet top-up, weight-preserving readd,
             // k-neutral burn). v1 is today's behaviour.
             Self::ensure_terms_version(position.terms_version)?;
-            Self::charge_interest(&owner, netuid, &mut position, now, true, false)?;
+            Self::charge_interest(&owner, netuid, &mut position, now, true, false, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed indexes. Do not continue close on a
             // forfeited loan (would double-readd / undercount PositionCount).
@@ -3999,7 +4115,7 @@ pub mod pallet {
             )?;
             let mut position = existing;
             // Interest first on the whole position (§4.4).
-            Self::charge_interest(&owner, netuid, &mut position, now, true, false)?;
+            Self::charge_interest(&owner, netuid, &mut position, now, true, false, false)?;
             // Same as close / settle: forfeit already cleaned up — stop.
             if !Positions::<T>::contains_key(&owner, netuid) {
                 return Ok(());
@@ -4624,7 +4740,7 @@ pub mod pallet {
             // prior book, and LTV sizing sees the post-interest position.
             if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
                 Self::ensure_matching_side(&position, Side::Long)?;
-                Self::charge_interest(&owner, netuid, &mut position, now, false, false)?;
+                Self::charge_interest(&owner, netuid, &mut position, now, false, false, false)?;
                 if Positions::<T>::contains_key(&owner, netuid) {
                     Positions::<T>::insert(&owner, netuid, &position);
                 }
@@ -4876,6 +4992,7 @@ pub mod pallet {
             until: BlockNumberFor<T>,
             final_charge: bool,
             permissionless: bool,
+            enforce_expiry_slippage: bool,
         ) -> DispatchResult {
             // Versioned interest path: v1 is the current burn / pending-sell
             // behaviour. Future versions branch here without touching v1.
@@ -4891,6 +5008,7 @@ pub mod pallet {
                             d.frozen_at,
                             final_charge,
                             permissionless,
+                            enforce_expiry_slippage,
                         );
                     }
                 }
@@ -4905,6 +5023,7 @@ pub mod pallet {
                     position.expires_at,
                     final_charge,
                     permissionless,
+                    enforce_expiry_slippage,
                 );
             }
             let (due, remainder) = Self::interest_due(position, until, final_charge)?;
@@ -4992,7 +5111,7 @@ pub mod pallet {
                             frame_system::Pallet::<T>::block_number(),
                         )?;
                     }
-                    Self::forfeit(owner, netuid, position)?;
+                    Self::forfeit(owner, netuid, position, enforce_expiry_slippage)?;
                 }
             }
             Ok(())
@@ -5004,10 +5123,17 @@ pub mod pallet {
         /// still gets nothing). Uncovered principal records below-baseline
         /// shortfall via [`Self::maybe_burn_invariant_surplus`]. No one-sided
         /// readd.
+        ///
+        /// `enforce_expiry_slippage`: when true (fixed-term expiry path), each
+        /// AMM step is gated by [`Self::ensure_expiry_execution_band`] so a
+        /// sandwich / batch cannot push execution past
+        /// [`LiftParams::expiry_max_slippage_bps`]. Interest-exhaustion forfeit
+        /// passes false (keeps the wider 15% settlement band only).
         fn forfeit(
             owner: &T::AccountId,
             netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
+            enforce_expiry_slippage: bool,
         ) -> DispatchResult {
             Self::ensure_terms_version(position.terms_version)?;
             let custody = Self::custody_hotkey()?;
@@ -5015,6 +5141,7 @@ pub mod pallet {
             let escrow = position.custody.clone();
             let side = position.side;
             let principal = position.principal;
+            let now = frame_system::Pallet::<T>::block_number();
 
             let (credited_tao, credited_alpha, leftover_collateral, buyback_tao, buyback_alpha) =
                 match side {
@@ -5024,6 +5151,9 @@ pub mod pallet {
                         let (paid, bought) = Self::execute_buyback_best_effort(
                             &escrow, &custody, netuid, principal, pot,
                         )?;
+                        if enforce_expiry_slippage {
+                            Self::ensure_expiry_execution_band(owner, netuid, now)?;
+                        }
                         let repaid_alpha = bought.min(principal);
                         let leftover_tao = pot.saturating_sub(paid);
                         // Sell buyback overshoot alpha into TAO then burn with leftover.
@@ -5105,6 +5235,9 @@ pub mod pallet {
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
+                            if enforce_expiry_slippage {
+                                Self::ensure_expiry_execution_band(owner, netuid, now)?;
+                            }
                         }
                         let mut coll_left = position.collateral;
                         if raised < principal && coll_left > 0 {
@@ -5127,6 +5260,9 @@ pub mod pallet {
                                         raised = Self::add(raised, out.to_u64())?;
                                         sold_alpha = Self::add(sold_alpha, sell)?;
                                         coll_left = coll_left.saturating_sub(sell);
+                                        if enforce_expiry_slippage {
+                                            Self::ensure_expiry_execution_band(owner, netuid, now)?;
+                                        }
                                     }
                                     Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
                                         // Dust C cannot raise TAO — burn it below.
@@ -5858,7 +5994,7 @@ pub mod pallet {
                     if Dissolutions::<T>::contains_key(netuid) {
                         return Ok(());
                     }
-                    Self::charge_interest(owner, netuid, &mut position, now, false, true)?;
+                    Self::charge_interest(owner, netuid, &mut position, now, false, true, false)?;
                     if Positions::<T>::contains_key(owner, netuid) {
                         let next = now.saturating_add(position.interest_period);
                         match source {
@@ -6968,6 +7104,7 @@ pub mod pallet {
                         interest_until,
                         true,
                         false,
+                        false,
                     )?;
                     // Dissolution skips forfeit inside `charge_interest`.
                     if !Positions::<T>::contains_key(owner, netuid) {
@@ -7155,13 +7292,16 @@ pub mod pallet {
         /// at live pool prices — there is no dissolution-price argument.
         ///
         /// Intentional differences from manual `do_close`:
-        /// * Gated by the §5.4 EMA band (unless
-        ///   [`LiftParams::max_settlement_deferral`] has elapsed since the first band
-        ///   deferral). Manual close / repay are not gated.
+        /// * Gated by [`LiftParams::expiry_max_slippage_bps`] on every AMM step
+        ///   (unless [`LiftParams::max_settlement_deferral`] has elapsed since the
+        ///   first band/slippage deferral). Manual close / repay are not gated —
+        ///   the owner may close normally while expiry is deferred.
         /// * No wallet top-up and no user slippage limits (`max_payment = MAX`,
-        ///   `min_refund = 0`, no min-out on sells).
+        ///   `min_refund = 0`, no min-out on sells) — the EMA slippage band is
+        ///   the protocol substitute for those limits.
         /// * Underwater short / insolvent long: [`Self::forfeit`] buyback path
-        ///   (two-sided readd + leftover burn; nothing to the borrower).
+        ///   (two-sided readd + leftover burn; nothing to the borrower), also
+        ///   under the expiry slippage guard.
         /// * No hotkey: surplus alpha / leftover long collateral sold as TAO.
         ///
         /// `Expired.spot_price` is reported for observability only (read at emit
@@ -7182,13 +7322,22 @@ pub mod pallet {
             // Event-only sample (pre-trade). Never used to size debt/payment/refund.
             let spot_price_for_event = T::Pool::current_alpha_price(netuid);
             // Wall-clock now for the max-deferral force gate (audit L4).
-            Self::ensure_settlement_ema_band(
+            let now = frame_system::Pallet::<T>::block_number();
+            Self::ensure_expiry_execution_band(owner, netuid, now)?;
+            // Slippage already checked above; interest forfeit may proceed.
+            // Interest-exhaustion forfeit uses the wider 15% band (not expiry
+            // slippage) via charge_interest's permissionless=false here — expiry
+            // already gated; if interest alone forfeits mid-path we still want
+            // the expiry slippage guard on those AMM steps.
+            Self::charge_interest(
                 owner,
                 netuid,
-                frame_system::Pallet::<T>::block_number(),
+                &mut position,
+                interest_until,
+                true,
+                false,
+                true,
             )?;
-            // Band already checked above; interest forfeit may proceed.
-            Self::charge_interest(owner, netuid, &mut position, interest_until, true, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
             // lifts, moved escrow, and removed the claim.
             if !Positions::<T>::contains_key(owner, netuid) {
@@ -7199,7 +7348,7 @@ pub mod pallet {
             // Karl / Shorting: when escrow cannot fully close, forfeit instead of
             // recording a shortfall. Restores open-time lift + escrowed proceeds.
             if !Self::can_fully_close_from_escrow(netuid, &position)? {
-                Self::forfeit(owner, netuid, &position)?;
+                Self::forfeit(owner, netuid, &position, true)?;
                 Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
                 return Ok(());
             }
@@ -7214,6 +7363,7 @@ pub mod pallet {
                     let pot = Self::add(position.proceeds, position.collateral)?;
                     let (paid, bought) =
                         Self::execute_buyback(&escrow, &custody, netuid, position.principal, pot)?;
+                    Self::ensure_expiry_execution_band(owner, netuid, now)?;
                     let repaid_alpha = bought.min(position.principal);
                     let mut refund = pot.saturating_sub(paid);
                     let excess = bought.saturating_sub(position.principal);
@@ -7282,6 +7432,7 @@ pub mod pallet {
                             skip_flow,
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
+                        Self::ensure_expiry_execution_band(owner, netuid, now)?;
                     }
                     let mut coll_left = position.collateral;
                     if raised < position.principal && coll_left > 0 {
@@ -7300,6 +7451,7 @@ pub mod pallet {
                         )?;
                         raised = Self::add(raised, out.to_u64())?;
                         coll_left = coll_left.saturating_sub(sell);
+                        Self::ensure_expiry_execution_band(owner, netuid, now)?;
                     }
                     ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
                     let repay = position.principal;
@@ -7362,6 +7514,7 @@ pub mod pallet {
                 ) {
                     Ok(out) => {
                         refund = refund.saturating_add(out.to_u64());
+                        Self::ensure_expiry_execution_band(owner, netuid, now)?;
                     }
                     Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
                         Self::deposit_event(Event::DustForfeited {
