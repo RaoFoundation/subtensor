@@ -992,7 +992,7 @@ jobs:
         id: facts
         run: |
           set -euo pipefail
-          sha256=$(jq -er '.sha256' wasm/subtensor-digest.json | tr '[:upper:]' '[:lower:]')
+          sha256=$(jq -er '.sha256' wasm/subtensor-digest.json | tr '[:upper:]' '[:lower:]' | sed 's/^0x//')
           [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "wasm sha256 is not 64 hex characters"; exit 1; }
           versions=$(python3 .github/scripts/release-python-versions.py \
             sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
