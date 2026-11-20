@@ -281,7 +281,9 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
     // Above main tip (493 / Release v493) so a real upgrade from main never rolls version back.
-    spec_version: 494,
+    // Lending ships as 495 so Greg's release-494 / #3352 (RC tip) can take 494
+    // without colliding. Remmerge after 494 lands; keep this strictly above main.
+    spec_version: 495,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
