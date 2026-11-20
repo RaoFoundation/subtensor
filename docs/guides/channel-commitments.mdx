@@ -155,6 +155,8 @@ btcli weights delegate revoke --netuid 1 --mechid 1 \
 
 The equivalent SDK mutation is `SetMechWeightDelegate`; set `delegate=None` to
 revoke. Inspect the current grant with the `mech_weight_delegate` read.
+Swapping a validator hotkey revokes its grants on the affected subnets. Once
+cleanup finishes, the new hotkey can explicitly appoint a delegate again.
 
 To submit as the delegate, sign with the authorized hotkey and identify the
 validator with `--for-hotkey`. This works for automatic plaintext/timelocked

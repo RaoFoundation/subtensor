@@ -134,6 +134,13 @@ impl<T: Config> Pallet<T> {
         }
 
         // 3. Create new set memberships.
+        if Self::mech_weight_delegate_lifecycle_pending(netuid, new_hotkey)
+            || MechWeightDelegateTargets::<T>::iter_key_prefix((netuid, new_hotkey))
+                .next()
+                .is_some()
+        {
+            Self::purge_mech_weight_delegates(netuid, new_hotkey, None);
+        }
         Self::set_active_for_uid(netuid, uid_to_replace, true); // Set to active by default.
         Keys::<T>::insert(netuid, uid_to_replace, new_hotkey.clone()); // Make hotkey - uid association.
         Uids::<T>::insert(netuid, new_hotkey.clone(), uid_to_replace); // Make uid - hotkey association.

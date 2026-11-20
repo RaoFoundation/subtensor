@@ -134,6 +134,13 @@ async def test_delegate_missing_authorization_is_rejected():
             "value",
             {"bits": 5 * 2**62},
         ),
+        (
+            "increase_mult",
+            "1.26",
+            "sudo_set_commit_burn_increase_mult",
+            "value",
+            {"bits": (63 * 2**64) // 50},
+        ),
     ],
 )
 async def test_commit_burn_setters(name, value, method, param, expected):
@@ -237,6 +244,21 @@ async def test_channel_commitment_scale_bytes_decode_to_fields(monkeypatch):
     )
     assert result.data == "hello"
     assert result.block == 100
+
+
+@pytest.mark.asyncio
+async def test_revealed_channel_remains_readable_without_active_row():
+    substrate = FakeSubstrate()
+    substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_channel_commitment", None)
+    substrate.seed(
+        "Commitments", "ChannelRevealedCommitments", [1, ALICE_HOT, 0], [(b"revealed", 101)]
+    )
+    result = await channel_commitment(
+        Client("local", substrate=substrate), netuid=1, hotkey_ss58=ALICE_HOT
+    )
+    assert result is not None
+    assert result.fields == []
+    assert result.revealed == [{"data": "revealed", "block": 101}]
 
 
 @pytest.mark.asyncio

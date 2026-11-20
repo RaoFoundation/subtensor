@@ -1033,19 +1033,17 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // 3.6. Swap the mechanism-scoped weight delegation and channel commitments.
+        // 3.6. Move channel commitments, but revoke grants made by the old signer.
         if is_network_member {
             T::CommitmentsInterface::swap_neuron(netuid, old_hotkey, new_hotkey);
-            for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
-                let index = Self::get_mechanism_storage_index(netuid, MechId::from(mecid));
-                let delegate = MechWeightDelegate::<T>::get((index, old_hotkey));
-                Self::queue_mech_weight_delegate_move(
-                    netuid,
-                    mecid.into(),
-                    old_hotkey,
-                    new_hotkey,
-                    delegate,
-                );
+            for hotkey in [old_hotkey, new_hotkey] {
+                if Self::mech_weight_delegate_lifecycle_pending(netuid, hotkey)
+                    || MechWeightDelegateTargets::<T>::iter_key_prefix((netuid, hotkey))
+                        .next()
+                        .is_some()
+                {
+                    Self::purge_mech_weight_delegates(netuid, hotkey, None);
+                }
             }
         }
 

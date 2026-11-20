@@ -7,7 +7,8 @@ description: "One hotkey's independent channel commitment, or None when absent."
 
 Reads the v2 runtime API and decodes the returned SCALE registration. On a
 node without v2, reads the equivalent channel storage instead; both paths
-distinguish this target from the legacy `commitment` read.
+distinguish this target from the legacy `commitment` read. The `revealed`
+list reports plaintext and reveal blocks even after the active record is removed.
 
 **Category:** Identity & commitments
 
@@ -44,3 +45,10 @@ result = sub.read("channel_commitment", netuid=1, mechid=1, channel=1, hotkey_ss
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`Commitments.ChannelCommitmentOf`](/code/pallets/commitments/src/lib.rs#L307)
+- Storage [`Commitments.ChannelRevealedCommitments`](/code/pallets/commitments/src/lib.rs#L320)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

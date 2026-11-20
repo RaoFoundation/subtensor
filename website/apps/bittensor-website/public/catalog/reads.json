@@ -397,7 +397,7 @@
   {
     "name": "channel_commitment",
     "summary": "One hotkey's independent channel commitment, or None when absent.",
-    "description": "One hotkey's independent channel commitment, or None when absent.\n\nReads the v2 runtime API and decodes the returned SCALE registration. On a\nnode without v2, reads the equivalent channel storage instead; both paths\ndistinguish this target from the legacy `commitment` read.",
+    "description": "One hotkey's independent channel commitment, or None when absent.\n\nReads the v2 runtime API and decodes the returned SCALE registration. On a\nnode without v2, reads the equivalent channel storage instead; both paths\ndistinguish this target from the legacy `commitment` read. The `revealed`\nlist reports plaintext and reveal blocks even after the active record is removed.",
     "params": {
       "netuid": "integer",
       "mechid": "integer",
@@ -413,7 +413,27 @@
     "category": "Identity & commitments",
     "docs_url": "/docs/query/channel-commitment",
     "markdown_url": "/llms.mdx/docs/query/channel-commitment/content.md",
-    "python": "sub.identity.channel_commitment(...)"
+    "python": "sub.identity.channel_commitment(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Commitments",
+        "name": "ChannelCommitmentOf",
+        "path": "pallets/commitments/src/lib.rs",
+        "line": 307,
+        "url": "/code/pallets/commitments/src/lib.rs#L307",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Commitments",
+        "name": "ChannelRevealedCommitments",
+        "path": "pallets/commitments/src/lib.rs",
+        "line": 320,
+        "url": "/code/pallets/commitments/src/lib.rs#L320",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "childkey_threshold_suspended",

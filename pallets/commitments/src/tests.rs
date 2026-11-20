@@ -647,7 +647,7 @@ fn channel_reserve_is_coldkey_paid_and_nonrefundable_on_dereg() {
 }
 
 #[test]
-fn queued_channel_does_not_change_legacy_hook_weight() {
+fn queued_channel_has_bounded_mandatory_hook_work() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
         let who = 123;
@@ -667,10 +667,29 @@ fn queued_channel_does_not_change_legacy_hook_weight() {
             }),
             TaoBalance::ZERO,
         ));
-        assert_eq!(
-            <Pallet<Test> as Hooks<u64>>::on_initialize(2),
-            <Test as Config>::WeightInfo::reveal_timelocked_commitments()
-                .saturating_add(RocksDbWeight::get().reads(3))
+        let db = RocksDbWeight::get();
+        let decryption = <Test as Config>::WeightInfo::reveal_timelocked_commitments();
+        let legacy_and_probe = decryption.saturating_add(db.reads(4));
+        let scan = db.reads_writes(u64::from(TestMaxFields::get()) + 4, 4);
+        let bound = legacy_and_probe
+            .saturating_add(
+                decryption
+                    .saturating_add(db.reads_writes(4, 3))
+                    .saturating_mul(4),
+            )
+            .saturating_add(scan.saturating_mul(16))
+            .saturating_add(db.reads_writes(2, 1));
+        let used = <Pallet<Test> as Hooks<u64>>::on_initialize(2);
+        assert!(used.ref_time() > legacy_and_probe.ref_time());
+        assert!(used.all_lte(bound));
+        assert!(ChannelTimelockedIndex::<Test>::contains_key((
+            NetUidStorageIndex::from(netuid),
+            0,
+            who,
+        )));
+        assert!(
+            ChannelRevealedCommitments::<Test>::get((NetUidStorageIndex::from(netuid), who, 0))
+                .is_none()
         );
     });
 }
@@ -1266,6 +1285,16 @@ fn dissolution_resumes_after_completed_mechanism_without_repeating_cleanup() {
             let next = crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid);
             assert!(next > previous, "dissolution must advance its cursor");
         }
+        if ChannelPurgePending::<Test>::get(netuid) {
+            assert_eq!(
+                crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+                Some(MechId::from(16)),
+            );
+            assert!(
+                purge(budget),
+                "the final writes must complete on the next retry"
+            );
+        }
         assert!(!ChannelPurgePending::<Test>::get(netuid));
         assert_eq!(
             crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
@@ -1348,11 +1377,10 @@ fn dissolution_charges_resume_cursor_read() {
         let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
         let before = retry.remaining();
         assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
-        // The pending read and two empty-prefix cleanup checks are charged;
-        // the remaining budget is then too small for the resume cursor read.
+        // Include the read-only terminal probes and the resume cursor read.
         assert_eq!(
             before.saturating_sub(retry.remaining()),
-            RocksDbWeight::get().reads_writes(55, 0)
+            RocksDbWeight::get().reads(51)
         );
         assert_eq!(
             crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
@@ -1389,9 +1417,8 @@ fn dissolution_defers_reveal_cursor_deletion_without_completion_budget() {
         ChannelPurgePending::<Test>::insert(netuid, true);
         crate::ChannelNetuidPurgeMechanism::<Test>::insert(netuid, MechId::from(16));
         crate::ChannelTimelockRevealCursor::<Test>::put(vec![7]);
-        // Pending read, two swap-prefix checks, resume read, and the first row
-        // check are affordable, but the three final writes are not.
-        let budget = RocksDbWeight::get().reads_writes(59, 0);
+        // The three final writes cannot fit after the cleanup probes.
+        let budget = RocksDbWeight::get().reads(15);
         let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
         assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
         assert_eq!(
@@ -1429,7 +1456,7 @@ fn dissolution_charges_final_reveal_cursor_deletion() {
         // completion writes after the last mechanism's cleanup.
         assert_eq!(
             before.saturating_sub(finish.remaining()),
-            Weight::from_parts(51_975_000_000, 0)
+            Weight::from_parts(52_075_000_000, 0)
         );
         assert!(!ChannelPurgePending::<Test>::get(netuid));
     });
@@ -3154,7 +3181,7 @@ fn on_initialize_reveals_matured_timelocks() {
         // reads, and the per-entry reads and writes.
         let expected_weight = <Test as Config>::WeightInfo::reveal_timelocked_commitments()
             .saturating_mul(2)
-            .saturating_add(RocksDbWeight::get().reads(7))
+            .saturating_add(RocksDbWeight::get().reads(8))
             .saturating_add(RocksDbWeight::get().writes(3));
         assert_eq!(weight, expected_weight);
 

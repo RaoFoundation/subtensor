@@ -987,6 +987,7 @@ fn test_swap_basket_sell_refused_when_spot_below_ema_band() {
 fn test_swap_basket_spot_only_ignores_missing_moving_prices() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         for netuid in [fund.netuid_a, fund.netuid_b] {
             SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(0));
             SubnetFastMovingPrice::<Test>::remove(netuid);
@@ -1070,11 +1071,13 @@ fn test_swap_basket_sell_refused_when_own_impact_exceeds_band() {
     });
 }
 
-/// The default band ignores a 20% EMA divergence on both legs and fills near spot.
+/// An opted-in spot-only band ignores a 20% EMA divergence and fills near spot.
 #[test]
 fn test_swap_basket_fills_just_inside_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
+        BasketTradeMaxSlippageBps::<Test>::put(500);
         for (netuid, ema) in [(fund.netuid_a, 1.2), (fund.netuid_b, 0.8)] {
             SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(ema));
             SubnetFastMovingPrice::<Test>::insert(netuid, U64F64::from_num(ema));
@@ -1086,16 +1089,13 @@ fn test_swap_basket_fills_just_inside_band() {
     });
 }
 
-/// Default limits are exactly 5% around spot, with no EMA reads required.
+/// Configured limits are exactly 5% around spot, with no EMA reads required.
 #[test]
 fn test_swap_basket_spot_only_price_limits_are_five_percent_from_spot() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 500);
-        assert_eq!(
-            BasketTradePriceReferenceMode::<Test>::get(),
-            BasketTradePriceReference::SpotOnly
-        );
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
+        BasketTradeMaxSlippageBps::<Test>::put(500);
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(0));
         SubnetFastMovingPrice::<Test>::remove(fund.netuid_a);
         assert_eq!(
@@ -1109,11 +1109,13 @@ fn test_swap_basket_spot_only_price_limits_are_five_percent_from_spot() {
     });
 }
 
-/// A roughly 4% drop below both EMAs no longer locks the default-mode sell leg.
+/// A roughly 4% drop below both EMAs does not block the opted-in spot-only sell leg.
 #[test]
 fn test_swap_basket_spot_only_sells_despite_lagging_emas() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
+        BasketTradeMaxSlippageBps::<Test>::put(500);
         SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.04));
         SubnetFastMovingPrice::<Test>::insert(fund.netuid_a, U64F64::from_num(1.04));
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
@@ -1125,6 +1127,7 @@ fn test_swap_basket_spot_only_sells_despite_lagging_emas() {
 fn test_swap_basket_spot_only_uses_storage_band() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         BasketTradeMaxSlippageBps::<Test>::put(200);
         assert_eq!(
             SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, false).unwrap(),
@@ -1134,6 +1137,18 @@ fn test_swap_basket_spot_only_uses_storage_band() {
             SubtensorModule::basket_trade_price_limit_for_test(fund.netuid_a, true).unwrap(),
             1_019_999_999
         );
+    });
+}
+
+#[test]
+fn basket_trade_defaults_preserve_legacy_protections() {
+    new_test_ext(1).execute_with(|| {
+        assert_eq!(
+            BasketTradePriceReferenceMode::<Test>::get(),
+            BasketTradePriceReference::StrictestEmaAndSpot
+        );
+        assert_eq!(BasketTradeMaxSlippageBps::<Test>::get(), 200);
+        assert_eq!(BasketTradeRefillBlocks::<Test>::get(), 7200);
     });
 }
 

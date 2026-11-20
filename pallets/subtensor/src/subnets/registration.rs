@@ -57,23 +57,22 @@ impl<T: Config> pallet_commitments::CommitBurnInterface<T::AccountId> for Pallet
             Self::get_keep_alive_balance(coldkey) >= amount,
             Error::<T>::NotEnoughBalanceToStake
         );
-        Self::pay_registration_with_result(netuid, hotkey, coldkey, amount, TaoBalance::ZERO)
+        Self::pay_registration_with_result(netuid, hotkey, coldkey, amount, TaoBalance::ZERO, false)
             .map(|payment| payment.alpha_recycled)
     }
 
     fn bump(netuid: NetUid, mecid: MechId, channel: u8) {
         let index = Self::get_mechanism_storage_index(netuid, mecid);
-        pallet_commitments::CommitBurnConfig::<T>::mutate((index, channel), |maybe_config| {
-            if let Some(config) = maybe_config {
-                config.burn = TaoBalance::from(Self::bumped_registration_price(
-                    config.burn.into(),
-                    config.min_burn.into(),
-                    config.max_burn.into(),
-                    config.increase_mult.max(U64F64::saturating_from_num(1)),
-                ));
-                config.last_update_block = Self::get_current_block_as_u64();
-            }
-        });
+        if let Some(mut config) = Self::get_commit_burn(netuid, mecid, channel) {
+            config.burn = TaoBalance::from(Self::bumped_registration_price(
+                config.burn.into(),
+                config.min_burn.into(),
+                config.max_burn.into(),
+                config.increase_mult.max(U64F64::saturating_from_num(1)),
+            ));
+            config.last_update_block = Self::get_current_block_as_u64();
+            pallet_commitments::CommitBurnConfig::<T>::insert((index, channel), config);
+        }
     }
 
     fn payment_weight() -> Weight {

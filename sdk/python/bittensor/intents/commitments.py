@@ -91,17 +91,15 @@ def _enabled_value(value: Any) -> bool:
 
 
 def _fixed_bits(value: Any) -> int:
-    """Exact U64F64 conversion for decimals; plain integers remain raw bits."""
+    """Round decimals down to U64F64 precision; plain integers remain raw bits."""
     if isinstance(value, int):
         return to_raw("burn_increase_mult", value)
     try:
         decimal = Decimal(str(value))
-        if not decimal.is_finite() or decimal < 0:
+        if not decimal.is_finite() or not 1 <= decimal <= 3:
             raise ValueError
-        bits = decimal * 2**64
-        if bits != bits.to_integral_value():
-            raise ValueError
-        return to_raw("burn_increase_mult", int(bits))
+        numerator, denominator = decimal.as_integer_ratio()
+        return to_raw("burn_increase_mult", (numerator << 64) // denominator)
     except (InvalidOperation, ValueError):
         raise BittensorError(
             "increase_mult must be a decimal in 1..3 or an exact raw U64F64 integer."

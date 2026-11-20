@@ -194,6 +194,40 @@ fn paid_commit_charges_coldkey_and_bumps_price_with_sequence() {
 }
 
 #[test]
+fn paid_commit_bumps_the_price_after_decay() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(11);
+        let coldkey = U256::from(12);
+        add_network(netuid, 100, 0);
+        setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(1_000_000u64));
+        configure_burn(netuid, MechId::MAIN, 0, true);
+        System::set_block_number(11);
+        let current = SubtensorModule::get_commit_burn(netuid, MechId::MAIN, 0)
+            .unwrap()
+            .burn;
+        assert!(current < 1_000u64.into());
+        assert_ok!(CommitmentsPallet::<Test>::set_commitment_to(
+            RuntimeOrigin::signed(coldkey),
+            netuid,
+            MechId::MAIN,
+            0,
+            hotkey,
+            Box::new(raw_info()),
+            current,
+        ));
+        assert_eq!(
+            SubtensorModule::get_commit_burn(netuid, MechId::MAIN, 0)
+                .unwrap()
+                .burn,
+            current.saturating_add(current),
+        );
+    });
+}
+
+#[test]
 fn burn_decays_lazily_without_changing_storage_on_read() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
@@ -1021,7 +1055,7 @@ fn reused_source_keeps_new_grant_when_pending_destination_is_pruned() {
 }
 
 #[test]
-fn delegate_is_scoped_revocable_and_moves_on_hotkey_swap() {
+fn delegate_is_scoped_revocable_and_revoked_on_hotkey_swap() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
         let hotkey = U256::from(55);
@@ -1120,10 +1154,17 @@ fn delegate_is_scoped_revocable_and_moves_on_hotkey_swap() {
         SubtensorModule::drain_mech_weight_delegate_lifecycle(
             &mut frame_support::weights::WeightMeter::new(),
         );
+        assert_eq!(MechWeightDelegate::<Test>::get((index, new_hotkey)), None);
+        assert_eq!(MechWeightDelegate::<Test>::get((index, hotkey)), None);
+        assert_ok!(SubtensorModule::set_mech_weight_delegate(
+            RuntimeOrigin::signed(new_hotkey),
+            netuid,
+            MechId::from(1u8),
+            Some(delegate),
+        ));
         assert_eq!(
             MechWeightDelegate::<Test>::get((index, new_hotkey)),
             Some(delegate)
         );
-        assert_eq!(MechWeightDelegate::<Test>::get((index, hotkey)), None);
     });
 }

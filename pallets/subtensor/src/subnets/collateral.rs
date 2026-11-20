@@ -284,10 +284,13 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         burned_share: TaoBalance,
         collateral_topup: TaoBalance,
+        resnapshot_drain: bool,
     ) -> Result<RegistrationPayment, DispatchError> {
         let total_charge = burned_share.saturating_add(collateral_topup);
         if total_charge.is_zero() {
-            Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            if resnapshot_drain {
+                Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            }
             return Ok(RegistrationPayment {
                 alpha_recycled: AlphaBalance::ZERO,
             });
@@ -343,7 +346,9 @@ impl<T: Config> Pallet<T> {
         if total_alpha.is_zero() {
             // Dust: payment already settled via the single swap; nothing to
             // stake or remove from AlphaOut.
-            Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            if resnapshot_drain {
+                Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            }
             return Ok(RegistrationPayment {
                 alpha_recycled: AlphaBalance::ZERO,
             });
@@ -373,7 +378,9 @@ impl<T: Config> Pallet<T> {
         }
 
         if lock_alpha.is_zero() {
-            Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            if resnapshot_drain {
+                Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            }
             return Ok(RegistrationPayment {
                 alpha_recycled: burn_alpha,
             });
@@ -440,8 +447,15 @@ impl<T: Config> Pallet<T> {
         burned_share: TaoBalance,
         collateral_topup: TaoBalance,
     ) -> DispatchResult {
-        Self::pay_registration_with_result(netuid, hotkey, coldkey, burned_share, collateral_topup)
-            .map(|_| ())
+        Self::pay_registration_with_result(
+            netuid,
+            hotkey,
+            coldkey,
+            burned_share,
+            collateral_topup,
+            true,
+        )
+        .map(|_| ())
     }
 
     /// Credit `alpha` onto `(netuid, hotkey, coldkey)` collateral. When

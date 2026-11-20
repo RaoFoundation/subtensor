@@ -504,8 +504,7 @@ fn test_e8_stale_low_ema_sell_extraction_closed_by_fast_anchor() {
 // Honest trading still fills
 // =============================================================================
 
-/// Default spot-only trading fills when the EMAs agree with spot, when they have followed
-/// a genuine move, and when a stale EMA would have refused the legacy band.
+/// The default protects the fast anchor; an explicit spot-only setting bypasses it.
 #[test]
 fn test_e8_honest_trade_at_spot_still_fills() {
     new_test_ext(1).execute_with(|| {
@@ -525,10 +524,14 @@ fn test_e8_honest_trade_at_spot_still_fills() {
         BasketTradeBucket::<Test>::remove(hotkey());
         assert_ok!(fund_swap(NetUid::ROOT, y, 2_000 * TAO));
 
-        // A pool whose spot was lifted above where it opened (fast anchor 0.4, spot 0.5,
-        // slow EMA still permissive at 1.0) can still trade in the default spot-only mode.
+        // A pool above the fast anchor is refused under the default protection.
         let z = make_pool(300, 500_000 * TAO, 1_000_000 * TAO, 1.0, 0.4);
         BasketTradeBucket::<Test>::remove(hotkey());
+        assert_noop!(
+            fund_swap(NetUid::ROOT, z, 2_000 * TAO),
+            Error::<Test>::SlippageTooHigh
+        );
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::SpotOnly);
         assert_ok!(fund_swap(NetUid::ROOT, z, 2_000 * TAO));
     });
 }

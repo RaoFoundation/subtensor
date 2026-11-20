@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -23,6 +23,13 @@ class Commitment:
     deposit: Balance
     data: str  # committed bytes, utf-8 if possible, else 0x-hex
     fields: list  # raw decoded field variants, for non-Raw commitments
+
+
+@dataclass
+class ChannelCommitment(Commitment):
+    """Active channel fields and separately labelled timelock reveal history."""
+
+    revealed: list[dict] = field(default_factory=list)
 
 
 @read(
@@ -237,17 +244,20 @@ async def _decode_commitment_registration(view, data: Any) -> Any:
 )
 async def channel_commitment(
     view, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None
-) -> Optional[Commitment]:
+) -> Optional[ChannelCommitment]:
     """One hotkey's independent channel commitment, or None when absent.
 
     Reads the v2 runtime API and decodes the returned SCALE registration. On a
     node without v2, reads the equivalent channel storage instead; both paths
-    distinguish this target from the legacy `commitment` read.
+    distinguish this target from the legacy `commitment` read. The `revealed`
+    list reports plaintext and reveal blocks even after the active record is removed.
     """
     if not 0 <= channel <= 255:
         raise ValueError("channel must be in 0..255")
     if hotkey_ss58 is None:
         raise ValueError("hotkey_ss58 is required")
+    storage_index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
+    key = [storage_index, hotkey_ss58, channel]
     try:
         encoded = await view.runtime(
             st.Item("SubnetRegistrationRuntimeApi", "get_channel_commitment"),
@@ -256,19 +266,31 @@ async def channel_commitment(
     except (ValueError, StorageFunctionNotFound) as error:
         if "not found" not in str(error).lower():
             raise
-        storage_index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
-        encoded = await view.query(
-            st.Item("Commitments", "ChannelCommitmentOf"),
-            [storage_index, hotkey_ss58, channel],
-        )
-    if encoded is None:
+        try:
+            encoded = await view.query(st.Commitments.ChannelCommitmentOf, key)
+        except StorageFunctionNotFound:
+            return None
+    try:
+        reveals = await view.query(st.Commitments.ChannelRevealedCommitments, key)
+    except StorageFunctionNotFound:
+        reveals = None
+    if encoded is None and not reveals:
         return None
     if isinstance(encoded, str):
         encoded = bytes.fromhex(encoded.removeprefix("0x"))
-    if isinstance(encoded, dict):
-        return _commitment_record(encoded)
-    record = await _decode_commitment_registration(view, encoded)
-    return _commitment_record(record)
+    record = (
+        encoded
+        if isinstance(encoded, dict) or encoded is None
+        else await _decode_commitment_registration(view, encoded)
+    )
+    active = _commitment_record(record or {})
+    return ChannelCommitment(
+        active.block,
+        active.deposit,
+        active.data,
+        active.fields,
+        [{"data": utf8_text(data), "block": int(block)} for data, block in reveals or []],
+    )
 
 
 def _age_text(seconds: float) -> str:

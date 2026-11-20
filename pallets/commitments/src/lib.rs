@@ -742,14 +742,35 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(n: BlockNumberFor<T>) -> Weight {
-            match Self::reveal_timelocked_commitments() {
+            let legacy = match Self::reveal_timelocked_commitments() {
                 Ok(w) => <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
                     .saturating_add(w),
                 Err(e) => {
                     log::debug!("Failed to unveil matured commitments on block {n:?}: {e:?}");
                     <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
                 }
+            };
+            let db = T::DbWeight::get();
+            if ChannelTimelockedIndex::<T>::iter_keys().next().is_none() {
+                return legacy.saturating_add(db.reads(1));
             }
+            // Reserve a bounded pass even when block saturation leaves no idle weight.
+            let per_decryption = <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
+                .saturating_add(db.reads_writes(4, 3));
+            let scan = db.reads_writes(u64::from(T::MaxFields::get()).saturating_add(4), 4);
+            let allowance = per_decryption
+                .saturating_mul(4)
+                .saturating_add(scan.saturating_mul(16))
+                .saturating_add(db.reads_writes(2, 1));
+            let mut meter = WeightMeter::with_limit(allowance);
+            if let Err(error) = Self::reveal_channel_timelocked_commitments_metered(&mut meter) {
+                log::debug!(
+                    "Failed to unveil matured channel commitments on block {n:?}: {error:?}"
+                );
+            }
+            legacy
+                .saturating_add(db.reads(1))
+                .saturating_add(meter.consumed())
         }
 
         fn on_idle(_n: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
@@ -970,6 +991,13 @@ impl<T: Config> Pallet<T> {
                 .any(|field| matches!(field, Data::TimelockRevealFailed { .. })),
             Error::<T>::TimelockRevealFailedNotAllowed
         );
+        ensure!(
+            !info
+                .fields
+                .iter()
+                .any(|field| matches!(field, Data::ResetBondsFlag)),
+            Error::<T>::AccountNotAllowedCommit
+        );
         let index = Self::target_index(netuid, mecid);
         let key = (index, hotkey.clone(), channel);
         let current_block = <frame_system::Pallet<T>>::block_number();
@@ -993,12 +1021,6 @@ impl<T: Config> Pallet<T> {
         usage.used_space = usage.used_space.saturating_add(required_space);
         ChannelUsedSpaceOf::<T>::insert(&key, usage);
 
-        for field in &info.fields {
-            if matches!(field, Data::ResetBondsFlag) {
-                T::OnMetadataCommitment::on_metadata_commitment(netuid, hotkey);
-                break;
-            }
-        }
         let mut registration =
             ChannelCommitmentOf::<T>::get(&key).unwrap_or_else(|| Registration {
                 info: info.clone(),
@@ -1398,6 +1420,29 @@ impl<T: Config> Pallet<T> {
                         encrypted,
                         reveal_round,
                     } => {
+                        // The row scan already reserves a pulse read for every field.
+                        let Some(pulse) = pallet_drand::Pulses::<T>::get(reveal_round) else {
+                            if oldest_kept > 0 && reveal_round < oldest_kept {
+                                mutated = true;
+                                Self::deposit_event(Event::CommitmentRevealFailed {
+                                    netuid,
+                                    who: who.clone(),
+                                    reveal_round,
+                                    error: RevealFailure::PulseExpired,
+                                });
+                                remaining.push(Data::TimelockRevealFailed {
+                                    encrypted,
+                                    reveal_round,
+                                });
+                            } else {
+                                remaining.push(Data::TimelockEncrypted {
+                                    encrypted,
+                                    reveal_round,
+                                });
+                                pending = true;
+                            }
+                            continue;
+                        };
                         let decryption_weight =
                             <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments();
                         let entry_weight =
@@ -1421,28 +1466,6 @@ impl<T: Config> Pallet<T> {
                             break;
                         }
                         meter.consume(entry_weight);
-                        let Some(pulse) = pallet_drand::Pulses::<T>::get(reveal_round) else {
-                            if oldest_kept > 0 && reveal_round < oldest_kept {
-                                mutated = true;
-                                Self::deposit_event(Event::CommitmentRevealFailed {
-                                    netuid,
-                                    who: who.clone(),
-                                    reveal_round,
-                                    error: RevealFailure::PulseExpired,
-                                });
-                                remaining.push(Data::TimelockRevealFailed {
-                                    encrypted,
-                                    reveal_round,
-                                });
-                            } else {
-                                remaining.push(Data::TimelockEncrypted {
-                                    encrypted,
-                                    reveal_round,
-                                });
-                                pending = true;
-                            }
-                            continue;
-                        };
                         decryptions = decryptions.saturating_add(1);
                         total_weight = total_weight.saturating_add(decryption_weight);
                         mutated = true;
@@ -1660,25 +1683,28 @@ impl<T: Config> Pallet<T> {
 
     pub fn drain_channel_swaps(weight_meter: &mut WeightMeter) {
         for _ in 0..MAX_CHANNEL_PURGE_ROWS_PER_BLOCK {
-            Self::drain_channel_swap_step(weight_meter, true);
+            if !Self::drain_channel_swap_step(weight_meter, true) {
+                break;
+            }
         }
     }
 
-    fn drain_channel_swap_step(weight_meter: &mut WeightMeter, honor_retirement: bool) {
+    fn drain_channel_swap_step(weight_meter: &mut WeightMeter, honor_retirement: bool) -> bool {
         let item_weight = T::DbWeight::get().reads_writes(9, 13);
         if !weight_meter.can_consume(item_weight) {
-            return;
+            return false;
         }
         let Some((netuid, mut old_hotkey, mut new_hotkey)) =
             ChannelSwapPendingHotkeys::<T>::iter().next()
         else {
-            return;
+            weight_meter.consume(T::DbWeight::get().reads(1));
+            return false;
         };
         if ChannelPurgePending::<T>::get(netuid) {
             ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
             ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
             weight_meter.consume(item_weight);
-            return;
+            return true;
         }
         if ChannelTargetsOf::<T>::iter_key_prefix((netuid, &old_hotkey))
             .next()
@@ -1742,19 +1768,19 @@ impl<T: Config> Pallet<T> {
                     }
                 }
                 weight_meter.consume(item_weight);
-                return;
+                return true;
             }
             ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
             ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
             weight_meter.consume(item_weight);
-            return;
+            return true;
         };
         if ChannelNeuronPurgeQueue::<T>::contains_key(netuid, &new_hotkey) {
             ChannelNeuronPurgeQueue::<T>::insert(netuid, &old_hotkey, ());
             ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
             ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
             weight_meter.consume(item_weight);
-            return;
+            return true;
         }
         let index = Self::target_index(netuid, mecid);
         let old_key = (index, &old_hotkey, channel);
@@ -1788,6 +1814,7 @@ impl<T: Config> Pallet<T> {
         ChannelMechanismTargetsOf::<T>::remove((netuid, mecid, &old_hotkey, channel));
         ChannelMechanismTargetsOf::<T>::insert((netuid, mecid, &new_hotkey, channel), ());
         weight_meter.consume(item_weight);
+        true
     }
 
     fn purge_channel_mechanism_rows(
@@ -1797,6 +1824,7 @@ impl<T: Config> Pallet<T> {
         row_limit: u32,
     ) -> bool {
         let write_weight = T::DbWeight::get().writes(1);
+        let probe_weight = T::DbWeight::get().reads(1);
         let index = Self::target_index(netuid, mecid);
         // Target rows include revealed-only channels. Retirement deletes those
         // rows directly; live mechanisms on the same pending rename still move.
@@ -1806,15 +1834,19 @@ impl<T: Config> Pallet<T> {
                 return false;
             }
             let item_weight = T::DbWeight::get().reads_writes(8, 9);
-            if !weight_meter.can_consume(item_weight) {
+            if !weight_meter.can_consume(probe_weight) {
                 return false;
             }
             let Some((hotkey, channel)) =
                 ChannelMechanismTargetsOf::<T>::iter_key_prefix((netuid, mecid)).next()
             else {
-                weight_meter.consume(item_weight);
+                weight_meter.consume(probe_weight);
                 break;
             };
+            if !weight_meter.can_consume(item_weight) {
+                weight_meter.consume(probe_weight);
+                return false;
+            }
             Self::purge_channel_target(netuid, &hotkey, mecid, channel);
             remaining_rows = remaining_rows.saturating_sub(1);
             weight_meter.consume(item_weight);
@@ -1848,8 +1880,10 @@ impl<T: Config> Pallet<T> {
         let index = Self::target_index(netuid, mecid);
         let start = ChannelMechanismConfigPurgeCursor::<T>::get((netuid, mecid)).unwrap_or(0);
         for channel in start..=u16::from(u8::MAX) {
-            if !weight_meter.can_consume(write_weight.saturating_mul(2)) {
-                if !weight_meter.can_consume(write_weight) {
+            // Reserve a write to persist the next channel even when this pair
+            // would otherwise use the entire remaining budget.
+            if !weight_meter.can_consume(write_weight.saturating_mul(3)) {
+                if channel == start || !weight_meter.can_consume(write_weight) {
                     return false;
                 }
                 ChannelMechanismConfigPurgeCursor::<T>::insert((netuid, mecid), channel);
@@ -1869,17 +1903,22 @@ impl<T: Config> Pallet<T> {
     }
 
     fn clear_channel_netuid_swaps(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        let probe_weight = T::DbWeight::get().reads(1);
         loop {
             let item_weight = T::DbWeight::get().reads_writes(9, 13);
-            if !weight_meter.can_consume(item_weight) {
+            if !weight_meter.can_consume(probe_weight) {
                 return false;
             }
             if ChannelSwapPendingHotkeys::<T>::iter_prefix(netuid)
                 .next()
                 .is_none()
             {
-                weight_meter.consume(item_weight);
+                weight_meter.consume(probe_weight);
                 break;
+            }
+            if !weight_meter.can_consume(item_weight) {
+                weight_meter.consume(probe_weight);
+                return false;
             }
             Self::drain_channel_swap_step(weight_meter, false);
         }
@@ -1891,19 +1930,24 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
     ) -> bool {
         let item_weight = T::DbWeight::get().reads_writes(1, 3);
+        let probe_weight = T::DbWeight::get().reads(1);
         loop {
-            if !weight_meter.can_consume(item_weight) {
+            if !weight_meter.can_consume(probe_weight) {
                 return false;
             }
             if let Some((old_hotkey, new_hotkey)) =
                 ChannelSwapPendingHotkeys::<T>::iter_prefix(netuid).next()
             {
+                if !weight_meter.can_consume(item_weight) {
+                    weight_meter.consume(probe_weight);
+                    return false;
+                }
                 ChannelSwapPendingHotkeys::<T>::remove(netuid, &old_hotkey);
                 ChannelSwapOrigins::<T>::remove((netuid, &new_hotkey, &old_hotkey));
                 weight_meter.consume(item_weight);
                 continue;
             }
-            weight_meter.consume(item_weight);
+            weight_meter.consume(probe_weight);
             return clear_prefix_with_meter(weight_meter, item_weight, |limit| {
                 ChannelNeuronPurgeQueue::<T>::clear_prefix(netuid, limit, None)
             }) && clear_prefix_with_meter(weight_meter, item_weight, |limit| {
