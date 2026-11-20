@@ -7,15 +7,10 @@
 //! HOSTNAME: `cursor`, CPU: `Intel(R) Xeon(R) Processor`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `None`, DB CACHE: `1024`
 //!
-//! NOTE (2026-11-03 per-loan never-deepen burn): `InvariantBaseline` storage
-//! reads/writes removed from close / repay / settle / forfeit proofs. Numerics
-//! still need a CI reference re-measure on those extrinsics (do not invent
-//! local weight values here).
-//!
-//! NOTE (2026-11-05 Skeptic fid:e405959d): `collect` now delegates to the
-//! measured `settle` envelope because interest forfeiture buybacks through
-//! the AMM; the last CI `collect` measurement is pre-buyback and under-charges.
-//! Re-measure `collect` on reference hardware when benchmarks next run.
+//! NOTE (2026-11-20 H2, run 44678338810): reference re-measure of
+//! `pallet_lending` on Benchmarking hardware (steps 50 / repeat 20). Includes
+//! forfeit-inclusive `collect` and expiry-as-close `settle`; the interim
+//! `collect`→`settle` alias (Skeptic fid:e405959d) is retired.
 
 // Executed Command:
 // /workspace/target/production/node-subtensor

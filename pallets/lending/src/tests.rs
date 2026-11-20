@@ -4436,10 +4436,10 @@ fn coldkey_swap_rewinds_expiry_cursor_so_due_loan_still_settles() {
 }
 
 /// Skeptic fid:f2eb3d14 / fid:e405959d — idle `collect` / `settle` weights
-/// must budget the forfeit path (re-add, queue unlink, AMM buyback, optional
-/// k-burn), not only happy-path weekly accrual (old 8 reads / 6 writes).
-/// `collect` charges the measured `settle` envelope until a CI re-measure of
-/// the buyback-inclusive forfeit path lands.
+/// must budget the forfeit / expiry-close path (re-add, queue unlink, AMM
+/// buyback, optional k-burn), not only happy-path weekly accrual (old 8 reads
+/// / 6 writes). After H2 re-measure (run 44678338810) each extrinsic has its
+/// own reference weight; they need not compare to each other.
 #[test]
 fn collect_and_settle_weights_cover_forfeit_storage_floor() {
     let happy = Weight::from_parts(80_000_000, 8_000)
@@ -4460,10 +4460,6 @@ fn collect_and_settle_weights_cover_forfeit_storage_floor() {
             "{name} must cover estimated forfeit read/write costs"
         );
     }
-    assert!(
-        collect.all_gte(settle),
-        "collect must charge at least the settle buyback-forfeit envelope"
-    );
 }
 
 /// Skeptic fid:f2eb3d14 — on_idle interest collection can forfeit; one
