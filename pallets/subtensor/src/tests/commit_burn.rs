@@ -2,10 +2,10 @@
 
 use super::mock::*;
 use crate::*;
-use frame_support::{assert_noop, assert_ok};
+use frame_support::{assert_noop, assert_ok, dispatch::GetDispatchInfo};
 use pallet_commitments::{
-    ChannelCommitmentOf, CommitBurnConfig, CommitBurnParameters, CommitBurnSequence,
-    CommitmentInfo, Data, Pallet as CommitmentsPallet,
+    ChannelCommitmentOf, CommitBurnConfig, CommitBurnInterface, CommitBurnParameters,
+    CommitBurnSequence, CommitmentInfo, Data, Pallet as CommitmentsPallet,
 };
 use sp_core::U256;
 use sp_runtime::BoundedVec;
@@ -57,6 +57,51 @@ fn configure_burn(netuid: NetUid, mecid: MechId, channel: u8, enabled: bool) {
             last_update_block: SubtensorModule::get_current_block_as_u64(),
         },
     );
+}
+
+#[test]
+fn channel_commit_refunds_payment_weight_only_on_the_free_path() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(11);
+        let coldkey = U256::from(12);
+        add_network(netuid, 100, 0);
+        setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(1_000_000u64));
+
+        let max_burn = TaoBalance::from(1_000u64);
+        let declared_weight = pallet_commitments::Call::<Test>::set_commitment_to {
+            netuid,
+            mecid: MechId::MAIN,
+            channel: 0,
+            hotkey,
+            info: Box::new(raw_info()),
+            max_burn,
+        }
+        .get_dispatch_info()
+        .call_weight;
+        let commit = || {
+            CommitmentsPallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(coldkey),
+                netuid,
+                MechId::MAIN,
+                0,
+                hotkey,
+                Box::new(raw_info()),
+                max_burn,
+            )
+            .expect("commit should succeed")
+        };
+
+        assert_eq!(
+            commit().actual_weight,
+            Some(declared_weight.saturating_sub(SubtensorModule::payment_weight()))
+        );
+
+        configure_burn(netuid, MechId::MAIN, 0, true);
+        assert_eq!(commit().actual_weight, None);
+    });
 }
 
 #[test]

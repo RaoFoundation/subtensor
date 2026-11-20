@@ -13,9 +13,9 @@ a `BasketTrading` proxy of it (the intended setup for a trader
 multisig).
 
 Guardrails enforced on chain: each AMM leg must fill fully within
-`BasketTradeMaxSlippageBps` of its configured price reference. By default
-this is 5% from spot; governance may instead select the legacy strictest of
-the slow EMA, fast EMA, and spot (`SlippageTooHigh` otherwise). The TAO
+`BasketTradeMaxSlippageBps` of its configured price reference. The default
+is 2% against the strictest of the slow EMA, fast EMA, and spot. Governance
+can change the band and reference (`SlippageTooHigh` on a breach). The TAO
 through the middle is taken from the fund's turnover bucket, which holds
 `BasketDailyTurnoverCap` of the fund's guarded NAV (each holding at
 the lower of its realizable value and its slow-moving-price value) and

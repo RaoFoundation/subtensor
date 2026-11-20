@@ -420,8 +420,8 @@
         "container": "Commitments",
         "name": "ChannelCommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 307,
-        "url": "/code/pallets/commitments/src/lib.rs#L307",
+        "line": 309,
+        "url": "/code/pallets/commitments/src/lib.rs#L309",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       },
       {
@@ -429,8 +429,8 @@
         "container": "Commitments",
         "name": "ChannelRevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 320,
-        "url": "/code/pallets/commitments/src/lib.rs#L320",
+        "line": 322,
+        "url": "/code/pallets/commitments/src/lib.rs#L322",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -643,8 +643,8 @@
         "container": "Commitments",
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 458,
-        "url": "/code/pallets/commitments/src/lib.rs#L458",
+        "line": 460,
+        "url": "/code/pallets/commitments/src/lib.rs#L460",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -1989,8 +1989,8 @@
         "container": "Commitments",
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 494,
-        "url": "/code/pallets/commitments/src/lib.rs#L494",
+        "line": 496,
+        "url": "/code/pallets/commitments/src/lib.rs#L496",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]

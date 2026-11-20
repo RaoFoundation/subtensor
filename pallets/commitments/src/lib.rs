@@ -107,7 +107,9 @@ impl<A> CommitBurnInterface<A> for () {
 #[allow(clippy::expect_used)]
 pub mod pallet {
     use super::*;
-    use frame_support::{pallet_prelude::*, traits::ReservableCurrency};
+    use frame_support::{
+        dispatch::DispatchResultWithPostInfo, pallet_prelude::*, traits::ReservableCurrency,
+    };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
 
     #[pallet::pallet]
@@ -672,9 +674,7 @@ pub mod pallet {
         /// Publish a channel commitment, with the coldkey paying the optional burn.
         #[pallet::call_index(3)]
         #[pallet::weight((
-            <T as pallet::Config>::WeightInfo::set_commitment_to_free()
-                .max(<T as pallet::Config>::WeightInfo::set_commitment_to_paid())
-                .saturating_add(T::CanCommit::validation_weight())
+            Pallet::<T>::set_commitment_to_base_weight()
                 .saturating_add(T::CommitBurn::payment_weight()),
             DispatchClass::Normal,
             Pays::Yes
@@ -688,7 +688,7 @@ pub mod pallet {
             hotkey: T::AccountId,
             info: Box<CommitmentInfo<T::MaxFields>>,
             max_burn: TaoBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin)?;
             T::CommitBurn::ensure_mechanism(netuid, mecid)
                 .map_err(|_| Error::<T>::MechanismDoesNotExist)?;
@@ -701,25 +701,25 @@ pub mod pallet {
                 Error::<T>::ChannelMigrationPending
             );
 
-            let (tao, alpha_recycled, new_price, seq) =
-                if let Some(config) = T::CommitBurn::current_price(netuid, mecid, channel) {
-                    ensure!(config.burn <= max_burn, Error::<T>::BurnPriceLimitExceeded);
-                    let alpha_recycled = T::CommitBurn::pay(netuid, &coldkey, &hotkey, config.burn)
-                        .map_err(Into::into)?;
-                    T::CommitBurn::bump(netuid, mecid, channel);
-                    let new_price = T::CommitBurn::current_price(netuid, mecid, channel)
-                        .map_or(TaoBalance::ZERO, |updated| updated.burn);
-                    let seq = CommitBurnSequence::<T>::mutate(
-                        (Self::target_index(netuid, mecid), channel),
-                        |sequence| {
-                            *sequence = sequence.saturating_add(1);
-                            *sequence
-                        },
-                    );
-                    (config.burn, alpha_recycled, new_price, seq)
-                } else {
-                    (TaoBalance::ZERO, AlphaBalance::ZERO, TaoBalance::ZERO, 0)
-                };
+            let burn_config = T::CommitBurn::current_price(netuid, mecid, channel);
+            let (tao, alpha_recycled, new_price, seq) = if let Some(config) = burn_config {
+                ensure!(config.burn <= max_burn, Error::<T>::BurnPriceLimitExceeded);
+                let alpha_recycled = T::CommitBurn::pay(netuid, &coldkey, &hotkey, config.burn)
+                    .map_err(Into::<sp_runtime::DispatchError>::into)?;
+                T::CommitBurn::bump(netuid, mecid, channel);
+                let new_price = T::CommitBurn::current_price(netuid, mecid, channel)
+                    .map_or(TaoBalance::ZERO, |updated| updated.burn);
+                let seq = CommitBurnSequence::<T>::mutate(
+                    (Self::target_index(netuid, mecid), channel),
+                    |sequence| {
+                        *sequence = sequence.saturating_add(1);
+                        *sequence
+                    },
+                );
+                (config.burn, alpha_recycled, new_price, seq)
+            } else {
+                (TaoBalance::ZERO, AlphaBalance::ZERO, TaoBalance::ZERO, 0)
+            };
 
             Self::put_channel_commitment(netuid, mecid, channel, &hotkey, &coldkey, *info.clone())?;
             let content_hash = BlakeTwo256::hash(&info.encode()).to_fixed_bytes();
@@ -735,7 +735,10 @@ pub mod pallet {
                 seq,
                 content_hash,
             });
-            Ok(())
+            Ok(burn_config
+                .is_none()
+                .then(Self::set_commitment_to_base_weight)
+                .into())
         }
     }
 
@@ -964,6 +967,13 @@ pub const MAX_TIMELOCK_REVEALS_PER_BLOCK: u32 = 32;
 pub const MAX_TIMELOCK_VISITS_PER_BLOCK: u32 = 256;
 
 impl<T: Config> Pallet<T> {
+    // Keep the shared storage allowance when refunding the unused payment envelope.
+    fn set_commitment_to_base_weight() -> Weight {
+        <T as Config>::WeightInfo::set_commitment_to_free()
+            .max(<T as Config>::WeightInfo::set_commitment_to_paid())
+            .saturating_add(T::CanCommit::validation_weight())
+    }
+
     fn target_index(netuid: NetUid, mecid: MechId) -> NetUidStorageIndex {
         u16::from(mecid)
             .saturating_mul(4096)
