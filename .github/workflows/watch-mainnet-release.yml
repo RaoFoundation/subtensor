@@ -516,6 +516,12 @@ jobs:
           EXPECTED_CODE_HASH: ${{ needs.check.outputs.code_hash }}
         run: .github/scripts/mainnet-finalized-runtime.sh
 
+      # Release tags are immutable, so a fix to the floor check could never
+      # reach a retry if the check came from the release commit. Keep this
+      # workflow's copy before checking the release out.
+      - name: Keep this workflow's floor check
+        run: cp .github/scripts/check-sdk-core-floor.sh "$RUNNER_TEMP/check-sdk-core-floor.sh"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.check.outputs.sha }}
@@ -571,7 +577,7 @@ jobs:
       - name: Check SDK against its minimum bittensor-core
         run: |
           if [ -f .github/scripts/check-sdk-core-floor.sh ]; then
-            .github/scripts/check-sdk-core-floor.sh dist
+            "$RUNNER_TEMP/check-sdk-core-floor.sh" dist
           else
             echo "release predates check-sdk-core-floor.sh; skipping"
           fi
@@ -713,7 +719,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/wasm"
           gh release download "v${SPEC}" --repo "$GITHUB_REPOSITORY" \
             --pattern subtensor-digest.json --dir "$RUNNER_TEMP/wasm"
-          sha256=$(jq -er '.sha256' "$RUNNER_TEMP/wasm/subtensor-digest.json" | tr '[:upper:]' '[:lower:]')
+          sha256=$(jq -er '.sha256' "$RUNNER_TEMP/wasm/subtensor-digest.json" | tr '[:upper:]' '[:lower:]' | sed 's/^0x//')
           [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "wasm sha256 is not 64 hex characters"; exit 1; }
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           if git cat-file -e "${RELEASE_SHA}:.github/release-notes/runtime/${SPEC}.json"; then
@@ -833,7 +839,7 @@ jobs:
           else
             gh release download "v${SPEC}" --repo "$GITHUB_REPOSITORY" \
               --pattern subtensor-digest.json --dir "$RUNNER_TEMP"
-            sha256=$(jq -er '.sha256' "$RUNNER_TEMP/subtensor-digest.json" | tr '[:upper:]' '[:lower:]')
+            sha256=$(jq -er '.sha256' "$RUNNER_TEMP/subtensor-digest.json" | tr '[:upper:]' '[:lower:]' | sed 's/^0x//')
           fi
           [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "wasm sha256 is not 64 hex characters"; exit 1; }
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
