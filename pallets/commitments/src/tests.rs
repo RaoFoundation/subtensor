@@ -1253,6 +1253,41 @@ fn dissolution_resumes_after_completed_mechanism_without_repeating_cleanup() {
     });
 }
 
+// Completing a config sweep must not consume the writes that advance the mechanism cursor;
+// otherwise a budget with two remaining writes repeats the same completed sweep forever.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_reserves_cursor_writes_after_config_sweep() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let budget = RocksDbWeight::get().reads_writes(20, 511);
+        let purge = || {
+            let mut meter = frame_support::weights::WeightMeter::with_limit(budget);
+            Pallet::<Test>::purge_channel_netuid(netuid, &mut meter)
+        };
+        // The first call finishes mechanism 0's config sweep but cannot afford
+        // the three outer-cursor writes. The second must advance, not repeat
+        // that completed sweep without making progress.
+        assert!(!purge());
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            None
+        );
+        assert!(!purge());
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+        let mut finish = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            None
+        );
+    });
+}
+
 #[test]
 fn retirement_after_overlapping_destination_swap_preserves_live_channels() {
     new_test_ext().execute_with(|| {

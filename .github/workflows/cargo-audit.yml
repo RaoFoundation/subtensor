@@ -47,6 +47,13 @@ jobs:
           python3 .github/scripts/test_audit_feature_exclusions.py
           python3 .github/scripts/check-audit-feature-exclusions.py
 
+      - name: Test bounded DNS decoder allocation
+        run: |
+          cargo test --locked --manifest-path vendor/hickory-dns/hickory-proto-0.24.4/Cargo.toml \
+            --no-default-features --test allocation_limit
+          cargo test --locked --manifest-path vendor/hickory-dns/hickory-proto-0.25.2/Cargo.toml \
+            --no-default-features --test allocation_limit
+
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
         # polkadot-sdk since most originate in the patched fork's tree.
@@ -103,9 +110,12 @@ jobs:
           #   parser paths are not used. Their consumers pin hickory below 0.26.
           # RUSTSEC-2026-0491: hickory decodes untrusted DNS responses with an
           #   attacker-controlled initial allocation (up to about 18 MB before
-          #   rejecting a malformed message). This exposure in libp2p/litep2p is
-          #   accepted pending a compatible >=0.26.2 networking upgrade; it is
-          #   not a claim that the ordinary DNS response path is unreachable.
+          #   rejecting a malformed message). Both pinned versions are patched
+          #   locally under vendor/hickory-dns with upstream 280c0e5c, bounding
+          #   initial capacity to eight entries per section; allocation_limit.rs
+          #   exercises a forged u16::MAX count header on the real decoder path.
+          #   Keep the ignore while the SDK is pinned, rather than claiming the
+          #   ordinary DNS response path is unreachable; revisit on SDK upgrade.
           # RUSTSEC-2026-0504/0505/0511/0512/0514/0530/0531/0532/0549/0550/0551:
           #   DNSSEC validation errors, some without a fixed old-line release.
           #   libp2p-dns and litep2p resolve bootstrap peers without DNSSEC;

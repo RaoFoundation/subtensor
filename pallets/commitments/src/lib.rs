@@ -1933,10 +1933,14 @@ impl<T: Config> Pallet<T> {
             {
                 return false;
             }
-            if !Self::purge_channel_mechanism_config(netuid, mecid, weight_meter) {
+            let completion_weight = write_weight.saturating_mul(3);
+            let mut mechanism_meter =
+                WeightMeter::with_limit(weight_meter.remaining().saturating_sub(completion_weight));
+            if !Self::purge_channel_mechanism_config(netuid, mecid, &mut mechanism_meter) {
                 return false;
             }
-            if !weight_meter.can_consume(write_weight.saturating_mul(3)) {
+            weight_meter.consume(mechanism_meter.consumed());
+            if !weight_meter.can_consume(completion_weight) {
                 return false;
             }
             ChannelMechanismPurgeQueue::<T>::remove(netuid, mecid);
@@ -1945,7 +1949,7 @@ impl<T: Config> Pallet<T> {
                 netuid,
                 MechId::from(mechanism.saturating_add(1) as u8),
             );
-            weight_meter.consume(write_weight.saturating_mul(3));
+            weight_meter.consume(completion_weight);
         }
         ChannelTimelockRevealCursor::<T>::kill();
         if weight_meter.can_consume(write_weight.saturating_mul(2)) {
