@@ -12,7 +12,7 @@ its unconverted alpha to that subnet's pending miner emission.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | AdminUtils | [`AdminUtils.sudo_set_subnet_gamma_emission_whitelisted`](/code/pallets/admin-utils/src/lib.rs#L3071-L3095), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | AdminUtils | [`AdminUtils.sudo_set_subnet_gamma_emission_whitelisted`](/code/pallets/admin-utils/src/lib.rs#L3072-L3096), `Sudo.sudo` |
 
 ## Verify
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("set_subnet_gamma_emission_whitelisted", {...}, wallet
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_subnet_gamma_emission_whitelisted` — [`pallets/admin-utils/src/lib.rs#L3074`](/code/pallets/admin-utils/src/lib.rs#L3071-L3095):
+`AdminUtils.sudo_set_subnet_gamma_emission_whitelisted` — [`pallets/admin-utils/src/lib.rs#L3075`](/code/pallets/admin-utils/src/lib.rs#L3072-L3096):
 
 ```rust
 #[pallet::call_index(121)]

@@ -291,6 +291,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_start_call_delay",
         # superseded by v2, which the SetSubnetEmissionWeights intent sends
         "sudo_set_subnet_emission_weights",
+        # global owner-update interval for the emission weight vector — root-only
+        "sudo_set_subnet_emission_weights_rate_limit",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
         # owner-cut setters deprecated by the emission weight vector (both always

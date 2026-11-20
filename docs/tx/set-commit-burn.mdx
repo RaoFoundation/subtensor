@@ -16,7 +16,7 @@ settings with the `commit_burn` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_commit_burn_enabled`](/code/pallets/admin-utils/src/lib.rs#L3121-L3134), [`AdminUtils.sudo_set_commit_burn_min`](/code/pallets/admin-utils/src/lib.rs#L3137-L3152), [`AdminUtils.sudo_set_commit_burn_max`](/code/pallets/admin-utils/src/lib.rs#L3155-L3170), [`AdminUtils.sudo_set_commit_burn_half_life`](/code/pallets/admin-utils/src/lib.rs#L3173-L3190), [`AdminUtils.sudo_set_commit_burn_increase_mult`](/code/pallets/admin-utils/src/lib.rs#L3193-L3207) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_commit_burn_enabled`](/code/pallets/admin-utils/src/lib.rs#L3169-L3182), [`AdminUtils.sudo_set_commit_burn_min`](/code/pallets/admin-utils/src/lib.rs#L3185-L3200), [`AdminUtils.sudo_set_commit_burn_max`](/code/pallets/admin-utils/src/lib.rs#L3203-L3218), [`AdminUtils.sudo_set_commit_burn_half_life`](/code/pallets/admin-utils/src/lib.rs#L3221-L3238), [`AdminUtils.sudo_set_commit_burn_increase_mult`](/code/pallets/admin-utils/src/lib.rs#L3241-L3255) |
 
 ## Verify
 
@@ -84,10 +84,10 @@ result = sub.execute_tool("set_commit_burn", {...}, wallet)
 
 | Chain call | Source |
 | --- | --- |
-| `AdminUtils.sudo_set_commit_burn_enabled` | [`pallets/admin-utils/src/lib.rs#L3123`](/code/pallets/admin-utils/src/lib.rs#L3121-L3134) |
-| `AdminUtils.sudo_set_commit_burn_min` | [`pallets/admin-utils/src/lib.rs#L3139`](/code/pallets/admin-utils/src/lib.rs#L3137-L3152) |
-| `AdminUtils.sudo_set_commit_burn_max` | [`pallets/admin-utils/src/lib.rs#L3157`](/code/pallets/admin-utils/src/lib.rs#L3155-L3170) |
-| `AdminUtils.sudo_set_commit_burn_half_life` | [`pallets/admin-utils/src/lib.rs#L3175`](/code/pallets/admin-utils/src/lib.rs#L3173-L3190) |
-| `AdminUtils.sudo_set_commit_burn_increase_mult` | [`pallets/admin-utils/src/lib.rs#L3195`](/code/pallets/admin-utils/src/lib.rs#L3193-L3207) |
+| `AdminUtils.sudo_set_commit_burn_enabled` | [`pallets/admin-utils/src/lib.rs#L3171`](/code/pallets/admin-utils/src/lib.rs#L3169-L3182) |
+| `AdminUtils.sudo_set_commit_burn_min` | [`pallets/admin-utils/src/lib.rs#L3187`](/code/pallets/admin-utils/src/lib.rs#L3185-L3200) |
+| `AdminUtils.sudo_set_commit_burn_max` | [`pallets/admin-utils/src/lib.rs#L3205`](/code/pallets/admin-utils/src/lib.rs#L3203-L3218) |
+| `AdminUtils.sudo_set_commit_burn_half_life` | [`pallets/admin-utils/src/lib.rs#L3223`](/code/pallets/admin-utils/src/lib.rs#L3221-L3238) |
+| `AdminUtils.sudo_set_commit_burn_increase_mult` | [`pallets/admin-utils/src/lib.rs#L3243`](/code/pallets/admin-utils/src/lib.rs#L3241-L3255) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

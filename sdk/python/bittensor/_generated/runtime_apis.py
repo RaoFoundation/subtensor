@@ -173,6 +173,9 @@ class SubnetInfoRuntimeApi:
 
 class SubnetRegistrationRuntimeApi:
     get_network_registration_cost = Method('SubnetRegistrationRuntimeApi', 'get_network_registration_cost')
+    get_commit_burn = Method('SubnetRegistrationRuntimeApi', 'get_commit_burn')
+    get_channel_commitment = Method('SubnetRegistrationRuntimeApi', 'get_channel_commitment')
+    get_mech_weight_delegate = Method('SubnetRegistrationRuntimeApi', 'get_mech_weight_delegate')
 
 class SwapRuntimeApi:
     current_alpha_price = Method('SwapRuntimeApi', 'current_alpha_price')
