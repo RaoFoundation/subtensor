@@ -1529,20 +1529,16 @@ impl pallet_crowdloan::Config for Runtime {
     type MaxContributors = MaxContributors;
 }
 
-// Lending (Jacob v5.1 lift / escrow)
+// Lending (Jacob v5.1 lift / escrow).
+// Economic knobs (max_loan_duration, max_settlement_deferral, young_short
+// window, minimum_loan_value, …) live in LiftParams / LiftParamsStore — not
+// as Config constants (μ Shorting 101821).
 parameter_types! {
     pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
-    /// Minimum loan *opening value* in TAO (rao). Checked as TAO of loan size:
-    /// long principal is already TAO; short uses `tao_for_alpha(principal, coupon)`.
-    /// Raised to 1 τ (from 0.001 τ) so 10k position slots cannot be filled for ~40 τ.
-    pub const LendingMinimumLoanValue: u64 = 1_000_000_000; // 1 τ
     // Spec §6: weekly coupon collection. 100 was a fork-test remnant (~20 min);
-    // 50_400 ≈ 7 days at 12 s blocks.
+    // 50_400 ≈ 7 days at 12 s blocks. Snapshotted onto positions at open.
     pub const LendingInterestPeriod: BlockNumber = 50_400;
     pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
-    /// Hard max loan lifetime (~30 days at 12 s). New opens expire after this;
-    /// increases never extend (Jacob 2026-11-19).
-    pub const LendingMaxLoanDuration: BlockNumber = 216_000;
     pub const LendingReferenceWarmup: BlockNumber = 7_200; // ~24h
     pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
     pub const LendingMaxTotalPositions: u32 = 1_000_000;
@@ -1550,32 +1546,22 @@ parameter_types! {
     pub const LendingExpiryRetryDelay: BlockNumber = 100;
     // Same bound for failed interest collections (Auditor fid:2aff7381).
     pub const LendingInterestRetryDelay: BlockNumber = 100;
-    // Max band-deferral window for permissionless expiry / interest-exhaustion
-    // forfeit (~7 days at 12 s). Longer than settle_ema_blocks (24 h) so a
-    // sustained pump through forced settle is far costlier (N28 / Jacob).
-    pub const LendingMaxSettlementDeferral: BlockNumber = 50_400;
-    /// Bounded expiry drain per `on_initialize` (normal + deferred attempts).
+    /// Hard compile-time cap on expiry settles per `on_initialize` (weight safety).
+    /// Live LiftParams.max_expiry_settlements_per_block must be ≤ this.
     pub const LendingMaxExpirySettlementsPerBlock: u32 = 16;
-    /// Young-short dissolution window: shorts younger than this settle debt at
-    /// `max(r, P_open)` (~3.5 days at 12 s). Older shorts keep full dereg at `r`.
-    pub const LendingYoungShortSettlementWindow: BlockNumber = 25_200;
 }
 
 impl pallet_lending::Config for Runtime {
     type Pool = SubtensorModule;
     type PalletId = LendingPalletId;
-    type MinimumLoanValue = LendingMinimumLoanValue;
     type InterestPeriod = LendingInterestPeriod;
     type BlocksPerYear = LendingBlocksPerYear;
-    type MaxLoanDuration = LendingMaxLoanDuration;
     type ReferenceWarmup = LendingReferenceWarmup;
     type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
     type MaxTotalPositions = LendingMaxTotalPositions;
     type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type InterestRetryDelay = LendingInterestRetryDelay;
-    type MaxSettlementDeferral = LendingMaxSettlementDeferral;
     type MaxExpirySettlementsPerBlock = LendingMaxExpirySettlementsPerBlock;
-    type YoungShortSettlementWindow = LendingYoungShortSettlementWindow;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
 
@@ -1934,7 +1920,7 @@ type Migrations = (
     pallet_lending::migrations::ResetN24ShortfallCountersMigration<Runtime>,
     // v5.8: append LiftBook.short_sold_alpha for net-long emission.
     pallet_lending::migrations::LiftBookShortSoldMigration<Runtime>,
-    // Hard 30-day MaxLoanDuration: rewrite live rows to terms v2, rebuild
+    // Hard 30-day LiftParams.max_loan_duration: rewrite live rows to terms v2, rebuild
     // expiry queues, clear stale band-deferral stamps (mainnet has none).
     pallet_lending::migrations::PositionMaxDurationMigration<Runtime>,
     // Bound DueTail rebuild (was unbounded in on_runtime_upgrade; audit M2).

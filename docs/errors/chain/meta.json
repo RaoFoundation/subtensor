@@ -2,7 +2,6 @@
   "title": "Chain errors",
   "pages": [
     "index",
-    "AboveMaximumPayment",
     "AccountNotAllowedCommit",
     "AccountPolicyViolation",
     "AccountRejectsLockedAlpha",
@@ -120,7 +119,6 @@
     "DepositCannotBeWithdrawn",
     "DepositTooLow",
     "Deprecated",
-    "DepthBelowThreshold",
     "DerivedAuthorityTooComplex",
     "DescriptorMismatch",
     "Disabled",

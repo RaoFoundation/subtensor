@@ -1,14 +1,19 @@
-//! Rewrite live positions onto terms v2 with a hard [`Config::MaxLoanDuration`].
+//! Rewrite live positions onto terms v2 with a hard
+//! [`LiftParams::max_loan_duration`] (from [`LiftParamsStore`], falling back to
+//! [`LiftParams::default`] when unset).
 //!
 //! Mainnet has no lending positions at this upgrade; the migration still
 //! handles any test / clone rows: set `terms_version = 2`,
-//! `expires_at = migration_block + MaxLoanDuration`, seed
+//! `expires_at = migration_block + max_loan_duration`, seed
 //! `last_exposure_added_at` from the pre-rewrite open clock when missing,
 //! rebuild the expiry schedule entry, and clear stale band-deferral stamps.
 //! Idempotent via [`HasMigrationRun`].
 //!
 //! try-runtime pre/post uses count + twox fingerprint over **economic** fields
 //! that must survive the expires_at rewrite (audit M3).
+//!
+//! Changelog: Config::MaxLoanDuration / LendingMaxLoanDuration were removed
+//! (μ Shorting 101821); live duration is only LiftParams.
 use core::marker::PhantomData;
 
 #[cfg(feature = "try-runtime")]
@@ -60,7 +65,7 @@ impl<AccountId, BlockNumber> PositionBeforeExposure<AccountId, BlockNumber> {
     {
         let expires_at: BlockNumberFor<T> = self.expires_at.into();
         let term = match self.terms_version {
-            TERMS_VERSION_V2 => T::MaxLoanDuration::get(),
+            TERMS_VERSION_V2 => Pallet::<T>::max_loan_duration(),
             _ => self.blocks_per_year.saturated_into(),
         };
         let last_exposure_added_at = expires_at.saturating_sub(term);
@@ -87,7 +92,7 @@ impl<AccountId, BlockNumber> PositionBeforeExposure<AccountId, BlockNumber> {
     }
 }
 
-/// Count + xor-twox fingerprint of fields the MaxLoanDuration rewrite must keep.
+/// Count + xor-twox fingerprint of fields the max_loan_duration rewrite must keep.
 ///
 /// Dual-layout: raw keys decode as [`PositionBeforeExposure`] or current
 /// [`Position`] so pre-upgrade sees the same rows v2 recovers. Excludes
@@ -205,7 +210,7 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             fp_after == fp_before,
             "migration must preserve economic Position fields and exposure clock (fingerprint)"
         );
-        let want_expires = mig_block.saturating_add(T::MaxLoanDuration::get());
+        let want_expires = mig_block.saturating_add(Pallet::<T>::max_loan_duration());
         for (owner, netuid, after) in Positions::<T>::iter() {
             ensure!(
                 after.terms_version == TERMS_VERSION_V2,
@@ -213,7 +218,7 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             );
             ensure!(
                 after.expires_at == want_expires && after.expiry_due == want_expires,
-                "migrated expires_at must be migration_block + MaxLoanDuration"
+                "migrated expires_at must be migration_block + LiftParams.max_loan_duration"
             );
             ensure!(
                 Expiry::<T>::contains_key(want_expires, (&owner, netuid)),

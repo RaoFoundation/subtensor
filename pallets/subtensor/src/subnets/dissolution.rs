@@ -815,7 +815,8 @@ impl<T: Config> Pallet<T> {
                     );
                     if done {
                         status.subnet_distributed_tao = Some(0);
-                        // §13: settle lending after count, before staker payout.
+                        // §13: settle lending positions on dissolution after
+                        // count, before staker payout.
                         status.set_phase(DissolveCleanupPhase::LendingSettle);
                         status.last_key = None;
                         weight_meter.consume(T::DbWeight::get().writes(2));
@@ -826,7 +827,7 @@ impl<T: Config> Pallet<T> {
                 }
 
                 DissolveCleanupPhase::LendingSettle => {
-                    let done = T::Lending::settle_lending(netuid, weight_meter);
+                    let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
                     if done {
                         let _ = T::Lending::finish_dissolution(netuid);
                         status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);

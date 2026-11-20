@@ -40,11 +40,13 @@ parameter_types! {
     pub const LendingId: PalletId = PalletId(*b"bt/lends");
     /// Mutable so min-loan tests can raise it to 1 τ without rewriting every fixture.
     pub static MinLoanValue: u64 = 1;
-    /// Production is 25_200; tests use a short window so age cases stay cheap.
+    /// Production LiftParams default is 25_200; tests use a short window.
     pub const YoungShortWindow: u64 = 100;
     /// At least [`MIN_MAX_LOAN_DURATION`] (7200) so root `set_lift_params` accepts
-    /// the fixture. Production uses 216_000 (~30 days).
+    /// the fixture. Production LiftParams default is 216_000 (~30 days).
     pub const TestMaxLoanDuration: u64 = 7_200;
+    /// Short band-deferral window so force-settle tests stay cheap.
+    pub const TestMaxSettlementDeferral: u64 = 200;
     /// Small so queue-bounding tests can exhaust the on_initialize cap.
     pub const TestMaxExpirySettlements: u32 = 2;
     /// Large vs `TestMaxLoanDuration` so a full-term max-LTV loan is not
@@ -55,10 +57,8 @@ parameter_types! {
 impl Config for Test {
     type Pool = MockPool;
     type PalletId = LendingId;
-    type MinimumLoanValue = MinLoanValue;
     type InterestPeriod = ConstU64<10>;
     type BlocksPerYear = TestBlocksPerYear;
-    type MaxLoanDuration = TestMaxLoanDuration;
     type ReferenceWarmup = ConstU64<1>;
     type MaxPositionsPerSubnet = ConstU32<8>;
     type MaxTotalPositions = ConstU32<16>;
@@ -66,10 +66,7 @@ impl Config for Test {
     // 64-block empty-bump budget (Skeptic fid:1c6bb1dc).
     type ExpiryRetryDelay = ConstU64<100>;
     type InterestRetryDelay = ConstU64<100>;
-    // Short window so band-force tests stay cheap (2× ExpiryRetryDelay).
-    type MaxSettlementDeferral = ConstU64<200>;
     type MaxExpirySettlementsPerBlock = TestMaxExpirySettlements;
-    type YoungShortSettlementWindow = YoungShortWindow;
     type WeightInfo = ();
 }
 
@@ -767,11 +764,6 @@ impl LendingPoolInterface<Account> for MockPool {
         Ok(t)
     }
 
-    fn eligible_alpha_for_dissolution(_: NetUid) -> Result<u128, DispatchError> {
-        // Legacy-style: omit AlphaIn (main's staker divisor).
-        Ok(u128::from(alpha_out()))
-    }
-
     fn all_alpha_for_lending_settlement(_: NetUid) -> u128 {
         // §13: always include pool alpha.
         u128::from(pool_alpha()).saturating_add(u128::from(alpha_out()))
@@ -851,14 +843,14 @@ fn set_minimum_loan_value(v: u64) {
     LiftParamsStore::<Test>::mutate(|p| p.minimum_loan_value = v);
 }
 
-/// Production defaults with Test Config economic knobs (valid under the
-/// compile-time `MaxExpirySettlementsPerBlock` hard cap of 2).
+/// Production defaults with cheap Test LiftParams economic knobs (valid under
+/// the compile-time `MaxExpirySettlementsPerBlock` hard cap of 2).
 fn test_lift_params() -> LiftParams {
     LiftParams {
         new_subnet_min_age: 0,
         new_subnet_ramp: 1,
         max_loan_duration: TestMaxLoanDuration::get(),
-        max_settlement_deferral: 200,
+        max_settlement_deferral: TestMaxSettlementDeferral::get(),
         young_short_settlement_window: YoungShortWindow::get(),
         minimum_loan_value: MinLoanValue::get(),
         max_expiry_settlements_per_block: TestMaxExpirySettlements::get(),
@@ -878,7 +870,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
         Enabled::<Test>::put(true);
         // Bypass §2.3 gate/ramp for the common fixture; dedicated tests restore defaults.
         // Economic knobs match the Test Config (not production Defaults) so
-        // MaxLoanDuration / young-short / deferral / expiry-drain fixtures stay cheap.
+        // max_loan_duration / young-short / deferral / expiry-drain fixtures stay cheap.
         LiftParamsStore::<Test>::put(test_lift_params());
         set_registered_at(0);
         set_subtoken_enabled(true);
@@ -899,8 +891,8 @@ fn new_test_ext() -> sp_io::TestExternalities {
         ActiveNetCount::<Test>::put(1);
         Lifts::<Test>::mutate(netuid(), |book| {
             book.g_ema = pool_tao();
-            // Aged past settle_ema_blocks so ensure_new_subnet_gate sees a warm G_ema.
-            book.last = LiftParams::default().settle_ema_blocks;
+            // Aged past total_tao_ema_blocks so ensure_new_subnet_gate sees a warm G_ema.
+            book.last = LiftParams::default().total_tao_ema_blocks;
         });
         // Warm settlement EMA to current basis; moving price high so it does not bind.
         set_tao_ema(Lending::settlement_tao_basis(netuid()));
@@ -1042,7 +1034,7 @@ fn raise_after_interest_forfeit_sells_full_new_escrow() {
         // Keep collateral healthy for raise *sizing*, but make the open-path
         // interest charge exhaust it and forfeit inside `do_open`. Size the
         // coupon so one InterestPeriod (10) exhausts the pot without advancing
-        // past expires_at (MaxLoanDuration).
+        // past expires_at (max_loan_duration).
         let now = System::block_number();
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(pos) = p {
@@ -1159,7 +1151,7 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
             Error::<Test>::SideCapacity
         );
         // Exhaust collateral on the next interest charge → forfeit on open path.
-        // Stay strictly before expires_at (MaxLoanDuration); terms v2 rejects
+        // Stay strictly before expires_at (max_loan_duration); terms v2 rejects
         // increases at/after expiry with DeadlinePassed.
         let now = System::block_number();
         let before_expiry = opened.expires_at.saturating_sub(1);
@@ -1481,7 +1473,7 @@ fn section13_legacy_dump_short_gets_positive_refund() {
 
         // Main's legacy divisor omits AlphaIn → inflated rate that can wipe shorts.
         let pot = pool_tao();
-        let legacy_denom = MockPool::eligible_alpha_for_dissolution(netuid()).unwrap();
+        let legacy_denom = u128::from(alpha_out());
         let all_alpha = MockPool::all_alpha_for_lending_settlement(netuid());
         assert!(legacy_denom > 0);
         assert!(all_alpha > legacy_denom);
@@ -1502,7 +1494,7 @@ fn section13_legacy_dump_short_gets_positive_refund() {
         assert_ok!(Lending::start_dissolution(netuid()));
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(netuid(), &mut meter));
 
         // Short ends with a positive payout because r uses ALL_alpha.
         let r_snap = U64F64::from_num(basis) / U64F64::from_num(all_alpha);
@@ -1578,17 +1570,17 @@ fn section132_one_block_pump_changes_short_settlement_under_1pct() {
         assert!(d_flag.t_flag > t_pre);
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(netuid(), &mut meter));
 
-        let rate = Dissolutions::<Test>::get(netuid()).unwrap().rate;
-        let debt = (U64F64::from_num(principal) * rate)
+        let dissolution_price = Dissolutions::<Test>::get(netuid()).unwrap().dissolution_price;
+        let debt = (U64F64::from_num(principal) * dissolution_price)
             .saturating_ceil()
             .saturating_to_num::<u64>();
         // Pump must not confiscate: debt within 1% of pre-pump expectation.
         let tol = expected_debt / 100 + 1;
         assert!(
             debt.abs_diff(expected_debt) <= tol,
-            "debt drifted >1%: debt={debt} expected={expected_debt} rate={rate} r_pre={r_pre}"
+            "debt drifted >1%: debt={debt} expected={expected_debt} dissolution_price={dissolution_price} r_pre={r_pre}"
         );
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         let refund_tol = expected_refund / 100 + 1;
@@ -1628,9 +1620,14 @@ fn section132_no_pump_matches_spot_when_ema_equals_basis() {
         assert_ok!(Lending::start_dissolution(netuid()));
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
-        let rate = Dissolutions::<Test>::get(netuid()).unwrap().rate;
-        assert_eq!(rate, expected_r);
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
+        let dissolution_price = Dissolutions::<Test>::get(netuid())
+            .unwrap()
+            .dissolution_price;
+        assert_eq!(dissolution_price, expected_r);
     });
 }
 
@@ -1664,9 +1661,14 @@ fn section132_moving_price_cap_binds() {
         assert_ok!(Lending::start_dissolution(netuid()));
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
-        let rate = Dissolutions::<Test>::get(netuid()).unwrap().rate;
-        assert_eq!(rate, cap);
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
+        let dissolution_price = Dissolutions::<Test>::get(netuid())
+            .unwrap()
+            .dissolution_price;
+        assert_eq!(dissolution_price, cap);
     });
 }
 
@@ -2015,7 +2017,10 @@ fn dissolution_interest_does_not_forfeit_after_readd() {
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
         // Must complete without stalling on a double-readd forfeit.
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
     });
 }
@@ -2052,7 +2057,7 @@ fn dissolution_settles_long_with_accrued_interest() {
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
         assert!(
-            Lending::settle_lending(netuid(), &mut meter),
+            Lending::settle_positions_on_dissolution(netuid(), &mut meter),
             "long interest at dissolve must not roll back settle"
         );
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
@@ -2061,7 +2066,7 @@ fn dissolution_settles_long_with_accrued_interest() {
 }
 
 #[test]
-fn settle_phase0_subtracts_delta0_and_emits_settle_rate_fixed() {
+fn settle_phase0_subtracts_delta0_and_emits_settle_dissolution_price_fixed() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let _hotkey = account(2);
@@ -2089,25 +2094,31 @@ fn settle_phase0_subtracts_delta0_and_emits_settle_rate_fixed() {
             pool_alpha(),
         );
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
         let dissolution = Dissolutions::<Test>::get(netuid()).unwrap();
         let expected_t_settle = t_flag.min(t_flag).saturating_sub(delta0);
         let d = MockPool::all_alpha_for_lending_settlement(netuid());
         let expected_bits = (u128::from(expected_t_settle) << 64) / d.max(1);
-        assert_eq!(dissolution.rate.to_bits(), expected_bits);
+        assert_eq!(dissolution.dissolution_price.to_bits(), expected_bits);
         // Δ0 never negative; T_settle ≤ min(T_flag, t_ema_flag).
         assert!(expected_t_settle <= t_flag);
         let found = System::events().iter().any(|e| {
             matches!(
                 &e.event,
-                RuntimeEvent::Lending(Event::SettleRateFixed {
+                RuntimeEvent::Lending(Event::SettleDissolutionPriceFixed {
                     delta0: d0,
                     t_pre: tp,
                     ..
                 }) if *d0 == delta0 && *tp == t_pre
             )
         });
-        assert!(found, "SettleRateFixed must fire with Δ0 and T_pre");
+        assert!(
+            found,
+            "SettleDissolutionPriceFixed must fire with Δ0 and T_pre"
+        );
     });
 }
 
@@ -2721,12 +2732,15 @@ fn short_settlement_uses_terminal_split_for_recovery_and_refund() {
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         Dissolutions::<Test>::mutate(netuid(), |d| {
             if let Some(d) = d {
-                d.rate = U64F64::from_num(0);
+                d.dissolution_price = U64F64::from_num(0);
             }
         });
         DissolutionPhase::<Test>::insert(netuid(), 1u8);
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         assert_eq!(tao(&escrow), 0, "escrow must be emptied atomically");
         assert!(
@@ -2810,7 +2824,7 @@ fn warm_reference_then_open_after_warmup_succeeds() {
         let warmup: u64 = <<Test as Config>::ReferenceWarmup as Get<_>>::get();
 
         // Past min age + full Cap ramp so a normal open is not SideCapacity-bound.
-        // Seeding G_ema here also satisfies `book.last - registered >= settle_ema_blocks`
+        // Seeding G_ema here also satisfies `book.last - registered >= total_tao_ema_blocks`
         // because that age exceeds the settle window.
         let ready = params
             .new_subnet_min_age
@@ -2891,12 +2905,12 @@ fn warm_reference_ages_g_ema_via_on_finalize_before_min_age() {
         // Jump one EMA window; a single finalize advances `book.last` (as live
         // blocks would have done each step). Gate uses last − registered, not
         // a separate aging counter.
-        let target = params.settle_ema_blocks.saturating_add(100);
+        let target = params.total_tao_ema_blocks.saturating_add(100);
         System::set_block_number(target);
         <Lending as Hooks<_>>::on_finalize(target);
         let book = Lifts::<Test>::get(netuid());
         assert!(book.g_ema > 0);
-        assert!(book.last.saturating_sub(0) >= params.settle_ema_blocks);
+        assert!(book.last.saturating_sub(0) >= params.total_tao_ema_blocks);
 
         // Still below min age — opens remain gated.
         assert!(System::block_number() < params.new_subnet_min_age);
@@ -2984,7 +2998,7 @@ fn migration_appends_ema_band_from_pre_band_layout() {
             apr_bps: 10_000,
             slice_bps: 1,
             crash_guard_bps: 9_500,
-            settle_ema_blocks: 7_200,
+            total_tao_ema_blocks: 7_200,
             new_subnet_min_age: 50_400,
             new_subnet_ramp: 216_000,
         };
@@ -3032,7 +3046,7 @@ fn lift_params_current_layout_rejects_prefix_decode_as_pre_band() {
         apr_bps: 10_000,
         slice_bps: 1,
         crash_guard_bps: 9_500,
-        settle_ema_blocks: 7_200,
+        total_tao_ema_blocks: 7_200,
         new_subnet_min_age: 50_400,
         new_subnet_ramp: 216_000,
         ema_band_bps: 1_500,
@@ -3071,7 +3085,7 @@ fn migration_expands_economic_params_from_pre_economic_layout() {
             apr_bps: 8_000,
             slice_bps: 1,
             crash_guard_bps: 9_500,
-            settle_ema_blocks: 7_200,
+            total_tao_ema_blocks: 7_200,
             new_subnet_min_age: 50_400,
             new_subnet_ramp: 216_000,
             ema_band_bps: 1_500,
@@ -3716,11 +3730,11 @@ fn registration_hook_seeds_without_manual_warm_and_open_succeeds_after_gate() {
         mint_tao(&owner, 50_000_000_000_000);
         let params = LiftParams::default();
         // Past min age + Cap ramp + reference warmup. Finalize once so G_ema
-        // `last` advances (seeded early at block 10, needs ≥ settle_ema_blocks).
+        // `last` advances (seeded early at block 10, needs ≥ total_tao_ema_blocks).
         let ready = params
             .new_subnet_min_age
             .saturating_add(params.new_subnet_ramp)
-            .max(params.settle_ema_blocks)
+            .max(params.total_tao_ema_blocks)
             .max(reference.valid_after)
             .saturating_add(1);
         System::set_block_number(ready);
@@ -3776,7 +3790,7 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
 
         // A far-away smoothed reference must not influence expiry valuation.
         // Spot is outside the settlement band, so the first attempt defers; force
-        // after MaxSettlementDeferral so we still settle with EMA far from spot.
+        // after max_settlement_deferral so we still settle with EMA far from spot.
         let reference_rate = U64F64::from_num(1u64) / U64F64::from_num(4u64); // 0.25 τ/α
         set_reference_price(reference_rate);
         let spot = MockPool::price();
@@ -3790,8 +3804,7 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
             "far EMA must defer the first expiry attempt"
         );
         let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
-        let force_at =
-            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+        let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
         if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
             let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
         }
@@ -3819,8 +3832,11 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
             position.expires_at,
             (&owner, netuid())
         ));
-        let (payment, refund, rate, shortfall_alpha, shortfall_tao) = expired_event(&owner);
-        assert_eq!(rate, spot, "Expired.rate reports spot, not the EMA");
+        let (payment, refund, spot_price, shortfall_alpha, shortfall_tao) = expired_event(&owner);
+        assert_eq!(
+            spot_price, spot,
+            "Expired.spot_price reports spot, not the EMA"
+        );
         assert_eq!(shortfall_alpha, 0);
         assert_eq!(shortfall_tao, 0);
         // Buyback cost tracks spot (~1 τ/α), far above P·0.25.
@@ -3950,6 +3966,81 @@ fn long_expiry_preserves_collateral_when_subtoken_disabled() {
     });
 }
 
+/// Intentional CollectSource::Retry difference: a second failed expiry settle
+/// requeues on ExpiryRetry only — it must never mid-insert into the Expiry
+/// linked list (Scheduled removes Expiry; Retry only touches the side queue).
+#[test]
+fn failed_expiry_retry_requeues_side_queue_not_expiry() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+                p.last_accrued = position.expires_at;
+            }
+        });
+        let snap = Positions::<Test>::get(&owner, netuid()).unwrap();
+        set_subtoken_enabled(false);
+        System::set_block_number(snap.expires_at);
+        let _ = <Lending as Hooks<_>>::on_idle(snap.expires_at, Weight::MAX);
+        let delay = <<Test as Config>::ExpiryRetryDelay as Get<u64>>::get();
+        let first_retry = snap.expires_at.saturating_add(delay);
+        assert!(ExpiryRetry::<Test>::contains_key(
+            first_retry,
+            (&owner, netuid())
+        ));
+        assert!(!Expiry::<Test>::contains_key(
+            snap.expires_at,
+            (&owner, netuid())
+        ));
+
+        // Second failure from the retry collector: still subtoken-off.
+        System::reset_events();
+        System::set_block_number(first_retry);
+        let _ = <Lending as Hooks<_>>::on_idle(first_retry, Weight::MAX);
+        let second_retry = first_retry.saturating_add(delay);
+        let still = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(still.expiry_due, second_retry);
+        assert!(
+            !ExpiryRetry::<Test>::contains_key(first_retry, (&owner, netuid())),
+            "failed retry must leave the drained bucket"
+        );
+        assert!(
+            ExpiryRetry::<Test>::contains_key(second_retry, (&owner, netuid())),
+            "CollectSource::Retry must re-enqueue onto ExpiryRetry"
+        );
+        assert!(
+            !Expiry::<Test>::contains_key(second_retry, (&owner, netuid())),
+            "Retry must never mid-insert into the Expiry linked list"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::SettlementDeferred {
+                    retry_at: r,
+                    ..
+                }) if r == second_retry
+            )),
+            "second failure must emit SettlementDeferred for the new retry_at"
+        );
+    });
+}
+
 /// Failed interest collection must defer onto a retry Due bucket, not drop
 /// coverage permanently (Auditor fid:2aff7381).
 #[test]
@@ -4057,6 +4148,71 @@ fn failed_interest_collection_defers_onto_retry_bucket() {
             "successful retry must reschedule onto the normal interest period"
         );
         assert!(Due::<Test>::contains_key(after.due, (&owner, netuid())));
+    });
+}
+
+/// Intentional CollectSource::Retry difference: a second failed interest charge
+/// requeues on InterestRetry only — it must never mid-insert into the Due
+/// linked list (Scheduled removes Due; Retry only touches the side queue).
+#[test]
+fn failed_interest_retry_requeues_side_queue_not_due() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let open_block = System::block_number();
+        let period = <<Test as Config>::InterestPeriod as Get<u64>>::get();
+        let due_at = open_block.saturating_add(period);
+        set_subtoken_enabled(false);
+        System::set_block_number(due_at);
+        let _ = <Lending as Hooks<_>>::on_idle(due_at, Weight::MAX);
+        let delay = <<Test as Config>::InterestRetryDelay as Get<u64>>::get();
+        let first_retry = due_at.saturating_add(delay);
+        assert!(InterestRetry::<Test>::contains_key(
+            first_retry,
+            (&owner, netuid())
+        ));
+        assert!(!Due::<Test>::contains_key(due_at, (&owner, netuid())));
+
+        System::reset_events();
+        System::set_block_number(first_retry);
+        let _ = <Lending as Hooks<_>>::on_idle(first_retry, Weight::MAX);
+        let second_retry = first_retry.saturating_add(delay);
+        let still = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert_eq!(still.due, second_retry);
+        assert!(
+            !InterestRetry::<Test>::contains_key(first_retry, (&owner, netuid())),
+            "failed retry must leave the drained bucket"
+        );
+        assert!(
+            InterestRetry::<Test>::contains_key(second_retry, (&owner, netuid())),
+            "CollectSource::Retry must re-enqueue onto InterestRetry"
+        );
+        assert!(
+            !Due::<Test>::contains_key(second_retry, (&owner, netuid())),
+            "Retry must never mid-insert into the Due linked list"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::InterestDeferred {
+                    retry_at: r,
+                    ..
+                }) if r == second_retry
+            )),
+            "second failure must emit InterestDeferred for the new retry_at"
+        );
     });
 }
 
@@ -4618,7 +4774,7 @@ fn closing_expiry_head_clears_bucket_cursor_so_successor_still_settles() {
         let head_exp = Positions::<Test>::get(&head_a, netuid())
             .unwrap()
             .expires_at;
-        // Open one block later → expires_at is head_exp+1 (MaxLoanDuration from now).
+        // Open one block later → expires_at is head_exp+1 (max_loan_duration from now).
         System::set_block_number(System::block_number().saturating_add(1));
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(next_o.clone()),
@@ -4740,7 +4896,7 @@ fn long_collateral_top_up_preserves_fixed_term() {
         assert_eq!(
             first.expires_at,
             opened_at.saturating_add(TestMaxLoanDuration::get()),
-            "term = MaxLoanDuration"
+            "term = max_loan_duration"
         );
         System::set_block_number(opened_at.saturating_add(100));
         mint_alpha(&owner, &hotkey, netuid(), 20_000_000_000_000);
@@ -4767,7 +4923,7 @@ fn long_collateral_top_up_preserves_fixed_term() {
     });
 }
 
-/// Terms v2: short increases keep the original MaxLoanDuration clock.
+/// Terms v2: short increases keep the original max_loan_duration clock.
 #[test]
 fn short_increase_preserves_fixed_term() {
     new_test_ext().execute_with(|| {
@@ -4876,7 +5032,7 @@ fn long_expiry_sells_collateral_through_amm_not_at_ema() {
         );
         Lifts::<Test>::mutate(netuid(), |book| {
             book.g_ema = pool_tao();
-            book.last = LiftParams::default().settle_ema_blocks;
+            book.last = LiftParams::default().total_tao_ema_blocks;
         });
         mint_alpha(&owner, &hotkey, netuid(), 2_000_000_000_000);
         // Tiny long (minimal principal) with large collateral: near-expiry
@@ -5082,7 +5238,10 @@ fn dissolution_before_expiry_wins() {
         assert_ok!(Lending::start_dissolution(netuid()));
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::MAX);
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         // Expiry queue entry cleared by remove_position during dissolution.
         assert!(!Expiry::<Test>::contains_key(
@@ -5101,7 +5260,7 @@ fn dissolution_before_expiry_wins() {
     });
 }
 
-/// `(payment, tao_refund, rate, shortfall_alpha, shortfall_tao)` of the last
+/// `(payment, tao_refund, spot_price, shortfall_alpha, shortfall_tao)` of the last
 /// `Expired` event for `owner`.
 fn expired_event(owner: &Account) -> (u64, u64, U64F64, u64, u64) {
     System::events()
@@ -5112,11 +5271,17 @@ fn expired_event(owner: &Account) -> (u64, u64, U64F64, u64, u64) {
                 owner: o,
                 payment,
                 tao_refund,
-                rate,
+                spot_price,
                 shortfall_alpha,
                 shortfall_tao,
                 ..
-            }) if &o == owner => Some((payment, tao_refund, rate, shortfall_alpha, shortfall_tao)),
+            }) if &o == owner => Some((
+                payment,
+                tao_refund,
+                spot_price,
+                shortfall_alpha,
+                shortfall_tao,
+            )),
             _ => None,
         })
         .expect("Expired event")
@@ -6075,8 +6240,7 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
             "must defer outside the band"
         );
         let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
-        let force_at =
-            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+        let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
         assert!(
             force_at > snap.expires_at.saturating_add(accrued_window),
             "force block must sit well past expires_at"
@@ -6144,7 +6308,7 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
     });
 }
 
-/// After MaxSettlementDeferral from the first band deferral, expiry settles
+/// After max_settlement_deferral from the first band deferral, expiry settles
 /// even while spot remains outside the EMA band.
 #[test]
 fn expiry_band_deferral_bound_forces_settlement() {
@@ -6175,8 +6339,7 @@ fn expiry_band_deferral_bound_forces_settlement() {
         Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
         assert!(Positions::<Test>::contains_key(&owner, netuid()));
         let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
-        let force_at =
-            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+        let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
 
         // Drop the first retry row and re-queue at the force block so
         // collect_expiry_retries walks it once past the max window.
@@ -6460,7 +6623,7 @@ fn forfeit_extreme_forced_settle_records_shortfall() {
         );
         let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
         let force_at =
-            since.saturating_add(<<Test as Config>::MaxSettlementDeferral as Get<u64>>::get());
+            since.saturating_add(TestMaxSettlementDeferral::get());
 
         if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
             let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
@@ -8131,7 +8294,7 @@ fn short_collateral_quote_uses_alpha_not_tao_headroom_on_cheap_subnet() {
         );
         Lifts::<Test>::mutate(netuid(), |book| {
             book.g_ema = y;
-            book.last = LiftParams::default().settle_ema_blocks;
+            book.last = LiftParams::default().total_tao_ema_blocks;
         });
         set_tao_ema(Lending::settlement_tao_basis(netuid()));
 
@@ -8561,7 +8724,7 @@ fn sn29_style_short_raises_report_side_capacity_not_amount_too_small() {
         let g_ema = 1_333_000_000_000u64;
         Lifts::<Test>::mutate(netuid(), |book| {
             book.g_ema = g_ema;
-            book.last = LiftParams::default().settle_ema_blocks;
+            book.last = LiftParams::default().total_tao_ema_blocks;
             book.l_s = 0;
         });
         set_tao_ema(Lending::settlement_tao_basis(netuid()));
@@ -8918,7 +9081,7 @@ fn sn29_drain_fixture(y0: u64, w_parts: u64) {
     );
     Lifts::<Test>::mutate(netuid(), |book| {
         book.g_ema = y0;
-        book.last = LiftParams::default().settle_ema_blocks;
+        book.last = LiftParams::default().total_tao_ema_blocks;
         book.l_s = 0;
         book.l_l = 0;
     });
@@ -10358,7 +10521,7 @@ fn multi_loan_and_forfeit_emission_offsets() {
 #[test]
 fn minimum_loan_value_one_tao_rejects_below_accepts_exact() {
     new_test_ext().execute_with(|| {
-        // Mirror production: MinimumLoanValue is opening-value in TAO (rao).
+        // Mirror production: minimum_loan_value is opening-value in TAO (rao).
         // Long principal is already TAO; short uses tao_for_alpha(principal, coupon).
         set_minimum_loan_value(1_000_000_000); // 1 τ
         let owner = account(1);
@@ -10640,28 +10803,28 @@ fn young_short_dissolution_settles_at_max_r_open_price() {
         assert_ok!(Lending::start_dissolution(netuid()));
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(netuid(), &mut meter));
 
-        let r = Dissolutions::<Test>::get(netuid()).unwrap().rate;
-        assert!(r < p_open, "test requires r < P_open (r={r}, p_open={p_open})");
-        let debt_at_r = (U64F64::from_num(principal) * r)
+        let dissolution_price = Dissolutions::<Test>::get(netuid()).unwrap().dissolution_price;
+        assert!(dissolution_price < p_open, "test requires dissolution_price < P_open (dissolution_price={dissolution_price}, p_open={p_open})");
+        let debt_at_dissolution_price = (U64F64::from_num(principal) * dissolution_price)
             .saturating_ceil()
             .saturating_to_num::<u64>();
         let debt_at_open = (U64F64::from_num(principal) * p_open)
             .saturating_ceil()
             .saturating_to_num::<u64>();
         // Young floor ⇒ debt ≈ E_S (proceeds), refund ≈ collateral (spot round-trip).
-        assert!(debt_at_open >= debt_at_r);
+        assert!(debt_at_open >= debt_at_dissolution_price);
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         let refund = tao(&owner).saturating_sub(free_before);
         let expected_refund = escrow_before.saturating_sub(debt_at_open.min(escrow_before));
         let tol = expected_refund / 100 + 2;
         assert!(
             refund.abs_diff(expected_refund) <= tol,
-            "young short refund≈collateral: got={refund} expected={expected_refund} debt_open={debt_at_open} debt_r={debt_at_r}"
+            "young short refund≈collateral: got={refund} expected={expected_refund} debt_open={debt_at_open} debt_dissolution={debt_at_dissolution_price}"
         );
         // Pot collected more than r-only settlement would have.
-        assert!(debt_at_open.min(escrow_before) >= debt_at_r.min(escrow_before));
+        assert!(debt_at_open.min(escrow_before) >= debt_at_dissolution_price.min(escrow_before));
     });
 }
 
@@ -10713,19 +10876,19 @@ fn old_short_dissolution_keeps_rate_r() {
         );
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(netuid(), &mut meter));
 
-        let r = Dissolutions::<Test>::get(netuid()).unwrap().rate;
-        assert!(r < p_open);
-        let debt_at_r = (U64F64::from_num(principal) * r)
+        let dissolution_price = Dissolutions::<Test>::get(netuid()).unwrap().dissolution_price;
+        assert!(dissolution_price < p_open);
+        let debt_at_dissolution_price = (U64F64::from_num(principal) * dissolution_price)
             .saturating_ceil()
             .saturating_to_num::<u64>();
-        let expected_refund = escrow_before.saturating_sub(debt_at_r.min(escrow_before));
+        let expected_refund = escrow_before.saturating_sub(debt_at_dissolution_price.min(escrow_before));
         let refund = tao(&owner).saturating_sub(free_before);
         let tol = expected_refund / 100 + 2;
         assert!(
             refund.abs_diff(expected_refund) <= tol,
-            "old short keeps r payout: got={refund} expected={expected_refund} debt_r={debt_at_r}"
+            "old short keeps dissolution_price payout: got={refund} expected={expected_refund} debt_dissolution={debt_at_dissolution_price}"
         );
         assert!(
             expected_refund > position.collateral / 2,
@@ -10779,13 +10942,19 @@ fn young_short_boundary_exactly_window_uses_r() {
         );
         assert_ok!(Lending::readd_lifts_for_dissolution(netuid()));
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
 
-        let r = Dissolutions::<Test>::get(netuid()).unwrap().rate;
-        let debt_at_r = (U64F64::from_num(principal) * r)
+        let dissolution_price = Dissolutions::<Test>::get(netuid())
+            .unwrap()
+            .dissolution_price;
+        let debt_at_dissolution_price = (U64F64::from_num(principal) * dissolution_price)
             .saturating_ceil()
             .saturating_to_num::<u64>();
-        let expected_refund = escrow_before.saturating_sub(debt_at_r.min(escrow_before));
+        let expected_refund =
+            escrow_before.saturating_sub(debt_at_dissolution_price.min(escrow_before));
         let tol = expected_refund / 100 + 2;
         let refund = tao(&owner).saturating_sub(free_before);
         assert!(
@@ -11004,7 +11173,7 @@ fn position_max_duration_migration_rewrites_and_is_idempotent() {
         CurrentTermsVersion::<Test>::put(TERMS_VERSION_V1);
         HasMigrationRun::<Test>::remove(max_duration_migration_key());
 
-        // Advance so migration_block + MaxLoanDuration differs from the open clock.
+        // Advance so migration_block + max_loan_duration differs from the open clock.
         System::set_block_number(System::block_number().saturating_add(50));
         let mig_block = System::block_number();
         let _ = migrations::migrate_position_max_duration::<Test>();
@@ -11888,13 +12057,16 @@ fn short_dissolution_uses_single_credit_settle_for_interest() {
         // Mild rate: pot takes some escrow, interest still positive, refund > 0.
         Dissolutions::<Test>::mutate(netuid(), |d| {
             if let Some(d) = d {
-                d.rate = U64F64::from_num(1) / U64F64::from_num(4);
+                d.dissolution_price = U64F64::from_num(1) / U64F64::from_num(4);
             }
         });
         DissolutionPhase::<Test>::insert(netuid(), 1u8);
         let burned_before = burned();
         let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-        assert!(Lending::settle_lending(netuid(), &mut meter));
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
         assert!(Positions::<Test>::get(&owner, netuid()).is_none());
         assert!(
             burned() > burned_before,

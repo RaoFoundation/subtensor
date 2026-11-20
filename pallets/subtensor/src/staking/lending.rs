@@ -27,10 +27,6 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             && !ColdkeySwapDisputes::<T>::contains_key(owner)
     }
 
-    fn fast_alpha_price(netuid: NetUid) -> Option<U64F64> {
-        SubnetFastMovingPrice::<T>::get(netuid).filter(|price| *price > U64F64::from_num(0))
-    }
-
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         let quote = T::SwapInterface::sim_swap(netuid, GetTaoForAlpha::<T>::with_amount(alpha))?;
@@ -217,20 +213,6 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         amount: TaoBalance,
     ) -> Result<TaoBalance, DispatchError> {
         Self::transfer_lending_tao_or_recycle_dust(from, to, amount)
-    }
-
-    #[transactional]
-    fn transfer_dissolution_alpha(
-        from: &T::AccountId,
-        to: &T::AccountId,
-        hotkey: &T::AccountId,
-        netuid: NetUid,
-        amount: AlphaBalance,
-    ) -> DispatchResult {
-        // Kept for trait compatibility; §13 destroy path uses `destroy_custody_alpha`.
-        <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::transfer_staked_alpha(
-            from, hotkey, to, hotkey, netuid, amount, false, false,
-        )
     }
 
     fn pool_tao(netuid: NetUid) -> TaoBalance {
@@ -487,20 +469,6 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         )?;
         ensure!(tao >= min_tao_out, Error::<T>::SlippageTooHigh);
         Ok(tao)
-    }
-
-    fn eligible_alpha_for_dissolution(netuid: NetUid) -> Result<u128, DispatchError> {
-        // Ordinary staker-side claims only (matches main's legacy/new split).
-        // Lending settlement uses `all_alpha_for_lending_settlement` instead.
-        let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
-        let cutoff: u64 = TaoInRefundDeploymentBlock::<T>::get();
-        let protocol = SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128;
-        let base = if reg_at > cutoff {
-            (SubnetAlphaIn::<T>::get(netuid).to_u64() as u128).saturating_add(protocol)
-        } else {
-            protocol
-        };
-        Ok(base)
     }
 
     fn all_alpha_for_lending_settlement(netuid: NetUid) -> u128 {

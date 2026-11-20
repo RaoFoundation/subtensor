@@ -500,8 +500,9 @@ class Prices(_ReadNamespace):
         is alpha and long debt is TAO. `proceeds` is the short's escrowed TAO
         (E_S) from the forced alpha sale at open; it is zero for longs.
         `escrow_alpha` is the long's escrowed alpha (A); zero for shorts.
-        `expires_at` is the fixed one-year term end (increases restart it).
-        `runway_days` is capped at days remaining until `expires_at`. Interest
+        `expires_at` is the fixed max_loan_duration term end (~30 days; increases
+        do not extend it). `runway_days` is capped at days remaining until
+        `expires_at`. Interest
         and runway are estimates at the selected block. `underwater` /
         `insolvent` are true when interest is exhausted or the escrow close
         quote reports a positive `shortfall` (AMM cannot cover principal).
@@ -531,7 +532,7 @@ class Prices(_ReadNamespace):
         other positions' uncovered debt remain hard refusals. For longs, probes
         are capped by unlocked alpha on `hotkey_ss58` so the owner-aware stake
         gate cannot abort an otherwise affordable search. The requested opening
-        value must meet the runtime's minimum, currently 0.1 TAO.
+        value must meet the runtime's minimum, currently 1 TAO.
 
         Returns collateral and its opening quote. The exact-principal transaction
         rechecks admission without borrowing extra if state changes.
@@ -544,11 +545,12 @@ class Prices(_ReadNamespace):
         Outstanding short/long lift legs and escrowed proceeds are included.
         """
 
-    async def lending_stats(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> dict:
+    async def lending_stats(self, netuid: Optional[int] = 0, *, block: Optional[int] = None) -> dict:
         """Cumulative lending health counters (saturating, monotonic).
 
         Per-netuid values may clear on dissolution; the global totals never reset.
         Counters update at the same sites as the matching pallet events.
+        Omit `netuid` (or pass 0) for chain-wide totals.
         """
 
     async def lending_stats_global(self, *, block: Optional[int] = None) -> dict:

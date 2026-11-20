@@ -90,7 +90,6 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "InitialStartCallDelay"): 100,
     ("Lending", "BlocksPerYear"): 2_628_000,
     ("Lending", "InterestPeriod"): 50_400,
-    ("Lending", "MaxLoanDuration"): 216_000,
 }
 
 # Runtime-API results answered when the test seeds nothing. Chosen so intent

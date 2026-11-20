@@ -53,7 +53,7 @@ mod benchmarks {
         Lifts::<T>::mutate(netuid, |book| {
             book.g_ema = T::Pool::pool_tao(netuid).to_u64();
             // Gate also requires G_ema aged one settle window past registration.
-            book.last = LiftParams::default().settle_ema_blocks.max(1);
+            book.last = LiftParams::default().total_tao_ema_blocks.max(1);
         });
     }
 
@@ -64,7 +64,7 @@ mod benchmarks {
             RawOrigin::Signed(caller.clone()).into(),
             netuid,
             Side::Short,
-            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
+            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
             None,
             1u64,
             0u64,
@@ -89,7 +89,7 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             Side::Short,
-            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
+            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
             None,
             1u64,
             0u64,
@@ -132,7 +132,7 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             Side::Long,
-            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
+            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
             Some(hotkey),
             1u64,
             0u64,
@@ -153,9 +153,9 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             Side::Long,
-            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
+            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
             Some(hotkey),
-            1_000_000_000u64, // exactly MinimumLoanValue (1 τ principal)
+            1_000_000_000u64, // exactly minimum_loan_value (1 τ principal)
             0u64,
             0u64,
             now.saturating_add(100u32.into()),
@@ -178,7 +178,7 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             hotkey,
-            Some(10_000_000_000u64), // ≥4× MinimumLoanValue at 25% LTV
+            Some(10_000_000_000u64), // ≥4× minimum_loan_value at 25% LTV
             None,
             10_000_000_000u64,
             1u64,
@@ -207,7 +207,7 @@ mod benchmarks {
             netuid,
             hotkey,
             None,
-            // Must be ≥ MinimumLoanValue (1 τ); 1e6 rao made CI fail AmountTooSmall.
+            // Must be ≥ minimum_loan_value (1 τ); 1e6 rao made CI fail AmountTooSmall.
             Some(1_000_000_000u64),
             // Wide ceiling so the bisection walks the full BISECTION_STEPS budget.
             u64::MAX / 4,
@@ -360,7 +360,7 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        // seed_lending_ready ages G_ema to settle_ema_blocks; advance past that
+        // seed_lending_ready ages G_ema to total_tao_ema_blocks; advance past that
         // and clear last_updated so on_finalize runs the full path (TAO EMA +
         // G EMA fixed-point update + price reference), not the early returns.
         let g_seeded = Lifts::<T>::get(netuid).last;

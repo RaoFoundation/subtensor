@@ -11,12 +11,12 @@ from bittensor.error_descriptions.lending import DESCRIPTIONS as LENDING_DESCRIP
 from bittensor.intents.lending import RaiseLoan
 from bittensor.result import BittensorError
 
-# On-chain MaxLoanDuration (~30 days at 12s blocks). Must not use BlocksPerYear.
+# On-chain LiftParams.max_loan_duration (~30 days at 12s blocks). Must not use BlocksPerYear.
 _MAX_LOAN_DURATION = 216_000
 
 
 def test_quoted_expires_at_open_uses_max_loan_duration():
-    """New open cards show head + MaxLoanDuration, not BlocksPerYear (~1 year)."""
+    """New open cards show head + max_loan_duration, not BlocksPerYear (~1 year)."""
     head = 1_000_000
     expires = _quoted_expires_at(head=head, max_loan_duration=_MAX_LOAN_DURATION)
     assert expires == head + _MAX_LOAN_DURATION
@@ -37,7 +37,7 @@ def test_quoted_expires_at_increase_keeps_existing_expires():
         )
         == existing
     )
-    # Existing wins even if MaxLoanDuration is missing.
+    # Existing wins even if max_loan_duration is missing.
     assert (
         _quoted_expires_at(head=head, max_loan_duration=None, existing_expires=existing) == existing
     )

@@ -198,15 +198,11 @@ class HashedAccounts:
 
 class Lending:
     PalletId = Item('Lending', 'PalletId')
-    MinimumLoanValue = Item('Lending', 'MinimumLoanValue')
     InterestPeriod = Item('Lending', 'InterestPeriod')
     BlocksPerYear = Item('Lending', 'BlocksPerYear')
-    MaxLoanDuration = Item('Lending', 'MaxLoanDuration')
     ReferenceWarmup = Item('Lending', 'ReferenceWarmup')
     MaxPositionsPerSubnet = Item('Lending', 'MaxPositionsPerSubnet')
     MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
     ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
     InterestRetryDelay = Item('Lending', 'InterestRetryDelay')
-    MaxSettlementDeferral = Item('Lending', 'MaxSettlementDeferral')
     MaxExpirySettlementsPerBlock = Item('Lending', 'MaxExpirySettlementsPerBlock')
-    YoungShortSettlementWindow = Item('Lending', 'YoungShortSettlementWindow')

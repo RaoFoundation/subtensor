@@ -42,7 +42,7 @@ fn from_before(old: LiftParamsBeforeEmaBand) -> LiftParams {
         apr_bps: old.apr_bps,
         slice_bps: old.slice_bps,
         crash_guard_bps: old.crash_guard_bps,
-        settle_ema_blocks: old.settle_ema_blocks,
+        total_tao_ema_blocks: old.total_tao_ema_blocks,
         new_subnet_min_age: old.new_subnet_min_age,
         new_subnet_ramp: old.new_subnet_ramp,
         ema_band_bps: 1_500,

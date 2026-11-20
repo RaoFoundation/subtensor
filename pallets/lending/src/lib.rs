@@ -3,7 +3,7 @@
 //! Liquidity is pulled from the pool only when someone borrows (`lift`). Shorts
 //! force-sell borrowed alpha into escrowed TAO; longs force-buy with borrowed TAO
 //! into escrowed alpha. No free borrowed assets are delivered. Interest burns.
-//! Dissolution settlement rate uses a TAO EMA hardened against one-block pumps
+//! Dissolution price uses a TAO EMA hardened against one-block pumps
 //! (§13.2): `r = min(T_flag, t_ema_flag) / D`, then capped by moving alpha price.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(
@@ -56,9 +56,6 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     }
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError>;
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError>;
-    fn fast_alpha_price(_netuid: NetUid) -> Option<U64F64> {
-        None
-    }
     fn max_buy_input(_netuid: NetUid) -> TaoBalance {
         u64::MAX.into()
     }
@@ -167,15 +164,6 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
             true,
             false,
         )
-    }
-    fn transfer_dissolution_alpha(
-        from: &AccountId,
-        to: &AccountId,
-        hotkey: &AccountId,
-        netuid: NetUid,
-        amount: AlphaBalance,
-    ) -> DispatchResult {
-        Self::transfer_staked_alpha(from, hotkey, to, hotkey, netuid, amount, false, false)
     }
 
     /// Live pool TAO reserve (`y` / SubnetTAO).
@@ -326,15 +314,12 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         min_tao_out: TaoBalance,
     ) -> Result<TaoBalance, DispatchError>;
 
-    /// Eligible alpha for dissolution pot (ordinary claims). Lending adds escrow/collateral.
-    fn eligible_alpha_for_dissolution(netuid: NetUid) -> Result<u128, DispatchError>;
-
     /// §13 lending settlement divisor: **all** subnet alpha **including pool alpha**,
     /// on every subnet (legacy and new). Must not omit `SubnetAlphaIn`. Typically
     /// `SubnetAlphaIn + SubnetAlphaOut` (u128). Used only for `r = pot / all_alpha`.
     fn all_alpha_for_lending_settlement(netuid: NetUid) -> u128;
 
-    /// Slow moving alpha price used to cap dissolution settlement rate (§13.2).
+    /// Slow moving alpha price used to cap dissolution_price (§13.2).
     fn moving_alpha_price(netuid: NetUid) -> U64F64;
 
     /// Non-root live subnet netuids (for per-block TAO EMA updates).
@@ -404,10 +389,11 @@ pub trait LendingInterface<AccountId> {
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
     /// Re-add held lift legs into reserves. Called from `do_dissolve_network` (§13).
     fn readd_lifts_for_dissolution(netuid: NetUid) -> DispatchResult;
-    /// Settle all lending positions at fixed §13.2.2 rate
-    /// `r = (min(T_flag, t_ema_flag) − Δ0) / ALL_alpha` (capped by moving price).
-    /// Runs after main counts alpha and before stakers are paid. Returns `true` when done.
-    fn settle_lending(netuid: NetUid, meter: &mut WeightMeter) -> bool;
+    /// Subnet-dissolution only: settle all lending positions at fixed §13.2.2
+    /// rate `r = (min(T_flag, t_ema_flag) − Δ0) / ALL_alpha` (capped by moving
+    /// price). Not used for ordinary expiry / close. Runs after main counts
+    /// alpha and before stakers are paid. Returns `true` when done.
+    fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool;
     fn finish_dissolution(netuid: NetUid) -> DispatchResult;
     /// Whether `(hotkey, coldkey)` holds lending custody alpha on `netuid` that
     /// main's alpha count/payout must skip (collateral or long escrow).
@@ -456,7 +442,7 @@ impl<AccountId> LendingInterface<AccountId> for () {
     fn readd_lifts_for_dissolution(_: NetUid) -> DispatchResult {
         Ok(())
     }
-    fn settle_lending(_: NetUid, _: &mut WeightMeter) -> bool {
+    fn settle_positions_on_dissolution(_: NetUid, _: &mut WeightMeter) -> bool {
         true
     }
     fn finish_dissolution(_: NetUid) -> DispatchResult {
@@ -490,7 +476,7 @@ pub enum Side {
 }
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("4297e3450b01d77e")]
+#[freeze_struct("5a58938064e011ba")]
 #[derive(
     Encode,
     Decode,
@@ -536,8 +522,10 @@ pub struct LiftParams {
     pub slice_bps: u16,
     /// Skip paced sells while spot < crash_guard_bps of EMA (default 9500).
     pub crash_guard_bps: u16,
-    /// Blocks for settlement TAO EMA half-life divisor (default 7200 ≈ 24h).
-    pub settle_ema_blocks: u64,
+    /// EMA window (blocks) for the subnet's **total TAO**
+    /// (`SubnetTAO` / LP TAO + `Lifts.held_tao`) that feeds the dissolution
+    /// price `t_ema` (default 7200 ≈ 24h). Also used as the G_ema warm-up age.
+    pub total_tao_ema_blocks: u64,
     /// Minimum subnet age before lending opens (§2.3; default 50_400 ≈ 7 days).
     pub new_subnet_min_age: u64,
     /// Blocks after the gate over which Cap ramps 0→1 (§2.3; default 216_000 ≈ 30 days).
@@ -590,7 +578,7 @@ impl Default for LiftParams {
             apr_short_bps: 10_000,
             slice_bps: 1,
             crash_guard_bps: 9_500,
-            settle_ema_blocks: 7_200,
+            total_tao_ema_blocks: 7_200,
             new_subnet_min_age: 50_400,
             new_subnet_ramp: 216_000,
             ema_band_bps: 1_500,
@@ -604,6 +592,9 @@ impl Default for LiftParams {
 }
 
 /// Pre-`ema_band_bps` layout for the one-shot LiftParams migration.
+///
+/// `total_tao_ema_blocks` is the same SCALE slot as the former
+/// `settle_ema_blocks` (layout-safe rename; no storage rewrite).
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LiftParamsBeforeEmaBand {
     floor_bps: u16,
@@ -621,7 +612,7 @@ pub(crate) struct LiftParamsBeforeEmaBand {
     apr_bps: u16,
     slice_bps: u16,
     crash_guard_bps: u16,
-    settle_ema_blocks: u64,
+    total_tao_ema_blocks: u64,
     new_subnet_min_age: u64,
     new_subnet_ramp: u64,
 }
@@ -630,6 +621,9 @@ pub(crate) struct LiftParamsBeforeEmaBand {
 ///
 /// Decoded by [`migrations::migrate_lift_params_economic`] and produced by the
 /// ema-band migration before that expand lands.
+///
+/// `total_tao_ema_blocks` is the same SCALE slot as the former
+/// `settle_ema_blocks` (layout-safe rename; no storage rewrite).
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LiftParamsBeforeEconomic {
     pub floor_bps: u16,
@@ -647,7 +641,7 @@ pub(crate) struct LiftParamsBeforeEconomic {
     pub apr_bps: u16,
     pub slice_bps: u16,
     pub crash_guard_bps: u16,
-    pub settle_ema_blocks: u64,
+    pub total_tao_ema_blocks: u64,
     pub new_subnet_min_age: u64,
     pub new_subnet_ramp: u64,
     pub ema_band_bps: u16,
@@ -672,7 +666,7 @@ impl LiftParamsBeforeEconomic {
             apr_short_bps: self.apr_bps,
             slice_bps: self.slice_bps,
             crash_guard_bps: self.crash_guard_bps,
-            settle_ema_blocks: self.settle_ema_blocks,
+            total_tao_ema_blocks: self.total_tao_ema_blocks,
             new_subnet_min_age: self.new_subnet_min_age,
             new_subnet_ramp: self.new_subnet_ramp,
             ema_band_bps: self.ema_band_bps,
@@ -727,8 +721,8 @@ pub struct LiftBook {
 /// [`TERMS_VERSION_V2`].
 pub const TERMS_VERSION_V1: u16 = 1;
 /// Terms version for the hard max loan duration (Jacob 2026-11-19): new opens
-/// expire after [`Config::MaxLoanDuration`], increases never extend the clock,
-/// and young-short age uses `expires_at − MaxLoanDuration`.
+/// expire after [`LiftParams::max_loan_duration`], increases never extend the clock,
+/// and young-short age uses `expires_at − max_loan_duration`.
 pub const TERMS_VERSION_V2: u16 = 2;
 
 #[freeze_struct("4219c1e8f15c7714")]
@@ -754,7 +748,7 @@ pub struct Position<AccountId, BlockNumber> {
     pub last_accrued: BlockNumber,
     pub interest_remainder: u64,
     pub due: BlockNumber,
-    /// Fixed-term end (§15). Set at open to `now + MaxLoanDuration` (terms v2);
+    /// Fixed-term end (§15). Set at open to `now + max_loan_duration` (terms v2);
     /// increases and partial repay preserve it (no renewal).
     pub expires_at: BlockNumber,
     /// Current `Expiry` queue bucket for this position. Equals `expires_at` at
@@ -786,7 +780,7 @@ pub struct LendingReference<BlockNumber> {
     pub valid_after: BlockNumber,
 }
 
-#[freeze_struct("aa9abd5a02a75fa9")]
+#[freeze_struct("276cb2f05faec7bb")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -794,8 +788,10 @@ pub struct Dissolution<BlockNumber> {
     pub frozen_at: BlockNumber,
     /// Lift legs have been re-added into reserves.
     pub lifts_readded: bool,
-    /// Settlement rate `r` as U64F64 (TAO per alpha), set in settle phase 0.
-    pub rate: U64F64,
+    /// Dissolution price (TAO per alpha), set in settle phase 0 (§13.2).
+    /// Equals `min(T_flag, t_ema_flag)/all_alpha`, then capped by moving price.
+    /// SCALE layout unchanged vs the former `rate` field (rename only).
+    pub dissolution_price: U64F64,
     /// Snapshot of `SubnetTAO + Lifts.held_tao` at `start_dissolution` (§13.2).
     pub t_flag: u64,
     /// Snapshot of settlement TAO EMA at `start_dissolution` (§13.2).
@@ -946,14 +942,19 @@ const BPS_DENOM: u128 = 10_000;
 /// Steps for principal/collateral bisections once a tight `[lo, hi]` is known.
 const BISECTION_STEPS: u32 = 64;
 
-/// Why a position is being settled by [`Pallet::settle_position_at_rate`].
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SettleKind {
-    /// Subnet dissolution (§13): rate is pot `r`, no AMM trades.
-    Dissolution,
-    /// Fixed-term end (§15): a default close through the pool at spot;
-    /// the rate argument is only reported on `Expired`.
-    Expiry,
+/// Which queue a collect pass drains for one interest or expiry entry.
+///
+/// Outer loops stay separate (linked-list unlink vs sparse empty-bump) so
+/// weight / proof-size charges stay identical to the pre-dedupe collectors.
+/// Shared settle / charge / deferral bodies take this so queue differences
+/// are explicit parameters, not copy-paste drift.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CollectSource {
+    /// Primary Due / Expiry linked schedule (sorted buckets + Next/Prev).
+    Scheduled,
+    /// Sparse side queue after a failed charge/settle. O(1) enqueue; empty
+    /// buckets bump with a hard cap so a sparse Next cannot spin the block.
+    Retry,
 }
 
 #[frame_support::pallet]
@@ -969,18 +970,12 @@ pub mod pallet {
         type Pool: LendingPoolInterface<Self::AccountId>;
         #[pallet::constant]
         type PalletId: Get<PalletId>;
-        /// Compile-time floor / genesis seed for [`LiftParams::minimum_loan_value`].
-        /// Live value is root-settable via [`LiftParamsStore`].
-        #[pallet::constant]
-        type MinimumLoanValue: Get<u64>;
+        /// Interest charge cadence (compile-time; snapshotted onto positions).
         #[pallet::constant]
         type InterestPeriod: Get<BlockNumberFor<Self>>;
+        /// Accrual year length in blocks (compile-time; snapshotted onto positions).
         #[pallet::constant]
         type BlocksPerYear: Get<u64>;
-        /// Compile-time floor / genesis seed for [`LiftParams::max_loan_duration`].
-        /// Live value is root-settable; applies to new opens and rolls only.
-        #[pallet::constant]
-        type MaxLoanDuration: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
         type ReferenceWarmup: Get<BlockNumberFor<Self>>;
         #[pallet::constant]
@@ -995,18 +990,10 @@ pub mod pallet {
         /// Surviving loans must not lose `Due` coverage (Auditor fid:2aff7381).
         #[pallet::constant]
         type InterestRetryDelay: Get<BlockNumberFor<Self>>;
-        /// Compile-time floor / genesis seed for
-        /// [`LiftParams::max_settlement_deferral`]. Live value is root-settable.
-        #[pallet::constant]
-        type MaxSettlementDeferral: Get<BlockNumberFor<Self>>;
         /// Hard compile-time cap on expiry settles per block (weight safety).
         /// Live [`LiftParams::max_expiry_settlements_per_block`] must be ≤ this.
         #[pallet::constant]
         type MaxExpirySettlementsPerBlock: Get<u32>;
-        /// Compile-time floor / genesis seed for
-        /// [`LiftParams::young_short_settlement_window`]. Live value is root-settable.
-        #[pallet::constant]
-        type YoungShortSettlementWindow: Get<BlockNumberFor<Self>>;
         type WeightInfo: WeightInfo;
     }
 
@@ -1184,7 +1171,7 @@ pub mod pallet {
         OptionQuery,
     >;
     /// Block of the first §5.4-band deferral for a permissionless settle.
-    /// Anchors [`Config::MaxSettlementDeferral`]; cleared with the position.
+    /// Anchors [`LiftParams::max_settlement_deferral`]; cleared with the position.
     #[pallet::storage]
     pub type BandDeferralSince<T: Config> = StorageDoubleMap<
         _,
@@ -1342,15 +1329,15 @@ pub mod pallet {
             netuid: NetUid,
             frozen_at: BlockNumberFor<T>,
         },
-        /// §13.2.2 phase-0 rate fix after basket conversions.
-        SettleRateFixed {
+        /// §13.2.2 phase-0 dissolution price fix after basket conversions.
+        SettleDissolutionPriceFixed {
             netuid: NetUid,
             t_flag: u64,
             t_ema_flag: u64,
             t_pre: u64,
             delta0: u64,
             d: u128,
-            r: U64F64,
+            dissolution_price: U64F64,
         },
         Repaid {
             owner: T::AccountId,
@@ -1428,8 +1415,10 @@ pub mod pallet {
             /// TAO credited to the pool (equals `payment` on a solvent close).
             tao_to_pool: u64,
             tao_refund: u64,
-            /// Spot price (TAO per alpha) sampled before the closing trades.
-            rate: U64F64,
+            /// Spot (TAO per alpha) sampled at emit time for observability only.
+            /// Does not size debt, payment, or refund — those come from the AMM
+            /// close / forfeit path. Not the dissolution price.
+            spot_price: U64F64,
             /// Always zero. Kept for event ABI compatibility.
             shortfall_alpha: u64,
             /// Always zero. Kept for event ABI compatibility.
@@ -1447,7 +1436,7 @@ pub mod pallet {
             expires_at: BlockNumberFor<T>,
             settled_at: BlockNumberFor<T>,
         },
-        /// Owner rolled a live loan onto a fresh MaxLoanDuration clock.
+        /// Owner rolled a live loan onto a fresh max_loan_duration clock.
         Rolled {
             owner: T::AccountId,
             netuid: NetUid,
@@ -1465,12 +1454,13 @@ pub mod pallet {
         ReferenceWarmingUp,
         PositionExists,
         PositionMissing,
-        /// Opening value or accrued interest is below the runtime minimum
-        /// (non-zero principal that still fails economic floors). Prefer
-        /// [`SideCapacity`] / [`SideCapacityRamping`] when the side cap is what
-        /// blocks a minimum loan.
+        /// Opening value or accrued interest is below
+        /// [`LiftParams::minimum_loan_value`] (non-zero principal that still
+        /// fails economic floors). Prefer [`SideCapacity`] /
+        /// [`SideCapacityRamping`] when the side cap is what blocks a minimum
+        /// loan.
         AmountTooSmall,
-        /// Side-cap headroom cannot fit this (or any MinimumLoanValue) borrow
+        /// Side-cap headroom cannot fit this (or any minimum_loan_value) borrow
         /// even at full (post-ramp) Cap. Prefer [`SideCapacityRamping`] when only
         /// the new-subnet ramp is what binds.
         SideCapacity,
@@ -1478,13 +1468,9 @@ pub mod pallet {
         /// §2.3 Cap ramp (`ramp(age) < 1`). Full Cap would allow this borrow —
         /// try again later as the ramp rises. Quotes use the same check.
         SideCapacityRamping,
-        /// Legacy depth refusal; prefer [`EmptyPool`] /
-        /// [`PrincipalExceedsAlphaIn`] / [`PrincipalExceedsTaoIn`].
-        DepthBelowThreshold,
         DynamicCollateral,
         TooManyPositions,
         BelowMinimumBorrow,
-        AboveMaximumPayment,
         BelowMinimumRefund,
         InsufficientEscrow,
         InvalidQuote,
@@ -1494,8 +1480,9 @@ pub mod pallet {
         /// Requested principal needs more collateral under V_dyn / LTV.
         InsufficientCollateral,
         InsufficientSellStake,
-        /// Forced trade missed the user limit (§5.2). Replaces RaiseSlippage /
-        /// BelowMinimumProceeds for trading floors and ceilings.
+        /// Forced trade missed the user limit (§5.2), including `max_payment`
+        /// ceilings on close/repay. Replaces RaiseSlippage / BelowMinimumProceeds
+        /// for trading floors and ceilings.
         SlippageExceeded,
         /// Extrinsic `valid_until` has passed (§5.2). Replaces RaiseDeadlinePassed.
         DeadlinePassed,
@@ -1507,8 +1494,6 @@ pub mod pallet {
         PositionSideMismatch,
         /// Subnet age is below `new_subnet_min_age` (§2.3).
         SubnetTooNew,
-        /// Third-party stake onto the lending custody hotkey is rejected (§14).
-        CustodyHotkey,
         /// Derived position escrow is still assigned (e.g. after a coldkey swap
         /// that kept the old custody account). Refuse a fresh open so two loans
         /// cannot share one escrow (§14).
@@ -1551,16 +1536,18 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
             assert!(T::BlocksPerYear::get() > 0);
-            assert!(Self::max_loan_duration() > BlockNumberFor::<T>::default());
             assert!(T::InterestPeriod::get() > BlockNumberFor::<T>::default());
             assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
-            assert!(T::MaxSettlementDeferral::get() > BlockNumberFor::<T>::default());
             assert!(T::MaxExpirySettlementsPerBlock::get() > 0);
-            assert!(Self::young_short_settlement_window() > BlockNumberFor::<T>::default());
-            assert!(Self::minimum_loan_value() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
+            // Economic floors live in [`LiftParams::default`] / [`LiftParamsStore`].
+            let defaults = LiftParams::default();
+            assert!(defaults.max_loan_duration > 0);
+            assert!(defaults.max_settlement_deferral > 0);
+            assert!(defaults.young_short_settlement_window > 0);
+            assert!(defaults.minimum_loan_value > 0);
         }
 
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
@@ -2048,7 +2035,7 @@ pub mod pallet {
                     && p.rebalance_rate_bps <= 10_000
                     && p.move_bps > 0
                     && p.ref_tao > 0
-                    && p.settle_ema_blocks > 0
+                    && p.total_tao_ema_blocks > 0
                     && p.new_subnet_ramp > 0
                     && p.new_subnet_min_age <= MAX_NEW_SUBNET_MIN_AGE
                     && p.max_loan_duration >= MIN_MAX_LOAN_DURATION
@@ -2114,7 +2101,7 @@ pub mod pallet {
             spot >= floor && spot <= ceiling
         }
 
-        /// Force permissionless settle after [`Config::MaxSettlementDeferral`]
+        /// Force permissionless settle after [`LiftParams::max_settlement_deferral`]
         /// blocks from the first band deferral.
         fn force_settlement_despite_band(
             owner: &T::AccountId,
@@ -2194,7 +2181,8 @@ pub mod pallet {
             // G_ema initialised and updated for at least one EMA window.
             let book = Lifts::<T>::get(netuid);
             ensure!(
-                book.g_ema > 0 && book.last.saturating_sub(registered) >= params.settle_ema_blocks,
+                book.g_ema > 0
+                    && book.last.saturating_sub(registered) >= params.total_tao_ema_blocks,
                 Error::<T>::GemaWarmingUp
             );
             Ok(())
@@ -2234,21 +2222,18 @@ pub mod pallet {
             basis
         }
 
-        /// One-block integer EMA update: `t_ema += (T - t_ema) / settle_ema_blocks`.
+        /// One-block integer EMA of total TAO (LP + lifted):
+        /// `t_ema += (T - t_ema) / total_tao_ema_blocks`. Feeds dissolution price.
         pub fn update_tao_ema(netuid: NetUid, params: &LiftParams) {
             let t = Self::settlement_tao_basis(netuid);
             let ema = Self::ensure_tao_ema(netuid);
-            let blocks = params.settle_ema_blocks.max(1);
+            let blocks = params.total_tao_ema_blocks.max(1);
             let next = if t >= ema {
                 ema.saturating_add(t.saturating_sub(ema) / blocks)
             } else {
                 ema.saturating_sub(ema.saturating_sub(t) / blocks)
             };
             TaoEma::<T>::insert(netuid, next);
-        }
-
-        pub fn recovery_account() -> T::AccountId {
-            T::PalletId::get().into_sub_account_truncating(b"recovery")
         }
 
         /// Lending custody coldkey for held lift legs on a subnet.
@@ -2511,7 +2496,7 @@ pub mod pallet {
         }
 
         /// Partial-repay dust gates: both the repaid slice and any nonzero
-        /// remainder must have opening value ≥ [`Config::MinimumLoanValue`],
+        /// remainder must have opening value ≥ [`LiftParams::minimum_loan_value`],
         /// else [`Error::AmountTooSmall`] (never surface swap `ReservesTooLow`
         /// from a 1-rao / sub-min slice).
         fn ensure_partial_repay_sizes(
@@ -2551,7 +2536,7 @@ pub mod pallet {
         }
 
         /// Zero / unusable headroom under the live ramp: Ramping if full Cap
-        /// still has usable headroom for a MinimumLoanValue borrow, else
+        /// still has usable headroom for a minimum_loan_value borrow, else
         /// SideCapacity.
         fn refuse_capacity(
             netuid: NetUid,
@@ -2811,7 +2796,7 @@ pub mod pallet {
             Ok(existing)
         }
 
-        /// True when side capacity cannot fit a MinimumLoanValue borrow that
+        /// True when side capacity cannot fit a minimum_loan_value borrow that
         /// also produces a non-zero lift (`ΔL ≥ 1`).
         ///
         /// On cheap pools `floor(H·x/y)` can sit below `ceil(x/y)` (the smallest
@@ -2874,7 +2859,7 @@ pub mod pallet {
 
         /// Map a zero / dust additional principal to SideCapacity /
         /// SideCapacityRamping when the side cap is what prevents a
-        /// MinimumLoanValue borrow; otherwise AmountTooSmall.
+        /// minimum_loan_value borrow; otherwise AmountTooSmall.
         fn refuse_dust_or_capacity(
             netuid: NetUid,
             side: Side,
@@ -2891,7 +2876,7 @@ pub mod pallet {
         ///
         /// Zero principal, zero-lift principal, or an `opening_quote` economic
         /// floor miss becomes `SideCapacity` when the side cannot fit a
-        /// MinimumLoanValue borrow with `ΔL ≥ 1`, else `AmountTooSmall`.
+        /// minimum_loan_value borrow with `ΔL ≥ 1`, else `AmountTooSmall`.
         /// Keeps quote Ok ⇒ dispatch Ok for the same sized principal.
         fn validate_sized_principal(
             netuid: NetUid,
@@ -3274,7 +3259,7 @@ pub mod pallet {
                 Self::ensure_matching_side(position, side)?;
                 // Terms v2: no renewal. An increase at or after expiry is
                 // rejected; the owner must let the position settle, then open
-                // a fresh loan under a new MaxLoanDuration clock.
+                // a fresh loan under a new max_loan_duration clock.
                 ensure!(now < position.expires_at, Error::<T>::DeadlinePassed);
             }
             if let Some(mut position) = existing.take() {
@@ -3377,7 +3362,7 @@ pub mod pallet {
                     !EscrowOwner::<T>::contains_key(netuid, &escrow),
                     Error::<T>::EscrowInUse
                 );
-                // Hard MaxLoanDuration term from open (§15 / terms v2).
+                // Hard max_loan_duration term from open (§15 / terms v2).
                 // Increases preserve expires_at (no renewal).
                 let term = Self::max_loan_duration();
                 let terms_version = {
@@ -4808,7 +4793,7 @@ pub mod pallet {
         }
 
         /// Select the economic rules table for a live loan. v1 is the legacy
-        /// one-year term; v2 is the hard MaxLoanDuration term (Jacob 2026-11-19).
+        /// one-year term; v2 is the hard max_loan_duration term (Jacob 2026-11-19).
         fn ensure_terms_version(version: u16) -> DispatchResult {
             match version {
                 TERMS_VERSION_V1 | TERMS_VERSION_V2 => Ok(()),
@@ -5474,7 +5459,7 @@ pub mod pallet {
             }
         }
 
-        /// One-shot MaxLoanDuration rewrite used by
+        /// One-shot max_loan_duration rewrite used by
         /// [`migrations::migrate_position_max_duration`].
         pub(crate) fn migrate_position_max_duration(
             migration_name: BoundedVec<u8, super::MigrationKeyMaxLen>,
@@ -5568,21 +5553,18 @@ pub mod pallet {
         /// Position `Expiry` map entries are left for the caller to rewrite.
         fn drain_expiry_schedule() -> Weight {
             let mut weight = T::DbWeight::get().reads(1);
-            let Some(mut at) = NextExpiry::<T>::take() else {
+            let Some(at) = NextExpiry::<T>::take() else {
                 ExpiryTail::<T>::kill();
                 return weight.saturating_add(T::DbWeight::get().writes(1));
             };
             ExpiryTail::<T>::kill();
             weight = weight.saturating_add(T::DbWeight::get().writes(2));
-            loop {
-                ExpiryIndex::<T>::remove(at);
-                ExpiryPrev::<T>::remove(at);
-                let next = ExpiryNext::<T>::take(at);
+            let mut next = Some(at);
+            while let Some(cur) = next {
+                ExpiryIndex::<T>::remove(cur);
+                ExpiryPrev::<T>::remove(cur);
+                next = ExpiryNext::<T>::take(cur);
                 weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 3));
-                match next {
-                    Some(n) => at = n,
-                    None => break,
-                }
             }
             weight
         }
@@ -5693,23 +5675,21 @@ pub mod pallet {
                 (Some(head), _) => {
                     // Rare out-of-order insert (e.g. clock skew / period change).
                     let mut prev = head;
-                    loop {
-                        match DueNext::<T>::get(prev) {
-                            Some(n) if n < due => prev = n,
-                            Some(n) => {
-                                DueNext::<T>::insert(prev, due);
-                                DuePrev::<T>::insert(due, prev);
-                                DueNext::<T>::insert(due, n);
-                                DuePrev::<T>::insert(n, due);
-                                break;
+                    'insert: {
+                        while let Some(n) = DueNext::<T>::get(prev) {
+                            if n < due {
+                                prev = n;
+                                continue;
                             }
-                            None => {
-                                DueNext::<T>::insert(prev, due);
-                                DuePrev::<T>::insert(due, prev);
-                                DueTail::<T>::put(due);
-                                break;
-                            }
+                            DueNext::<T>::insert(prev, due);
+                            DuePrev::<T>::insert(due, prev);
+                            DueNext::<T>::insert(due, n);
+                            DuePrev::<T>::insert(n, due);
+                            break 'insert;
                         }
+                        DueNext::<T>::insert(prev, due);
+                        DuePrev::<T>::insert(due, prev);
+                        DueTail::<T>::put(due);
                     }
                 }
             }
@@ -5813,28 +5793,29 @@ pub mod pallet {
                     // fixed weight envelope (skeptic fid:600d74dc).
                     let mut prev = head;
                     let mut walked = 0u32;
+                    // Bare loop: each step must charge the walk budget before
+                    // reading Next (including the terminal None that appends).
                     loop {
                         ensure!(
                             walked < MAX_EXPIRY_BUCKET_WALK,
                             Error::<T>::ExpiryScheduleCongested
                         );
                         walked = walked.saturating_add(1);
-                        match ExpiryNext::<T>::get(prev) {
-                            Some(n) if n < at => prev = n,
-                            Some(n) => {
-                                ExpiryNext::<T>::insert(prev, at);
-                                ExpiryPrev::<T>::insert(at, prev);
-                                ExpiryNext::<T>::insert(at, n);
-                                ExpiryPrev::<T>::insert(n, at);
-                                break;
-                            }
-                            None => {
-                                ExpiryNext::<T>::insert(prev, at);
-                                ExpiryPrev::<T>::insert(at, prev);
-                                ExpiryTail::<T>::put(at);
-                                break;
-                            }
+                        let Some(n) = ExpiryNext::<T>::get(prev) else {
+                            ExpiryNext::<T>::insert(prev, at);
+                            ExpiryPrev::<T>::insert(at, prev);
+                            ExpiryTail::<T>::put(at);
+                            break;
+                        };
+                        if n < at {
+                            prev = n;
+                            continue;
                         }
+                        ExpiryNext::<T>::insert(prev, at);
+                        ExpiryPrev::<T>::insert(at, prev);
+                        ExpiryNext::<T>::insert(at, n);
+                        ExpiryPrev::<T>::insert(n, at);
+                        break;
                     }
                 }
             }
@@ -5854,8 +5835,196 @@ pub mod pallet {
             }
         }
 
-        pub(crate) fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
+        /// Charge one interest-due entry and dequeue / requeue by `source`.
+        ///
+        /// Intentional Source differences (not drift):
+        /// - Scheduled success unlinks `Due` via `note_due_removed`; Retry
+        ///   drops the side-queue row via `take_interest_retry` then rejoins
+        ///   `Due` through `note_due_inserted`.
+        /// - On failure both paths enqueue InterestRetry, but Scheduled also
+        ///   removes the Due row so NextDue cannot pin an empty bucket.
+        fn process_one_interest(
+            source: CollectSource,
+            now: BlockNumberFor<T>,
+            at: BlockNumberFor<T>,
+            owner: &T::AccountId,
+            netuid: NetUid,
+        ) {
             use frame_support::storage::{TransactionOutcome, with_transaction};
+            let outcome = with_transaction(|| {
+                let result = (|| {
+                    let mut position =
+                        Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+                    if Dissolutions::<T>::contains_key(netuid) {
+                        return Ok(());
+                    }
+                    Self::charge_interest(owner, netuid, &mut position, now, false, true)?;
+                    if Positions::<T>::contains_key(owner, netuid) {
+                        let next = now.saturating_add(position.interest_period);
+                        match source {
+                            CollectSource::Scheduled => {
+                                if Due::<T>::take(position.due, (owner, netuid)).is_some() {
+                                    Self::note_due_removed(position.due);
+                                }
+                            }
+                            CollectSource::Retry => {
+                                let _ = Self::take_interest_retry(position.due, owner, netuid);
+                            }
+                        }
+                        position.due = next;
+                        Due::<T>::insert(next, (owner, netuid), ());
+                        Self::note_due_inserted(next);
+                        Positions::<T>::insert(owner, netuid, position);
+                    }
+                    Ok(())
+                })();
+                match result {
+                    Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
+                    Err(e) => TransactionOutcome::Rollback(Err(e)),
+                }
+            });
+            match outcome {
+                Ok(()) => {
+                    match source {
+                        CollectSource::Scheduled => {
+                            // Forfeit / dissolve skips leave the queue row; drop it.
+                            // Successful charge already moved it onto the next period.
+                            if Due::<T>::contains_key(at, (owner, netuid)) {
+                                Due::<T>::remove(at, (owner, netuid));
+                                Self::note_due_removed(at);
+                            }
+                        }
+                        CollectSource::Retry => {
+                            let _ = Self::take_interest_retry(at, owner, netuid);
+                        }
+                    }
+                    LastDeferral::<T>::remove(owner, netuid);
+                }
+                Err(error) => {
+                    match source {
+                        CollectSource::Scheduled => {
+                            // Preserve coverage without pinning NextDue /
+                            // mid-inserting into the Due schedule (Auditor
+                            // fid:2aff7381, Skeptic fid:0776a829). Side-queue
+                            // insert is O(1).
+                            if Due::<T>::contains_key(at, (owner, netuid)) {
+                                Due::<T>::remove(at, (owner, netuid));
+                                Self::note_due_removed(at);
+                            }
+                        }
+                        CollectSource::Retry => {
+                            let _ = Self::take_interest_retry(at, owner, netuid);
+                        }
+                    }
+                    Self::note_band_deferral(owner, netuid, now, error);
+                    if let Some(mut position) = Positions::<T>::get(owner, netuid) {
+                        let retry_at = now.saturating_add(T::InterestRetryDelay::get());
+                        Self::enqueue_interest_retry(owner, netuid, retry_at);
+                        position.due = retry_at;
+                        Positions::<T>::insert(owner, netuid, position);
+                        let reason = Self::deferral_reason(error);
+                        LastDeferral::<T>::insert(owner, netuid, (0u8, retry_at, reason.clone()));
+                        Self::deposit_event(Event::InterestDeferred {
+                            owner: owner.clone(),
+                            netuid,
+                            retry_at,
+                            reason,
+                        });
+                    }
+                }
+            }
+        }
+
+        /// Settle one expiry entry and dequeue / requeue by `source`.
+        ///
+        /// Intentional Source differences (not drift):
+        /// - Scheduled removes the Expiry linked-list row (+ `note_expiry_removed`);
+        ///   Retry drops the side-queue row via `take_expiry_retry`.
+        /// - On failure both enqueue ExpiryRetry; Scheduled also clears Expiry
+        ///   so NextExpiry cannot pin an empty bucket.
+        fn process_one_expiry(
+            source: CollectSource,
+            now: BlockNumberFor<T>,
+            at: BlockNumberFor<T>,
+            owner: &T::AccountId,
+            netuid: NetUid,
+        ) {
+            use frame_support::storage::{TransactionOutcome, with_transaction};
+            let outcome = with_transaction(|| {
+                let result = (|| {
+                    // Dissolution settle is authoritative if it started first.
+                    if Dissolutions::<T>::contains_key(netuid) {
+                        return Ok(());
+                    }
+                    let position =
+                        Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+                    // Stale queue entry (rekeyed / already closed).
+                    if position.expires_at > now {
+                        return Ok(());
+                    }
+                    // Expiry closes through the pool (AMM path); spot is event-only.
+                    Self::settle_expiry_as_close(netuid, owner, position, now)
+                })();
+                match result {
+                    Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
+                    Err(e) => TransactionOutcome::Rollback(Err(e)),
+                }
+            });
+            match outcome {
+                Ok(()) => {
+                    match source {
+                        CollectSource::Scheduled => {
+                            // Stale / dissolving skips leave the queue row; drop it.
+                            // Successful settle already cleared it via remove_position.
+                            if Expiry::<T>::contains_key(at, (owner, netuid)) {
+                                Expiry::<T>::remove(at, (owner, netuid));
+                                Self::note_expiry_removed(at);
+                            }
+                        }
+                        CollectSource::Retry => {
+                            let _ = Self::take_expiry_retry(at, owner, netuid);
+                        }
+                    }
+                    LastDeferral::<T>::remove(owner, netuid);
+                }
+                Err(error) => {
+                    match source {
+                        CollectSource::Scheduled => {
+                            // Preserve coverage without pinning NextExpiry /
+                            // mid-inserting into the Expiry schedule (Skeptic
+                            // fid:0776a829). Side-queue insert is O(1).
+                            if Expiry::<T>::contains_key(at, (owner, netuid)) {
+                                Expiry::<T>::remove(at, (owner, netuid));
+                                Self::note_expiry_removed(at);
+                            }
+                        }
+                        CollectSource::Retry => {
+                            let _ = Self::take_expiry_retry(at, owner, netuid);
+                        }
+                    }
+                    Self::note_band_deferral(owner, netuid, now, error);
+                    if let Some(mut position) = Positions::<T>::get(owner, netuid) {
+                        let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
+                        Self::enqueue_expiry_retry(owner, netuid, retry_at);
+                        position.expiry_due = retry_at;
+                        Positions::<T>::insert(owner, netuid, position);
+                        let reason = Self::deferral_reason(error);
+                        LastDeferral::<T>::insert(owner, netuid, (1u8, retry_at, reason.clone()));
+                        Self::deposit_event(Event::SettlementDeferred {
+                            owner: owner.clone(),
+                            netuid,
+                            retry_at,
+                            reason,
+                        });
+                    }
+                }
+            }
+        }
+
+        /// Drain the primary Due linked schedule. Outer loop stays separate from
+        /// [`Self::collect_interest_retries`]: linked-list unlink + TotalPositions
+        /// wipe of all queue heads (intentional; not a shared Source param).
+        pub(crate) fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
             if meter
                 .try_consume(T::DbWeight::get().reads_writes(2, 1))
                 .is_err()
@@ -5905,71 +6074,7 @@ pub mod pallet {
                         NextDue::<T>::put(due);
                         return;
                     }
-                    let outcome = with_transaction(|| {
-                        let result = (|| {
-                            let mut position = Positions::<T>::get(&owner, netuid)
-                                .ok_or(Error::<T>::PositionMissing)?;
-                            if Dissolutions::<T>::contains_key(netuid) {
-                                return Ok(());
-                            }
-                            Self::charge_interest(&owner, netuid, &mut position, now, false, true)?;
-                            if Positions::<T>::contains_key(&owner, netuid) {
-                                let next = now.saturating_add(position.interest_period);
-                                if Due::<T>::take(position.due, (&owner, netuid)).is_some() {
-                                    Self::note_due_removed(position.due);
-                                }
-                                position.due = next;
-                                Due::<T>::insert(next, (&owner, netuid), ());
-                                Self::note_due_inserted(next);
-                                Positions::<T>::insert(&owner, netuid, position);
-                            }
-                            Ok(())
-                        })();
-                        match result {
-                            Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
-                            Err(e) => TransactionOutcome::Rollback(Err(e)),
-                        }
-                    });
-                    match outcome {
-                        Ok(()) => {
-                            // Forfeit / dissolve skips leave the queue row; drop it.
-                            // Successful charge already moved it onto the next period.
-                            if Due::<T>::contains_key(due, (&owner, netuid)) {
-                                Due::<T>::remove(due, (&owner, netuid));
-                                Self::note_due_removed(due);
-                            }
-                            LastDeferral::<T>::remove(&owner, netuid);
-                        }
-                        Err(error) => {
-                            // Preserve coverage without pinning NextDue /
-                            // mid-inserting into the Due schedule (Auditor
-                            // fid:2aff7381, Skeptic fid:0776a829). Side-queue
-                            // insert is O(1).
-                            if Due::<T>::contains_key(due, (&owner, netuid)) {
-                                Due::<T>::remove(due, (&owner, netuid));
-                                Self::note_due_removed(due);
-                            }
-                            Self::note_band_deferral(&owner, netuid, now, error);
-                            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
-                                let retry_at = now.saturating_add(T::InterestRetryDelay::get());
-                                Self::enqueue_interest_retry(&owner, netuid, retry_at);
-                                position.due = retry_at;
-                                Positions::<T>::insert(&owner, netuid, position);
-                                let reason = Self::deferral_reason(error);
-                                LastDeferral::<T>::insert(
-                                    &owner,
-                                    netuid,
-                                    (0u8, retry_at, reason.clone()),
-                                );
-                                Self::deposit_event(Event::InterestDeferred {
-                                    owner: owner.clone(),
-                                    netuid,
-                                    retry_at,
-                                    reason,
-                                });
-                            }
-                        }
-                    }
+                    Self::process_one_interest(CollectSource::Scheduled, now, due, &owner, netuid);
                     last_done = Some((owner, netuid));
                 }
                 DueBucketCursor::<T>::kill();
@@ -6003,12 +6108,15 @@ pub mod pallet {
         /// `budget` caps settle attempts (shared with expiry retries in
         /// `on_initialize`). Returns the remaining budget. Pass `u32::MAX` from
         /// metered `on_idle`.
+        ///
+        /// Outer loop stays separate from [`Self::collect_expiry_retries`]:
+        /// linked-list unlink, proof-aware header, and `resume_expiry_collect`
+        /// (intentional; settle body is shared via `process_one_expiry`).
         pub(crate) fn collect_expiry(
             now: BlockNumberFor<T>,
             meter: &mut WeightMeter,
             mut budget: u32,
         ) -> u32 {
-            use frame_support::storage::{TransactionOutcome, with_transaction};
             if budget == 0 {
                 return 0;
             }
@@ -6062,18 +6170,17 @@ pub mod pallet {
                 };
                 let mut saw_entry = false;
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
-                // Peek weight before each `iter.next()` so proof is reserved
-                // before the storage read; settle() before processing the row.
+                // Bare loop: peek weight must be charged before each
+                // `iter.next()` so a mid-bucket stop can resume via last_done
+                // without skipping keys (skeptic fid:eb66f29d).
                 loop {
                     if meter.try_consume(Self::expiry_queue_peek_weight()).is_err() {
-                        // Do not resurrect a drained bucket (skeptic fid:eb66f29d).
                         Self::resume_expiry_collect(at, last_done);
                         return budget;
                     }
                     let Some(((owner, netuid), ())) = iter.next() else {
                         break;
                     };
-                    saw_entry = true;
                     if budget == 0 {
                         Self::resume_expiry_collect(at, last_done);
                         return 0;
@@ -6086,74 +6193,9 @@ pub mod pallet {
                         Self::resume_expiry_collect(at, last_done);
                         return budget;
                     }
+                    saw_entry = true;
                     budget = budget.saturating_sub(1);
-                    let outcome = with_transaction(|| {
-                        let result = (|| {
-                            // Dissolution settle is authoritative if it started first.
-                            if Dissolutions::<T>::contains_key(netuid) {
-                                return Ok(());
-                            }
-                            let position = Positions::<T>::get(&owner, netuid)
-                                .ok_or(Error::<T>::PositionMissing)?;
-                            // Stale queue entry (rekeyed / already closed).
-                            if position.expires_at > now {
-                                return Ok(());
-                            }
-                            // Expiry closes at spot; the rate is only reported.
-                            let rate = T::Pool::current_alpha_price(netuid);
-                            Self::settle_position_at_rate(
-                                netuid,
-                                &owner,
-                                position,
-                                rate,
-                                now,
-                                SettleKind::Expiry,
-                            )
-                        })();
-                        match result {
-                            Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
-                            Err(e) => TransactionOutcome::Rollback(Err(e)),
-                        }
-                    });
-                    match outcome {
-                        Ok(()) => {
-                            // Stale / dissolving skips leave the queue row; drop it.
-                            // Successful settle already cleared it via remove_position.
-                            if Expiry::<T>::contains_key(at, (&owner, netuid)) {
-                                Expiry::<T>::remove(at, (&owner, netuid));
-                                Self::note_expiry_removed(at);
-                            }
-                            LastDeferral::<T>::remove(&owner, netuid);
-                        }
-                        Err(error) => {
-                            // Preserve coverage without pinning NextExpiry /
-                            // mid-inserting into the Expiry schedule (Skeptic
-                            // fid:0776a829). Side-queue insert is O(1).
-                            if Expiry::<T>::contains_key(at, (&owner, netuid)) {
-                                Expiry::<T>::remove(at, (&owner, netuid));
-                                Self::note_expiry_removed(at);
-                            }
-                            Self::note_band_deferral(&owner, netuid, now, error);
-                            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
-                                let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
-                                Self::enqueue_expiry_retry(&owner, netuid, retry_at);
-                                position.expiry_due = retry_at;
-                                Positions::<T>::insert(&owner, netuid, position);
-                                let reason = Self::deferral_reason(error);
-                                LastDeferral::<T>::insert(
-                                    &owner,
-                                    netuid,
-                                    (1u8, retry_at, reason.clone()),
-                                );
-                                Self::deposit_event(Event::SettlementDeferred {
-                                    owner: owner.clone(),
-                                    netuid,
-                                    retry_at,
-                                    reason,
-                                });
-                            }
-                        }
-                    }
+                    Self::process_one_expiry(CollectSource::Scheduled, now, at, &owner, netuid);
                     last_done = Some((owner, netuid));
                 }
                 ExpiryBucketCursor::<T>::kill();
@@ -6198,8 +6240,11 @@ pub mod pallet {
         /// Drain [`InterestRetry`] with metered empty-bucket bumps (no linked-list
         /// mid-insert). Successful charges rejoin the normal [`Due`] schedule via
         /// the append-heavy `note_due_inserted` path.
+        ///
+        /// Outer loop stays separate from [`Self::collect_due`]: sparse empty-bump
+        /// + `MAX_EMPTY_BUMPS` (intentional). Charge/deferral body is shared via
+        /// `process_one_interest(CollectSource::Retry, ...)`.
         fn collect_interest_retries(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
-            use frame_support::storage::{TransactionOutcome, with_transaction};
             if meter
                 .try_consume(T::DbWeight::get().reads_writes(1, 1))
                 .is_err()
@@ -6237,57 +6282,7 @@ pub mod pallet {
                         NextInterestRetry::<T>::put(at);
                         return;
                     }
-                    let outcome = with_transaction(|| {
-                        let result = (|| {
-                            let mut position = Positions::<T>::get(&owner, netuid)
-                                .ok_or(Error::<T>::PositionMissing)?;
-                            if Dissolutions::<T>::contains_key(netuid) {
-                                return Ok(());
-                            }
-                            Self::charge_interest(&owner, netuid, &mut position, now, false, true)?;
-                            if Positions::<T>::contains_key(&owner, netuid) {
-                                let next = now.saturating_add(position.interest_period);
-                                let _ = Self::take_interest_retry(position.due, &owner, netuid);
-                                position.due = next;
-                                Due::<T>::insert(next, (&owner, netuid), ());
-                                Self::note_due_inserted(next);
-                                Positions::<T>::insert(&owner, netuid, position);
-                            }
-                            Ok(())
-                        })();
-                        match result {
-                            Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
-                            Err(e) => TransactionOutcome::Rollback(Err(e)),
-                        }
-                    });
-                    match outcome {
-                        Ok(()) => {
-                            let _ = Self::take_interest_retry(at, &owner, netuid);
-                            LastDeferral::<T>::remove(&owner, netuid);
-                        }
-                        Err(error) => {
-                            let _ = Self::take_interest_retry(at, &owner, netuid);
-                            Self::note_band_deferral(&owner, netuid, now, error);
-                            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
-                                let retry_at = now.saturating_add(T::InterestRetryDelay::get());
-                                Self::enqueue_interest_retry(&owner, netuid, retry_at);
-                                position.due = retry_at;
-                                Positions::<T>::insert(&owner, netuid, position);
-                                let reason = Self::deferral_reason(error);
-                                LastDeferral::<T>::insert(
-                                    &owner,
-                                    netuid,
-                                    (0u8, retry_at, reason.clone()),
-                                );
-                                Self::deposit_event(Event::InterestDeferred {
-                                    owner: owner.clone(),
-                                    netuid,
-                                    retry_at,
-                                    reason,
-                                });
-                            }
-                        }
-                    }
+                    Self::process_one_interest(CollectSource::Retry, now, at, &owner, netuid);
                     last_done = Some((owner, netuid));
                 }
                 InterestRetryCursor::<T>::kill();
@@ -6326,12 +6321,15 @@ pub mod pallet {
         /// Drain [`ExpiryRetry`] with the same O(1)-enqueue / metered-bump shape
         /// as [`Self::collect_interest_retries`]. `budget` is shared with
         /// [`Self::collect_expiry`] in `on_initialize`.
+        ///
+        /// Outer loop stays separate from [`Self::collect_expiry`]: sparse
+        /// empty-bump + `MAX_EMPTY_BUMPS` (intentional). Settle body is shared
+        /// via `process_one_expiry(CollectSource::Retry, ...)`.
         fn collect_expiry_retries(
             now: BlockNumberFor<T>,
             meter: &mut WeightMeter,
             mut budget: u32,
         ) -> u32 {
-            use frame_support::storage::{TransactionOutcome, with_transaction};
             if budget == 0 {
                 return 0;
             }
@@ -6371,6 +6369,9 @@ pub mod pallet {
                 };
                 let mut saw_entry = false;
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
+                // Bare loop: peek weight must be charged before each
+                // `iter.next()` so a mid-bucket stop can resume via cursor
+                // without skipping keys.
                 loop {
                     if meter.try_consume(Self::expiry_queue_peek_weight()).is_err() {
                         if let Some(done) = last_done {
@@ -6382,8 +6383,6 @@ pub mod pallet {
                     let Some(((owner, netuid), ())) = iter.next() else {
                         break;
                     };
-                    saw_entry = true;
-                    empty_bumps = 0;
                     if budget == 0 {
                         if let Some(done) = last_done {
                             ExpiryRetryCursor::<T>::put(done);
@@ -6398,61 +6397,10 @@ pub mod pallet {
                         NextExpiryRetry::<T>::put(at);
                         return budget;
                     }
+                    saw_entry = true;
+                    empty_bumps = 0;
                     budget = budget.saturating_sub(1);
-                    let outcome = with_transaction(|| {
-                        let result = (|| {
-                            if Dissolutions::<T>::contains_key(netuid) {
-                                return Ok(());
-                            }
-                            let position = Positions::<T>::get(&owner, netuid)
-                                .ok_or(Error::<T>::PositionMissing)?;
-                            if position.expires_at > now {
-                                return Ok(());
-                            }
-                            // Expiry closes at spot; the rate is only reported.
-                            let rate = T::Pool::current_alpha_price(netuid);
-                            Self::settle_position_at_rate(
-                                netuid,
-                                &owner,
-                                position,
-                                rate,
-                                now,
-                                SettleKind::Expiry,
-                            )
-                        })();
-                        match result {
-                            Ok(()) => TransactionOutcome::Commit(Ok::<(), DispatchError>(())),
-                            Err(e) => TransactionOutcome::Rollback(Err(e)),
-                        }
-                    });
-                    match outcome {
-                        Ok(()) => {
-                            let _ = Self::take_expiry_retry(at, &owner, netuid);
-                            LastDeferral::<T>::remove(&owner, netuid);
-                        }
-                        Err(error) => {
-                            let _ = Self::take_expiry_retry(at, &owner, netuid);
-                            Self::note_band_deferral(&owner, netuid, now, error);
-                            if let Some(mut position) = Positions::<T>::get(&owner, netuid) {
-                                let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
-                                Self::enqueue_expiry_retry(&owner, netuid, retry_at);
-                                position.expiry_due = retry_at;
-                                Positions::<T>::insert(&owner, netuid, position);
-                                let reason = Self::deferral_reason(error);
-                                LastDeferral::<T>::insert(
-                                    &owner,
-                                    netuid,
-                                    (1u8, retry_at, reason.clone()),
-                                );
-                                Self::deposit_event(Event::SettlementDeferred {
-                                    owner: owner.clone(),
-                                    netuid,
-                                    retry_at,
-                                    reason,
-                                });
-                            }
-                        }
-                    }
+                    Self::process_one_expiry(CollectSource::Retry, now, at, &owner, netuid);
                     last_done = Some((owner, netuid));
                 }
                 ExpiryRetryCursor::<T>::kill();
@@ -6653,7 +6601,7 @@ pub mod pallet {
                     Dissolution {
                         frozen_at: frame_system::Pallet::<T>::block_number(),
                         lifts_readded: true,
-                        rate: U64F64::from_num(0),
+                        dissolution_price: U64F64::from_num(0),
                         t_flag: 0,
                         t_ema_flag: 0,
                     },
@@ -6666,7 +6614,7 @@ pub mod pallet {
                 Dissolution {
                     frozen_at,
                     lifts_readded: false,
-                    rate: U64F64::from_num(0),
+                    dissolution_price: U64F64::from_num(0),
                     t_flag,
                     t_ema_flag,
                 },
@@ -6741,15 +6689,17 @@ pub mod pallet {
             EscrowOwner::<T>::contains_key(netuid, coldkey)
         }
 
-        /// Jacob §13.2.2 settlement (weight-metered, multi-block OK).
+        /// Subnet-dissolution step only (Jacob §13.2.2; weight-metered,
+        /// multi-block OK). Not ordinary expiry / close.
         /// Assumes lift legs were already re-added in the dissolve call.
-        /// Phase 0: freeze rate after phase-0 basket conversions
+        /// Phase 0: freeze dissolution price after phase-0 basket conversions
         ///   `Δ0 = max(0, T_flag − T_pre)`,
         ///   `T_settle = min(T_flag, t_ema_flag) − Δ0`,
-        ///   `r = T_settle / ALL_alpha`, then `r = min(r, moving_alpha_price)`.
+        ///   `dissolution_price = T_settle / ALL_alpha`, then
+        ///   `dissolution_price = min(dissolution_price, moving_alpha_price)`.
         /// Phase 1: settle positions.
-        /// Phase 2: convert pending long interest at r and burn.
-        pub fn settle_lending(netuid: NetUid, meter: &mut WeightMeter) -> bool {
+        /// Phase 2: convert pending long interest at dissolution_price and burn.
+        pub fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             let Some(mut dissolution) = Dissolutions::<T>::get(netuid) else {
                 return true;
             };
@@ -6766,30 +6716,30 @@ pub mod pallet {
                     .min(dissolution.t_ema_flag)
                     .saturating_sub(delta0);
                 let all_alpha = T::Pool::all_alpha_for_lending_settlement(netuid);
-                let mut r = if all_alpha == 0 {
+                let mut dissolution_price = if all_alpha == 0 {
                     U64F64::from_num(0)
                 } else {
-                    // r = T_settle / all_alpha in U64F64; use u128 division on Q64.64 bits.
+                    // dissolution_price = T_settle / all_alpha in U64F64.
                     let bits = (u128::from(t_settle) << 64) / all_alpha;
                     U64F64::from_bits(bits)
                 };
                 let moving_price = T::Pool::moving_alpha_price(netuid);
                 if moving_price > U64F64::from_num(0) {
-                    r = r.min(moving_price);
+                    dissolution_price = dissolution_price.min(moving_price);
                 }
-                dissolution.rate = r;
+                dissolution.dissolution_price = dissolution_price;
                 dissolution.lifts_readded = true;
                 Dissolutions::<T>::insert(netuid, dissolution.clone());
                 DissolutionPhase::<T>::insert(netuid, 1u8);
                 DissolutionCursor::<T>::remove(netuid);
-                Self::deposit_event(Event::SettleRateFixed {
+                Self::deposit_event(Event::SettleDissolutionPriceFixed {
                     netuid,
                     t_flag: dissolution.t_flag,
                     t_ema_flag: dissolution.t_ema_flag,
                     t_pre,
                     delta0,
                     d: all_alpha,
-                    r,
+                    dissolution_price,
                 });
             }
 
@@ -6813,13 +6763,12 @@ pub mod pallet {
                 let Some(position) = Positions::<T>::get(&owner, netuid) else {
                     continue;
                 };
-                if Self::settle_position_at_rate(
+                if Self::settle_position_on_dissolution(
                     netuid,
                     &owner,
                     position,
-                    dissolution.rate,
+                    dissolution.dissolution_price,
                     dissolution.frozen_at,
-                    SettleKind::Dissolution,
                 )
                 .is_err()
                 {
@@ -6829,14 +6778,15 @@ pub mod pallet {
             }
             DissolutionCursor::<T>::remove(netuid);
 
-            // Phase 2: pending long interest at r → burn TAO
+            // Phase 2: pending long interest at dissolution_price → burn TAO
             if meter.try_consume(T::WeightInfo::settle()).is_err() {
                 DissolutionPhase::<T>::insert(netuid, 2u8);
                 return false;
             }
             let pending = LongInterestPending::<T>::get(netuid);
             if pending > 0 {
-                let tao = Self::tao_for_alpha(pending, dissolution.rate, false).unwrap_or(0);
+                let tao =
+                    Self::tao_for_alpha(pending, dissolution.dissolution_price, false).unwrap_or(0);
                 if tao > 0 {
                     // §13: burn first; only then clear pending. A failed burn
                     // must retain pending interest and not advance the phase
@@ -6862,29 +6812,26 @@ pub mod pallet {
             true
         }
 
-        /// Atomic per-position settlement. Dissolution (§13) settles at the
-        /// smoothed rate `r` with no AMM trades. Fixed-term expiry (§15) ignores
-        /// `r` for valuation and runs [`Self::settle_expiry_as_close`] (a default
-        /// close at spot); `r` is only reported on `Expired`.
+        /// Subnet-dissolution only (§13): settle one position at
+        /// `dissolution_price` with **no AMM trades**.
         ///
-        /// Dissolution short path: withdraw recovery + interest + refund in one
-        /// credit settle so no Expendable mid-path debit can reap a below-ED
-        /// remainder (skeptic fid:0fadfc1c / 83813c42).
+        /// Money path: short debt / long A+C valuation use `dissolution_price`
+        /// (young shorts may take `max(dissolution_price, P_open)`). This is
+        /// not expiry — fixed-term expiry calls [`Self::settle_expiry_as_close`]
+        /// and never takes a dissolution price.
+        ///
+        /// Short path: withdraw recovery + interest + refund in one credit
+        /// settle so no Expendable mid-path debit can reap a below-ED remainder
+        /// (skeptic fid:0fadfc1c / 83813c42).
         #[transactional]
-        fn settle_position_at_rate(
+        fn settle_position_on_dissolution(
             netuid: NetUid,
             owner: &T::AccountId,
             mut position: Position<T::AccountId, BlockNumberFor<T>>,
-            r: U64F64,
+            dissolution_price: U64F64,
             interest_until: BlockNumberFor<T>,
-            kind: SettleKind,
         ) -> DispatchResult {
-            // Versioned dissolution / expiry settlement. v1 uses today's rate
-            // rules (dissolution) or expiry-as-close.
             Self::ensure_terms_version(position.terms_version)?;
-            if matches!(kind, SettleKind::Expiry) {
-                return Self::settle_expiry_as_close(netuid, owner, position, r, interest_until);
-            }
 
             let escrow = position.custody.clone();
             let reserve = Self::reserve_account(netuid);
@@ -6908,12 +6855,13 @@ pub mod pallet {
                     position.last_accrued = until;
                     position.interest_remainder = rem;
 
-                    // Young shorts (age < YoungShortSettlementWindow): rate =
-                    // max(r, P_open) where P_open is the principal-weighted
-                    // average open price `proceeds/principal` (VWAP across
-                    // open + increases). Age uses last_exposure_added_at
-                    // (Greg Zaitsev P1-b). Boundary age == window keeps r.
-                    let mut settle_rate = r;
+                    // Young shorts (age < young_short_settlement_window):
+                    // max(dissolution_price, P_open) where P_open is the
+                    // principal-weighted average open price
+                    // `proceeds/principal` (VWAP across open + increases).
+                    // Age uses last_exposure_added_at (Greg Zaitsev P1-b).
+                    // Boundary age == window keeps dissolution_price.
+                    let mut short_price = dissolution_price;
                     if position.principal > 0 {
                         let opened_at = Self::position_opened_at(&position);
                         let age = until.saturating_sub(opened_at);
@@ -6921,13 +6869,13 @@ pub mod pallet {
                             if let Some(p_open) = U64F64::from_num(position.proceeds)
                                 .checked_div(U64F64::from_num(position.principal))
                             {
-                                if p_open > settle_rate {
-                                    settle_rate = p_open;
+                                if p_open > short_price {
+                                    short_price = p_open;
                                 }
                             }
                         }
                     }
-                    let debt = Self::tao_for_alpha(position.principal, settle_rate, true)?;
+                    let debt = Self::tao_for_alpha(position.principal, short_price, true)?;
                     let available = Self::add(position.proceeds, position.collateral)?;
                     let to_pot = debt.min(available);
                     let after_pot = available.saturating_sub(to_pot);
@@ -7029,9 +6977,10 @@ pub mod pallet {
                     // Escrow A settles at EMA (quantity-backed). Collateral C is
                     // capped at an impact-aware AMM sale so near-expiry top-ups
                     // cannot redeem above dumping C into the live pool.
-                    let a_val = Self::tao_for_alpha(position.escrow_alpha, r, false)?;
+                    let a_val =
+                        Self::tao_for_alpha(position.escrow_alpha, dissolution_price, false)?;
                     let c = position.collateral;
-                    let c_ema = Self::tao_for_alpha(c, r, false)?;
+                    let c_ema = Self::tao_for_alpha(c, dissolution_price, false)?;
                     let c_amm = if c > 0 {
                         match T::Pool::quote_sell(netuid, c.into()) {
                             Ok(t) => t.to_u64(),
@@ -7201,11 +7150,13 @@ pub mod pallet {
             }
         }
 
-        /// Fixed-term expiry (§15): the default `close` path (`repay_from_wallet =
-        /// false`) through the pool at spot, with these intentional differences:
+        /// Fixed-term expiry (§15): default `close` path through the **pool AMM**
+        /// (`repay_from_wallet = false`). Money moves via buyback / forced sells
+        /// at live pool prices — there is no dissolution-price argument.
         ///
+        /// Intentional differences from manual `do_close`:
         /// * Gated by the §5.4 EMA band (unless
-        ///   [`Config::MaxSettlementDeferral`] has elapsed since the first band
+        ///   [`LiftParams::max_settlement_deferral`] has elapsed since the first band
         ///   deferral). Manual close / repay are not gated.
         /// * No wallet top-up and no user slippage limits (`max_payment = MAX`,
         ///   `min_refund = 0`, no min-out on sells).
@@ -7213,19 +7164,23 @@ pub mod pallet {
         ///   (two-sided readd + leftover burn; nothing to the borrower).
         /// * No hotkey: surplus alpha / leftover long collateral sold as TAO.
         ///
+        /// `Expired.spot_price` is reported for observability only (read at emit
+        /// time); it does not size debt, payment, or refund.
+        ///
         /// Interest accrual, weight-preserving readd and the k-neutral burn are
         /// the same as `do_close`.
         fn settle_expiry_as_close(
             netuid: NetUid,
             owner: &T::AccountId,
             mut position: Position<T::AccountId, BlockNumberFor<T>>,
-            spot: U64F64,
             interest_until: BlockNumberFor<T>,
         ) -> DispatchResult {
-            // Versioned expiry-as-close. v1/v2 mirror a default close at spot.
+            // Versioned expiry-as-close. v1/v2 mirror a default close via the AMM.
             Self::ensure_terms_version(position.terms_version)?;
             let expires_at = position.expires_at;
             let side = position.side;
+            // Event-only sample (pre-trade). Never used to size debt/payment/refund.
+            let spot_price_for_event = T::Pool::current_alpha_price(netuid);
             // Wall-clock now for the max-deferral force gate (audit L4).
             Self::ensure_settlement_ema_band(
                 owner,
@@ -7419,6 +7374,7 @@ pub mod pallet {
                 }
             }
             Self::remove_position(owner, netuid, &position);
+            // Money already moved via the AMM path above; spot_price is report-only.
             Self::deposit_event(Event::Expired {
                 owner: owner.clone(),
                 netuid,
@@ -7431,7 +7387,7 @@ pub mod pallet {
                 payment: paid,
                 tao_to_pool: to_pool,
                 tao_refund: refund,
-                rate: spot,
+                spot_price: spot_price_for_event,
                 shortfall_alpha: 0,
                 shortfall_tao: 0,
             });
@@ -7456,13 +7412,6 @@ pub mod pallet {
             Self::forget_active_net(netuid);
             TaoEma::<T>::remove(netuid);
             Ok(())
-        }
-
-        pub fn dissolution_eligible_alpha(netuid: NetUid) -> u128 {
-            let book = Lifts::<T>::get(netuid);
-            u128::from(book.escrow_alpha)
-                .saturating_add(u128::from(book.long_collateral_alpha))
-                .saturating_add(u128::from(LongInterestPending::<T>::get(netuid)))
         }
 
         pub fn quote_open(
@@ -7700,16 +7649,6 @@ pub mod pallet {
                 .checked_mul(factor)
                 .ok_or(Error::<T>::Arithmetic)?;
             Ok((spot_after, escrow_out))
-        }
-
-        /// Approximate post-forced-trade spot after a proportional lift + buy/sell.
-        #[allow(dead_code)]
-        fn simulate_open_spot_after(
-            netuid: NetUid,
-            side: Side,
-            principal: u64,
-        ) -> Result<U64F64, DispatchError> {
-            Ok(Self::simulate_open_trade(netuid, side, principal)?.0)
         }
 
         pub fn quote_close(
@@ -8042,7 +7981,7 @@ pub mod pallet {
                 (best, p)
             };
             let price = Self::coupon_price(netuid, &reference);
-            // Same dust / capacity / MinimumLoanValue gate as `do_open`.
+            // Same dust / capacity / minimum_loan_value gate as `do_open`.
             if p == 0 {
                 return Err(Self::refuse_dust_or_capacity(
                     netuid,
@@ -8236,8 +8175,8 @@ pub mod pallet {
         fn readd_lifts_for_dissolution(netuid: NetUid) -> DispatchResult {
             Self::readd_lifts_for_dissolution(netuid)
         }
-        fn settle_lending(netuid: NetUid, meter: &mut WeightMeter) -> bool {
-            Self::settle_lending(netuid, meter)
+        fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
+            Self::settle_positions_on_dissolution(netuid, meter)
         }
         fn finish_dissolution(netuid: NetUid) -> DispatchResult {
             Self::finish_dissolution(netuid)

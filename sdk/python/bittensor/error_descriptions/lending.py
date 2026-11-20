@@ -23,8 +23,8 @@ DESCRIPTIONS: dict[str, str] = {
         "account."
     ),
     "AmountTooSmall": (
-        "Borrow, repay slice, or remaining dust is below the runtime minimum (1 τ). "
-        "Increase collateral or principal, or close the remainder fully. "
+        "Borrow, repay slice, or remaining dust is below LiftParams.minimum_loan_value "
+        "(default 1 τ). Increase collateral or principal, or close the remainder fully. "
         "If the side cap is what blocks a minimum loan, the chain returns SideCapacity instead."
     ),
     "PrincipalZero": (
@@ -42,10 +42,6 @@ DESCRIPTIONS: dict[str, str] = {
     "SideCapacityRamping": (
         "Side capacity is limited by the new-subnet Cap ramp (not full Cap yet). "
         "Reduce size to fit current headroom, or retry later as the ramp rises."
-    ),
-    "DepthBelowThreshold": (
-        "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / "
-        "PrincipalExceedsTaoIn for the specific reserve failure."
     ),
     "EmptyPool": (
         "The subnet AMM has zero TAO or zero alpha in reserve, so a lift cannot be sized. "
@@ -77,10 +73,6 @@ DESCRIPTIONS: dict[str, str] = {
     "BelowMinimumBorrow": (
         "Additional principal is below the caller's minimum. Requote; the failed call moves "
         "no assets."
-    ),
-    "AboveMaximumPayment": (
-        "Repayment exceeds the caller's payment ceiling. Requote the close or repay before "
-        "resubmitting (stale quote or tighten --max-slippage carefully)."
     ),
     "BelowMinimumRefund": (
         "The remaining collateral refund is below the caller's minimum. Requote after accrued "
@@ -125,9 +117,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "GemaWarmingUp": (
         "Lending G_ema is missing or has not aged one full EMA window after seeding. Warm the "
-        "reference and wait LiftParams.settle_ema_blocks before opening."
+        "reference and wait LiftParams.total_tao_ema_blocks before opening."
     ),
-    "CustodyHotkey": ("Third-party stake onto the lending custody hotkey is rejected."),
     "EscrowInUse": (
         "This coldkey's derived lending escrow is still assigned to another open loan "
         "(usually after a coldkey swap that kept the original custody account). Close or "
@@ -147,7 +138,7 @@ DESCRIPTIONS: dict[str, str] = {
     "SettlementPriceOutsideEmaBand": (
         "Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw "
         "spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; "
-        "after MaxSettlementDeferral (~7 days / 50_400 blocks from the first band deferral) "
+        "after max_settlement_deferral (~7 days / 50_400 blocks from the first band deferral) "
         "the band gate lifts and the next collector retry settles anyway. Manual "
         "close/repay is unaffected — use those with your own slippage limits if you need "
         "to exit now."

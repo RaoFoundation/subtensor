@@ -93,24 +93,6 @@
     }
   },
   "chain_errors": {
-    "AboveMaximumPayment": {
-      "code": "invalid_argument",
-      "description": "Repayment exceeds the caller's payment ceiling. Requote the close or repay before resubmitting (stale quote or tighten --max-slippage carefully).",
-      "docs_url": "/docs/errors/chain/AboveMaximumPayment",
-      "markdown_url": "/llms.mdx/docs/errors/chain/AboveMaximumPayment/content.md",
-      "pallets": [
-        "Lending"
-      ],
-      "sources": [
-        {
-          "pallet": "Lending",
-          "path": "pallets/lending/src/lib.rs",
-          "line": 1481,
-          "url": "/code/pallets/lending/src/lib.rs#L1481",
-          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
-        }
-      ]
-    },
     "AccountNotAllowedCommit": {
       "code": "not_authorized",
       "description": "Raised by `set_commitment` when the runtime commit check fails: the subnet must exist and the signing hotkey must be registered on it. Verify the `netuid` and that the hotkey has a UID on that subnet.",
@@ -375,8 +357,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1487,
-          "url": "/code/pallets/lending/src/lib.rs#L1487",
+          "line": 1476,
+          "url": "/code/pallets/lending/src/lib.rs#L1476",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -455,7 +437,7 @@
     },
     "AmountTooSmall": {
       "code": "invalid_argument",
-      "description": "Borrow, repay slice, or remaining dust is below the runtime minimum (1 \u03c4). Increase collateral or principal, or close the remainder fully. If the side cap is what blocks a minimum loan, the chain returns SideCapacity instead.",
+      "description": "Borrow, repay slice, or remaining dust is below LiftParams.minimum_loan_value (default 1 \u03c4). Increase collateral or principal, or close the remainder fully. If the side cap is what blocks a minimum loan, the chain returns SideCapacity instead.",
       "docs_url": "/docs/errors/chain/AmountTooSmall",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooSmall/content.md",
       "pallets": [
@@ -465,8 +447,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1466,
-          "url": "/code/pallets/lending/src/lib.rs#L1466",
+          "line": 1459,
+          "url": "/code/pallets/lending/src/lib.rs#L1459",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -519,8 +501,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1485,
-          "url": "/code/pallets/lending/src/lib.rs#L1485",
+          "line": 1474,
+          "url": "/code/pallets/lending/src/lib.rs#L1474",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -825,8 +807,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1480,
-          "url": "/code/pallets/lending/src/lib.rs#L1480",
+          "line": 1470,
+          "url": "/code/pallets/lending/src/lib.rs#L1470",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -843,8 +825,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1482,
-          "url": "/code/pallets/lending/src/lib.rs#L1482",
+          "line": 1471,
+          "url": "/code/pallets/lending/src/lib.rs#L1471",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1536,8 +1518,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1535,
-          "url": "/code/pallets/lending/src/lib.rs#L1535",
+          "line": 1523,
+          "url": "/code/pallets/lending/src/lib.rs#L1523",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1572,8 +1554,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1523,
-          "url": "/code/pallets/lending/src/lib.rs#L1523",
+          "line": 1511,
+          "url": "/code/pallets/lending/src/lib.rs#L1511",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1680,8 +1662,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1496,
-          "url": "/code/pallets/lending/src/lib.rs#L1496",
+          "line": 1486,
+          "url": "/code/pallets/lending/src/lib.rs#L1486",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1787,12 +1769,11 @@
     },
     "CustodyHotkey": {
       "code": "invalid_argument",
-      "description": "Third-party stake onto the lending custody hotkey is rejected.",
+      "description": "Third-party stake onto the lending custody hotkey is rejected (\u00a714).",
       "docs_url": "/docs/errors/chain/CustodyHotkey",
       "markdown_url": "/llms.mdx/docs/errors/chain/CustodyHotkey/content.md",
       "pallets": [
-        "SubtensorModule",
-        "Lending"
+        "SubtensorModule"
       ],
       "sources": [
         {
@@ -1801,13 +1782,6 @@
           "line": 506,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L506",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        },
-        {
-          "pallet": "Lending",
-          "path": "pallets/lending/src/lib.rs",
-          "line": 1505,
-          "url": "/code/pallets/lending/src/lib.rs#L1505",
-          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -1823,8 +1797,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1486,
-          "url": "/code/pallets/lending/src/lib.rs#L1486",
+          "line": 1475,
+          "url": "/code/pallets/lending/src/lib.rs#L1475",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1850,8 +1824,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1495,
-          "url": "/code/pallets/lending/src/lib.rs#L1495",
+          "line": 1485,
+          "url": "/code/pallets/lending/src/lib.rs#L1485",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2016,24 +1990,6 @@
         }
       ]
     },
-    "DepthBelowThreshold": {
-      "code": "insufficient_liquidity",
-      "description": "Legacy depth refusal. Prefer EmptyPool / PrincipalExceedsAlphaIn / PrincipalExceedsTaoIn for the specific reserve failure.",
-      "docs_url": "/docs/errors/chain/DepthBelowThreshold",
-      "markdown_url": "/llms.mdx/docs/errors/chain/DepthBelowThreshold/content.md",
-      "pallets": [
-        "Lending"
-      ],
-      "sources": [
-        {
-          "pallet": "Lending",
-          "path": "pallets/lending/src/lib.rs",
-          "line": 1477,
-          "url": "/code/pallets/lending/src/lib.rs#L1477",
-          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
-        }
-      ]
-    },
     "DerivedAuthorityTooComplex": {
       "code": "limit_exceeded",
       "description": "The derived authority exceeds the runtime's member, depth, or resolution bounds. Use a smaller supported authority structure.",
@@ -2090,8 +2046,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1456,
-          "url": "/code/pallets/lending/src/lib.rs#L1456",
+          "line": 1448,
+          "url": "/code/pallets/lending/src/lib.rs#L1448",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2234,8 +2190,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1478,
-          "url": "/code/pallets/lending/src/lib.rs#L1478",
+          "line": 1468,
+          "url": "/code/pallets/lending/src/lib.rs#L1468",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2378,8 +2334,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1529,
-          "url": "/code/pallets/lending/src/lib.rs#L1529",
+          "line": 1517,
+          "url": "/code/pallets/lending/src/lib.rs#L1517",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2423,8 +2379,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1509,
-          "url": "/code/pallets/lending/src/lib.rs#L1509",
+          "line": 1497,
+          "url": "/code/pallets/lending/src/lib.rs#L1497",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2549,8 +2505,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1541,
-          "url": "/code/pallets/lending/src/lib.rs#L1541",
+          "line": 1529,
+          "url": "/code/pallets/lending/src/lib.rs#L1529",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2845,7 +2801,7 @@
     },
     "GemaWarmingUp": {
       "code": "too_early",
-      "description": "Lending G_ema is missing or has not aged one full EMA window after seeding. Warm the reference and wait LiftParams.settle_ema_blocks before opening.",
+      "description": "Lending G_ema is missing or has not aged one full EMA window after seeding. Warm the reference and wait LiftParams.total_tao_ema_blocks before opening.",
       "docs_url": "/docs/errors/chain/GemaWarmingUp",
       "markdown_url": "/llms.mdx/docs/errors/chain/GemaWarmingUp/content.md",
       "pallets": [
@@ -2855,8 +2811,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1527,
-          "url": "/code/pallets/lending/src/lib.rs#L1527",
+          "line": 1515,
+          "url": "/code/pallets/lending/src/lib.rs#L1515",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3188,8 +3144,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1489,
-          "url": "/code/pallets/lending/src/lib.rs#L1489",
+          "line": 1478,
+          "url": "/code/pallets/lending/src/lib.rs#L1478",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3206,8 +3162,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1483,
-          "url": "/code/pallets/lending/src/lib.rs#L1483",
+          "line": 1472,
+          "url": "/code/pallets/lending/src/lib.rs#L1472",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3286,8 +3242,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1490,
-          "url": "/code/pallets/lending/src/lib.rs#L1490",
+          "line": 1479,
+          "url": "/code/pallets/lending/src/lib.rs#L1479",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3628,8 +3584,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1500,
-          "url": "/code/pallets/lending/src/lib.rs#L1500",
+          "line": 1490,
+          "url": "/code/pallets/lending/src/lib.rs#L1490",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3727,8 +3683,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1484,
-          "url": "/code/pallets/lending/src/lib.rs#L1484",
+          "line": 1473,
+          "url": "/code/pallets/lending/src/lib.rs#L1473",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3899,8 +3855,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1499,
-          "url": "/code/pallets/lending/src/lib.rs#L1499",
+          "line": 1489,
+          "url": "/code/pallets/lending/src/lib.rs#L1489",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5707,8 +5663,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1460,
-          "url": "/code/pallets/lending/src/lib.rs#L1460",
+          "line": 1452,
+          "url": "/code/pallets/lending/src/lib.rs#L1452",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5725,8 +5681,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1461,
-          "url": "/code/pallets/lending/src/lib.rs#L1461",
+          "line": 1453,
+          "url": "/code/pallets/lending/src/lib.rs#L1453",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5743,8 +5699,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1501,
-          "url": "/code/pallets/lending/src/lib.rs#L1501",
+          "line": 1491,
+          "url": "/code/pallets/lending/src/lib.rs#L1491",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5806,8 +5762,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1515,
-          "url": "/code/pallets/lending/src/lib.rs#L1515",
+          "line": 1503,
+          "url": "/code/pallets/lending/src/lib.rs#L1503",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5824,8 +5780,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1531,
-          "url": "/code/pallets/lending/src/lib.rs#L1531",
+          "line": 1519,
+          "url": "/code/pallets/lending/src/lib.rs#L1519",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5842,8 +5798,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1533,
-          "url": "/code/pallets/lending/src/lib.rs#L1533",
+          "line": 1521,
+          "url": "/code/pallets/lending/src/lib.rs#L1521",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5860,8 +5816,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1521,
-          "url": "/code/pallets/lending/src/lib.rs#L1521",
+          "line": 1509,
+          "url": "/code/pallets/lending/src/lib.rs#L1509",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5959,8 +5915,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1458,
-          "url": "/code/pallets/lending/src/lib.rs#L1458",
+          "line": 1450,
+          "url": "/code/pallets/lending/src/lib.rs#L1450",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5977,8 +5933,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1459,
-          "url": "/code/pallets/lending/src/lib.rs#L1459",
+          "line": 1451,
+          "url": "/code/pallets/lending/src/lib.rs#L1451",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6417,7 +6373,7 @@
     },
     "SettlementPriceOutsideEmaBand": {
       "code": "policy_violation",
-      "description": "Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; after MaxSettlementDeferral (~7 days / 50_400 blocks from the first band deferral) the band gate lifts and the next collector retry settles anyway. Manual close/repay is unaffected \u2014 use those with your own slippage limits if you need to exit now.",
+      "description": "Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; after max_settlement_deferral (~7 days / 50_400 blocks from the first band deferral) the band gate lifts and the next collector retry settles anyway. Manual close/repay is unaffected \u2014 use those with your own slippage limits if you need to exit now.",
       "docs_url": "/docs/errors/chain/SettlementPriceOutsideEmaBand",
       "markdown_url": "/llms.mdx/docs/errors/chain/SettlementPriceOutsideEmaBand/content.md",
       "pallets": [
@@ -6427,8 +6383,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1519,
-          "url": "/code/pallets/lending/src/lib.rs#L1519",
+          "line": 1507,
+          "url": "/code/pallets/lending/src/lib.rs#L1507",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6445,8 +6401,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1470,
-          "url": "/code/pallets/lending/src/lib.rs#L1470",
+          "line": 1463,
+          "url": "/code/pallets/lending/src/lib.rs#L1463",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6463,8 +6419,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1474,
-          "url": "/code/pallets/lending/src/lib.rs#L1474",
+          "line": 1467,
+          "url": "/code/pallets/lending/src/lib.rs#L1467",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6490,8 +6446,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1493,
-          "url": "/code/pallets/lending/src/lib.rs#L1493",
+          "line": 1483,
+          "url": "/code/pallets/lending/src/lib.rs#L1483",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6760,8 +6716,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1525,
-          "url": "/code/pallets/lending/src/lib.rs#L1525",
+          "line": 1513,
+          "url": "/code/pallets/lending/src/lib.rs#L1513",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6778,8 +6734,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1503,
-          "url": "/code/pallets/lending/src/lib.rs#L1503",
+          "line": 1493,
+          "url": "/code/pallets/lending/src/lib.rs#L1493",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6796,8 +6752,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1457,
-          "url": "/code/pallets/lending/src/lib.rs#L1457",
+          "line": 1449,
+          "url": "/code/pallets/lending/src/lib.rs#L1449",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -7192,8 +7148,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1479,
-          "url": "/code/pallets/lending/src/lib.rs#L1479",
+          "line": 1469,
+          "url": "/code/pallets/lending/src/lib.rs#L1469",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -7679,8 +7635,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 1537,
-          "url": "/code/pallets/lending/src/lib.rs#L1537",
+          "line": 1525,
+          "url": "/code/pallets/lending/src/lib.rs#L1525",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]

@@ -39,7 +39,7 @@ Side = Enum("Side", [("short", "short"), ("long", "long")], type=str)
 # Intent default / "no deadline" sentinel (u32::MAX).
 VALID_UNTIL_NONE = 2**32 - 1
 
-# Runtime LendingMinimumLoanValue (1_000_000_000 rao = 1 τ).
+# LiftParams.minimum_loan_value default (1_000_000_000 rao = 1 τ).
 MINIMUM_LOAN_VALUE_TAO = "1"
 
 app = typer.Typer(
@@ -77,25 +77,17 @@ def _lift_params_deferral(params: Any) -> Optional[int]:
 
 
 async def _live_max_loan_duration(client) -> Optional[int]:
-    """Prefer LiftParamsStore; fall back to the compile-time constant seed."""
+    """Live ``LiftParams.max_loan_duration`` from LiftParamsStore."""
     # Client.query takes the storage Item whole — do not splat (*item); that
     # unpacks into (module, name) and indexes the module string as "L"/"e".
     params = await client.query(_LIFT_PARAMS)
-    duration = _lift_params_duration(params)
-    if duration is not None:
-        return duration
-    constant = await client.constant(("Lending", "MaxLoanDuration"))
-    return int(constant) if isinstance(constant, int) and constant > 0 else None
+    return _lift_params_duration(params)
 
 
 async def _live_max_settlement_deferral(client) -> Optional[int]:
-    """Prefer LiftParamsStore; fall back to the compile-time constant seed."""
+    """Live ``LiftParams.max_settlement_deferral`` from LiftParamsStore."""
     params = await client.query(_LIFT_PARAMS)
-    deferral = _lift_params_deferral(params)
-    if deferral is not None:
-        return deferral
-    constant = await client.constant(("Lending", "MaxSettlementDeferral"))
-    return int(constant) if isinstance(constant, int) and constant > 0 else None
+    return _lift_params_deferral(params)
 
 
 def _bound(amount: Balance, percent: float, *, ceiling: bool = False) -> Balance:
@@ -191,7 +183,7 @@ def _quoted_expires_at(
 ) -> Optional[int]:
     """Block shown on open / increase / raise quote cards.
 
-    New opens: ``head + MaxLoanDuration`` (~30 days / 216_000 blocks).
+    New opens: ``head + max_loan_duration`` (~30 days / 216_000 blocks).
     Increase and raise keep the position's existing ``expires_at`` (no extension).
     """
     if existing_expires is not None:
@@ -246,7 +238,7 @@ def _explain_band_deferral(
 ) -> str:
     """Turn ``SettlementPriceOutsideEmaBand`` into a readable deferral line (U2/U5/U6).
 
-    ``force_at`` is when the band gate lifts (MaxSettlementDeferral after first
+    ``force_at`` is when the band gate lifts (max_settlement_deferral after first
     band deferral; production 50_400 ≈ 7 days). Actual settle runs on a collector
     retry at or after that block — not exactly at ``force_at``.
     """
@@ -512,7 +504,7 @@ def open_loan(
     Pass --amount for the additional quantity to borrow (alpha for a short,
     TAO for a long) and btcli finds the minimum required collateral. Pass
     --collateral instead to borrow its quoted limit. The minimum opening
-    value is 1 TAO (runtime MinimumLoanValue).
+    value is 1 TAO (LiftParams.minimum_loan_value).
 
     Amount mode adds collateral headroom via --max-slippage (default 1%)
     plus accrued-interest reserve for the inclusion window; borrowed
@@ -521,7 +513,7 @@ def open_loan(
     Shorts sell borrowed alpha into escrowed TAO (no --hotkey). Longs buy
     escrowed alpha with borrowed TAO and require --hotkey as the collateral
     source. No free borrowed assets are delivered. Increasing an existing
-    position keeps its original MaxLoanDuration expiry (~30 days; no renewal).
+    position keeps its original max_loan_duration expiry (~30 days; no renewal).
     """
     context = ctx_of(ctx)
     try:
@@ -583,7 +575,7 @@ def open_loan(
                 code=1,
             )
         context.output.message(
-            "note: increasing this position keeps the original MaxLoanDuration "
+            "note: increasing this position keeps the original max_loan_duration "
             "expiry (~30 days); it does not extend expires_at"
         )
 
@@ -863,7 +855,7 @@ def roll_loan(
         help="Proxy coldkey that submits this roll (ProxyType::Any only).",
     ),
 ):
-    """Extend a live loan onto a fresh MaxLoanDuration clock.
+    """Extend a live loan onto a fresh max_loan_duration clock.
 
     Same open gates (lending enabled, new-subnet, warm reference, EMA band).
     Charges interest to now, re-checks LTV, and rejects when the side is over
@@ -1150,7 +1142,7 @@ def repay_loan(
     principal equals btcli lending close. Hotkey and --from-wallet flags match
     close (--repay-from-wallet is a hidden alias). The runtime quote sets
     payment ceiling and refund floor for the slice. Partial repay does not
-    extend the MaxLoanDuration expiry.
+    extend the max_loan_duration expiry.
     """
     context = ctx_of(ctx)
     if repay_from_wallet_alias is not None:
@@ -1412,7 +1404,7 @@ def raise_loan(
                 code=1,
             )
         context.output.message(
-            "note: increasing this position keeps the original MaxLoanDuration expiry (~30 days)"
+            "note: increasing this position keeps the original max_loan_duration expiry (~30 days)"
         )
 
     with context.output.activity("resolving raise deadline…"):
@@ -1870,7 +1862,7 @@ def show_params(ctx: typer.Context):
         "move_bps",
         "ref_tao",
         "thin_tao",
-        "settle_ema_blocks",
+        "total_tao_ema_blocks",
         "crash_guard_bps",
     ]
     rows: list[list[str]] = [["Enabled", str(bool(enabled))]]
@@ -1953,9 +1945,6 @@ def show_position(
             params = await view.query(_LIFT_PARAMS, [])
             since = await view.query(_BAND_SINCE, [owner, netuid])
             max_defer = _lift_params_deferral(params)
-            if max_defer is None:
-                constant = await client.constant(("Lending", "MaxSettlementDeferral"))
-                max_defer = int(constant) if isinstance(constant, int) and constant > 0 else None
             spot_rao = await view.runtime(api.SwapRuntimeApi.current_alpha_price, [netuid])
             ema = None
             price_raw = None

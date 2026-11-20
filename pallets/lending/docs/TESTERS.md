@@ -79,7 +79,7 @@ in the retry queue once settled. Up to **16** expiry settles run in
 
 Dry-run shows the Loan / Repayment / Raise card (quoted payment, refund,
 shortfall). List columns include status (underwater), escrow, expires_at, due,
-and runway capped at the remaining MaxLoanDuration term. JSON amounts are rao
+and runway capped at the remaining max_loan_duration term. JSON amounts are rao
 integers.
 
 ## Locked V1 economics (testers)

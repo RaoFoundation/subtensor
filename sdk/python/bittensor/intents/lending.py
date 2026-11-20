@@ -983,7 +983,7 @@ class RepayLoan(Intent):
 @register
 @dataclass
 class RollLoan(Intent):
-    """Extend a live loan onto a fresh MaxLoanDuration clock without changing exposure.
+    """Extend a live loan onto a fresh max_loan_duration clock without changing exposure.
 
     Same open gates (lending enabled, new-subnet, warm reference, EMA band).
     Charges interest to now, re-checks LTV, and rejects when the side book is

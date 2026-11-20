@@ -296,7 +296,7 @@ def _position_record(
     blocks_per_year = int(raw.get("blocks_per_year") or default_year)
     if blocks_per_year <= 0:
         blocks_per_year = default_year
-    # Fixed MaxLoanDuration term end (~30 days); absent only on pre-term layouts.
+    # Fixed max_loan_duration term end (~30 days); absent only on pre-term layouts.
     expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
     expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
     # Match runtime: stop display accrual at expires_at during band deferral.
@@ -536,7 +536,7 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
     is alpha and long debt is TAO. ``proceeds`` is the short's escrowed TAO
     (E_S) from the forced alpha sale at open; it is zero for longs.
     ``escrow_alpha`` is the long's escrowed alpha (A); zero for shorts.
-    ``expires_at`` is the fixed MaxLoanDuration term end (~30 days; increases
+    ``expires_at`` is the fixed max_loan_duration term end (~30 days; increases
     do not extend it). ``runway_days`` is capped at days remaining until
     ``expires_at``. Interest
     and runway are estimates at the selected block. ``underwater`` /
