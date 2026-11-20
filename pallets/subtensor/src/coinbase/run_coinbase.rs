@@ -572,10 +572,24 @@ impl<T: Config> Pallet<T> {
         BTreeMap<T::AccountId, AlphaBalance>,
         BTreeMap<T::AccountId, U96F32>,
     ) {
+        let (incentives, dividends, _) =
+            Self::calculate_dividends_incentives_and_child_takes(netuid, hotkey_emission);
+        (incentives, dividends)
+    }
+
+    fn calculate_dividends_incentives_and_child_takes(
+        netuid: NetUid,
+        hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)>,
+    ) -> (
+        BTreeMap<T::AccountId, AlphaBalance>,
+        BTreeMap<T::AccountId, U96F32>,
+        BTreeMap<T::AccountId, U96F32>,
+    ) {
         let skip_zero_dividends = Self::get_epoch_consensus(netuid) == EpochConsensus::Null;
         // Accumulate emission of dividends and incentive per hotkey.
         let mut incentives: BTreeMap<T::AccountId, AlphaBalance> = BTreeMap::new();
         let mut dividends: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
+        let mut child_takes: BTreeMap<T::AccountId, U96F32> = BTreeMap::new();
         for (hotkey, incentive, dividend) in hotkey_emission {
             // Accumulate incentives to miners.
             incentives
@@ -588,8 +602,14 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             // Accumulate dividends to parents.
-            let div_tuples: Vec<(T::AccountId, AlphaBalance)> =
-                Self::get_parent_child_dividends_distribution(&hotkey, netuid, dividend);
+            let (div_tuples, child_take) =
+                Self::get_parent_child_dividends_distribution_with_child_take(
+                    &hotkey, netuid, dividend,
+                );
+            child_takes
+                .entry(hotkey.clone())
+                .and_modify(|e| *e = e.saturating_add(asfloat!(child_take)))
+                .or_insert(asfloat!(child_take));
             // Accumulate dividends per hotkey.
             for (parent, parent_div) in div_tuples {
                 dividends
@@ -600,8 +620,9 @@ impl<T: Config> Pallet<T> {
         }
         log::debug!("incentives: {incentives:?}");
         log::debug!("dividends: {dividends:?}");
+        log::debug!("child_takes: {child_takes:?}");
 
-        (incentives, dividends)
+        (incentives, dividends, child_takes)
     }
 
     pub fn calculate_dividend_distribution(
@@ -762,6 +783,24 @@ impl<T: Config> Pallet<T> {
         alpha_dividends: BTreeMap<T::AccountId, U96F32>,
         root_alpha_dividends: BTreeMap<T::AccountId, U96F32>,
     ) {
+        Self::distribute_dividends_and_incentives_with_child_takes(
+            netuid,
+            owner_cut,
+            incentives,
+            alpha_dividends,
+            root_alpha_dividends,
+            BTreeMap::new(),
+        );
+    }
+
+    pub(crate) fn distribute_dividends_and_incentives_with_child_takes(
+        netuid: NetUid,
+        owner_cut: AlphaBalance,
+        incentives: BTreeMap<T::AccountId, AlphaBalance>,
+        alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+        root_alpha_dividends: BTreeMap<T::AccountId, U96F32>,
+        child_take_proportions: BTreeMap<T::AccountId, U96F32>,
+    ) {
         // Distribute the owner cut.
         if let Ok(owner_coldkey) = SubnetOwner::<T>::try_get(netuid)
             && let Ok(owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(netuid)
@@ -875,15 +914,35 @@ impl<T: Config> Pallet<T> {
         for (hotkey, alpha_divs) in alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(alpha_divs).into();
-            let alpha_take: U96F32 =
-                Self::get_hotkey_take_float(&hotkey).saturating_mul(alpha_divs);
-            let nominator_divs: U96F32 = alpha_divs.saturating_sub(alpha_take);
-            let take: AlphaBalance = tou64!(alpha_take).into();
-            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
-            let liquid_take = take.saturating_sub(captured);
-            if !liquid_take.is_zero() {
-                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
-                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, liquid_take);
+            let child_take = child_take_proportions
+                .get(&hotkey)
+                .copied()
+                .unwrap_or_else(|| asfloat!(0))
+                .saturating_mul(alpha_divs);
+            let shared_dividends = alpha_divs.saturating_sub(child_take);
+            let delegate_take =
+                Self::get_hotkey_take_float(&hotkey).saturating_mul(shared_dividends);
+            let nominator_divs = shared_dividends.saturating_sub(delegate_take);
+            let shared_total: AlphaBalance = tou64!(shared_dividends).into();
+            let delegate_take: AlphaBalance = tou64!(delegate_take).into();
+            let child_take = total.saturating_sub(shared_total);
+            let owner_take = delegate_take.saturating_add(child_take);
+            let liquid_delegate_take = if child_take.is_zero() {
+                // Preserve the pre-child-take credit path exactly: captured and
+                // liquid portions are credited separately, including the Null
+                // sole-owner fast path and its share-rounding behavior.
+                let captured =
+                    Self::settle_miner_collateral(netuid, &hotkey, &owner, total, delegate_take);
+                delegate_take.saturating_sub(captured)
+            } else {
+                Self::settle_miner_collateral_without_stake_credit(
+                    netuid, &hotkey, &owner, total, owner_take,
+                );
+                delegate_take
+            };
+            if !liquid_delegate_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} delegate_take: {liquid_delegate_take:?}");
+                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, liquid_delegate_take);
             }
             let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
             if !nominator_alpha.is_zero() {
@@ -905,6 +964,12 @@ impl<T: Config> Pallet<T> {
                     *divs = divs.saturating_add(nominator_alpha);
                 });
             }
+            // Credit childkey take after shared dividends so the newly created
+            // owner stake cannot participate in the same dividend distribution.
+            if !child_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} child_take: {child_take:?}");
+                Self::credit_epoch_owner_emission(&hotkey, &owner, netuid, child_take);
+            }
             let total_hotkey_alpha = TotalHotkeyAlpha::<T>::get(&hotkey, netuid);
             if total_hotkey_alpha.is_zero() {
                 TotalHotkeyAlphaLastEpoch::<T>::remove(hotkey, netuid);
@@ -920,19 +985,38 @@ impl<T: Config> Pallet<T> {
         for (hotkey, root_alpha) in root_alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(root_alpha).into();
-            let alpha_take: U96F32 =
-                Self::get_hotkey_take_float(&hotkey).saturating_mul(root_alpha);
-            let root_claimable: U96F32 = root_alpha.saturating_sub(alpha_take);
-            let take: AlphaBalance = tou64!(alpha_take).into();
-            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
-            let liquid_take = take.saturating_sub(captured);
-            if !liquid_take.is_zero() {
-                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
+            let child_take = child_take_proportions
+                .get(&hotkey)
+                .copied()
+                .unwrap_or_else(|| asfloat!(0))
+                .saturating_mul(root_alpha);
+            let shared_dividends = root_alpha.saturating_sub(child_take);
+            let delegate_take =
+                Self::get_hotkey_take_float(&hotkey).saturating_mul(shared_dividends);
+            let root_claimable = shared_dividends.saturating_sub(delegate_take);
+            let shared_total: AlphaBalance = tou64!(shared_dividends).into();
+            let delegate_take: AlphaBalance = tou64!(delegate_take).into();
+            let child_take = total.saturating_sub(shared_total);
+            let owner_take = delegate_take.saturating_add(child_take);
+            let liquid_delegate_take = if child_take.is_zero() {
+                // Preserve the pre-child-take credit path exactly, including
+                // its separate captured-stake credit.
+                let captured =
+                    Self::settle_miner_collateral(netuid, &hotkey, &owner, total, delegate_take);
+                delegate_take.saturating_sub(captured)
+            } else {
+                Self::settle_miner_collateral_without_stake_credit(
+                    netuid, &hotkey, &owner, total, owner_take,
+                );
+                delegate_take
+            };
+            if !liquid_delegate_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} delegate_take: {liquid_delegate_take:?}");
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     &hotkey,
                     &owner,
                     netuid,
-                    liquid_take,
+                    liquid_delegate_take,
                 );
             }
 
@@ -947,6 +1031,14 @@ impl<T: Config> Pallet<T> {
                 Self::enqueue_root_dividend(&hotkey, netuid, root_claimable_alpha);
 
                 RootAlphaDividendsPerSubnet::<T>::insert(netuid, &hotkey, root_claimable_alpha);
+            }
+            // Root-derived childkey take is owner-only as well; unlike the
+            // shared remainder it must not become root-claimable.
+            if !child_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} child_take: {child_take:?}");
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &owner, netuid, child_take,
+                );
             }
         }
     }
@@ -979,8 +1071,46 @@ impl<T: Config> Pallet<T> {
             BTreeMap<T::AccountId, U96F32>,
         ),
     ) {
-        let (incentives, dividends) =
-            Self::calculate_dividends_and_incentives(netuid, hotkey_emission);
+        let (incentives, dividends, _) =
+            Self::calculate_dividend_and_incentive_distribution_with_child_takes(
+                netuid,
+                pending_root_alpha,
+                pending_validator_alpha,
+                hotkey_emission,
+                tao_weight,
+            );
+        (incentives, dividends)
+    }
+
+    fn calculate_dividend_and_incentive_distribution_with_child_takes(
+        netuid: NetUid,
+        pending_root_alpha: AlphaBalance,
+        pending_validator_alpha: AlphaBalance,
+        hotkey_emission: Vec<(T::AccountId, AlphaBalance, AlphaBalance)>,
+        tao_weight: U96F32,
+    ) -> (
+        BTreeMap<T::AccountId, AlphaBalance>,
+        (
+            BTreeMap<T::AccountId, U96F32>,
+            BTreeMap<T::AccountId, U96F32>,
+        ),
+        BTreeMap<T::AccountId, U96F32>,
+    ) {
+        let (incentives, dividends, child_takes) =
+            Self::calculate_dividends_incentives_and_child_takes(netuid, hotkey_emission);
+
+        // Preserve the child take's share of each hotkey's dividend score through
+        // normalization into the subnet and root dividend pools.
+        let zero = asfloat!(0);
+        let one = asfloat!(1);
+        let child_take_proportions = child_takes
+            .into_iter()
+            .filter_map(|(hotkey, child_take)| {
+                let total_dividends = dividends.get(&hotkey).copied()?;
+                let proportion = child_take.checked_div(total_dividends).unwrap_or(zero);
+                Some((hotkey, if proportion > one { one } else { proportion }))
+            })
+            .collect();
 
         let stake_map = Self::get_stake_map(netuid, dividends.keys().collect::<Vec<_>>());
 
@@ -992,7 +1122,11 @@ impl<T: Config> Pallet<T> {
             dividends,
         );
 
-        (incentives, (alpha_dividends, root_alpha_dividends))
+        (
+            incentives,
+            (alpha_dividends, root_alpha_dividends),
+            child_take_proportions,
+        )
     }
 
     pub fn distribute_emission(
@@ -1039,8 +1173,8 @@ impl<T: Config> Pallet<T> {
         let root_alpha = pending_root_alpha;
         let owner_cut = pending_owner_cut;
 
-        let (incentives, (alpha_dividends, root_alpha_dividends)) =
-            Self::calculate_dividend_and_incentive_distribution(
+        let (incentives, (alpha_dividends, root_alpha_dividends), child_take_proportions) =
+            Self::calculate_dividend_and_incentive_distribution_with_child_takes(
                 netuid,
                 root_alpha,
                 validator_alpha,
@@ -1060,12 +1194,13 @@ impl<T: Config> Pallet<T> {
             Self::recycle_subnet_alpha(netuid, root_alpha);
         }
 
-        Self::distribute_dividends_and_incentives(
+        Self::distribute_dividends_and_incentives_with_child_takes(
             netuid,
             owner_cut,
             incentives,
             alpha_dividends,
             root_alpha_dividends,
+            child_take_proportions,
         );
     }
 
@@ -1120,6 +1255,14 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         dividends: AlphaBalance,
     ) -> Vec<(T::AccountId, AlphaBalance)> {
+        Self::get_parent_child_dividends_distribution_with_child_take(hotkey, netuid, dividends).0
+    }
+
+    fn get_parent_child_dividends_distribution_with_child_take(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+        dividends: AlphaBalance,
+    ) -> (Vec<(T::AccountId, AlphaBalance)>, AlphaBalance) {
         // hotkey dividends.
         let mut dividend_tuples: Vec<(T::AccountId, AlphaBalance)> = vec![];
 
@@ -1246,7 +1389,10 @@ impl<T: Config> Pallet<T> {
         // Add the hotkey's own emission to the distribution list
         dividend_tuples.push((hotkey.clone(), child_emission));
 
-        dividend_tuples
+        (
+            dividend_tuples,
+            total_child_take.saturating_to_num::<u64>().into(),
+        )
     }
 
     /// Checks if the epoch should run for a given subnet based on the current block.
