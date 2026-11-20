@@ -259,7 +259,7 @@ _INCIDENTAL_KEYS = {"path", "timepoint", "block"}
 
 
 def record_rows(label: str, records: list[dict], text=lambda key, value: str(value)) -> list:
-    """A list of records (spend entries) as one card row per record."""
+    """A list of records as one card row per record."""
     return [
         (
             f"{label} {index}",

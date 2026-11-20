@@ -387,6 +387,7 @@
     "SameAutoStakeHotkeyAlreadySet",
     "SameNetuid",
     "SenderInSignatories",
+    "ServiceDoesNotExist",
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
     "SettlementPriceOutsideEmaBand",

@@ -558,8 +558,7 @@ call_filter_group!(
     ]
 );
 
-// Spending gamma deposits. Kept apart so a subnet service can be granted this alone via
-// `ProxyType::GammaSpend`.
+// Spending gamma deposits; only `Any` grants it.
 call_filter_group!(
     GammaSpendCalls,
     [RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma),]
@@ -576,20 +575,17 @@ call_filter_group!(
     ]
 );
 
-// Changing who may spend a gamma deposit, or weakening/removing the limit on
-// that authority. Kept apart so `NonTransfer` cannot bootstrap gamma spending
-// authority for itself even though it cannot call `spend_gamma` through the
-// proxy directly.
+// Weakening or removing the daily limit on what a gamma deposit's hotkey may
+// spend. Kept apart so `NonTransfer` cannot lift it.
 call_filter_group!(
     GammaDepositAuthorityCalls,
-    [
-        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_spender),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_gamma_deposit_daily_spend_cap),
-    ]
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::set_gamma_deposit_daily_spend_cap
+    ),]
 );
 
-// Naming the spender a service's customers name on their deposits; granted to proxies that may
-// transfer, and to a lease's beneficiary for the subnet's own service.
+// Listing the service hotkeys spend gamma at; granted to proxies that may transfer, and to a
+// lease's beneficiary for the subnet's own service.
 call_filter_group!(
     ServiceCalls,
     [RuntimeCall::SubtensorModule(SubtensorCall::set_service),]
@@ -769,6 +765,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_default_take),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tx_rate_limit),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_weights_set_rate_limit),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_timelocked_commits_per_hotkey),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_adjustment_interval),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_kappa),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_registration_allowed),

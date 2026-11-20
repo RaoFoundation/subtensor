@@ -7,13 +7,13 @@ description: "Move gamma between two of your deposits on a subnet."
 
 Moves up to `amount_gamma` (`all` for the whole balance) from the
 deposit at `origin_hotkey_ss58` to the one at
-`destination_hotkey_ss58`. A destination with no deposit is opened with
-the origin's spender and daily spend cap, and a move that empties the
-origin closes it.
+`destination_hotkey_ss58`: the whole balance, or at least 0.1 gamma
+leaving at least as much. A destination with no deposit is opened with the
+origin's daily spend cap, and a move that empties the origin closes it.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3211-L3221) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3205-L3215) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("move_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3213`](/code/pallets/subtensor/src/macros/dispatches.rs#L3211-L3221):
+`SubtensorModule.move_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3207`](/code/pallets/subtensor/src/macros/dispatches.rs#L3205-L3215):
 
 ```rust
 #[pallet::call_index(160)]
@@ -87,6 +87,6 @@ pub fn move_gamma(
 }
 ```
 
-Delegates to [`do_move_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L426).
+Delegates to [`do_move_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L397).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -23,6 +23,17 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v493',
+    date: 'Upcoming',
+    title: 'Hotkey Gamma Spends, Yuma Commit Limits and Release Announcements',
+    summary:
+      'Gamma deposits are spent fee-free by their own hotkey at services listed on the subnet, ' +
+      'replacing the separate spender; gamma integrations must update. Also adds ' +
+      'sudo-configurable Yuma timelocked commit limits, Discord release announcements, ' +
+      'standalone stable Python publishing, and required release notes.',
+    href: '/releases/v493-upgrade',
+  },
+  {
     tag: 'v487',
     date: 'Upcoming',
     title: 'Gamma Service Credits + Quantum-Resistant Wallets',

@@ -266,6 +266,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ColdkeyGammaHotkeys::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            GammaSpent::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             UnconvertedGammaEmission::<T>::clear_prefix(netuid, limit, None)
         });
 
@@ -426,6 +428,7 @@ impl<T: Config> Pallet<T> {
         BondsPenalty::<T>::remove(netuid);
         BondsResetOn::<T>::remove(netuid);
         WeightsSetRateLimit::<T>::remove(netuid);
+        MaxTimelockedCommitsPerHotkey::<T>::remove(netuid);
         ValidatorPruneLen::<T>::remove(netuid);
         ScalingLawPower::<T>::remove(netuid);
         TargetRegistrationsPerInterval::<T>::remove(netuid);

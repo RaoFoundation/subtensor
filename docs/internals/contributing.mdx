@@ -71,7 +71,8 @@ Key properties:
   Once the upgrade executes on chain, `watch-mainnet-release.yml` cuts the
   GitHub release and moves the `mainnet` branch, which publishes the Docker
   images, with no further approval. The stable Python SDK and the production
-  website/docs follow after a `mainnet` environment approval.
+  website/docs publish from release-train jobs started by the same `mainnet`
+  approval as the proposal; they wait for the upgrade to execute.
 
 After your change deploys to testnet, it is your responsibility to verify it
 works there. If it doesn't, coordinate with a core team administrator and open

@@ -35,14 +35,14 @@ MINT_STAKE = {
 }
 MOVE = {"netuid": 1, "origin_hotkey_ss58": ALICE_HOT, "destination_hotkey_ss58": BOB_HOT}
 DEPOSIT = {"netuid": 1, "hotkey_ss58": BOB_HOT}
+SPEND = {"netuid": 1, "service_hotkey_ss58": ALICE_HOT, "amount_gamma": "0.5"}
 SIGNER = ALICE_HOT  # any account, as the dispatch origin
 GAMMA_DISABLED = {"Module": {"index": 7, "error": "0xc0000000"}}
 
 
 def _deposit(coldkey: str = SIGNER, balance: int = 0, daily_spend_cap=None, **fields) -> dict:
     cap = None if daily_spend_cap is None else {"cap": daily_spend_cap, "bucket": (0, 0)}
-    return {"coldkey": coldkey, "spender": coldkey, "balance": balance, "daily_spend_cap": cap,
-            **fields}  # fmt: skip
+    return {"coldkey": coldkey, "balance": balance, "daily_spend_cap": cap, **fields}
 
 
 @pytest.fixture(scope="module")
@@ -69,10 +69,10 @@ class TestAmounts:
     ("op", "args", "params"),
     [
         ("mint_gamma", MINT, {"hotkey": BOB_HOT, "netuid": 1, "amount": RAO,
-            "min_amount_out": 380 * RAO, "spender": None, "daily_spend_cap": None}),
+            "min_amount_out": 380 * RAO, "daily_spend_cap": None}),
         ("mint_gamma_with_stake", MINT_STAKE, {"origin_hotkey": ALICE_HOT,
             "destination_hotkey": BOB_HOT, "netuid": 1, "alpha_amount": RAO,
-            "min_amount_out": 380 * RAO, "spender": None, "daily_spend_cap": None}),
+            "min_amount_out": 380 * RAO, "daily_spend_cap": None}),
         ("move_gamma", {**MOVE, "amount_gamma": "1.5"}, {"origin_hotkey": ALICE_HOT,
             "destination_hotkey": BOB_HOT, "netuid": 1, "amount": 1_500_000_000}),
         ("move_gamma", {**MOVE, "amount_gamma": "all"}, {"origin_hotkey": ALICE_HOT,
@@ -83,13 +83,7 @@ class TestAmounts:
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": 0}),
         ("set_gamma_deposit_daily_spend_cap", {**DEPOSIT, "remove_cap": True},
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": None}),
-        ("set_gamma_deposit_spender", {**DEPOSIT, "spender_ss58": ALICE},
-            {"hotkey": BOB_HOT, "netuid": 1, "spender": ALICE}),
-        ("set_gamma_deposit_spender", {**DEPOSIT, "default_spender": True},
-            {"hotkey": BOB_HOT, "netuid": 1, "spender": None}),
-        ("spend_gamma", {"netuid": 1, "spends": [{"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5",
-            "reference": "ab" * 32}]},
-            {"netuid": 1, "spends": [(BOB_HOT, RAO // 2, "0x" + "ab" * 32)]}),
+        ("spend_gamma", SPEND, {"service": ALICE_HOT, "netuid": 1, "amount": RAO // 2}),
     ],
 )  # fmt: skip
 @pytest.mark.asyncio
@@ -151,7 +145,6 @@ class TestMintWithStake:
         [
             ("mint_gamma_with_stake", MINT_STAKE),
             ("move_gamma", {**MOVE, "amount_gamma": 1}),
-            ("set_gamma_deposit_spender", {**DEPOSIT, "spender_ss58": BOB}),
         ],
     )
     def test_spend_is_unbounded(self, op, args):
@@ -177,41 +170,36 @@ class TestService:
         with pytest.raises(BittensorError):
             build("set_service", {"netuid": 1, "url": url})
 
-    @pytest.mark.parametrize("spender", [None, ALICE])
     @pytest.mark.asyncio
-    async def test_names_the_spender(self, spender, wallet):
-        intent = build(
-            "set_service", {"netuid": 1, "url": "https://a.example", "spender_ss58": spender}
-        )
+    async def test_publishes_the_url_at_the_wallets_hotkey(self, wallet):
+        intent = build("set_service", {"netuid": 1, "url": "https://a.example"})
         params = (await intent.build(FakeSubstrate(), wallet)).params
-        assert params["spender"] == (spender or wallet.coldkeypub.ss58_address)
+        assert params == {
+            "netuid": 1,
+            "hotkey": wallet.hotkey.ss58_address,
+            "url": b"https://a.example",
+        }
 
 
 class TestServicesRead:
     def test_urls_with_control_or_format_characters_read_as_hex(self):
         sub = FakeSubstrate()
         spoof = "https://a.example\x1b[1A\x1b[2K"
-        service = {"spender": BOB}
         sub.seed_map(
             "SubtensorModule",
             "Services",
             [
-                (ALICE_HOT, {**service, "url": "https://a.example", "spender": ALICE}),
-                (BOB_HOT, {**service, "url": spoof, "spender": ALICE}),
-                (BOB_HOT + "x", {**service, "url": "https://\u202eexample"}),
-                (BOB_HOT + "y", {**service, "url": "0x41"}),
+                (ALICE_HOT, {"url": "https://a.example"}),
+                (BOB_HOT, {"url": spoof}),
+                (BOB_HOT + "x", {"url": "https://\u202eexample"}),
+                (BOB_HOT + "y", {"url": "0x41"}),
             ],
         )
         sub.seed("SubtensorModule", "SubnetOwnerHotkey", [1], ALICE_HOT)
         sub.seed("SubtensorModule", "SubnetOwner", [1], ALICE)
         sub.seed("SubtensorModule", "Owner", [ALICE_HOT], ALICE)
         urls = asyncio.run(Client("local", substrate=sub).subnets.services(netuid=1))
-        assert urls[ALICE_HOT] == {
-            "url": "https://a.example",
-            "spender": ALICE,
-            "owner": True,
-        }
-        assert urls[BOB_HOT]["spender"] == ALICE
+        assert urls[ALICE_HOT] == {"url": "https://a.example", "owner": True}
         assert urls[BOB_HOT]["url"] == "0x" + spoof.encode().hex()
         assert not urls[BOB_HOT]["owner"]
         assert urls[BOB_HOT + "x"]["url"].startswith("0x")
@@ -222,7 +210,7 @@ class TestServicesRead:
         sub.seed_map(
             "SubtensorModule",
             "Services",
-            [(ALICE_HOT, {"url": "https://a.example", "spender": BOB})],
+            [(ALICE_HOT, {"url": "https://a.example"})],
         )
         sub.seed("SubtensorModule", "SubnetOwnerHotkey", [1], ALICE_HOT)
         sub.seed("SubtensorModule", "SubnetOwner", [1], ALICE)
@@ -285,8 +273,7 @@ class TestGammaReads:
     def test_deposit_reads_are_exact_and_tell_no_cap_from_a_paused_one(self):
         def info(cap):
             daily_spend_cap = None if cap is None else {"cap": cap, "bucket": (0, 0)}
-            deposit = {"coldkey": ALICE, "spender": BOB, "balance": 3 * RAO + 1,
-                       "daily_spend_cap": daily_spend_cap}  # fmt: skip
+            deposit = {"coldkey": ALICE, "balance": 3 * RAO + 1, "daily_spend_cap": daily_spend_cap}
             return {"netuid": 1, "hotkey": BOB_HOT, "deposit": deposit, "spendable": RAO // 2}
 
         sub = FakeSubstrate()
@@ -297,13 +284,24 @@ class TestGammaReads:
             "netuid": 1,
             "hotkey": BOB_HOT,
             "coldkey": ALICE,
-            "spender": BOB,
             "balance_gamma": "3.000000001",
             "daily_spend_cap_gamma": "0",
             "spendable_gamma": "0.5",
         }
         [listed] = asyncio.run(gamma.gamma_deposits(coldkey_ss58=ALICE))
         assert listed["daily_spend_cap_gamma"] is None
+
+    def test_spent_is_exact_and_zero_before_a_spend(self):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaSpent", [1, ALICE_HOT, BOB_HOT], 3 * RAO + 1)
+        gamma = Client("local", substrate=sub).gamma
+        spent = [
+            asyncio.run(
+                gamma.gamma_spent(netuid=1, service_hotkey_ss58=service, hotkey_ss58=BOB_HOT)
+            )
+            for service in (ALICE_HOT, BOB_HOT)
+        ]
+        assert spent == ["3.000000001", "0"]
 
 
 class TestMintPreview:
@@ -323,7 +321,6 @@ class TestMintPreview:
             "alpha_burned": "1",
             "tao_value": "0.5",
             "deposit_balance_gamma": None,
-            "spender_ss58": None,
             "daily_spend_cap_gamma": None,
         }
 
@@ -379,21 +376,11 @@ class TestMintTerms:
     )
     @pytest.mark.asyncio
     async def test_the_mint_names_the_terms(self, op, args, wallet):
-        terms = {"spender_ss58": ALICE, "daily_spend_cap_gamma": "2.5"}
-        call = await build(op, {**args, **terms}).build(FakeSubstrate(), wallet)
+        call = await build(op, {**args, "daily_spend_cap_gamma": "2.5"}).build(
+            FakeSubstrate(), wallet
+        )
         assert (call.module, call.function) == ("SubtensorModule", op)
-        assert (call.params["spender"], call.params["daily_spend_cap"]) == (ALICE, 2_500_000_000)
-
-    @pytest.mark.parametrize(
-        ("spender", "blocked"), [(None, False), (SIGNER, False), (ALICE, True)]
-    )
-    @pytest.mark.asyncio
-    async def test_a_deposit_naming_another_spender_blocks(self, spender, blocked):
-        sub = FakeSubstrate()
-        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit())
-        intent = build("mint_gamma", {**MINT, "spender_ss58": spender})
-        preview = await intent.preflight(sub, SIGNER, SIGNER)
-        assert any("is spent by" in block for block in preview.blocks) is blocked
+        assert call.params["daily_spend_cap"] == 2_500_000_000
 
     @pytest.mark.parametrize(
         ("held", "named", "blocked"),
@@ -415,49 +402,24 @@ class TestMintTerms:
         preview = await intent.preflight(FakeSubstrate(), SIGNER, SIGNER)
         assert ("daily spend cap", "2.5 gamma") in preview.facts
 
-    @pytest.mark.parametrize(("published", "spender"), [(ALICE, ALICE), (BOB, BOB)])
-    @pytest.mark.parametrize(
-        ("op", "args"), [("mint_gamma", MINT), ("mint_gamma_with_stake", MINT_STAKE)]
-    )
-    @pytest.mark.asyncio
-    async def test_a_service_names_its_spender(self, op, args, published, spender, wallet):
-        sub = FakeSubstrate()
-        service = {"url": "https://a.example", "spender": published}
-        sub.seed("SubtensorModule", "Services", [1, ALICE_HOT], service)
-        intent = build(op, {**args, "service_hotkey_ss58": ALICE_HOT})
-        assert (await intent.build(sub, wallet)).params["spender"] == spender
-        assert ("spender", spender) in (await intent.preflight(sub, SIGNER, SIGNER)).facts
-
-    @pytest.mark.asyncio
-    async def test_a_service_must_be_published(self, wallet):
-        intent = build("mint_gamma", {**MINT, "service_hotkey_ss58": ALICE_HOT})
-        with pytest.raises(BittensorError, match="publishes no service"):
-            await intent.build(FakeSubstrate(), wallet)
-
-    def test_a_mint_names_a_spender_or_a_service(self):
-        with pytest.raises(BittensorError, match="not both"):
-            build("mint_gamma", {**MINT, "spender_ss58": ALICE, "service_hotkey_ss58": ALICE_HOT})
-
-    @pytest.mark.parametrize(("published", "spender"), [(ALICE, ALICE), (BOB, BOB)])
-    @pytest.mark.asyncio
-    async def test_the_spender_setter_names_a_services_spender(self, published, spender, wallet):
-        sub = FakeSubstrate()
-        service = {"url": "https://a.example", "spender": published}
-        sub.seed("SubtensorModule", "Services", [1, ALICE_HOT], service)
-        intent = build("set_gamma_deposit_spender", {**DEPOSIT, "service_hotkey_ss58": ALICE_HOT})
-        assert (await intent.build(sub, wallet)).params["spender"] == spender
-
     @pytest.mark.parametrize(
         ("op", "named"),
-        [("set_gamma_deposit_spender", {}),
-         ("set_gamma_deposit_spender", {"spender_ss58": ALICE, "default_spender": True}),
-         ("set_gamma_deposit_spender", {"spender_ss58": ALICE, "service_hotkey_ss58": ALICE_HOT}),
-         ("set_gamma_deposit_daily_spend_cap", {}),
+        [("set_gamma_deposit_daily_spend_cap", {}),
          ("set_gamma_deposit_daily_spend_cap", {"daily_spend_cap_gamma": 1, "remove_cap": True})],
     )  # fmt: skip
     def test_a_setter_names_exactly_one_value(self, op, named):
         with pytest.raises(BittensorError, match="exactly one"):
             build(op, {**DEPOSIT, **named})
+
+    @pytest.mark.parametrize(
+        ("op", "fields"),
+        [("mint_gamma", MINT), ("set_gamma_deposit_daily_spend_cap", DEPOSIT)],
+    )
+    def test_a_cap_is_zero_or_at_least_the_minimum(self, op, fields):
+        with pytest.raises(BittensorError, match="0 or at least"):
+            build(op, {**fields, "daily_spend_cap_gamma": "0.099999999"})
+        for cap in (0, "0.1"):
+            build(op, {**fields, "daily_spend_cap_gamma": cap})
 
 
 class TestDepositPreviews:
@@ -467,10 +429,7 @@ class TestDepositPreviews:
          (_deposit(balance=1), None)],
         ids=["missing", "foreign", "own", "funded"],
     )  # fmt: skip
-    @pytest.mark.parametrize(
-        "op",
-        ["close_gamma_deposit", "set_gamma_deposit_spender", "set_gamma_deposit_daily_spend_cap"],
-    )
+    @pytest.mark.parametrize("op", ["close_gamma_deposit", "set_gamma_deposit_daily_spend_cap"])
     @pytest.mark.asyncio
     async def test_owner_calls_need_an_own_deposit(self, op, deposit, blocked):
         if blocked is None:  # only a close needs the deposit empty
@@ -502,6 +461,18 @@ class TestDepositPreviews:
         sub.seed("SubtensorModule", "Owner", [BOB_HOT], SIGNER)
         blocks = await build("move_gamma", {**MOVE, "amount_gamma": "all"}).blocks(sub, SIGNER)
         assert [faulty in block for block in blocks] == ([True] if faulty else [])
+
+    @pytest.mark.parametrize(
+        ("amount", "blocked"),
+        [("all", False), (2, False), (0.9, False), (0.1, False), (0.05, True), (0.95, True)],
+    )
+    @pytest.mark.asyncio
+    async def test_move_empties_the_origin_or_takes_and_leaves_the_minimum(self, amount, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=RAO))
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit())
+        blocks = await build("move_gamma", {**MOVE, "amount_gamma": amount}).blocks(sub, SIGNER)
+        assert bool(blocks) is blocked
 
     @pytest.mark.parametrize("owner", [SIGNER, ALICE, None, ss58_encode(bytes(32), 42)])
     @pytest.mark.asyncio
@@ -537,11 +508,9 @@ class TestDepositPreviews:
 
     @pytest.mark.parametrize(
         ("destination", "warned"),
-        [(None, []), (_deposit(), []), (_deposit(spender=ALICE), [ALICE]),
-         (_deposit(daily_spend_cap=RAO), ["daily spend cap, 1 gamma, instead of none"]),
-         (_deposit(spender=ALICE, daily_spend_cap=0),
-          [ALICE, "daily spend cap, 0 gamma, instead of none"])],
-        ids=["new", "same-terms", "other-spender", "other-cap", "both"],
+        [(None, []), (_deposit(), []),
+         (_deposit(daily_spend_cap=RAO), ["daily spend cap, 1 gamma, instead of none"])],
+        ids=["new", "same-terms", "other-cap"],
     )  # fmt: skip
     @pytest.mark.asyncio
     async def test_move_warns_when_the_destination_has_other_terms(self, destination, warned):
@@ -553,112 +522,47 @@ class TestDepositPreviews:
         assert all(text in warning for text, warning in zip(warned, warnings))
 
     @pytest.mark.parametrize(
-        ("signer", "deposits", "named"),
-        [(SIGNER, (ALICE_HOT, BOB_HOT), []), (SIGNER, (ALICE_HOT,), [[BOB_HOT]]),
-         (BOB_HOT, (ALICE_HOT,), [[]])],
-        ids=["none", "one", "all"],
+        ("listed", "balance", "spendable", "amount", "blocked"),
+        [(False, RAO, RAO, "1", "has no service"),
+         (True, None, None, "1", "no gamma deposit"),
+         (True, RAO, RAO, "0.05", "at least 0.1 gamma"),
+         (True, RAO // 20, RAO // 20, "0.05", None),
+         (True, 2 * RAO, RAO // 2, "1", "can spend 0.5 gamma now"),
+         (True, RAO, RAO, "1", None)],
+        ids=["no-service", "no-deposit", "below-minimum", "empties", "above-spendable", "spends"],
     )  # fmt: skip
     @pytest.mark.asyncio
-    async def test_spend_warns_of_skipped_entries(self, signer, deposits, named):
+    async def test_spend_blocks_what_the_chain_refuses(
+        self, listed, balance, spendable, amount, blocked
+    ):
         sub = FakeSubstrate()
-        for hotkey in deposits:
-            sub.seed("SubtensorModule", "GammaDeposits", [1, hotkey], _deposit())
-        spends = [{"hotkey_ss58": hotkey, "amount_gamma": 1} for hotkey in (ALICE_HOT, BOB_HOT)]
-        warnings = await build("spend_gamma", {"netuid": 1, "spends": spends}).warnings(sub, signer)
-        hotkeys = (ALICE_HOT, BOB_HOT)
-        assert [[hotkey for hotkey in hotkeys if hotkey in w] for w in warnings] == named
+        sub.seed(
+            "SubtensorModule",
+            "Services",
+            [1, ALICE_HOT],
+            {"url": "https://a.example"} if listed else None,
+        )
+        info = None
+        if balance is not None:
+            info = {"netuid": 1, "hotkey": SIGNER, "deposit": _deposit(balance=balance),
+                    "spendable": spendable}  # fmt: skip
+        sub.seed_runtime("GammaRuntimeApi", "get_gamma_deposit", info)
+        blocks = await build("spend_gamma", {**SPEND, "amount_gamma": amount}).blocks(sub, SIGNER)
+        assert [blocked in block for block in blocks] == ([] if blocked is None else [True])
 
-    @pytest.mark.parametrize(
-        ("reference", "sent"),
-        [(None, "0x" + "00" * 32), ("AB" * 32, "0x" + "ab" * 32), ("0x1234", None),
-         ("zz" * 32, None)],
-    )  # fmt: skip
-    def test_spend_reference_is_32_bytes_and_zero_by_default(self, reference, sent):
-        spends = [{"hotkey_ss58": BOB_HOT, "amount_gamma": 1, "reference": reference}]
-        if sent is None:
-            with pytest.raises(BittensorError):
-                build("spend_gamma", {"netuid": 1, "spends": spends})
-        else:
-            intent = build("spend_gamma", {"netuid": 1, "spends": spends})
-            assert intent.spends[0]["reference"] == sent
-
-    @pytest.mark.parametrize(
-        "spends",
-        [
-            [],
-            [{"hotkey_ss58": BOB_HOT, "amount_gamma": 1}] * 513,
-            [{"hotkey_ss58": BOB_HOT}],
-            [{"hotkey_ss58": BOB_HOT, "amount_gamma": 1, "amount": 1}],
-            ["5F"],
-        ],
-        ids=["none", "513", "missing-key", "unknown-key", "not-an-object"],
-    )
-    def test_spend_refuses_bad_entries(self, spends):
-        with pytest.raises(BittensorError):
-            build("spend_gamma", {"netuid": 1, "spends": spends})
-
-
-def _spent(hotkey, amount, reference):
-    attributes = {"hotkey": hotkey, "amount": amount, "reference": reference}
-    return {"event": {"module_id": "SubtensorModule", "event_id": "GammaSpent",
-                      "attributes": attributes}}  # fmt: skip
-
-
-def _skipped(hotkey, amount, reference, error):
-    attributes = {
-        "hotkey": hotkey,
-        "amount": amount,
-        "reference": reference,
-        "reason": {"Module": {"index": 7, "error": error}},
-    }
-    return {"event": {"module_id": "SubtensorModule", "event_id": "GammaSpendSkipped",
-                      "attributes": attributes}}  # fmt: skip
+    def test_spend_refuses_zero(self):
+        with pytest.raises(BittensorError, match="above 0"):
+            build("spend_gamma", {**SPEND, "amount_gamma": 0})
 
 
 PAID = {"event": {"module_id": "TransactionPayment", "event_id": "TransactionFeePaid"}}
 APPROVAL = {"event": {"module_id": "Multisig", "event_id": "MultisigApproval"}}
 
 
-@pytest.mark.parametrize(
-    ("events", "spent", "skipped"),
-    [
-        (
-            [_spent(ALICE_HOT, RAO, "0x" + "01" * 32),
-             _skipped(BOB_HOT, RAO, "0x" + "03" * 32, "0xc7000000"),
-             _spent(ALICE_HOT, RAO // 4, "0x" + "02" * 32),
-             _spent(BOB_HOT, RAO // 2, "0x" + "00" * 32)],
-            [{"hotkey_ss58": ALICE_HOT, "amount_gamma": "1", "reference": "0x" + "01" * 32},
-             {"hotkey_ss58": ALICE_HOT, "amount_gamma": "0.25", "reference": "0x" + "02" * 32},
-             {"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5", "reference": "0x" + "00" * 32}],
-            [{"hotkey_ss58": BOB_HOT, "amount_gamma": "1", "reference": "0x" + "03" * 32,
-              "reason": "InsufficientGammaBalance"}],
-        ),
-        (
-            [PAID, _skipped(ALICE_HOT, 0, "0x" + "00" * 32, "0x52000000")],
-            [],
-            [{"hotkey_ss58": ALICE_HOT, "amount_gamma": "0", "reference": "0x" + "00" * 32,
-              "reason": "AmountTooLow"}],
-        ),
-        ([], None, None),
-        ([PAID, APPROVAL], None, None),
-    ],
-    ids=["spent", "all-skipped", "not-waited", "multisig-pending"],
-)  # fmt: skip
-@pytest.mark.asyncio
-async def test_execute_reports_what_each_entry_spent(wallet, events, spent, skipped):
-    sub = FakeSubstrate()
-    sub.queue_result(ExtrinsicResult(success=True, message="", events=events))
-    intent = build("spend_gamma", INTENT_SAMPLES["spend_gamma"])
-    result = await Client("local", substrate=sub).execute(intent, wallet)
-    assert result.data.get("spent") == spent
-    assert result.data.get("skipped") == skipped
-
-
 def _minted(cap):
     attributes = {
         "netuid": 1,
         "hotkey": BOB_HOT,
-        "spender": ALICE,
         "daily_spend_cap": cap,
         "tao": RAO,
         "alpha": RAO // 2,
@@ -669,8 +573,8 @@ def _minted(cap):
                       "attributes": attributes}}  # fmt: skip
 
 
-MINTED = {"hotkey_ss58": BOB_HOT, "spender_ss58": ALICE, "daily_spend_cap_gamma": None,
-          "alpha_burned": "0.5", "tao_value": "0.25", "gamma": "100.000000001"}  # fmt: skip
+MINTED = {"hotkey_ss58": BOB_HOT, "daily_spend_cap_gamma": None, "alpha_burned": "0.5",
+          "tao_value": "0.25", "gamma": "100.000000001"}  # fmt: skip
 
 
 @pytest.mark.parametrize(
@@ -700,25 +604,14 @@ class TestCli:
         monkeypatch.setattr(AppContext, "submit", lambda self, intent, **kw: intents.append(intent))
         return intents
 
-    def test_spend_parses_repeated_hotkey_amount(self, submitted):
-        reference = "0x" + "ab" * 32
-        spends = ["--spend", f"{BOB_HOT}=0.5", "--spend", f"{ALICE_HOT}=3:{reference}"]
-        result = invoke("gamma", "spend", "--netuid", "2", *spends)
+    def test_spend_takes_the_service_and_amount(self, submitted):
+        result = invoke(
+            "gamma", "spend", "--netuid", "2", "--service-hotkey", ALICE_HOT, "--amount", "0.5"
+        )
         assert result.exit_code == 0, result.output
-        [intent] = submitted
-        assert intent.netuid == 2
-        assert intent.spends == [
-            {"hotkey_ss58": BOB_HOT, "amount_gamma": "0.5", "reference": "0x" + "00" * 32},
-            {"hotkey_ss58": ALICE_HOT, "amount_gamma": "3", "reference": reference},
-        ]
-
-    @pytest.mark.parametrize(
-        "entry", [BOB_HOT, "=1", f"{BOB_HOT}=", f"{BOB_HOT}=1:0x12", "nosuch=1"]
-    )
-    def test_spend_rejects_malformed_entry(self, submitted, entry):
-        result = invoke("gamma", "spend", "--netuid", "2", "--spend", entry)
-        assert result.exit_code != 0 and isinstance(result.exception, SystemExit)
-        assert not submitted
+        assert [
+            (intent.netuid, intent.service_hotkey_ss58, intent.amount_gamma) for intent in submitted
+        ] == [(2, ALICE_HOT, "0.5")]
 
     @pytest.mark.parametrize(
         ("flags", "cap"),
@@ -733,27 +626,6 @@ class TestCli:
         else:
             assert result.exit_code == 0, result.output
             assert [intent.daily_spend_cap_gamma for intent in submitted] == [cap]
-
-    @pytest.mark.parametrize(
-        ("flags", "named"),
-        [(["--spender", ALICE], (ALICE, None, False)),
-         (["--service-hotkey", ALICE_HOT], (None, ALICE_HOT, False)),
-         (["--default-spender"], (None, None, True)), ([], "refused"),
-         (["--spender", ALICE, "--default-spender"], "refused"),
-         (["--spender", ALICE, "--service-hotkey", ALICE_HOT], "refused")],
-    )  # fmt: skip
-    def test_set_spender_takes_exactly_one_of_a_spender_a_service_or_the_default(
-        self, submitted, flags, named
-    ):
-        result = invoke("gamma", "set-spender", "--netuid", "1", "--hotkey", BOB_HOT, *flags)
-        if named == "refused":
-            assert result.exit_code == 2 and not submitted
-        else:
-            assert result.exit_code == 0, result.output
-            assert [
-                (intent.spender_ss58, intent.service_hotkey_ss58, intent.default_spender)
-                for intent in submitted
-            ] == [named]
 
     def test_bad_rate_tolerance_is_an_error_line(self, submitted):
         result = invoke(
@@ -770,7 +642,6 @@ class TestCli:
         "mint_gamma",
         "mint_gamma_with_stake",
         "close_gamma_deposit",
-        "set_gamma_deposit_spender",
         "set_gamma_deposit_daily_spend_cap",
     ],
 )

@@ -661,7 +661,6 @@ def intent_page(op: str, cls) -> str:
     examples = {
         "trim_subnet": {"max_n": "64"},
         "trim_null_subnet_batch": {"target": "64"},
-        "set_gamma_deposit_spender": {"spender_ss58": '"5F..."'},
         "set_gamma_deposit_daily_spend_cap": {"daily_spend_cap_gamma": "10"},
     }.get(op, {})
     shown = required + [n for n in examples if n not in required]

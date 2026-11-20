@@ -58,6 +58,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "SubnetLocked"): 10**9,
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("SubtensorModule", "SubnetGammaEmissionWhitelisted"): False,
+    ("SubtensorModule", "GammaSpent"): 0,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
     # CloseLoan.build resolves side/units from the stored position.

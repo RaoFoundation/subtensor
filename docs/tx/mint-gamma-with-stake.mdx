@@ -8,15 +8,14 @@ description: "Mint gamma by burning your stake into your deposit at an API-key h
 Burns up to `amount_alpha` (`all` for the whole stake) of your stake
 on `origin_hotkey_ss58` and credits its value in gamma to the deposit at
 `hotkey_ss58`, valued as `mint_gamma` values bought alpha. The stake is
-destroyed, not moved. `spender_ss58`, `service_hotkey_ss58` and
-`daily_spend_cap_gamma` name the deposit's spender and cap as for
-`mint_gamma`. Fails rather than minting less than the current quote
+destroyed, not moved. `daily_spend_cap_gamma` names the deposit's cap as
+for `mint_gamma`. Fails rather than minting less than the current quote
 less `rate_tolerance`. Its plan's `preview` and result's
 `data["minted"]` are as for `mint_gamma`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3185-L3207) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3180-L3200) |
 
 ## Parameters
 
@@ -27,9 +26,7 @@ less `rate_tolerance`. Its plan's `preview` and result's
 | `amount_alpha` | number \| `"all"` | yes | Alpha of stake burned. |
 | `origin_hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `rate_tolerance` | number | no | Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%). |
-| `spender_ss58` | string | no | The account that spends the deposit. A new deposit opens with it, and an existing one must already name it. Omit to keep the deposit's spender, which for a new deposit is the spender of the subnet owner's service, otherwise the subnet owner, or its lease's beneficiary while a lease owns the subnet. |
-| `service_hotkey_ss58` | string | no | Hotkey of a service published on the subnet, instead of a spender. The deposit names the spender the service publishes. |
-| `daily_spend_cap_gamma` | number | no | The deposit's daily spend cap, in gamma; 0 pauses it. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none. |
+| `daily_spend_cap_gamma` | number | no | The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A new deposit opens with it, and an existing one must already have it. Omit to keep the deposit's cap, which for a new deposit is none. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -78,10 +75,10 @@ result = sub.execute_tool("mint_gamma_with_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3187`](/code/pallets/subtensor/src/macros/dispatches.rs#L3185-L3207):
+`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3182`](/code/pallets/subtensor/src/macros/dispatches.rs#L3180-L3200):
 
 ```rust
-#[pallet::call_index(159)]
+#[pallet::call_index(167)]
 #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
 pub fn mint_gamma_with_stake(
     origin: OriginFor<T>,
@@ -90,7 +87,6 @@ pub fn mint_gamma_with_stake(
     netuid: NetUid,
     alpha_amount: AlphaBalance,
     min_amount_out: GammaBalance,
-    spender: Option<T::AccountId>,
     daily_spend_cap: Option<GammaBalance>,
 ) -> DispatchResult {
     Self::do_mint_gamma_with_stake(
@@ -100,12 +96,11 @@ pub fn mint_gamma_with_stake(
         netuid,
         alpha_amount,
         min_amount_out,
-        spender,
         daily_spend_cap,
     )
 }
 ```
 
-Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L385).
+Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L369).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
