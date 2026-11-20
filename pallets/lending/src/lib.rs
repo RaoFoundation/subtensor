@@ -3919,7 +3919,8 @@ pub mod pallet {
             let mut position =
                 Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             // Versioned close path (wallet top-up, weight-preserving readd,
-            // k-neutral burn). v1 is today's behaviour.
+            // k-neutral burn); dispatches on position.terms_version (v1 legacy
+            // one-year; v2 max_loan_duration — CurrentTermsVersion defaults to v2).
             Self::ensure_terms_version(position.terms_version)?;
             Self::charge_interest(&owner, netuid, &mut position, now, true, false, false)?;
             // Interest can exhaust collateral and `forfeit`, which already restored
