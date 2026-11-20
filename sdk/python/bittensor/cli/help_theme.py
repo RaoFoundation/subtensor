@@ -35,6 +35,15 @@ _help.STYLE_NEGATIVE_OPTION = "bold"
 _help.STYLE_NEGATIVE_SWITCH = "bold"
 _help.STYLE_COMMANDS_TABLE_FIRST_COLUMN = "bold"
 
+# Typer's default short-option regex also matches inside long options. Nested
+# styles split ``--flag`` with an ANSI reset, corrupting terminal copy/search.
+_help.highlighter.highlights = [
+    r"(^|\W)(?P<option>--[\w\-]+)(?![a-zA-Z0-9])",
+    r"(^|\W)(?P<switch>(?<!-)-\w+)(?![a-zA-Z0-9-])",
+    r"(?P<types>\<[^\>]+\>)",
+    r"(?P<usage>Usage: )",
+]
+
 # Metadata (argument types, the "Usage:" label, env vars) recedes.
 _help.STYLE_TYPES = "dim"
 _help.STYLE_USAGE = "dim"

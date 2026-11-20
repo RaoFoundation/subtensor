@@ -255,8 +255,8 @@ against different things, and you control only one of them.
 
 | | Protocol band (`SlippageTooHigh`) | Your floor (`BasketMinOutNotMet`) |
 |---|---|---|
-| Who sets it | Governance: `BasketTradeMaxSlippageBps`, 5% by default, per leg. | You: `min_amount_out`, per trade. |
-| What it measures | Each leg's fill **price** against the configured reference: spot by default, or the legacy strictest-of-EMAs-and-spot. | The **amount** the buy leg credits, after fees, against your number. |
+| Who sets it | Governance: `BasketTradeMaxSlippageBps`, 2% by default, per leg. | You: `min_amount_out`, per trade. |
+| What it measures | Each leg's fill **price** against the configured reference: the strictest of EMAs and spot by default, or spot only after governance opts in. | The **amount** the buy leg credits, after fees, against your number. |
 | What it protects | The fund from a stolen key or a pumped pool: a leg can never fill far from the reference price. | You from a fill that is worse than the quote you signed on, because the pool moved between quote and execution. |
 | Can it be switched off | No. | Yes: `min_amount_out = 0` (btcli: `--max-slippage 100`). |
 
@@ -285,34 +285,35 @@ check names the exact error you see when it refuses the trade.
 ### Configurable price band per leg → `SlippageTooHigh`
 
 Each leg must fill **completely** within `BasketTradeMaxSlippageBps` of the
-reference selected by `BasketTradePriceReference`. The defaults are **500 bps
-(5%)** and **spot only**: a buy may not fill above `1.05 × spot`, and a sell
-may not fill below `0.95 × spot`. Spot must be valid and nonzero; the slow and
-fast moving prices are not required in this mode. A leg that would cross its
-bound fails with `SlippageTooHigh` and nothing moves.
+reference selected by `BasketTradePriceReference`. The defaults are **200 bps
+(2%)** and **the strictest of slow EMA, fast EMA, and spot**: a buy ceiling of
+`1.02 × min(slow, fast, spot)` and a sell floor of `0.98 × max(slow, fast, spot)`.
+Spot must be valid and nonzero, and both moving prices must exist and be nonzero.
+A leg that would cross its bound fails with `SlippageTooHigh` and nothing moves.
 
-Measuring the default band from spot bounds each leg's own price impact without
-letting a lagging moving average prevent exits after a real price move. A
-multi-slice walk still pays impact on every slice; the turnover and liquidity
-caps remain independent protections.
+The default retains the legacy EMA anchors against same-block and held price
+manipulation. A lagging EMA can therefore prevent an exit after a real price move
+until the averages catch up.
 
-Governance can instead select `StrictestEmaAndSpot`, the legacy reference: a
-buy ceiling of `(1 + band) × min(slow, fast, spot)` and a sell floor of
-`(1 - band) × max(slow, fast, spot)`. In that mode the slow and fast moving
-prices must both exist and be nonzero. Those moving prices remain in use for
-emission, guarded NAV, dividend valuation, and other paths regardless of the
-selected trade reference.
+Governance can instead select `SpotOnly`: a buy ceiling of `(1 + band) × spot`
+and a sell floor of `(1 - band) × spot`. The moving prices are not required in
+that mode, but the fast-EMA bound on chained same-block manipulation no longer
+applies. A manipulated spot within the band can be traded against, so spot-only
+is a deliberate governance choice rather than the default. The EMAs remain in
+use for emission, guarded NAV, dividend valuation, and other paths regardless of
+the selected trade reference.
 
 Practical consequences of the default:
 
-- **Size legs to the pool.** On a constant-product pool a buy of about 2.5% of
-  the TAO reserve moves the price about 5%. Split larger positions into
-  slices and let the pool settle between them.
-- **A lagging EMA does not lock an exit.** A holding whose spot has fallen
-  below its moving averages can still be sold, subject to the 5% own-impact
-  limit and the other fund guardrails.
-- **A subnet without moving prices can trade.** Its spot must still be valid
-  and nonzero. Selecting the legacy mode restores the moving-price
+- **Size legs to the pool.** On a constant-product pool a buy of about 1% of the
+  TAO reserve moves the price about 2%. Split larger positions into slices and
+  let the pool settle between them.
+- **A lagging EMA can lock an exit.** A holding whose spot has fallen too far
+  below its moving averages cannot be sold in the default mode. Governance may
+  select spot-only to remove that EMA constraint, accepting its manipulation
+  trade-off.
+- **A subnet without moving prices cannot trade in the default mode.** Its spot
+  must still be valid and nonzero; selecting spot-only removes the moving-price
   requirements.
 
 ### Turnover budget: a token bucket of 10% of NAV per day → `BasketTurnoverBudgetExceeded`
@@ -462,12 +463,15 @@ All eight setters are root-only calls on `AdminUtils`:
 | `sudo_set_basket_daily_turnover_cap(cap)` | Bucket capacity as a u16 share of NAV (`65535` = 100%). Zero is rejected. | `6553` (10%) |
 | `sudo_set_basket_liquidity_cap(cap)` | Largest share of a pool's alpha reserve a fund may hold after a buy (`65535` = 100%). Zero is rejected. | `6553` (10%) |
 | `sudo_set_basket_concentration_cap(cap)` | Largest share of fund NAV one holding may reach through a buy (`65535` = 100%). Zero is rejected. | `4096` (1/16) |
-| `sudo_set_basket_trade_max_slippage_bps(bps)` | Per-leg band from the selected price reference. Must be in `1..=10000`. | `500` (5%) |
+| `sudo_set_basket_trade_max_slippage_bps(bps)` | Per-leg band from the selected price reference. Must be in `1..=10000`. | `200` (2%) |
 | `sudo_set_basket_trade_refill_blocks(blocks)` | Full turnover-bucket refill and destination-flow decay period. Zero is rejected. | `7200` blocks |
-| `sudo_set_basket_trade_price_reference(reference)` | `SpotOnly`, or legacy `StrictestEmaAndSpot`. | `SpotOnly` |
+| `sudo_set_basket_trade_price_reference(reference)` | Legacy `StrictestEmaAndSpot`, or governance-selected `SpotOnly`. | `StrictestEmaAndSpot` |
 
-The new defaults apply with the runtime upgrade through storage defaults; no
-post-upgrade sudo call is needed for the band, reference, or refill period.
+The runtime upgrade alone preserves existing behavior through storage defaults;
+no post-upgrade sudo call is needed to retain the 2% band, strictest EMA/spot
+reference, or 7200-block refill. To opt into a 5% spot-only band, governance
+must separately submit `sudo_set_basket_trade_max_slippage_bps(500)` followed by
+`sudo_set_basket_trade_price_reference(SpotOnly)`.
 To set the per-holding concentration cap to approximately 15%, submit
 `AdminUtils.sudo_set_basket_concentration_cap(9830)`, since
 `9830 / 65535 ≈ 15.00%`. That cap is a separate governance choice, not changed
@@ -482,15 +486,15 @@ liquidity and turnover caps all bound this. Under spot-only reference, each leg
 can re-anchor to the spot left by the previous leg, so a stolen key can move a
 pool across slices while paying AMM fees and price impact on each one. The
 liquidity cap still bounds accumulation in a thin pool and the turnover bucket
-still bounds throughput; the default 5% band does not restore the legacy fast
+still bounds throughput; a 5% spot-only band does not restore the legacy fast
 or slow EMA ceilings.
 
-Selecting `StrictestEmaAndSpot` retains the legacy behavior: a short-lived
+The default `StrictestEmaAndSpot` mode retains the legacy behavior: a short-lived
 manipulation cannot immediately pull the trade reference to the manipulated
 spot, and a held manipulation must move both the fast and slow anchors before
 the fund can fill at that level. Governance should include that trade-off when
-selecting a mode or widening the band, rather than treating the 5% spot-only
-default as interchangeable with a 5% EMA-anchored band.
+selecting a mode or widening the band, rather than treating a 5% spot-only
+configuration as interchangeable with a 5% EMA-anchored band.
 
 The guarded NAV keeps the budget and the cap honest through all of this: a
 same-block pump of a held pool no longer enlarges the bucket or admits an

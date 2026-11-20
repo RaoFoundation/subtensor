@@ -185,6 +185,15 @@ def test_help_exits_zero(path: tuple[str, ...]):
     assert "Traceback" not in result.output
 
 
+def test_colored_help_preserves_literal_long_and_short_options(monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("COLUMNS", "80")
+    result = CliRunner().invoke(app, ["commitments", "commit", "--help"], color=True)
+    assert result.exit_code == 0
+    for flag in ("--mechid", "--channel", "--max-burn", "--data"):
+        assert flag in result.output
+
+
 @pytest.mark.parametrize("op", sorted(INTENT_REGISTRY))
 def test_tx_dry_run_from_sample(op: str, fake: FakeSubstrate, wallet_dir):
     sample = deepcopy(INTENT_SAMPLES[op])

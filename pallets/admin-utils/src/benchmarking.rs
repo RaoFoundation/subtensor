@@ -1334,12 +1334,12 @@ mod benchmarks {
         #[extrinsic_call]
         _(
             RawOrigin::Root,
-            pallet_subtensor::BasketTradePriceReference::StrictestEmaAndSpot,
+            pallet_subtensor::BasketTradePriceReference::SpotOnly,
         );
 
         assert_eq!(
             pallet_subtensor::BasketTradePriceReferenceMode::<T>::get(),
-            pallet_subtensor::BasketTradePriceReference::StrictestEmaAndSpot
+            pallet_subtensor::BasketTradePriceReference::SpotOnly
         );
     }
 
@@ -1449,6 +1449,17 @@ mod benchmarks {
         assert_eq!(
             pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid),
             [0, 0, owner_share, validator, miner]
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_emission_weights_rate_limit() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 360u64);
+
+        assert_eq!(
+            pallet_subtensor::SubnetEmissionWeightsRateLimit::<T>::get(),
+            360
         );
     }
 

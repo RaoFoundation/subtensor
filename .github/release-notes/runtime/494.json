@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 494,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v494-upgrade/page.tsx",
+  "public_path": "/releases/v494-upgrade",
+  "audiences": ["node operators", "validators", "miners", "subnet owners", "SDK users"],
+  "summary": "V494 adds independent per-mechanism, per-channel commitments with optional coldkey-paid burns, exact per-mechanism validator weight delegation, root-configurable basket trade band/reference/refill controls preserving legacy defaults, and a root-configurable 360-block Etao owner-update limit. Commitment migration and retirement are bounded and terminal cleanup probes are metered. Runtime spec version 494 and transaction version 2 require signers and indexers to regenerate metadata. The full release guide includes CLI, Python SDK, and raw extrinsic examples, compatibility notes, and planned post-merge sudo calls."
+}

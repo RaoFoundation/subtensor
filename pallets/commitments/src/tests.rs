@@ -675,6 +675,28 @@ fn queued_channel_does_not_change_legacy_hook_weight() {
     });
 }
 
+// Empty target and swap prefix scans must be charged on their terminal path,
+// including when a dissolution is resumed after another mechanism completes.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_terminal_prefix_probes() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mut meter = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut meter));
+        assert!(meter.consumed().ref_time() > 0);
+        ChannelPurgePending::<Test>::insert(netuid, true);
+        let budget = RocksDbWeight::get().reads_writes(6, 0);
+        let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
+        assert!(retry.consumed().ref_time() > 0);
+        assert!(ChannelPurgePending::<Test>::get(netuid));
+        let mut finish = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+    });
+}
+
 #[test]
 fn channel_purge_pending_keeps_bounded_cleanup_retriable() {
     new_test_ext().execute_with(|| {
@@ -691,7 +713,7 @@ fn channel_purge_pending_keeps_bounded_cleanup_retriable() {
             }),
             TaoBalance::ZERO,
         ));
-        let unit = RocksDbWeight::get().writes(1);
+        let unit = RocksDbWeight::get().reads_writes(1, 1);
         let mut meter = frame_support::weights::WeightMeter::with_limit(unit);
         assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut meter));
         assert!(ChannelPurgePending::<Test>::get(netuid));
@@ -781,7 +803,6 @@ fn retirement_does_not_write_completion_outside_idle_budget() {
         assert!(crate::ChannelMechanismConfigPurgeCursor::<Test>::get((netuid, mecid)).is_none());
     });
 }
-
 
 // Mechanism retirement must stop before writing its progress cursor when the
 // remaining idle allowance cannot pay for that write.
@@ -946,6 +967,73 @@ fn retired_source_targets_do_not_strand_live_channel_on_empty_intermediate() {
     });
 }
 
+// An unserviceable retired edge must not cancel a nonempty outgoing migration
+// merely because its intermediate already holds live registrations and reserves.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn nonempty_outgoing_channel_migration_is_not_cancelled_as_empty_cycle() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let retired = MechId::from(1);
+        let (v, w, a, b, c) = (9, 10, 11, 12, 13);
+        TestCommitDeposit::set(100, 0);
+        Balances::make_free_balance_be(&w, 10_000.into());
+        TestCommitBurn::set_accepts_any_owner(true);
+        for (mechanism, channel) in [(retired, 8), (MechId::MAIN, 7), (MechId::MAIN, 9)] {
+            assert_ok!(Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(w),
+                netuid,
+                mechanism,
+                channel,
+                w,
+                Box::new(CommitmentInfo::<TestMaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::Raw(
+                        b"raw".to_vec().try_into().expect("raw fits"),
+                    )])
+                    .expect("one field fits"),
+                }),
+                TaoBalance::ZERO,
+            ));
+        }
+        Pallet::<Test>::swap_neuron(netuid, &v, &w);
+        Pallet::<Test>::swap_neuron(netuid, &w, &a);
+        Pallet::<Test>::swap_neuron(netuid, &a, &b);
+        Pallet::<Test>::swap_neuron(netuid, &b, &c);
+        // Move W's live rows into A while W retains only its retired row.
+        // Retirement then makes W -> A unserviceable. It must not delete A's
+        // nonempty outgoing migration before those rows can reach C.
+        for _ in 0..2 {
+            let mut meter = frame_support::weights::WeightMeter::with_limit(
+                RocksDbWeight::get().reads_writes(9, 13),
+            );
+            Pallet::<Test>::drain_channel_swaps(&mut meter);
+        }
+        for channel in [7, 9] {
+            assert!(
+                ChannelCommitmentOf::<Test>::get((NetUidStorageIndex::from(netuid), a, channel))
+                    .is_some()
+            );
+        }
+        assert_eq!(Balances::reserved_balance(w), 300.into());
+        ChannelMechanismPurgeQueue::<Test>::insert(netuid, retired, ());
+        for block in 2..=3 {
+            <Pallet<Test> as Hooks<u64>>::on_idle(block, Weight::MAX);
+        }
+        drain_channel_queues();
+
+        // The live row at B must reach C and retain its original reserve payer.
+        let key = (NetUidStorageIndex::from(netuid), c, 7);
+        assert!(ChannelCommitmentOf::<Test>::get(key).is_some());
+        assert_eq!(ChannelReservePayerOf::<Test>::get(key), Some(w));
+        assert!(ChannelSwapPendingHotkeys::<Test>::iter().next().is_none());
+        Pallet::<Test>::purge_channel_neuron(netuid, &a);
+        Pallet::<Test>::purge_channel_neuron(netuid, &c);
+        Pallet::<Test>::purge_channel_neuron(netuid, &w);
+        drain_channel_queues();
+        assert_eq!(Balances::reserved_balance(w), 0.into());
+    });
+}
+
 #[test]
 fn retired_mechanism_drains_bounded_idle_without_touching_other_channels() {
     new_test_ext().execute_with(|| {
@@ -1085,6 +1173,265 @@ fn retirement_during_partial_swap_preserves_live_channels_and_releases_payer() {
         Pallet::<Test>::purge_channel_neuron(netuid, &old_hotkey);
         drain_channel_queues();
         assert_eq!(Balances::reserved_balance(coldkey), 0.into());
+    });
+}
+
+// A partially migrated reversal must not retain the canceled direction's
+// origin index and keep both hotkeys quarantined after the rows have settled.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn reversing_partially_drained_swap_settles_rows_payer_and_both_indexes() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let (payer, old_hotkey, new_hotkey) = (10, 11, 12);
+        TestCommitDeposit::set(100, 0);
+        Balances::make_free_balance_be(&payer, 10_000.into());
+        TestCommitBurn::set_accepts_any_owner(true);
+        for channel in [7, 8] {
+            assert_ok!(Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(payer),
+                netuid,
+                MechId::MAIN,
+                channel,
+                old_hotkey,
+                Box::new(CommitmentInfo::<TestMaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::Raw(
+                        b"raw".to_vec().try_into().expect("raw fits"),
+                    )])
+                    .expect("one field fits"),
+                }),
+                TaoBalance::ZERO,
+            ));
+        }
+        Pallet::<Test>::swap_neuron(netuid, &old_hotkey, &new_hotkey);
+        let mut meter = frame_support::weights::WeightMeter::with_limit(
+            RocksDbWeight::get().reads_writes(9, 13),
+        );
+        Pallet::<Test>::drain_channel_swaps(&mut meter);
+        assert!(
+            ChannelCommitmentOf::<Test>::get((NetUidStorageIndex::from(netuid), new_hotkey, 7,))
+                .is_some()
+        );
+        Pallet::<Test>::swap_neuron(netuid, &new_hotkey, &old_hotkey);
+        drain_channel_queues();
+        for channel in [7, 8] {
+            let key = (NetUidStorageIndex::from(netuid), old_hotkey, channel);
+            assert!(ChannelCommitmentOf::<Test>::get(key).is_some());
+            assert_eq!(ChannelReservePayerOf::<Test>::get(key), Some(payer));
+            assert!(ChannelTargetsOf::<Test>::contains_key((
+                netuid,
+                old_hotkey,
+                MechId::MAIN,
+                channel,
+            )));
+        }
+        assert!(ChannelSwapPendingHotkeys::<Test>::iter().next().is_none());
+        assert!(!Pallet::<Test>::channel_migration_pending(
+            netuid,
+            &old_hotkey
+        ));
+        assert!(!Pallet::<Test>::channel_migration_pending(
+            netuid,
+            &new_hotkey
+        ));
+        Pallet::<Test>::purge_channel_neuron(netuid, &old_hotkey);
+        drain_channel_queues();
+        assert_eq!(Balances::reserved_balance(payer), 0.into());
+    });
+}
+
+// Dissolution retries must resume after completed mechanisms, not restart the
+// full scan and block the global cleanup queue on smaller idle budgets.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_resumes_after_completed_mechanism_without_repeating_cleanup() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let purge = |limit| {
+            let mut meter = frame_support::weights::WeightMeter::with_limit(limit);
+            Pallet::<Test>::purge_channel_netuid(netuid, &mut meter)
+        };
+        let budget = RocksDbWeight::get().reads_writes(7, 518);
+        assert!(!purge(budget));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+        assert!(ChannelPurgePending::<Test>::get(netuid));
+        for _ in 0..15 {
+            let previous = crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid);
+            if purge(budget) {
+                break;
+            }
+            let next = crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid);
+            assert!(next > previous, "dissolution must advance its cursor");
+        }
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            None
+        );
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+    });
+}
+
+// Completing a config sweep must not consume the writes that advance the mechanism cursor;
+// otherwise a budget with two remaining writes repeats the same completed sweep forever.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_reserves_cursor_writes_after_config_sweep() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let budget = RocksDbWeight::get().reads_writes(20, 511);
+        let purge = || {
+            let mut meter = frame_support::weights::WeightMeter::with_limit(budget);
+            Pallet::<Test>::purge_channel_netuid(netuid, &mut meter)
+        };
+        // The first call finishes mechanism 0's config sweep but cannot afford
+        // the three outer-cursor writes. The second must advance, not repeat
+        // that completed sweep without making progress.
+        assert!(!purge());
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            None
+        );
+        assert!(!purge());
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+        let mut finish = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            None
+        );
+    });
+}
+
+// An incomplete config sweep persists storage writes; charging them only on
+// success would let later idle work exceed the block's remaining weight.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_partial_config_cleanup_to_parent_meter() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let budget = RocksDbWeight::get().reads_writes(20, 510);
+        let mut meter = frame_support::weights::WeightMeter::with_limit(budget);
+        let before = meter.remaining();
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut meter));
+        let spent = before.saturating_sub(meter.remaining());
+        // The parent is charged for the initial pending write and every child
+        // operation, including the reserved completion budget left unused.
+        assert_eq!(spent, Weight::from_parts(51_175_000_000, 0));
+    });
+}
+
+// Every resume of a dissolved channel must charge the cursor read, even after
+// swap cleanup has spent most of the idle budget.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_resume_cursor_read() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let budget = RocksDbWeight::get().reads_writes(20, 511);
+        let mut first = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut first));
+        let mut second = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut second));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+        let budget = RocksDbWeight::get().reads_writes(10, 15);
+        let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
+        let before = retry.remaining();
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
+        // The pending read and two empty-prefix cleanup checks are charged;
+        // the remaining budget is then too small for the resume cursor read.
+        assert_eq!(
+            before.saturating_sub(retry.remaining()),
+            RocksDbWeight::get().reads_writes(55, 0)
+        );
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(1))
+        );
+    });
+}
+
+// A dissolution attempt with no idle budget must not read the pending flag or
+// create it before reporting that cleanup cannot proceed.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_pending_flag_read_before_access() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mut blocked = frame_support::weights::WeightMeter::with_limit(Weight::zero());
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut blocked));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        let budget = RocksDbWeight::get().reads(1);
+        let mut one_read = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut one_read));
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(one_read.remaining(), Weight::zero());
+    });
+}
+
+// A bounded completion deferral must leave the reveal cursor intact until all
+// three final writes fit in the idle budget.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_defers_reveal_cursor_deletion_without_completion_budget() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        ChannelPurgePending::<Test>::insert(netuid, true);
+        crate::ChannelNetuidPurgeMechanism::<Test>::insert(netuid, MechId::from(16));
+        crate::ChannelTimelockRevealCursor::<Test>::put(vec![7]);
+        // Pending read, two swap-prefix checks, resume read, and the first row
+        // check are affordable, but the three final writes are not.
+        let budget = RocksDbWeight::get().reads_writes(59, 0);
+        let mut retry = frame_support::weights::WeightMeter::with_limit(budget);
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut retry));
+        assert_eq!(
+            crate::ChannelTimelockRevealCursor::<Test>::get(),
+            Some(vec![7])
+        );
+        assert!(ChannelPurgePending::<Test>::get(netuid));
+        assert_eq!(
+            crate::ChannelNetuidPurgeMechanism::<Test>::get(netuid),
+            Some(MechId::from(16))
+        );
+        let mut finish = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        assert_eq!(crate::ChannelTimelockRevealCursor::<Test>::get(), None);
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
+    });
+}
+
+// The final reveal-cursor deletion must be charged with the two completion
+// writes, and must not repeat for free on every bounded retry.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_final_reveal_cursor_deletion() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let mut first = frame_support::weights::WeightMeter::new();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut first));
+        ChannelPurgePending::<Test>::insert(netuid, true);
+        crate::ChannelNetuidPurgeMechanism::<Test>::insert(netuid, MechId::from(15));
+        let budget = RocksDbWeight::get().reads_writes(20, 536);
+        let mut finish = frame_support::weights::WeightMeter::with_limit(budget);
+        let before = finish.remaining();
+        assert!(Pallet::<Test>::purge_channel_netuid(netuid, &mut finish));
+        // The final reveal deletion is charged together with the two
+        // completion writes after the last mechanism's cleanup.
+        assert_eq!(
+            before.saturating_sub(finish.remaining()),
+            Weight::from_parts(51_975_000_000, 0)
+        );
+        assert!(!ChannelPurgePending::<Test>::get(netuid));
     });
 }
 

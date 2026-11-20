@@ -34,9 +34,9 @@ pip install "bittensor==11.3.0rc47"
 | `sudo_set_basket_trading_enabled(enabled)` | `BasketTradingEnabled` | `false` at genesis; the spec 468 upgrade sets it `true` once | Whether any fund may trade at all. |
 | `sudo_set_basket_trading_frozen(hotkey, frozen)` | `BasketTradingFrozen[hotkey]` | not frozen | Whether one fund may trade. |
 | `sudo_set_basket_daily_turnover_cap(cap)` | `BasketDailyTurnoverCap` | `6553` (10%) | TAO a fund can push through per burst and per refill period. |
-| `sudo_set_basket_trade_max_slippage_bps(bps)` | `BasketTradeMaxSlippageBps` | `500` (5%) | Per-leg band from the configured price reference; `1..=10000`. |
+| `sudo_set_basket_trade_max_slippage_bps(bps)` | `BasketTradeMaxSlippageBps` | `200` (2%) | Per-leg band from the configured price reference; `1..=10000`. |
 | `sudo_set_basket_trade_refill_blocks(blocks)` | `BasketTradeRefillBlocks` | `7200` | Blocks to refill the turnover bucket and decay destination flow; zero rejected. |
-| `sudo_set_basket_trade_price_reference(reference)` | `BasketTradePriceReference` | `SpotOnly` | Spot-only band, or legacy `StrictestEmaAndSpot`. |
+| `sudo_set_basket_trade_price_reference(reference)` | `BasketTradePriceReference` | `StrictestEmaAndSpot` | Legacy EMA/spot band, or governance-selected `SpotOnly`. |
 | `sudo_set_basket_liquidity_cap(cap)` | `BasketLiquidityCap` | `6553` (10%) | How much of any one pool a fund may hold. |
 | `sudo_set_basket_claim_dust(row_cap_rao, row_bps, slice_rao, forfeit_cap_rao)` | `BasketClaimRowDustCapTao`, `BasketClaimRowDustBps`, `BasketClaimSliceDustTao`, `BasketClaimForfeitCapTao` | `1_000_000_000` (1 TAO), `10` (0.1%), `100_000` (0.0001 TAO), `10_000_000` (0.01 TAO) | Root claims do not sell a fund row worth less than `min(row_cap, row_bps × anchored NAV)`, nor a row where the claimant's own slice is worth less than `slice` — but only if that slice is worth at most `forfeit_cap` — all at the anchored (fast-EMA-capped) mark, which decides dust only; skipped slices stay in the fund for the remaining holders. Zero turns the respective skip off; a zero cap turns every skip off. |
 
@@ -95,22 +95,31 @@ down if it now exceeds it.
 
 ### Tune the trade band, reference, and refill period
 
-The defaults take effect with the runtime upgrade: a 500-bps (5%) band measured
-from spot only, and a 7200-block refill period. No sudo call is required for
-those defaults. To change them later:
+The storage defaults take effect with the runtime upgrade and preserve existing
+trading behavior: a 200-bps (2%) band measured from the strictest of slow EMA,
+fast EMA, and spot, and a 7200-block refill period. No sudo call is required to
+retain them. To opt into a 5% band measured from spot only, make both calls in
+this order:
 
 ```bash
 btcli call AdminUtils.sudo_set_basket_trade_max_slippage_bps \
   --args '{"bps": 500}' --sudo -w sudo_key
-btcli call AdminUtils.sudo_set_basket_trade_refill_blocks \
-  --args '{"blocks": 7200}' --sudo -w sudo_key
 btcli call AdminUtils.sudo_set_basket_trade_price_reference \
   --args '{"reference": "SpotOnly"}' --sudo -w sudo_key
 ```
 
-`StrictestEmaAndSpot` selects the legacy reference: sell floor from the maximum
-of slow EMA, fast EMA, and spot; buy ceiling from their minimum. That mode still
-requires both moving prices. Spot-only mode does not.
+`StrictestEmaAndSpot` is the default reference: sell floor from the maximum of
+slow EMA, fast EMA, and spot; buy ceiling from their minimum. That mode requires
+both moving prices. Spot-only mode does not. It removes the EMA anchors, so a
+manipulated spot price within the band can be traded against; selecting it is a
+deliberate governance decision rather than an upgrade default.
+
+To change the refill period independently:
+
+```bash
+btcli call AdminUtils.sudo_set_basket_trade_refill_blocks \
+  --args '{"blocks": 7200}' --sudo -w sudo_key
+```
 
 ### Tune the concentration cap
 
@@ -156,8 +165,9 @@ Think of a stolen trader key with a willing counterparty. With liquidity cap
   about 9% of the TAO the fund spent on that pool.
 - **Per unit of turnover.** About `L / (1 + L)` (drain) plus up to twice the
   configured band for the two legs, plus AMM fees and each slice's price impact.
-  At the 10% liquidity cap and 5% band, the first two terms alone are about 19%
-  of the TAO traded; the previous 2%-band estimate no longer applies.
+  At the 10% liquidity cap and default 2% band, the first two terms alone are
+  about 13% of the TAO traded. If governance selects a 5% band, they are about
+  19% instead.
 - **Per burst and per refill period.** The bucket holds one capacity, so the
   most that can be traded at any instant is `C` of NAV, and about `C` per
   configured refill period sustained. The 7200-block default corresponds to

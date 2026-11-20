@@ -3276,7 +3276,7 @@ mod dispatches {
         }
 
         /// Authorizes an account to set weights for this registered hotkey on one mechanism.
-        #[pallet::call_index(166)]
+        #[pallet::call_index(170)]
         #[pallet::weight(T::DbWeight::get().reads_writes(5, 2))]
         pub fn set_mech_weight_delegate(
             origin: OriginFor<T>,
@@ -3288,7 +3288,7 @@ mod dispatches {
         }
 
         /// Sets weights as the validator's authorized delegate on this mechanism only.
-        #[pallet::call_index(167)]
+        #[pallet::call_index(171)]
         #[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
         pub fn set_mechanism_weights_for(
             origin: OriginFor<T>,
@@ -3315,7 +3315,7 @@ mod dispatches {
         }
 
         /// Commits a weight hash for the validator through its mechanism delegate.
-        #[pallet::call_index(168)]
+        #[pallet::call_index(172)]
         #[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights().saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
         pub fn commit_mechanism_weights_for(
             origin: OriginFor<T>,
@@ -3328,7 +3328,7 @@ mod dispatches {
         }
 
         /// Reveals a validator's hash commit through its mechanism delegate.
-        #[pallet::call_index(169)]
+        #[pallet::call_index(173)]
         #[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
         pub fn reveal_mechanism_weights_for(
             origin: OriginFor<T>,
@@ -3353,7 +3353,7 @@ mod dispatches {
         }
 
         /// Commits timelocked weights for a validator through its mechanism delegate.
-        #[pallet::call_index(170)]
+        #[pallet::call_index(174)]
         #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
         pub fn commit_timelocked_mechanism_weights_for(
             origin: OriginFor<T>,

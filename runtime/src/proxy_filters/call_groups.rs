@@ -712,6 +712,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_mechanism_emission_split),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights_v2),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights_rate_limit),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_to_max_allowed_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_null_uids_batch),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_allowed_uids),

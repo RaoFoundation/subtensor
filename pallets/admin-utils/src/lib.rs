@@ -264,6 +264,11 @@ pub mod pallet {
             /// Price reference used to bound basket trade legs.
             reference: pallet_subtensor::BasketTradePriceReference,
         },
+        /// The subnet emission weight vector owner rate limit was set.
+        SubnetEmissionWeightsRateLimitSet {
+            /// Blocks an owner must wait between updates to a subnet's emission weights.
+            rate_limit: u64,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2764,9 +2769,9 @@ pub mod pallet {
         /// the default validator share and the global `TaoWeight`) off the top of the
         /// validator slot every block, capped at the slot; alpha validators get the rest.
         /// The call fails if the new validator share is at or below that baseline right
-        /// now. Callable by the subnet owner (once per week per subnet; the first call is
-        /// never rate-limited) or root (no rate limit). Both respect the admin freeze
-        /// window.
+        /// now. Callable by the subnet owner under the configured per-subnet rate limit
+        /// (the first call is never rate-limited) or root (no rate limit). Both respect
+        /// the admin freeze window.
         #[pallet::call_index(114)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_emission_weights())]
         pub fn sudo_set_subnet_emission_weights(
@@ -3089,7 +3094,6 @@ pub mod pallet {
             Ok(())
         }
 
-
         /// Sets the maximum number of timelocked commitments a hotkey may queue in
         /// one Yuma subnet mechanism and commit epoch. Zero pauses new admissions;
         /// already queued commitments remain eligible to reveal. Root-only.
@@ -3200,6 +3204,22 @@ pub mod pallet {
                 Ok(())
             })
         }
+
+        /// Sets the global per-subnet rate limit for owner updates to the emission weight
+        /// vector, in blocks. Defaults to 360 (one default tempo). Zero disables the limit.
+        /// Root remains exempt and each subnet's first owner call is always allowed.
+        #[pallet::call_index(131)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_emission_weights_rate_limit())]
+        pub fn sudo_set_subnet_emission_weights_rate_limit(
+            origin: OriginFor<T>,
+            rate_limit: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::SubnetEmissionWeightsRateLimit::<T>::put(rate_limit);
+            Self::deposit_event(Event::SubnetEmissionWeightsRateLimitSet { rate_limit });
+            log::debug!("SubnetEmissionWeightsRateLimitSet( rate_limit: {rate_limit:?} )");
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -3251,9 +3271,7 @@ pub mod pallet {
             );
             Ok(())
         }
-    }
 
-    impl<T: Config> Pallet<T> {
         /// Sets the maximum deviation of a `swap_basket` leg from its configured price
         /// reference, in basis points. Must be greater than zero and at most 10_000 (100%).
         /// Defaults to 200 (2%), preserving existing behavior. Root-only.
