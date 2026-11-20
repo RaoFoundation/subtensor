@@ -163,6 +163,9 @@ mod benchmarks {
     }
 
     /// Fixed-collateral raise path (no amount-mode bisection).
+    /// Collateral / sell sizes must clear [`LiftParams::minimum_loan_value`]
+    /// (1 τ default) — CI failed these with `AmountTooSmall` when sized at
+    /// 1e9 alpha / 1e6 sell (run 44635077849).
     #[benchmark]
     fn open_long_and_sell() {
         let caller: T::AccountId = whitelisted_caller();
@@ -175,11 +178,12 @@ mod benchmarks {
             RawOrigin::Signed(caller),
             netuid,
             hotkey,
-            Some(1_000_000_000u64),
+            Some(10_000_000_000u64), // ≥4× MinimumLoanValue at 25% LTV
             None,
-            10_000_000_000u64, // ≥4× MinimumLoanValue at 25% LTV
+            10_000_000_000u64,
             1u64,
-            Some(1_000_000u64),
+            // Sell a slice of free alpha; None would sell the full escrow delta.
+            Some(1_000_000_000u64),
             0u64,
             0u64,
             now.saturating_add(100u32.into()),
@@ -203,7 +207,8 @@ mod benchmarks {
             netuid,
             hotkey,
             None,
-            Some(1_000_000u64),
+            // Must be ≥ MinimumLoanValue (1 τ); 1e6 rao made CI fail AmountTooSmall.
+            Some(1_000_000_000u64),
             // Wide ceiling so the bisection walks the full BISECTION_STEPS budget.
             u64::MAX / 4,
             1u64,
