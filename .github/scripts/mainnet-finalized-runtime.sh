@@ -10,10 +10,13 @@ set -euo pipefail
 
 : "${MAINNET_HTTP:?MAINNET_HTTP is required}"
 
+# Bounded so a stalled connection fails this probe instead of hanging the
+# caller (release-train.yml polls it for up to 20 hours).
 rpc() {
   jq -cn --arg method "$1" --argjson params "$2" \
     '{id: 1, jsonrpc: "2.0", method: $method, params: $params}' \
-    | curl -sf -H "Content-Type: application/json" -d @- "$MAINNET_HTTP"
+    | curl -sf --connect-timeout 10 --max-time 30 \
+      -H "Content-Type: application/json" -d @- "$MAINNET_HTTP"
 }
 
 finalized_head=$(rpc chain_getFinalizedHead '[]' | jq -er \

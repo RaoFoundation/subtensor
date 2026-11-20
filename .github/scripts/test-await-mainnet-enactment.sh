@@ -30,6 +30,7 @@ case "$endpoint" in
     jq -n --arg sha "$MOCK_TAG_SHA" '{object: {type: "commit", sha: $sha}}'
     ;;
   */actions/runs/*/jobs*)
+    echo jobs >> "$MOCK_GH_CALLS"
     jq -n --arg status "$MOCK_PROPOSE_STATUS" --arg conclusion "$MOCK_PROPOSE_CONCLUSION" \
       '{jobs: [
         {name: "Publish stable Python packages once mainnet runs this upgrade", status: "in_progress", conclusion: null},
@@ -38,6 +39,7 @@ case "$endpoint" in
       ]}'
     ;;
   */contents/runtime/src/lib.rs*)
+    echo main >> "$MOCK_GH_CALLS"
     printf '    spec_version: %s,\n' "$MOCK_MAIN_SPEC"
     ;;
   *) echo "unexpected endpoint: $endpoint" >&2; exit 2 ;;
@@ -73,11 +75,17 @@ export RUNTIME_PROBE="$tmp/probe"
 export POLL_SECONDS=0
 export MOCK_PROBE_SEQUENCE="$tmp/sequence"
 export MOCK_PROBE_CALLS="$tmp/probe-calls"
+export MOCK_GH_CALLS="$tmp/gh-calls"
+
+gh_calls() {
+  grep -cx "$1" "$MOCK_GH_CALLS" || true
+}
 
 run_case() {
   local name="$1" expected_status="$2" expected_live="$3"
   local sequence="$4"
   rm -f "$MOCK_PROBE_CALLS"
+  : > "$MOCK_GH_CALLS"
   printf '%b\n' "$sequence" > "$MOCK_PROBE_SEQUENCE"
   export GITHUB_OUTPUT="$tmp/output-$name"
   : > "$GITHUB_OUTPUT"
@@ -106,16 +114,22 @@ defaults() {
   export MOCK_MAIN_SPEC=493
 }
 
+# Twelve polls before the upgrade: the proposal job is read once (it already
+# succeeded) and main's spec on polls 1, 6 and 11.
 defaults
-run_case live-after-waiting 0 true "492 $other_hash\n492 $other_hash\n493 $code_hash"
-[ "$(cat "$MOCK_PROBE_CALLS")" -eq 3 ] || { echo "FAIL live-after-waiting: expected 3 probes" >&2; exit 1; }
+run_case live-after-waiting 0 true "$(printf '492 %s\\n' "$other_hash"{,,,,,,,,,,,})493 $code_hash"
+[ "$(cat "$MOCK_PROBE_CALLS")" -eq 13 ] || { echo "FAIL live-after-waiting: expected 13 probes" >&2; exit 1; }
+[ "$(gh_calls jobs)" -eq 1 ] || { echo "FAIL live-after-waiting: read the jobs API $(gh_calls jobs) times, expected 1" >&2; exit 1; }
+[ "$(gh_calls main)" -eq 3 ] || { echo "FAIL live-after-waiting: read main $(gh_calls main) times, expected 3" >&2; exit 1; }
+
+# A proposal job that is still running is read on every poll until it ends.
+defaults
+export MOCK_PROPOSE_STATUS=in_progress MOCK_PROPOSE_CONCLUSION=""
+run_case proposal-still-running 0 true "492 $other_hash\n492 $other_hash\n493 $code_hash"
+[ "$(gh_calls jobs)" -eq 2 ] || { echo "FAIL proposal-still-running: read the jobs API $(gh_calls jobs) times, expected 2" >&2; exit 1; }
 
 defaults
 run_case transient-rpc-error 0 true "fail\n493 $code_hash"
-
-defaults
-export MOCK_PROPOSE_STATUS=in_progress MOCK_PROPOSE_CONCLUSION=""
-run_case proposal-still-running 0 true "492 $other_hash\n493 $code_hash"
 
 defaults
 run_case superseded-on-chain 0 false "494 $other_hash"
