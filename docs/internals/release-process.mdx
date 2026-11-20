@@ -124,15 +124,33 @@ re-runs `propose-mainnet`.
 | What happens | Result |
 |---|---|
 | Upgrade executes | publish, usually within two minutes of finality |
-| Mainnet moves past this spec, or `main` carries a newer spec | stop without publishing (a newer train is queued) |
+| Mainnet moves past this spec, or `main` carries a newer spec | stop without publishing (a newer train is queued); a warning on the run says how to publish if this spec still goes live |
 | `propose-mainnet` fails | the waiting jobs fail too |
 | Mainnet runs a different wasm under this spec | fail, nothing is published |
-| Not executed within six hours | fail; re-run the job (one approval) or dispatch the watcher |
+| Not executed within 20 hours | fail; publish later as below |
 | Stable build failed | the PyPI job fails; fix, then re-run failed jobs (one approval) |
 
-While these jobs wait, the run holds the `release-train` concurrency group,
-so a newer train queues behind it. That is why waiting stops as soon as
-`main` carries a newer `spec_version`.
+**Publishing after a late upgrade.** A staggered testnet → mainnet rollout
+never makes publishing impossible. Once the runtime is live on mainnet, either:
+
+- dispatch `watch-mainnet-release.yml` from `main`. It rebuilds the wheels
+  from the `v<spec_version>` tag and publishes whatever PyPI is missing. It
+  has no deadline: it works for as long as that runtime is the one on
+  mainnet. Redeploy the docs with `deploy-docs.yml` (production). Or
+- re-run the train's failed jobs. This works within GitHub's 30-day re-run
+  window (the stable dist artifact is kept as long) and when no newer train
+  is running, because the re-run joins the `release-train` queue. The PyPI
+  and docs jobs start together, so one click covers both.
+
+Each path asks for one `mainnet` approval. Packages are only ever published
+for the runtime mainnet is running: once a newer runtime goes live, the
+older runtime's stable versions are skipped, and the newer runtime ships its
+own.
+
+While these jobs wait (up to 20 hours; the job's `GITHUB_TOKEN` cannot
+outlive 24), the run holds the `release-train` concurrency group, so a newer
+train queues behind it. That is why waiting stops as soon as `main` carries a
+newer `spec_version`.
 
 This ordering means the release always reflects what is *actually running on
 mainnet*, not what was merged.

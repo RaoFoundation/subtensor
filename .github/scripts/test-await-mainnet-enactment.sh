@@ -142,11 +142,20 @@ run_case proposal-skipped 0 false "492 $other_hash"
 defaults
 export MOCK_MAIN_SPEC=494
 run_case newer-train-queued 0 false "492 $other_hash"
+grep -q '^::warning::main now carries spec 494.*dispatch watch-mainnet-release.yml' "$tmp/log-newer-train-queued" \
+  || { echo "FAIL newer-train-queued: missing warning with publish guidance" >&2; exit 1; }
 
 defaults
 export WAIT_MINUTES=0
 run_case deadline 1 "" "492 $other_hash"
-grep -q 'not live on mainnet after 0 minutes' "$tmp/log-deadline" \
+grep -q '^::error::spec 493 is not live on mainnet after 0 minutes.*dispatch watch-mainnet-release.yml' "$tmp/log-deadline" \
   || { echo "FAIL deadline: missing retry guidance" >&2; exit 1; }
+
+# Without WAIT_MINUTES the deadline is 20 hours, so a pending upgrade keeps
+# waiting; stop the probe after a few polls by superseding on chain.
+defaults
+unset WAIT_MINUTES
+run_case default-deadline-keeps-waiting 0 false "492 $other_hash\n492 $other_hash\n494 $other_hash"
+[ "$(cat "$MOCK_PROBE_CALLS")" -eq 3 ] || { echo "FAIL default-deadline-keeps-waiting: expected 3 probes" >&2; exit 1; }
 
 echo "all await-mainnet-enactment cases passed"

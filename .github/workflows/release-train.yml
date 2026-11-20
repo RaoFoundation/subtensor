@@ -46,9 +46,15 @@ name: Release Train
 # executes the multisig and the finalized runtime is this train's exact wasm
 # under the immutable v<spec> tag (await-mainnet-enactment.sh). They stop
 # without publishing when mainnet moves past this spec or main carries a
-# newer one, and fail after six hours so a stuck release is visible.
-# Re-running a failed publishing job asks for a fresh `mainnet` approval, and
-# so does dispatching watch-mainnet-release.yml for a retry.
+# newer one, and fail after 20 hours so a stuck release is visible.
+#
+# A late upgrade never makes publishing impossible. Once the runtime is live:
+#   - dispatch watch-mainnet-release.yml: rebuilds from the v<spec> tag and
+#     publishes, for as long as that runtime is the one on mainnet; or
+#   - re-run this run's failed jobs: within GitHub's 30-day re-run window
+#     (the stable dist is kept as long), when no newer train is running.
+# Both ask for one fresh `mainnet` approval; re-run publishing jobs start
+# together, so one click covers PyPI and docs.
 #
 # The whole run, including the wait, holds the release-train concurrency
 # group, so a newer train queues until this runtime is live. That is why the
@@ -634,14 +640,15 @@ jobs:
           GH_TOKEN: ""
         run: .github/scripts/check-sdk-core-floor.sh dist
 
-      # The publish job may start hours later, once mainnet runs this wasm.
+      # The publish job may start up to 20 hours later, once mainnet runs this
+      # wasm, or on a re-run within GitHub's 30-day re-run window.
       - name: Upload the distribution
         uses: actions/upload-artifact@v4
         with:
           name: stable-python-dist
           path: dist/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
   # ------------------------------------------------------------------
   # Stage 3: mainnet — the human gate, approved once.
@@ -1028,9 +1035,11 @@ jobs:
     # PyPI trusted publishing (OIDC). `bittensor` and bittensor-core need a
     # trusted-publisher row for release-train.yml on the mainnet environment.
     environment: mainnet
-    # Six hours of waiting covers every enactment so far (the slowest took
-    # under two hours) and stays far inside the GITHUB_TOKEN lifetime.
-    timeout-minutes: 420
+    # Waits up to 20 hours (WAIT_MINUTES) for the upgrade to execute; the
+    # slowest so far took under two hours. The job's GITHUB_TOKEN can only be
+    # refreshed for 24 hours, so the wait plus publishing must stay below
+    # that; the job timeout is the backstop for a hung network call.
+    timeout-minutes: 1380
     # No stable-python-pypi concurrency group: it would be held for the whole
     # wait, and a job queued behind it would ask for a second approval later.
     # check-python-release.py runs right before the upload and
@@ -1058,6 +1067,7 @@ jobs:
           SPEC: ${{ needs.build.outputs.spec_version }}
           WASM: wasm/subtensor.wasm
           RELEASE_SHA: ${{ github.sha }}
+          WAIT_MINUTES: "1200"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: .github/scripts/await-mainnet-enactment.sh
 
@@ -1184,7 +1194,7 @@ jobs:
     # The production Vercel credentials live in the mainnet environment.
     # deploy-docs.yml can redeploy production manually if this is missed.
     environment: mainnet
-    timeout-minutes: 420
+    timeout-minutes: 1380
     permissions:
       contents: read
       actions: read # read this run's jobs while waiting
@@ -1203,6 +1213,7 @@ jobs:
           SPEC: ${{ needs.build.outputs.spec_version }}
           WASM: wasm/subtensor.wasm
           RELEASE_SHA: ${{ github.sha }}
+          WAIT_MINUTES: "1200"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: .github/scripts/await-mainnet-enactment.sh
 

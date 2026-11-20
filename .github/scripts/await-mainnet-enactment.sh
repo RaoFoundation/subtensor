@@ -12,7 +12,8 @@
 #   MAINNET_HTTP      mainnet JSON-RPC endpoint
 #   GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_OUTPUT, GH_TOKEN
 # Optional:
-#   WAIT_MINUTES      give up after this long (default 360)
+#   WAIT_MINUTES      give up after this long (default 1200, 20 hours; the
+#                     job's GITHUB_TOKEN cannot outlive 24 hours)
 #   POLL_SECONDS      delay between checks (default 120)
 #   PROPOSE_JOB       name of the proposal job in this run
 #   RUNTIME_PROBE     command printing finalized spec_version and code_hash
@@ -26,6 +27,10 @@
 #               commit.
 # Exits non-zero when this run's proposal job failed, when mainnet runs a
 # different runtime under SPEC, or when SPEC is not live within WAIT_MINUTES.
+#
+# Giving up never makes the publication impossible. While SPEC is the runtime
+# on mainnet, dispatching watch-mainnet-release.yml rebuilds from the v<spec>
+# tag and publishes it (one `mainnet` approval), with no deadline.
 
 set -euo pipefail
 
@@ -40,7 +45,7 @@ set -euo pipefail
 [ -s "$WASM" ] || { echo "runtime wasm $WASM is missing" >&2; exit 2; }
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-wait_minutes="${WAIT_MINUTES:-360}"
+wait_minutes="${WAIT_MINUTES:-1200}"
 poll_seconds="${POLL_SECONDS:-120}"
 propose_job="${PROPOSE_JOB:-Propose mainnet upgrade (multisig)}"
 runtime_probe="${RUNTIME_PROBE:-$script_dir/mainnet-finalized-runtime.sh}"
@@ -135,11 +140,12 @@ while :; do
   fi
 
   if newer=$(main_spec) && [[ "$newer" =~ ^[0-9]+$ ]] && [ "$newer" -gt "$SPEC" ]; then
-    finish false "main now carries spec $newer, so a newer train is queued behind this one. If spec $SPEC still executes, dispatch watch-mainnet-release.yml to publish it."
+    echo "::warning::main now carries spec $newer, so a newer train is queued behind this one and this job stops waiting. If spec $SPEC still goes live on mainnet, dispatch watch-mainnet-release.yml to publish it."
+    finish false "stopped waiting for spec $SPEC."
   fi
 
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "spec $SPEC is not live on mainnet after $wait_minutes minutes. Once it executes, re-run this job or dispatch watch-mainnet-release.yml." >&2
+    echo "::error::spec $SPEC is not live on mainnet after $wait_minutes minutes. Once it goes live, dispatch watch-mainnet-release.yml (works for as long as spec $SPEC is the mainnet runtime) or re-run the failed jobs of this run (within 30 days, when no newer train is running). Either asks for one mainnet approval." >&2
     exit 1
   fi
   sleep "$poll_seconds"
