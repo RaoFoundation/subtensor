@@ -11319,6 +11319,58 @@ fn rebuild_due_tail_hop_cap_does_not_stamp_until_complete() {
     });
 }
 
+/// Skeptic fid:9c383f98 — unlinking the rebuild cursor between passes must not
+/// publish the detached bucket as DueTail.
+#[test]
+fn rebuild_due_tail_rejects_detached_cursor_as_tail() {
+    new_test_ext().execute_with(|| {
+        let key = migrations::rebuild_due_tail_migration_key();
+        HasMigrationRun::<Test>::remove(&key);
+        DueTail::<Test>::kill();
+        DueTailRebuildCursor::<Test>::kill();
+
+        let head = 100u64;
+        let mid = 110u64;
+        let tail = 120u64;
+        NextDue::<Test>::put(head);
+        DueNext::<Test>::insert(head, mid);
+        DuePrev::<Test>::insert(mid, head);
+        DueNext::<Test>::insert(mid, tail);
+        DuePrev::<Test>::insert(tail, mid);
+        DueIndex::<Test>::insert(head, 1);
+        DueIndex::<Test>::insert(mid, 1);
+        DueIndex::<Test>::insert(tail, 1);
+
+        // First pass stops on `mid` (hop budget 1 from head → mid).
+        let _ = migrations::migrate_rebuild_due_tail_limited::<Test>(1);
+        assert_eq!(DueTailRebuildCursor::<Test>::get(), Some(mid));
+        assert!(!HasMigrationRun::<Test>::get(&key));
+
+        // Simulate a collector that unlinked `mid` without clearing the cursor
+        // (pre-v3 unlink path / race): mid is detached, head→tail remains.
+        DuePrev::<Test>::take(mid);
+        DueNext::<Test>::take(mid);
+        DueIndex::<Test>::remove(mid);
+        DueNext::<Test>::insert(head, tail);
+        DuePrev::<Test>::insert(tail, head);
+        assert_eq!(
+            DueTailRebuildCursor::<Test>::get(),
+            Some(mid),
+            "cursor still points at the detached bucket"
+        );
+
+        let _ = migrations::migrate_rebuild_due_tail_limited::<Test>(8);
+        assert_ne!(
+            DueTail::<Test>::get(),
+            Some(mid),
+            "must not publish the detached cursor as DueTail"
+        );
+        assert_eq!(DueTail::<Test>::get(), Some(tail));
+        assert!(HasMigrationRun::<Test>::get(&key));
+        assert!(DueTailRebuildCursor::<Test>::get().is_none());
+    });
+}
+
 #[test]
 fn young_short_v2_opened_at_uses_max_loan_duration() {
     new_test_ext().execute_with(|| {

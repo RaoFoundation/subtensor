@@ -88,36 +88,76 @@ impl<AccountId, BlockNumber> PositionBeforeExposure<AccountId, BlockNumber> {
 }
 
 /// Count + xor-twox fingerprint of fields the MaxLoanDuration rewrite must keep.
-/// Excludes `expires_at` / `expiry_due` / `terms_version` (intentionally rewritten).
+///
+/// Dual-layout: raw keys decode as [`PositionBeforeExposure`] or current
+/// [`Position`] so pre-upgrade sees the same rows v2 recovers. Excludes
+/// `expires_at` / `expiry_due` / `terms_version` (rewritten) and
+/// `last_exposure_added_at` (seeded on legacy rows).
 #[cfg(feature = "try-runtime")]
 pub(crate) fn positions_economic_fingerprint<T: Config>() -> (u64, [u8; 32]) {
+    use codec::DecodeAll;
+    use frame_support::storage::unhashed;
     use sp_io::hashing::twox_256;
     let mut count = 0u64;
     let mut acc = [0u8; 32];
-    for (owner, netuid, position) in Positions::<T>::iter() {
-        count = count.saturating_add(1);
-        let chunk = twox_256(
-            &(
-                owner,
-                netuid,
-                position.side,
-                position.custody,
-                position.principal,
-                position.collateral,
-                position.proceeds,
-                position.escrow_alpha,
-                position.lift_tao,
-                position.lift_alpha,
-                position.annual_interest,
-                position.last_accrued,
-                position.interest_remainder,
-                position.due,
-                position.interest_period,
-                position.blocks_per_year,
-                position.last_exposure_added_at,
+    for (owner, netuid) in Positions::<T>::iter_keys() {
+        let key = Positions::<T>::hashed_key_for(&owner, netuid);
+        let Some(bytes) = unhashed::get_raw(&key) else {
+            continue;
+        };
+        let chunk = if let Ok(old) =
+            PositionBeforeExposure::<T::AccountId, BlockNumberFor<T>>::decode_all(&mut &bytes[..])
+        {
+            count = count.saturating_add(1);
+            twox_256(
+                &(
+                    &owner,
+                    netuid,
+                    old.side,
+                    &old.custody,
+                    old.principal,
+                    old.collateral,
+                    old.proceeds,
+                    old.escrow_alpha,
+                    old.lift_tao,
+                    old.lift_alpha,
+                    old.annual_interest,
+                    old.last_accrued,
+                    old.interest_remainder,
+                    old.due,
+                    old.interest_period,
+                    old.blocks_per_year,
+                )
+                    .encode(),
             )
-                .encode(),
-        );
+        } else if let Ok(cur) =
+            Position::<T::AccountId, BlockNumberFor<T>>::decode_all(&mut &bytes[..])
+        {
+            count = count.saturating_add(1);
+            twox_256(
+                &(
+                    &owner,
+                    netuid,
+                    cur.side,
+                    &cur.custody,
+                    cur.principal,
+                    cur.collateral,
+                    cur.proceeds,
+                    cur.escrow_alpha,
+                    cur.lift_tao,
+                    cur.lift_alpha,
+                    cur.annual_interest,
+                    cur.last_accrued,
+                    cur.interest_remainder,
+                    cur.due,
+                    cur.interest_period,
+                    cur.blocks_per_year,
+                )
+                    .encode(),
+            )
+        } else {
+            continue;
+        };
         for (a, b) in acc.iter_mut().zip(chunk.iter()) {
             *a ^= *b;
         }

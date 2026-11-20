@@ -5619,6 +5619,13 @@ pub mod pallet {
         fn unlink_due_bucket(due: BlockNumberFor<T>) {
             let prev = DuePrev::<T>::take(due);
             let next = DueNext::<T>::take(due);
+            // Keep a mid-rebuild cursor on the live list (skeptic fid:9c383f98).
+            if DueTailRebuildCursor::<T>::get() == Some(due) {
+                match next {
+                    Some(n) => DueTailRebuildCursor::<T>::put(n),
+                    None => DueTailRebuildCursor::<T>::kill(),
+                }
+            }
             match (prev, next) {
                 (None, None) => {
                     if NextDue::<T>::get() == Some(due) {
