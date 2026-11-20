@@ -78,6 +78,8 @@ export default function Page() {
               <code>gamma_spent</code> read returns a hotkey&apos;s total at a service.{' '}
               <code>SetGammaDepositSpender</code>, <code>btcli gamma set-spender</code>, and the
               mint <code>--spender</code> and <code>--service-hotkey</code> options are removed.
+              These changes ship in <code>bittensor</code> 11.3.5 and <code>bittensor-core</code>{' '}
+              0.1.12; earlier SDKs cannot mint, spend, or read gamma deposits once 493 is live.
             </li>
           </ol>
           <p>
