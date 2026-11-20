@@ -390,6 +390,7 @@
     "ServiceDoesNotExist",
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
+    "SettlementFrozen",
     "SettlementPriceOutsideEmaBand",
     "SideCapacity",
     "SideCapacityRamping",

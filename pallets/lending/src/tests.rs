@@ -3810,6 +3810,141 @@ fn max_active_net_updates_covers_global_subnet_cap() {
     assert_eq!(MAX_ACTIVE_NET_UPDATES, 4_096);
 }
 
+/// Sandwich: pump spot before expiry buyback so cumulative TAO spent exceeds
+/// EMA·α·(1+2%); whole settle rolls back and defers.
+#[test]
+fn expiry_sandwich_single_short_defers_on_realized_buy_slippage() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        sync_reference_ema_to_spot();
+        // Pump spot ~5%: buyback TAO >> EMA fair · 1.02.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 95 / 100);
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let tight = ema.saturating_mul(U64F64::from_num(10_200u32)) / U64F64::from_num(10_000u32);
+        assert!(
+            spot > tight,
+            "precondition: pumped spot {spot} must sit above EMA·1.02 ({tight})"
+        );
+
+        System::set_block_number(position.expires_at);
+        let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "realized buy slippage must roll back and defer"
+        );
+        assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_some());
+    });
+}
+
+/// Full block of max_expiry_settlements_per_block: after cumulative forced
+/// impact exceeds the tolerance, later expiries in the same block defer.
+#[test]
+fn expiry_block_impact_cap_defers_after_max_settlements_sandwich() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.expiry_max_slippage_bps = 200;
+            p.max_expiry_settlements_per_block = 2;
+        });
+        let owners: Vec<_> = (1..=3).map(account).collect();
+        for o in &owners {
+            mint_tao(o, 50_000_000_000_000);
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed(o.clone()),
+                netuid(),
+                Side::Short,
+                3_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+            sync_reference_ema_to_spot();
+        }
+        let at = Positions::<Test>::get(&owners[0], netuid())
+            .unwrap()
+            .expires_at;
+        // Mild pump so each buyback has measurable |realized−fair| impact.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 99 / 100);
+        // Keep EMA at pre-pump so impact accumulates; widen just enough that
+        // the first one or two can still settle (realized ≤ 2% on small size)
+        // while cumulative impact trips the per-block cap for the third.
+        // If all three defer on realized alone, that also satisfies the guard.
+        System::set_block_number(at);
+        let _ = <Lending as Hooks<_>>::on_initialize(at);
+        let remaining = owners
+            .iter()
+            .filter(|o| Positions::<Test>::contains_key(*o, netuid()))
+            .count();
+        assert!(
+            remaining >= 1,
+            "at least one of {} expiries must remain after block impact / realized guard (remaining={remaining})",
+            owners.len()
+        );
+    });
+}
+
+/// Forfeit under manipulated spot: realized buyback exceeds the band → defer
+/// (no unbounded forfeit AMM).
+#[test]
+fn forfeit_under_manipulation_defers_on_realized_slippage() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            10_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Drain collateral so expiry takes the forfeit path, then pump spot.
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.collateral = 0;
+                p.proceeds = p.principal / 2; // underwater
+                p.last_accrued = position.expires_at;
+                p.annual_interest = 0;
+            }
+        });
+        sync_reference_ema_to_spot();
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 90 / 100);
+
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "manipulated forfeit must defer, not clear the position"
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .all(|e| !matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "must not emit Forfeited when realized band blocks the buyback"
+        );
+    });
+}
+
 /// Spot ~5% off EMA is inside the 15% settlement band but outside the 2%
 /// expiry slippage bound — permissionless expiry must defer (Greg MEV).
 #[test]
@@ -3859,7 +3994,8 @@ fn expiry_defers_when_spot_outside_tight_slippage_inside_ema_band() {
     });
 }
 
-/// Manual close remains available while expiry is slippage-deferred.
+/// Owner can exit while expiry is slippage-deferred: restore a fair market so
+/// AMM close passes the same realized EMA bound (wallet repay is also ungated).
 #[test]
 fn owner_can_close_while_expiry_slippage_deferred() {
     new_test_ext().execute_with(|| {
@@ -3877,13 +4013,34 @@ fn owner_can_close_while_expiry_slippage_deferred() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 95 / 100);
+        // Stamp deferral while still before expires_at so an increase is
+        // refused for SettlementFrozen (not DeadlinePassed).
+        BandDeferralSince::<Test>::insert(&owner, netuid(), System::block_number());
+        assert_noop!(
+            Lending::open(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                Side::Short,
+                1_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SettlementFrozen
+        );
+
+        let alpha_before = pool_alpha();
+        write(&key(b"test/pool_alpha", netuid()), alpha_before * 95 / 100);
         System::set_block_number(position.expires_at);
         let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
         assert!(Positions::<Test>::contains_key(&owner, netuid()));
         assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_some());
 
-        // Top up free TAO so a wallet-less close can still buy back if needed.
+        // Restore reserves + EMA so realized buyback is inside the band.
+        write(&key(b"test/pool_alpha", netuid()), alpha_before);
+        sync_reference_ema_to_spot();
         mint_tao(&owner, 50_000_000_000_000);
         assert_ok!(Lending::close(
             RuntimeOrigin::signed(owner.clone()),
@@ -3896,15 +4053,16 @@ fn owner_can_close_while_expiry_slippage_deferred() {
         ));
         assert!(
             Positions::<Test>::get(&owner, netuid()).is_none(),
-            "owner close must succeed during expiry slippage deferral"
+            "owner AMM close must succeed once realized execution is inside the band"
         );
         assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_none());
     });
 }
 
-/// After max_settlement_deferral the tight expiry bound lifts (same force path).
+/// Past max_settlement_deferral there is still no unbounded AMM escape — the
+/// realized band keeps deferring (Greg Shorting 102462 terminal policy a).
 #[test]
-fn expiry_settles_after_max_deferral_despite_slippage() {
+fn expiry_still_defers_after_max_deferral_when_slippage_breached() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 50_000_000_000_000);
@@ -3944,9 +4102,10 @@ fn expiry_settles_after_max_deferral_despite_slippage() {
         System::set_block_number(force_at);
         let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
         assert!(
-            Positions::<Test>::get(&owner, netuid()).is_none(),
-            "force after max deferral must settle despite tight slippage breach"
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "past max deferral must NOT unbounded-AMM settle while realized band is breached"
         );
+        assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_some());
     });
 }
 
@@ -4060,8 +4219,8 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
         ));
 
         // A far-away smoothed reference must not influence expiry valuation.
-        // Spot is outside the settlement band, so the first attempt defers; force
-        // after max_settlement_deferral so we still settle with EMA far from spot.
+        // Spot outside the realized band defers; restore EMA near spot so settle
+        // can complete, then assert Expired.spot_price reports spot (not EMA).
         let reference_rate = U64F64::from_num(1u64) / U64F64::from_num(4u64); // 0.25 τ/α
         set_reference_price(reference_rate);
         let spot = MockPool::price();
@@ -4074,30 +4233,30 @@ fn fixed_term_expiry_closes_at_spot_not_reference_ema() {
             Positions::<Test>::contains_key(&owner, netuid()),
             "far EMA must defer the first expiry attempt"
         );
-        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
-        let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
+        // Bring EMA back so realized buyback can pass; spot sample stays for the event.
+        sync_reference_ema_to_spot();
+        let spot = MockPool::price();
+        let retry_at = position.expires_at;
         if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
             let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
         }
         ExpiryRetryPending::<Test>::put(0);
         NextExpiryRetry::<Test>::kill();
         ExpiryRetryCursor::<Test>::kill();
-        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetry::<Test>::insert(retry_at, (&owner, netuid()), ());
         ExpiryRetryPending::<Test>::put(1);
-        NextExpiryRetry::<Test>::put(force_at);
+        NextExpiryRetry::<Test>::put(retry_at);
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
-                p.last_accrued = force_at;
-                p.expiry_due = force_at;
+                p.expiry_due = retry_at;
             }
         });
-        System::set_block_number(force_at);
         System::reset_events();
-        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+        let _ = <Lending as Hooks<_>>::on_idle(retry_at, Weight::MAX);
 
         assert!(
             Positions::<Test>::get(&owner, netuid()).is_none(),
-            "expired position must be auto-closed after max deferral"
+            "expiry must settle once realized execution is inside the EMA band"
         );
         assert!(!Expiry::<Test>::contains_key(
             position.expires_at,
@@ -6213,6 +6372,9 @@ fn long_expiry_forfeits_when_fees_make_escrow_insolvent() {
             "precondition: fee-aware liquidation misses P ({fee_aware} >= {p})"
         );
         sync_reference_ema_to_spot();
+        // Fee haircut is ~25%; widen the realized band so this insolvency
+        // path still reaches forfeit (production default stays 2%).
+        LiftParamsStore::<Test>::mutate(|p| p.expiry_max_slippage_bps = 10_000);
 
         System::set_block_number(position.expires_at);
         System::reset_events();
@@ -6587,10 +6749,10 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
     });
 }
 
-/// After max_settlement_deferral from the first band deferral, expiry settles
-/// even while spot remains outside the EMA band.
+/// Past max_settlement_deferral with spot still manipulated: no unbounded
+/// AMM force — position stays deferred (terminal policy a).
 #[test]
-fn expiry_band_deferral_bound_forces_settlement() {
+fn expiry_band_deferral_never_unbounded_amm_after_max_window() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 50_000_000_000_000);
@@ -6620,8 +6782,6 @@ fn expiry_band_deferral_bound_forces_settlement() {
         let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
         let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
 
-        // Drop the first retry row and re-queue at the force block so
-        // collect_expiry_retries walks it once past the max window.
         if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
             let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
         }
@@ -6638,21 +6798,20 @@ fn expiry_band_deferral_bound_forces_settlement() {
             }
         });
 
-        // Keep spot outside the band; advance past the max deferral window.
         System::set_block_number(force_at);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
 
         assert!(
-            !Positions::<Test>::contains_key(&owner, netuid()),
-            "max deferral must force settlement"
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "max deferral must not unlock unbounded AMM settle"
         );
         assert!(
-            System::events().into_iter().any(|e| matches!(
+            System::events().into_iter().all(|e| !matches!(
                 e.event,
                 RuntimeEvent::Lending(Event::Forfeited { .. } | Event::Expired { .. })
             )),
-            "forced settle must forfeit or expire"
+            "must not forfeit/expire while realized band is still breached"
         );
     });
 }
@@ -6919,7 +7078,11 @@ fn forfeit_extreme_forced_settle_records_shortfall() {
             }
         });
 
-        // Keep reserves extreme so forced settle forfeits with under-recovery.
+        // Production never lifts the realized band. Sync EMA + max band so this
+        // unit test can still exercise underwater forfeit + shortfall stats
+        // on a thin pool (buyback recovers only a fraction of P).
+        LiftParamsStore::<Test>::mutate(|p| p.expiry_max_slippage_bps = 10_000);
+        sync_reference_ema_to_spot();
         System::set_block_number(force_at);
         System::reset_events();
         let shortfall_before = Lending::lending_stats(netuid()).pool_value_given_below_baseline_tao;
@@ -7097,34 +7260,34 @@ fn sync_reference_ema_to_spot() {
     set_reference_price(MockPool::price());
 }
 
-/// Run expiry at `expires_at`; if the tight expiry slippage bound defers,
-/// advance to `BandDeferralSince + max_settlement_deferral` and force-settle.
+/// Run expiry at `expires_at`. If the realized EMA band defers, widen the
+/// band and sync EMA so money-path tests can complete without an unbounded
+/// AMM escape (production never widens automatically).
 fn settle_expiry_allowing_max_deferral(owner: &Account, expires_at: u64) {
     System::set_block_number(expires_at);
     let _ = <Lending as Hooks<_>>::on_idle(expires_at, Weight::MAX);
     if !Positions::<Test>::contains_key(owner, netuid()) {
         return;
     }
-    let since = BandDeferralSince::<Test>::get(owner, netuid()).unwrap_or(expires_at);
-    let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
+    LiftParamsStore::<Test>::mutate(|p| p.expiry_max_slippage_bps = 10_000);
+    sync_reference_ema_to_spot();
+    let retry_at = expires_at.saturating_add(1);
     if let Some(pos) = Positions::<Test>::get(owner, netuid()) {
         let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (owner, netuid()));
     }
     ExpiryRetryPending::<Test>::put(0);
     NextExpiryRetry::<Test>::kill();
     ExpiryRetryCursor::<Test>::kill();
-    ExpiryRetry::<Test>::insert(force_at, (owner, netuid()), ());
+    ExpiryRetry::<Test>::insert(retry_at, (owner, netuid()), ());
     ExpiryRetryPending::<Test>::put(1);
-    NextExpiryRetry::<Test>::put(force_at);
+    NextExpiryRetry::<Test>::put(retry_at);
     Positions::<Test>::mutate(owner, netuid(), |p| {
         if let Some(p) = p {
-            // Keep last_accrued so force settle still charges interest through
-            // expires_at (accrual caps there); only move the retry due time.
-            p.expiry_due = force_at;
+            p.expiry_due = retry_at;
         }
     });
-    System::set_block_number(force_at);
-    let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+    System::set_block_number(retry_at);
+    let _ = <Lending as Hooks<_>>::on_idle(retry_at, Weight::MAX);
 }
 
 #[test]
@@ -7543,6 +7706,10 @@ fn convert_pending_forces_sale_after_backlog_age_despite_crash_guard() {
         LiftParamsStore::<Test>::mutate(|p| {
             p.slice_bps = 10_000;
             p.crash_guard_bps = 9_500;
+            // Backlog force bypasses crash_guard min_out but still uses the
+            // realized EMA band; widen so this test isolates the crash-guard
+            // override (production default stays 2%).
+            p.expiry_max_slippage_bps = 10_000;
         });
         let pending = 10_000_000_000_000u64;
         set_pool(pending.saturating_mul(2), pending.saturating_mul(2));

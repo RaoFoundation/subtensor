@@ -11,6 +11,11 @@
 //! `pallet_lending` on Benchmarking hardware (steps 50 / repeat 20). Includes
 //! forfeit-inclusive `collect` and expiry-as-close `settle`; the interim
 //! `collect`→`settle` alias (Skeptic fid:e405959d) is retired.
+//!
+//! NOTE (Greg Shorting 102462 / realized slippage): `ProtocolForcedImpact`
+//! (1 r/w per forced settle) and realized chunk checks are not yet in the
+//! measured weights above — do not invent values here; re-benchmark on
+//! reference hardware when CI prepares a patch.
 
 // Executed Command:
 // /workspace/target/production/node-subtensor

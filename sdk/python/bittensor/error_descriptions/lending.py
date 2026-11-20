@@ -136,12 +136,17 @@ DESCRIPTIONS: dict[str, str] = {
         "before retrying a large collateral quote."
     ),
     "SettlementPriceOutsideEmaBand": (
-        "Permissionless settlement (fixed-term expiry or interest-exhaustion forfeit) saw "
-        "spot outside the 15% EMA band. The claim is deferred (~100 blocks) and retried; "
-        "after max_settlement_deferral (~7 days / 50_400 blocks from the first band deferral) "
-        "the band gate lifts and the next collector retry settles anyway. Manual "
-        "close/repay is unaffected — use those with your own slippage limits if you need "
-        "to exit now."
+        "Permissionless / protocol-forced settle saw realized AMM execution (or per-block "
+        "cumulative impact) outside expiry_max_slippage_bps of the lending EMA (default 2%), "
+        "or the wider 15% §5.4 spot band on interest-exhaustion forfeit pre-checks. The claim "
+        "is deferred and retried; there is no unbounded AMM escape after max_settlement_deferral. "
+        "Increases and rolls stay frozen while deferred. Close or repay when realized execution "
+        "is inside the band (wallet repay is unconstrained)."
+    ),
+    "SettlementFrozen": (
+        "This position has an active settlement deferral (BandDeferralSince). Increases and "
+        "rolls are refused until permissionless settle succeeds inside the realized EMA band. "
+        "You may still close or repay."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "

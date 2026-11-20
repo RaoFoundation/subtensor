@@ -507,7 +507,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (34, 26): ErrorInfo('Lending', 'SubnetTooNew', 'Subnet age is below `new_subnet_min_age` (§2.3).'),
     (34, 27): ErrorInfo('Lending', 'EscrowInUse', 'Derived position escrow is still assigned (e.g. after a coldkey swap that kept the old custody account). Refuse a fresh open so two loans cannot share one escrow (§14).'),
     (34, 28): ErrorInfo('Lending', 'PriceTooFarFromEma', 'Post-trade spot is outside the directional EMA band on the exploitable side (§5.4). Longs: spot > EMA·(1+band); shorts: spot < EMA·(1−band). Manual closes and repays are never blocked by this; permissionless settlement uses [`Self::SettlementPriceOutsideEmaBand`] instead.'),
-    (34, 29): ErrorInfo('Lending', 'SettlementPriceOutsideEmaBand', 'Permissionless settle (expiry / interest-exhaustion forfeit) saw spot outside the §5.4 EMA band and the max-deferral window has not yet elapsed. Defers via `SettlementDeferred` / `InterestDeferred`.'),
+    (34, 29): ErrorInfo('Lending', 'SettlementPriceOutsideEmaBand', 'Permissionless / protocol-forced settle saw realized execution (or per-block cumulative impact) outside [`LiftParams::expiry_max_slippage_bps`] of the lending EMA, or the wider §5.4 spot band on interest-exhaustion forfeit pre-checks. There is no unbounded AMM escape after max deferral — collectors keep deferring via `SettlementDeferred` / `InterestDeferred`.'),
     (34, 30): ErrorInfo('Lending', 'PrincipalZero', 'Principal, principal_part, or borrow amount is zero.'),
     (34, 31): ErrorInfo('Lending', 'CollateralZero', 'Collateral amount is zero.'),
     (34, 32): ErrorInfo('Lending', 'SubnetNotStarted', 'Subtoken trading has not been started on this subnet (§2.3).'),
@@ -518,4 +518,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (34, 37): ErrorInfo('Lending', 'CollateralExceedsMax', 'Raise / open collateral exceeds the caller’s max collateral cap.'),
     (34, 38): ErrorInfo('Lending', 'UnsupportedTermsVersion', 'Position carries a `terms_version` this runtime does not implement.'),
     (34, 39): ErrorInfo('Lending', 'ExpiryScheduleCongested', 'Expiry-bucket linked list is too deep for a fixed-weight open/roll insert (mid-list walk exceeded [`MAX_EXPIRY_BUCKET_WALK`]). Retry after attrition drains earlier expiries, or open with a later term.'),
+    (34, 40): ErrorInfo('Lending', 'SettlementFrozen', 'Increase or roll refused while this position has an active settlement deferral ([`BandDeferralSince`]). Owner may still close or repay; permissionless settle resumes when execution is inside the realized EMA band.'),
 }
