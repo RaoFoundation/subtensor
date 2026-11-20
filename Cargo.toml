@@ -9,6 +9,20 @@ license = "Apache-2.0"
 publish = false
 repository = "https://github.com/RaoFoundation/subtensor"
 
+[dev-dependencies]
+hickory-proto-0244 = { path = "vendor/hickory-dns/hickory-proto-0.24.4", package = "hickory-proto", default-features = false }
+hickory-proto-0252 = { path = "vendor/hickory-dns/hickory-proto-0.25.2", package = "hickory-proto", default-features = false }
+
+# These regression targets use the root lockfile; the vendored package manifests
+# have their own lockfiles and cannot be tested with `cargo test --locked` here.
+[[test]]
+name = "hickory_allocation_limit_0244"
+path = "vendor/hickory-dns/hickory-proto-0.24.4/tests/allocation_limit.rs"
+
+[[test]]
+name = "hickory_allocation_limit_0252"
+path = "vendor/hickory-dns/hickory-proto-0.25.2/tests/allocation_limit.rs"
+
 [build-dependencies]
 subtensor-linting = { path = "support/linting", version = "0.1.0" }
 syn = { workspace = true, features = [

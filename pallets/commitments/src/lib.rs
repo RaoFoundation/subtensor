@@ -1936,10 +1936,12 @@ impl<T: Config> Pallet<T> {
             let completion_weight = write_weight.saturating_mul(3);
             let mut mechanism_meter =
                 WeightMeter::with_limit(weight_meter.remaining().saturating_sub(completion_weight));
-            if !Self::purge_channel_mechanism_config(netuid, mecid, &mut mechanism_meter) {
+            let config_finished =
+                Self::purge_channel_mechanism_config(netuid, mecid, &mut mechanism_meter);
+            weight_meter.consume(mechanism_meter.consumed());
+            if !config_finished {
                 return false;
             }
-            weight_meter.consume(mechanism_meter.consumed());
             if !weight_meter.can_consume(completion_weight) {
                 return false;
             }

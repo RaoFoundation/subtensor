@@ -6,8 +6,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use hickory_proto::op::{Header, Message};
-use hickory_proto::serialize::binary::{BinEncodable, BinEncoder};
+use hickory_proto_0252::op::{Header, Message};
+use hickory_proto_0252::serialize::binary::{BinEncodable, BinEncoder};
 
 struct CountingAllocator;
 

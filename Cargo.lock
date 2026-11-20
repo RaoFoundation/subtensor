@@ -19036,6 +19036,8 @@ dependencies = [
 name = "subtensor"
 version = "0.1.0"
 dependencies = [
+ "hickory-proto 0.24.4",
+ "hickory-proto 0.25.2",
  "proc-macro2",
  "quote",
  "rayon",

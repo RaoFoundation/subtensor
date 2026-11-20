@@ -48,11 +48,11 @@ jobs:
           python3 .github/scripts/check-audit-feature-exclusions.py
 
       - name: Test bounded DNS decoder allocation
+        # The root package owns these targets so --locked uses the workspace
+        # lockfile; standalone vendor manifests have separate lockfiles.
         run: |
-          cargo test --locked --manifest-path vendor/hickory-dns/hickory-proto-0.24.4/Cargo.toml \
-            --no-default-features --test allocation_limit
-          cargo test --locked --manifest-path vendor/hickory-dns/hickory-proto-0.25.2/Cargo.toml \
-            --no-default-features --test allocation_limit
+          cargo test --locked --test hickory_allocation_limit_0244
+          cargo test --locked --test hickory_allocation_limit_0252
 
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping

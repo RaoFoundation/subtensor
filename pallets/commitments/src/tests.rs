@@ -1288,6 +1288,24 @@ fn dissolution_reserves_cursor_writes_after_config_sweep() {
     });
 }
 
+// An incomplete config sweep persists storage writes; charging them only on
+// success would let later idle work exceed the block's remaining weight.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn dissolution_charges_partial_config_cleanup_to_parent_meter() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let budget = RocksDbWeight::get().reads_writes(20, 510);
+        let mut meter = frame_support::weights::WeightMeter::with_limit(budget);
+        let before = meter.remaining();
+        assert!(!Pallet::<Test>::purge_channel_netuid(netuid, &mut meter));
+        let spent = before.saturating_sub(meter.remaining());
+        // The parent is charged for the initial pending write and every child
+        // operation, including the reserved completion budget left unused.
+        assert_eq!(spent, RocksDbWeight::get().reads_writes(1, 511));
+    });
+}
+
 #[test]
 fn retirement_after_overlapping_destination_swap_preserves_live_channels() {
     new_test_ext().execute_with(|| {
