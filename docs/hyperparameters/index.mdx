@@ -41,7 +41,7 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) | flag | yes | per-weight bonds EMA (liquid alpha) | [`LiquidAlphaOn`](/code/pallets/subtensor/src/lib.rs#L3021) |
 | [`bonds_penalty`](/docs/hyperparameters/bonds-penalty) | fraction (u16, 65535 = 1.0) | yes | penalty on out-of-consensus bonds | [`BondsPenalty`](/code/pallets/subtensor/src/lib.rs#L2904) |
 | [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) | integer | yes | liquid-alpha sigmoid steepness | [`AlphaSigmoidSteepness`](/code/pallets/subtensor/src/lib.rs#L2824) |
-| [`min_childkey_take`](/docs/hyperparameters/min-childkey-take) | fraction (u16, 65535 = 1.0) | yes | floor for childkey take | [`MinChildkeyTakePerSubnet`](/code/pallets/subtensor/src/lib.rs#L1774) |
+| [`min_childkey_take`](/docs/hyperparameters/min-childkey-take) | fraction (u16, 65535 = 1.0) | yes | floor for childkey take | [`MinChildkeyTakePerSubnet`](/code/pallets/subtensor/src/lib.rs#L1768) |
 | [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit) | integer | yes | owner-designated prune-immune UIDs | [`ImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L3141) |
 | [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids) | integer | yes | neuron slot capacity before pruning | [`MaxAllowedUids`](/code/pallets/subtensor/src/lib.rs#L2853) |
 | [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) | multiplier (U64F64 bits / 2^64) | yes | shared burn/PoW bump multiplier | [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L3935) |
@@ -52,7 +52,7 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) | flag | yes | yuma3 consensus variant toggle | [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L3026) |
 | [`yuma_version`](/docs/hyperparameters/yuma-version) | integer | root only | epoch consensus variant (2 or 3) | — |
 | [`subnet_is_active`](/docs/hyperparameters/subnet-is-active) | flag | root only | subnet started (staking + emissions) | — |
-| [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled) | flag | root only | root switch for TAO emission share | [`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L2086) |
+| [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled) | flag | root only | root switch for TAO emission share | [`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L2080) |
 | [`user_liquidity_enabled`](/docs/hyperparameters/user-liquidity-enabled) | flag | root only | legacy user-LP flag (always false) | — |
 | [`bonds_reset_enabled`](/docs/hyperparameters/bonds-reset-enabled) | flag | yes | bonds reset on metadata commit | [`BondsResetOn`](/code/pallets/subtensor/src/lib.rs#L2909) |
 | [`transfers_enabled`](/docs/hyperparameters/transfers-enabled) | flag | yes | stake transfers between coldkeys | [`TransferToggle`](/code/pallets/subtensor/src/lib.rs#L2596) |
@@ -60,4 +60,4 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`owner_emission`](/docs/hyperparameters/owner-emission) | fraction (u64, u64::MAX = 1.0) | root only | owner share of emission (slot 2) | [`SubnetEmissionWeights`](/code/pallets/subtensor/src/lib.rs#L2559) |
 | [`validator_emission`](/docs/hyperparameters/validator-emission) | fraction (u64, u64::MAX = 1.0) | root only | validator share of emission (slot 3) | [`SubnetEmissionWeights`](/code/pallets/subtensor/src/lib.rs#L2559) |
 | [`miner_emission`](/docs/hyperparameters/miner-emission) | fraction (u64, u64::MAX = 1.0) | root only | miner share of emission (slot 4) | [`SubnetEmissionWeights`](/code/pallets/subtensor/src/lib.rs#L2559) |
-| [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled) | flag | yes | auto-lock the owner's emission cut | [`OwnerCutAutoLockEnabled`](/code/pallets/subtensor/src/lib.rs#L2347) |
+| [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled) | flag | yes | auto-lock the owner's emission cut | [`OwnerCutAutoLockEnabled`](/code/pallets/subtensor/src/lib.rs#L2341) |

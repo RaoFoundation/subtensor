@@ -835,6 +835,87 @@
     ]
   },
   {
+    "name": "close_loan",
+    "summary": "Repay total principal and return remaining collateral on a subnet.",
+    "description": "Repay total principal and return remaining collateral on a subnet.\n\nBy default (`repay_from_wallet=False`) an escrowed short buys its alpha\ndebt back through the AMM using escrow sale proceeds plus remaining TAO\ncollateral, then refunds any leftover TAO. Set `repay_from_wallet=True`\nto repay short alpha from stake on `hotkey_ss58` instead and receive the\nfull escrow pot. A long with the default sells escrow (then collateral) for\nprincipal TAO (selling only enough collateral to cover any shortfall,\nreturning leftover collateral as alpha to `hotkey_ss58`);\n`repay_from_wallet=True` pays TAO from free balance and returns escrow\nalpha to `hotkey_ss58`. Both charge accrued interest through the closing\nblock. A failed repayment, payment ceiling or refund floor rolls back.\n\nPositions do not store a hotkey; `hotkey_ss58` is required whenever alpha\nmoves to or from the caller's stake (wallet alpha repay, or alpha refund).\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs (matching the refund asset on each path). Units are checked against\nthe owner's actual stored position. Closing remains available when new\nborrowing is disabled.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "close"
+      ]
+    ],
+    "docs_url": "/docs/tx/close-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the position to repay."
+        },
+        "max_payment": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Maximum repayment: TAO, or alpha for a wallet-repaid short."
+        },
+        "min_refund": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum returned collateral: TAO for shorts, alpha for longs."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long close). Required whenever alpha moves; short escrow buyback (from-escrow) may omit it."
+        },
+        "repay_from_wallet": {
+          "type": "boolean",
+          "description": "False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from hotkey stake, or pay long TAO from wallet."
+        },
+        "valid_until": {
+          "type": "integer",
+          "description": "Latest block number that may include this close."
+        }
+      },
+      "required": [
+        "netuid",
+        "max_payment"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx close-loan --netuid <int> --max-payment <amount>",
+    "python_class": "CloseLoan",
+    "markdown_url": "/llms.mdx/docs/tx/close-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "close",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1764,
+        "end_line": 1783,
+        "url": "/code/pallets/lending/src/lib.rs#L1761-L1783",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "commit_weights",
     "summary": "Timelock-encrypt and commit weights, forcing the commit-reveal path.",
     "description": "Timelock-encrypt and commit weights, forcing the commit-reveal path.\n\nEncrypts the weights with drand timelock encryption and submits the\nciphertext; the weights stay hidden until the chain auto-decrypts and\napplies them at the reveal round (no separate reveal call is needed).\nHiding weights until the round closes prevents other validators from\ncopying them. Signed by the hotkey, with the same preflight, conforming,\nand rate-limit behavior as `set_weights`. Use `set_weights` instead\nunless you need to force the commit path regardless of the subnet's\ncommit-reveal setting.",
@@ -2523,6 +2604,140 @@
     "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
   },
   {
+    "name": "open_loan",
+    "summary": "Open or increase a fixed-principal subnet loan at up to 25% LTV.",
+    "description": "Open or increase a fixed-principal subnet loan at up to 25% LTV.\n\nA short locks TAO collateral, lifts borrowed alpha, and immediately sells\nthat alpha into escrow TAO (`proceeds`) on the position's custody account.\nA long locks existing free alpha stake, lifts TAO, and buys escrow alpha\nwith the borrowed TAO (no free TAO payout). Debt stays in the borrowed\ncurrency. Interest is 100% annually on opening loan value, charged in fixed\ncollateral units and collected every `InterestPeriod` blocks (runtime\nconstant; 50_400 \u2248 7 days at 12 s). There are no price-triggered\nliquidations; exhausted collateral forfeits the position.\n\nAlpha debt must also fit 25% of collateral at a conservative immediate\nfunded-redemption valuation, including payout rounding. TAO debt requires\nconservative funded collateral backing. New borrowing must preserve each\nother same-side loan's individual coverage after accrued interest. These\nopening checks do not guarantee future repayment.\n\nPositions are keyed by `(coldkey, netuid)`. An existing position must\nhave the same side. `collateral` adds to its remaining collateral after\naccrued interest; borrowed principal and the new fixed annual interest add\nto the saved position. The old interest rate is not repriced. The combined\nposition must pass current opening guards, and an already exhausted\nposition cannot be increased.\n\nShorts are TAO-only and must omit `hotkey_ss58` (the call passes\n`source_hotkey=None`). Longs require `hotkey_ss58` as the stake that\nsupplies collateral alpha. `amount` selects exact additional principal:\nalpha for shorts and TAO for longs. With no amount, the collateral\ndetermines the borrowing limit. The runtime transfers exactly the\nrequested amount or refuses the call. `min_borrow` is a floor on\nadditional principal. `min_proceeds` is the short's minimum escrow TAO\nfrom the forced sale (slippage floor); `min_escrow_alpha` is the long's\nminimum escrow alpha from the forced buy. The call is atomic and refuses a\nsmaller loan or opening value. There remains one position per coldkey and\nsubnet; closing repays its total principal.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield` (encrypted submission will never be decrypted).",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "open"
+      ],
+      [
+        "Lending",
+        "open_exact"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to borrow against."
+        },
+        "side": {
+          "type": "string",
+          "description": "short: lock TAO; long: lock subnet alpha."
+        },
+        "collateral": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Additional collateral to lock: TAO for a short, alpha for a long."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Long only: hotkey whose free alpha supplies collateral. Omit for shorts (TAO-only; no hotkey on open)."
+        },
+        "min_borrow": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum additional principal: alpha for a short, TAO for a long."
+        },
+        "min_proceeds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum additional short opening value in TAO; unused for longs."
+        },
+        "min_escrow_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum escrowed alpha after a long's forced buy; unused for shorts."
+        },
+        "valid_until": {
+          "type": "integer",
+          "description": "Latest block number that may include this open."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Exact additional amount to borrow: alpha for a short, TAO for a long."
+        }
+      },
+      "required": [
+        "netuid",
+        "side",
+        "collateral"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-loan --netuid <int> --side <value> --collateral <amount>",
+    "python_class": "OpenLoan",
+    "markdown_url": "/llms.mdx/docs/tx/open-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "open",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1696,
+        "end_line": 1720,
+        "url": "/code/pallets/lending/src/lib.rs#L1686-L1720",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "pallet": "Lending",
+        "call": "open_exact",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1727,
+        "end_line": 1754,
+        "url": "/code/pallets/lending/src/lib.rs#L1723-L1754",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "pow_register",
     "summary": "Register using an owner-enabled proof instead of TAO.",
     "description": "Register using an owner-enabled proof instead of TAO.\n\nDirect submission with zero tip pays no transaction fee, burn or initial\ncollateral purchase. Root is excluded. The proof binds the subnet, signing\ncoldkey and hotkey; reused or stale challenge blocks are rejected. A full\nsubnet applies ordinary pruning and immunity rules. Mine a fresh intent\nwith `client.mine_pow_registration` and submit it promptly.",
@@ -2599,6 +2814,147 @@
         "end_line": 876,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L865-L876",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "raise_loan",
+    "summary": "Atomic raise: escrowed long plus spot sale of unlocked alpha.",
+    "description": "Atomic raise: escrowed long plus spot sale of unlocked alpha.\n\nOpens (or sizes) a long against alpha collateral and, in the same\nextrinsic, sells additional unlocked alpha for free TAO. Either both\nlegs succeed or the call rolls back. `valid_until` is a block deadline.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "open_long_and_sell"
+      ]
+    ],
+    "docs_url": "/docs/tx/raise-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to raise against."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey holding collateral and sale alpha."
+        },
+        "collateral_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Exact alpha collateral for the long; omit to size from borrow_tao."
+        },
+        "borrow_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Exact TAO principal to borrow; omit to size from collateral_alpha."
+        },
+        "max_collateral_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Ceiling on alpha collateral when sizing from borrow_tao. Required in amount mode (omit only when collateral_alpha is set)."
+        },
+        "min_borrow_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Floor on borrowed TAO principal."
+        },
+        "sell_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Unlocked alpha to sell for free TAO; omit to sell the newly escrowed alpha."
+        },
+        "min_tao_out": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum free TAO from the raise sale leg."
+        },
+        "min_escrow_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum escrowed alpha after the long's forced buy."
+        },
+        "valid_until": {
+          "type": "integer",
+          "description": "Latest block number that may include this raise. Omit to use head + 50 at build time."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx raise-loan --netuid <int>",
+    "python_class": "RaiseLoan",
+    "markdown_url": "/llms.mdx/docs/tx/raise-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "open_long_and_sell",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1796,
+        "end_line": 1824,
+        "url": "/code/pallets/lending/src/lib.rs#L1786-L1824",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },
@@ -3187,6 +3543,101 @@
     ]
   },
   {
+    "name": "repay_loan",
+    "summary": "Partially repay principal on a subnet loan (\u00a74.4).",
+    "description": "Partially repay principal on a subnet loan (\u00a74.4).\n\nSame wallet vs escrow paths as :class:`CloseLoan`, but settles a\n`principal_part` slice (`k = principal_part / principal`). When\n`principal_part` equals the full principal the runtime closes. Units\nand hotkey rules match close: `principal_part` is alpha for a short and\nTAO for a long; `max_payment` / `min_refund` follow the close-path\nasset for the saved side and `repay_from_wallet` flag.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "repay"
+      ]
+    ],
+    "docs_url": "/docs/tx/repay-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the position to repay."
+        },
+        "principal_part": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Principal to repay: alpha for a short, TAO for a long. Must be > 0 and \u2264 stored principal; equals full principal to close."
+        },
+        "max_payment": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Maximum repayment: TAO, or alpha for a wallet-repaid short."
+        },
+        "min_refund": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Minimum returned collateral: TAO for shorts, alpha for longs."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey for alpha repay (short wallet path) or alpha refund (long repay). Required whenever alpha moves; short escrow buyback (from-escrow) may omit it."
+        },
+        "repay_from_wallet": {
+          "type": "boolean",
+          "description": "False (default): buy short alpha back from escrow / sell long escrow. True: repay short alpha from hotkey stake, or pay long TAO from wallet."
+        },
+        "valid_until": {
+          "type": "integer",
+          "description": "Latest block number that may include this repay."
+        }
+      },
+      "required": [
+        "netuid",
+        "principal_part",
+        "max_payment"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx repay-loan --netuid <int> --principal-part <amount> --max-payment <amount>",
+    "python_class": "RepayLoan",
+    "markdown_url": "/llms.mdx/docs/tx/repay-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "repay",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1853,
+        "end_line": 1874,
+        "url": "/code/pallets/lending/src/lib.rs#L1848-L1874",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "reset_axon",
     "summary": "Reset (stop serving) this hotkey's axon endpoint on a subnet.",
     "description": "Reset (stop serving) this hotkey's axon endpoint on a subnet.\n\nRepublishes the axon record as a placeholder (ip 0, port 1, protocol 4) so\nvalidators stop routing traffic to the old address; the storage entry is\nnot removed. Signed by the hotkey. Use this when taking a miner offline or\nbefore moving it, then publish the new address with `serve_axon` when it\nis back up.",
@@ -3295,6 +3746,48 @@
         "end_line": 285,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "roll_loan",
+    "summary": "Extend a live loan onto a fresh max_loan_duration clock without changing exposure.",
+    "description": "Extend a live loan onto a fresh max_loan_duration clock without changing exposure.\n\nSame open gates (lending enabled, new-subnet, warm reference, EMA band).\nCharges interest to now, re-checks LTV, and rejects when the side book is\nalready over the current side cap. Opens-off disables rolls. Does not move\nprincipal, collateral, escrow, lift legs, or `last_exposure_added_at`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "roll"
+      ]
+    ],
+    "docs_url": "/docs/tx/roll-loan",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the position to roll."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx roll-loan --netuid <int>",
+    "python_class": "RollLoan",
+    "markdown_url": "/llms.mdx/docs/tx/roll-loan/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "roll",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 1906,
+        "end_line": 1909,
+        "url": "/code/pallets/lending/src/lib.rs#L1897-L1909",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },

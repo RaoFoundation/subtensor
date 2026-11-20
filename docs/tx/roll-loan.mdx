@@ -12,7 +12,7 @@ principal, collateral, escrow, lift legs, or `last_exposure_added_at`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.roll`](/code/pallets/lending/src/lib.rs#L1894-L1906) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.roll`](/code/pallets/lending/src/lib.rs#L1897-L1909) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("roll_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.roll` — [`pallets/lending/src/lib.rs#L1903`](/code/pallets/lending/src/lib.rs#L1894-L1906):
+`Lending.roll` — [`pallets/lending/src/lib.rs#L1906`](/code/pallets/lending/src/lib.rs#L1897-L1909):
 
 ```rust
 #[pallet::call_index(8)]

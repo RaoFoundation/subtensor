@@ -1327,8 +1327,6 @@ class Executor:
                         unit = int(getattr(semantic_intent, "_quoted_payment_unit", 0) or 0)
                         data["quoted_payment"] = _fmt_outcome_amount(int(quoted), unit)
                         data["quoted_payment_rao"] = int(quoted)
-            if semantic_intent.op == "spend_gamma":
-                data.update(_gamma_spent_data(result))
             if semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
                 data.update(_gamma_minted_data(result))
             data.update(plan.extras)
