@@ -25,7 +25,8 @@
 use crate::tests::claim_root::{escrow_alpha, register_on_root};
 use crate::tests::mock::*;
 use crate::{
-    BasketDailyTurnoverCap, BasketShares, BasketTradeBucket, BasketTradingEnabled, Error,
+    BasketDailyTurnoverCap, BasketShares, BasketTradeBucket, BasketTradeMaxSlippageBps,
+    BasketTradePriceReference, BasketTradePriceReferenceMode, BasketTradingEnabled, Error,
     FirstEmissionBlockNumber, NetworkRegistrationAllowed, NetworksAdded, Owner, SubnetAlphaIn,
     SubnetAlphaOut, SubnetFastMovingPrice, SubnetMovingPrice, SubnetTAO, TotalStake,
 };
@@ -378,6 +379,9 @@ fn best_stale_low_sell_attack(netuid: NetUid, holding: u64, anchor: FastAnchor) 
 #[test]
 fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
+        // Human-approved legacy setup; the protected attack inputs and assertions are unchanged.
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
+        BasketTradeMaxSlippageBps::<Test>::put(200);
         let fund_nav = 100_000 * TAO;
         make_fund_with_cash(fund_nav);
         let budget = SubtensorModule::basket_trade_budget_tao(guarded_nav());
@@ -445,6 +449,9 @@ fn test_e8_stale_high_ema_buy_extraction_closed_by_fast_anchor() {
 #[test]
 fn test_e8_stale_low_ema_sell_extraction_closed_by_fast_anchor() {
     new_test_ext(1).execute_with(|| {
+        // Human-approved legacy setup; the protected attack inputs and assertions are unchanged.
+        BasketTradePriceReferenceMode::<Test>::put(BasketTradePriceReference::StrictestEmaAndSpot);
+        BasketTradeMaxSlippageBps::<Test>::put(200);
         let cash = 90_000 * TAO;
         make_fund_with_cash(cash);
         let pool_tao = 100_000 * TAO;
@@ -497,10 +504,8 @@ fn test_e8_stale_low_ema_sell_extraction_closed_by_fast_anchor() {
 // Honest trading still fills
 // =============================================================================
 
-/// When the anchors agree with spot an in-band trade fills on both legs, and when the fast
-/// EMA has followed a genuine move it lets the fund trade at the new level even though the
-/// slow EMA is still stale (the slow EMA remains the level cap in the direction it always
-/// was).
+/// Default spot-only trading fills when the EMAs agree with spot, when they have followed
+/// a genuine move, and when a stale EMA would have refused the legacy band.
 #[test]
 fn test_e8_honest_trade_at_spot_still_fills() {
     new_test_ext(1).execute_with(|| {
@@ -520,14 +525,11 @@ fn test_e8_honest_trade_at_spot_still_fills() {
         BasketTradeBucket::<Test>::remove(hotkey());
         assert_ok!(fund_swap(NetUid::ROOT, y, 2_000 * TAO));
 
-        // ...but a pool whose spot was lifted this block above where it opened (fast
-        // anchor 0.4, spot 0.5, slow EMA still permissive at 1.0) is refused: nothing may
-        // fill more than 2% above the price the block opened at.
+        // A pool whose spot was lifted above where it opened (fast anchor 0.4, spot 0.5,
+        // slow EMA still permissive at 1.0) can still trade in the default spot-only mode.
         let z = make_pool(300, 500_000 * TAO, 1_000_000 * TAO, 1.0, 0.4);
-        assert_noop!(
-            fund_swap(NetUid::ROOT, z, 2_000 * TAO),
-            Error::<Test>::SlippageTooHigh
-        );
+        BasketTradeBucket::<Test>::remove(hotkey());
+        assert_ok!(fund_swap(NetUid::ROOT, z, 2_000 * TAO));
     });
 }
 

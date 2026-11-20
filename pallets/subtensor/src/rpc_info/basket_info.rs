@@ -289,7 +289,7 @@ pub struct BasketTradingStatus {
     pub enabled: bool,
     /// `BasketTradingFrozen[hotkey]`: governance froze this fund's trading.
     pub frozen: bool,
-    /// Blocks for an empty bucket to refill completely (`BASKET_TRADE_REFILL_BLOCKS`); the
+    /// Blocks for an empty bucket to refill completely (`BasketTradeRefillBlocks`); the
     /// refill rate is `budget_tao / refill_blocks` per block.
     pub refill_blocks: u64,
     /// TAO the bucket holds right now: the most a trade at this block could push through.
