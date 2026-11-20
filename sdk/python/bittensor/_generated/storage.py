@@ -557,6 +557,7 @@ class Lending:
     ExpiryRetryCursor = Item('Lending', 'ExpiryRetryCursor', '(AccountId32, NetUid)')
     LastDeferral = Item('Lending', 'LastDeferral', '(u8, u32, BoundedVec)')
     BandDeferralSince = Item('Lending', 'BandDeferralSince', 'u32')
+    ProtocolForcedImpact = Item('Lending', 'ProtocolForcedImpact', '(u32, u128, u128)')
     ConversionCursor = Item('Lending', 'ConversionCursor', 'NetUid')
     PalletHotkey = Item('Lending', 'PalletHotkey', 'AccountId32')
     ActiveNets = Item('Lending', 'ActiveNets', '()')

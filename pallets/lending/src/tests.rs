@@ -11917,7 +11917,7 @@ fn expiry_backlog_drains_within_bound_plus_queue_time() {
         // Fair market: all should settle. Drain bound with only scheduled work:
         // ceil(n / cap) blocks. With the split, unused retry share returns to
         // scheduled so the same bound holds.
-        let drain_blocks = (u32::from(n) + cap - 1) / cap;
+        let drain_blocks = u32::from(n).div_ceil(cap);
         for i in 0..drain_blocks {
             let at = expires_at.saturating_add(u64::from(i));
             System::set_block_number(at);
