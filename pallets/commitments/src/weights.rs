@@ -30,6 +30,10 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_commitments`.
 pub trait WeightInfo {
 	fn set_commitment() -> Weight;
+	/// Additive ownership and target-index storage work pending reference benchmarks.
+	fn set_commitment_to_free() -> Weight { Self::set_commitment().saturating_add(RocksDbWeight::get().reads_writes(7, 3)) }
+	/// Payment is supplied by the integration's registration-payment envelope.
+	fn set_commitment_to_paid() -> Weight { Self::set_commitment_to_free().saturating_add(RocksDbWeight::get().reads_writes(3, 3)) }
 	fn set_max_space() -> Weight;
 	fn reveal_timelocked_commitments() -> Weight;
 }

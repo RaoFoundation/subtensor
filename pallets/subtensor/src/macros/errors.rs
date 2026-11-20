@@ -503,5 +503,7 @@ mod errors {
         GammaEmissionNotSettableOnLeasedSubnet,
         /// The hotkey has no service on this subnet.
         ServiceDoesNotExist,
+        /// The signer is not the validator's delegate for this exact mechanism.
+        NotMechWeightDelegate,
     }
 }

@@ -562,6 +562,16 @@ class SubstrateConnection:
         codec = await self._runtimes.codec_at(block_hash)
         return codec.decode(type_string, bytes(data))
 
+    async def decode_commitment_registration(
+        self, data: bytes | str, block_hash: Optional[str] = None
+    ) -> Any:
+        """Decode the runtime API's opaque channel-commitment registration bytes."""
+        if isinstance(data, str):
+            data = bytes.fromhex(data.removeprefix("0x"))
+        codec = await self._runtimes.codec_at(block_hash)
+        entry = codec.storage_entry("Commitments", "ChannelCommitmentOf")
+        return codec.decode(entry.value_type, bytes(data))
+
     async def _normalize_era(self, era: Optional[dict | str]) -> tuple[dict | str, str]:
         """(normalized era, era block hash): immortal anchors at genesis, a
         mortal era without ``current`` anchors at the finalized head."""

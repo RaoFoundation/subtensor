@@ -43,7 +43,7 @@ pub mod pallet {
     };
     use sp_runtime::{BoundedVec, PerU16};
     use substrate_fixed::types::{I64F64, I96F32, U64F64};
-    use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
+    use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 
     /// The main data structure of the module.
     #[pallet::pallet]
@@ -229,6 +229,15 @@ pub mod pallet {
         HashedAccountRegistrationDepositSet {
             /// The new reserve amount, in rao; zero disables the reserve.
             value: TaoBalance,
+        },
+        /// A channel commitment burn setting was changed by its owner or root.
+        CommitBurnConfigSet {
+            /// Subnet whose channel configuration changed.
+            netuid: NetUid,
+            /// Mechanism within that subnet.
+            mecid: MechId,
+            /// Channel within that mechanism.
+            channel: u8,
         },
         /// A subnet was whitelisted for gamma emission or removed from the whitelist.
         SubnetGammaEmissionWhitelistedSet {
@@ -3079,6 +3088,146 @@ pub mod pallet {
             pallet_subtensor::Pallet::<T>::set_max_timelocked_commits_per_hotkey(
                 netuid,
                 max_commits,
+            );
+            Ok(())
+        }
+
+        /// Enable or disable the optional burn for one commitment channel.
+        #[pallet::call_index(123)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_commit_burn())]
+        pub fn sudo_set_commit_burn_enabled(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            channel: u8,
+            enabled: bool,
+        ) -> DispatchResult {
+            Self::mutate_commit_burn(origin, netuid, mecid, channel, |config| {
+                config.enabled = enabled;
+                Ok(())
+            })
+        }
+
+        /// Set the commitment burn floor.
+        #[pallet::call_index(124)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_commit_burn())]
+        pub fn sudo_set_commit_burn_min(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            channel: u8,
+            value: TaoBalance,
+        ) -> DispatchResult {
+            Self::mutate_commit_burn(origin, netuid, mecid, channel, |config| {
+                ensure!(value <= config.max_burn, Error::<T>::InvalidValue);
+                config.min_burn = value;
+                config.burn = config.burn.max(value);
+                Ok(())
+            })
+        }
+
+        /// Set the commitment burn ceiling.
+        #[pallet::call_index(125)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_commit_burn())]
+        pub fn sudo_set_commit_burn_max(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            channel: u8,
+            value: TaoBalance,
+        ) -> DispatchResult {
+            Self::mutate_commit_burn(origin, netuid, mecid, channel, |config| {
+                ensure!(value >= config.min_burn, Error::<T>::InvalidValue);
+                config.max_burn = value;
+                config.burn = config.burn.min(value);
+                Ok(())
+            })
+        }
+
+        /// Set the commitment burn half-life in blocks.
+        #[pallet::call_index(126)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_commit_burn())]
+        pub fn sudo_set_commit_burn_half_life(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            channel: u8,
+            value: u16,
+        ) -> DispatchResult {
+            ensure!(
+                value > 0 && value <= pallet_subtensor::MaxBurnHalfLife::<T>::get(),
+                Error::<T>::InvalidValue
+            );
+            Self::mutate_commit_burn(origin, netuid, mecid, channel, |config| {
+                config.half_life = value;
+                Ok(())
+            })
+        }
+
+        /// Set the commitment burn multiplier, using registration's `[1, 3]` bounds.
+        #[pallet::call_index(127)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_commit_burn())]
+        pub fn sudo_set_commit_burn_increase_mult(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            channel: u8,
+            value: U64F64,
+        ) -> DispatchResult {
+            ensure!((1..=3).contains(&value), Error::<T>::InvalidValue);
+            Self::mutate_commit_burn(origin, netuid, mecid, channel, |config| {
+                config.increase_mult = value;
+                Ok(())
+            })
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        fn mutate_commit_burn(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            channel: u8,
+            update: impl FnOnce(&mut pallet_commitments::CommitBurnParameters) -> DispatchResult,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::CommitBurn.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::ensure_mechanism_exists(netuid, mecid)?;
+            let index = pallet_subtensor::Pallet::<T>::get_mechanism_storage_index(netuid, mecid);
+            let mut config = if let Some(current) =
+                pallet_subtensor::Pallet::<T>::get_commit_burn(netuid, mecid, channel)
+            {
+                current
+            } else {
+                pallet_commitments::CommitBurnConfig::<T>::get((index, channel)).unwrap_or(
+                    pallet_commitments::CommitBurnParameters {
+                        enabled: false,
+                        burn: TaoBalance::ZERO,
+                        min_burn: TaoBalance::ZERO,
+                        max_burn: TaoBalance::ZERO,
+                        half_life: 1,
+                        increase_mult: U64F64::from_num(1),
+                        last_update_block: pallet_subtensor::Pallet::<T>::get_current_block_as_u64(
+                        ),
+                    },
+                )
+            };
+            config.last_update_block = pallet_subtensor::Pallet::<T>::get_current_block_as_u64();
+            update(&mut config)?;
+            pallet_commitments::CommitBurnConfig::<T>::insert((index, channel), config);
+            Self::deposit_event(Event::CommitBurnConfigSet {
+                netuid,
+                mecid,
+                channel,
+            });
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::CommitBurn.into()],
             );
             Ok(())
         }

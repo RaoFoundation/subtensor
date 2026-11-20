@@ -5,7 +5,7 @@ use crate::subnets::dissolution::DissolveCleanupStatus;
 use crate::*;
 use frame_support::{assert_ok, weights::Weight};
 use sp_core::U256;
-use subtensor_runtime_common::{AlphaBalance, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 // Import required types from the correct locations
@@ -306,8 +306,41 @@ fn test_purge_netuid() {
             )
         ));
 
+        assert_ok!(CommitmentsPallet::<Test>::set_commitment_to(
+            <Test as frame_system::Config>::RuntimeOrigin::signed(owner_cold),
+            netuid,
+            MechId::MAIN,
+            3,
+            owner_hot,
+            Box::new(
+                CommitmentInfo::<<Test as pallet_commitments::Config>::MaxFields> {
+                    fields: BoundedVec::try_from(vec![Data::Raw(
+                        BoundedVec::try_from(vec![4, 5, 6]).unwrap()
+                    )])
+                    .unwrap(),
+                }
+            ),
+            TaoBalance::ZERO,
+        ));
+        pallet_commitments::CommitBurnConfig::<Test>::insert(
+            (NetUidStorageIndex::from(netuid), 3),
+            pallet_commitments::CommitBurnParameters {
+                enabled: true,
+                burn: 1u64.into(),
+                min_burn: 1u64.into(),
+                max_burn: 10u64.into(),
+                half_life: 1,
+                increase_mult: substrate_fixed::types::U64F64::from_num(1),
+                last_update_block: 0,
+            },
+        );
+
         // Verify commitment exists
         assert!(CommitmentsPallet::<Test>::commitment_of(netuid, owner_hot).is_some());
+        assert!(
+            CommitmentsPallet::<Test>::get_channel_commitment(netuid, MechId::MAIN, 3, &owner_hot,)
+                .is_some()
+        );
 
         // Test the purge function
         let w = Weight::from_parts(u64::MAX, u64::MAX);
@@ -321,6 +354,17 @@ fn test_purge_netuid() {
 
         // Verify commitment was purged
         assert!(CommitmentsPallet::<Test>::commitment_of(netuid, owner_hot).is_none());
+        assert!(
+            CommitmentsPallet::<Test>::get_channel_commitment(netuid, MechId::MAIN, 3, &owner_hot,)
+                .is_none()
+        );
+        assert!(
+            pallet_commitments::CommitBurnConfig::<Test>::get((
+                NetUidStorageIndex::from(netuid),
+                3
+            ))
+            .is_none()
+        );
     });
 }
 

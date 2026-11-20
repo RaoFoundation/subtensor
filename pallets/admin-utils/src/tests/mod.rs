@@ -19,6 +19,7 @@ use sp_core::{Get, Pair, U256, ed25519};
 use sp_runtime::PerU16;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
+mod commit_burn;
 pub mod mock;
 mod pow_difficulty;
 mod swap_basket_liquidity_cap;

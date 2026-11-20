@@ -19,6 +19,7 @@ mod config {
     pub trait Config:
         frame_system::Config
         + pallet_drand::Config
+        + pallet_commitments::Config
         + pallet_crowdloan::Config
         + pallet_scheduler::Config
     {

@@ -28,4 +28,21 @@ DESCRIPTIONS: dict[str, str] = {
         "only the runtime may create after an automatic reveal fails. Submit a "
         "`TimelockEncrypted` field instead."
     ),
+    "AccountNotAuthorized": (
+        "The signing coldkey does not own the target registered hotkey. Sign `set_commitment_to` "
+        "with the hotkey's owner coldkey; hotkeys cannot fund channel commitments."
+    ),
+    "BurnPriceLimitExceeded": (
+        "The channel's current burn price exceeds the caller's `max_burn`. Query the live "
+        "decayed price and raise `max_burn`, or retry after the price decays."
+    ),
+    "FreeCommitmentDisabled": (
+        "Burning is enabled for mechanism 0, channel 0, so the legacy free `set_commitment` "
+        "call is unavailable. Use the coldkey-signed `set_commitment_to` with an adequate "
+        "burn limit."
+    ),
+    "ChannelMigrationPending": (
+        "A bounded hotkey-swap migration is still moving this hotkey's channel commitments. "
+        "Wait for the migration to finish before publishing another channel commitment."
+    ),
 }

@@ -26,6 +26,11 @@ use subtensor_swap_interface::SwapHandler;
 
 use super::*;
 
+/// Accounting result shared with additive consumers of the registration payment path.
+pub struct RegistrationPayment {
+    pub alpha_recycled: AlphaBalance,
+}
+
 impl<T: Config> Pallet<T> {
     /// Collateral lock share (p) for a subnet as a fixed-point fraction in [0, 1).
     pub fn get_collateral_lock_share_float(netuid: NetUid) -> U64F64 {
@@ -273,17 +278,19 @@ impl<T: Config> Pallet<T> {
     ///
     /// Callers that also mutate registration state should wrap this in
     /// `with_transaction` so a later failure rolls the payment back.
-    pub fn pay_registration(
+    pub fn pay_registration_with_result(
         netuid: NetUid,
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         burned_share: TaoBalance,
         collateral_topup: TaoBalance,
-    ) -> DispatchResult {
+    ) -> Result<RegistrationPayment, DispatchError> {
         let total_charge = burned_share.saturating_add(collateral_topup);
         if total_charge.is_zero() {
             Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
-            return Ok(());
+            return Ok(RegistrationPayment {
+                alpha_recycled: AlphaBalance::ZERO,
+            });
         }
 
         // Bound the AMM fill whenever any of the charge is collateral. A naked
@@ -337,7 +344,9 @@ impl<T: Config> Pallet<T> {
             // Dust: payment already settled via the single swap; nothing to
             // stake or remove from AlphaOut.
             Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
-            return Ok(());
+            return Ok(RegistrationPayment {
+                alpha_recycled: AlphaBalance::ZERO,
+            });
         }
 
         let burn_w = u64::from(burned_share) as u128;
@@ -365,7 +374,9 @@ impl<T: Config> Pallet<T> {
 
         if lock_alpha.is_zero() {
             Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
-            return Ok(());
+            return Ok(RegistrationPayment {
+                alpha_recycled: burn_alpha,
+            });
         }
 
         ensure!(
@@ -417,7 +428,20 @@ impl<T: Config> Pallet<T> {
             total_locked,
         });
 
-        Ok(())
+        Ok(RegistrationPayment {
+            alpha_recycled: burn_alpha,
+        })
+    }
+
+    pub fn pay_registration(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        burned_share: TaoBalance,
+        collateral_topup: TaoBalance,
+    ) -> DispatchResult {
+        Self::pay_registration_with_result(netuid, hotkey, coldkey, burned_share, collateral_topup)
+            .map(|_| ())
     }
 
     /// Credit `alpha` onto `(netuid, hotkey, coldkey)` collateral. When

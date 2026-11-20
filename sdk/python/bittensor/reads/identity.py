@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Optional
 
 from .. import metagraph as metagraph_module
 from .._generated import storage as st
+from .._transport.errors import StorageFunctionNotFound
 from ..balance import Balance
+from ..settings import GLOBAL_MAX_SUBNET_COUNT
 from .base import read, utf8_text
 
 
@@ -70,7 +73,7 @@ def _decode_commitment_data(fields: list) -> str:
     data = b""
     for entry in fields:
         for variant, value in metagraph_module._field_items(entry):
-            if variant.startswith("Raw") and isinstance(value, str):
+            if (variant.startswith("Raw") or variant == "BigRaw") and isinstance(value, str):
                 data += bytes.fromhex(value.removeprefix("0x"))
     try:
         return data.decode("utf-8")
@@ -113,6 +116,159 @@ async def commitment(view, netuid: int, hotkey_ss58: str) -> Optional[Commitment
 async def revealed_commitment(view, netuid: int, hotkey_ss58: str) -> Any:
     """The revealed (timelock-decrypted) commitment for a hotkey on a subnet, or None."""
     return await view.query(st.Commitments.RevealedCommitments, [netuid, hotkey_ss58])
+
+
+def _tao_field(value: Any) -> Balance:
+    if isinstance(value, dict):
+        value = value.get("amount") or value.get("value") or 0
+    return Balance.from_rao(int(value or 0))
+
+
+def _fixed_number(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("bits") or 0
+    return format(Decimal(int(value or 0)) / 2**64, "f")
+
+
+def _burn_parameters(config: dict, *, live: bool) -> dict:
+    enabled = bool(config.get("enabled"))
+    return {
+        "enabled": enabled,
+        "burn": _tao_field(config.get("burn")) if live or enabled else None,
+        "stored_burn": _tao_field(config.get("burn")),
+        "min_burn": _tao_field(config.get("min_burn")),
+        "max_burn": _tao_field(config.get("max_burn")),
+        "half_life": int(config.get("half_life") or 0),
+        "increase_mult": _fixed_number(config.get("increase_mult")),
+        "last_update_block": int(config.get("last_update_block") or 0),
+        "price_is_decayed": live,
+    }
+
+
+@read(
+    "commit_burn",
+    {"netuid": "integer", "mechid": "integer", "channel": "integer"},
+    category="Identity & commitments",
+    param_docs={
+        "netuid": "Subnet whose commitment channel to inspect.",
+        "mechid": "Mechanism whose channel to inspect.",
+        "channel": "Independent commitment channel index (0..255).",
+    },
+)
+async def commit_burn(view, netuid: int, mechid: int = 0, channel: int = 0) -> Optional[dict]:
+    """Live decayed channel burn price and its stored configuration.
+
+    `burn` is the price a commitment would pay now, or None when the burn is
+    disabled/unconfigured. The runtime API returns no record when disabled, so
+    this read also inspects `CommitBurnConfig` to show `enabled` and the other
+    parameters. Direct storage readers should not treat stored `burn` as live:
+    decay is lazy; this read's `price_is_decayed` marks the runtime quote.
+    """
+    if not 0 <= channel <= 255:
+        raise ValueError("channel must be in 0..255")
+    view = await view.at()
+    index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
+    live, stored = await asyncio.gather(
+        view.runtime(
+            st.Item("SubnetRegistrationRuntimeApi", "get_commit_burn"),
+            [netuid, mechid, channel],
+        ),
+        view.query(st.Item("Commitments", "CommitBurnConfig"), [(index, channel)]),
+    )
+    if live is not None:
+        return _burn_parameters(live, live=True)
+    if stored is None:
+        return None
+    return _burn_parameters(stored, live=False)
+
+
+@read(
+    "mech_weight_delegate",
+    {"netuid": "integer", "mechid": "integer", "hotkey_ss58": "string"},
+    category="Weights & bonds",
+    param_docs={
+        "netuid": "Subnet containing the validator hotkey.",
+        "mechid": "Mechanism whose delegate to inspect.",
+        "hotkey_ss58": "Validator hotkey whose delegate to inspect.",
+    },
+)
+async def mech_weight_delegate(
+    view, netuid: int, mechid: int = 0, hotkey_ss58: Optional[str] = None
+) -> Optional[str]:
+    """The account authorized to set weights for this hotkey/mechanism, or None."""
+    if hotkey_ss58 is None:
+        raise ValueError("hotkey_ss58 is required")
+    delegate = await view.runtime(
+        st.Item("SubnetRegistrationRuntimeApi", "get_mech_weight_delegate"),
+        [netuid, mechid, hotkey_ss58],
+    )
+    return str(delegate) if delegate is not None else None
+
+
+def _commitment_record(record: dict) -> Commitment:
+    fields = list((record.get("info") or {}).get("fields") or [])
+    return Commitment(
+        block=int(record.get("block") or 0),
+        deposit=Balance.from_rao(int(record.get("deposit") or 0)),
+        data=_decode_commitment_data(fields),
+        fields=fields,
+    )
+
+
+async def _decode_commitment_registration(view, data: Any) -> Any:
+    """Use a view's decoder or the client's underlying substrate for old snapshots."""
+    if hasattr(view, "decode_commitment_registration"):
+        return await view.decode_commitment_registration(data)
+    client = getattr(view, "_client", view)
+    substrate = getattr(client, "_substrate", client)
+    return await substrate.decode_commitment_registration(data)
+
+
+@read(
+    "channel_commitment",
+    {"netuid": "integer", "mechid": "integer", "channel": "integer", "hotkey_ss58": "string"},
+    category="Identity & commitments",
+    param_docs={
+        "netuid": "Subnet containing the mechanism and hotkey.",
+        "mechid": "Mechanism whose independent channel to read.",
+        "channel": "Independent channel index (0..255).",
+        "hotkey_ss58": "Hotkey whose channel commitment to read.",
+    },
+)
+async def channel_commitment(
+    view, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None
+) -> Optional[Commitment]:
+    """One hotkey's independent channel commitment, or None when absent.
+
+    Reads the v2 runtime API and decodes the returned SCALE registration. On a
+    node without v2, reads the equivalent channel storage instead; both paths
+    distinguish this target from the legacy `commitment` read.
+    """
+    if not 0 <= channel <= 255:
+        raise ValueError("channel must be in 0..255")
+    if hotkey_ss58 is None:
+        raise ValueError("hotkey_ss58 is required")
+    try:
+        encoded = await view.runtime(
+            st.Item("SubnetRegistrationRuntimeApi", "get_channel_commitment"),
+            [netuid, mechid, channel, hotkey_ss58],
+        )
+    except (ValueError, StorageFunctionNotFound) as error:
+        if "not found" not in str(error).lower():
+            raise
+        storage_index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
+        encoded = await view.query(
+            st.Item("Commitments", "ChannelCommitmentOf"),
+            [storage_index, hotkey_ss58, channel],
+        )
+    if encoded is None:
+        return None
+    if isinstance(encoded, str):
+        encoded = bytes.fromhex(encoded.removeprefix("0x"))
+    if isinstance(encoded, dict):
+        return _commitment_record(encoded)
+    record = await _decode_commitment_registration(view, encoded)
+    return _commitment_record(record)
 
 
 def _age_text(seconds: float) -> str:
