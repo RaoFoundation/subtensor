@@ -94,6 +94,51 @@ def test_lending_hotkey_resolver_stays_none_when_omitted(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_lift_params_queries_pass_storage_item_whole():
+    """open/roll/show/params must pass StorageItem whole to Client.query.
+
+    ``client.query(*item)`` unpacks into ``("Lending", "LiftParamsStore")`` so
+    Client treats the module string as the descriptor and indexes ``"L"``/``"e"``
+    → ``storage function L.e not found``.
+    """
+    from bittensor.cli.commands.lending import (
+        _ENABLED,
+        _LIFT_PARAMS,
+        _live_max_loan_duration,
+        _live_max_settlement_deferral,
+    )
+
+    calls: list[tuple[str, object, object]] = []
+
+    class _Client:
+        async def query(self, item, params=None, *, block=None):
+            calls.append(("query", item, params))
+            assert not isinstance(item, str), f"splat bug passed module string {item!r}"
+            assert item[0] == "Lending"
+            if item is _LIFT_PARAMS or item[1] == "LiftParamsStore":
+                return {
+                    "max_loan_duration": 216_000,
+                    "max_settlement_deferral": 50_400,
+                    "slice_bps": 1,
+                }
+            if item is _ENABLED or item[1] == "Enabled":
+                return False
+            raise AssertionError(f"unexpected storage item {item!r}")
+
+        async def constant(self, item):
+            raise AssertionError(f"must not fall back to constant; got {item!r}")
+
+    client = _Client()
+    assert await _live_max_loan_duration(client) == 216_000
+    assert await _live_max_settlement_deferral(client) == 50_400
+    enabled = await client.query(_ENABLED)
+    params = await client.query(_LIFT_PARAMS)
+    assert enabled is False
+    assert params["max_loan_duration"] == 216_000
+    assert all(isinstance(c[1], type(_LIFT_PARAMS)) or c[1] is _ENABLED for c in calls)
+
+
+@pytest.mark.asyncio
 async def test_raise_loan_valid_until_none_resolves_from_block_number():
     class _Substrate:
         def __init__(self):

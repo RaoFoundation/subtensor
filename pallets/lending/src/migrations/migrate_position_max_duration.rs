@@ -23,8 +23,11 @@ use sp_runtime::traits::{SaturatedConversion, Saturating};
 
 use crate::*;
 
+/// v2 re-runs after `abd08c8df` appended `last_exposure_added_at` under the
+/// original v1 key: chains that already stamped v1 kept undecodable 127-byte
+/// positions. Translates both layouts; idempotent via this key.
 fn migration_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
-    BoundedVec::truncate_from(b"migrate_position_max_duration_v1".to_vec())
+    BoundedVec::truncate_from(b"migrate_position_max_duration_v2".to_vec())
 }
 
 /// Pre-`last_exposure_added_at` [`Position`] layout (terms v1/v2 fields present).

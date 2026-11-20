@@ -78,7 +78,9 @@ def _lift_params_deferral(params: Any) -> Optional[int]:
 
 async def _live_max_loan_duration(client) -> Optional[int]:
     """Prefer LiftParamsStore; fall back to the compile-time constant seed."""
-    params = await client.query(*_LIFT_PARAMS)
+    # Client.query takes the storage Item whole — do not splat (*item); that
+    # unpacks into (module, name) and indexes the module string as "L"/"e".
+    params = await client.query(_LIFT_PARAMS)
     duration = _lift_params_duration(params)
     if duration is not None:
         return duration
@@ -88,7 +90,7 @@ async def _live_max_loan_duration(client) -> Optional[int]:
 
 async def _live_max_settlement_deferral(client) -> Optional[int]:
     """Prefer LiftParamsStore; fall back to the compile-time constant seed."""
-    params = await client.query(*_LIFT_PARAMS)
+    params = await client.query(_LIFT_PARAMS)
     deferral = _lift_params_deferral(params)
     if deferral is not None:
         return deferral
@@ -1839,8 +1841,8 @@ def show_params(ctx: typer.Context):
     context = ctx_of(ctx)
 
     async def _load(client):
-        enabled = await client.query(*_ENABLED)
-        params = await client.query(*_LIFT_PARAMS)
+        enabled = await client.query(_ENABLED)
+        params = await client.query(_LIFT_PARAMS)
         return enabled, params
 
     enabled, params = context.run(_load)

@@ -568,6 +568,8 @@ pub struct LiftParams {
 pub const MIN_MAX_LOAN_DURATION: u64 = 7_200;
 /// Inclusive upper bound on [`LiftParams::max_loan_duration`] (≈ 1 year at 12 s).
 pub const MAX_MAX_LOAN_DURATION: u64 = 2_628_000;
+/// Inclusive upper bound on [`LiftParams::new_subnet_min_age`] (≈ 30 days at 12 s).
+pub const MAX_NEW_SUBNET_MIN_AGE: u64 = 216_000;
 
 impl Default for LiftParams {
     fn default() -> Self {
@@ -2041,10 +2043,14 @@ pub mod pallet {
                     && p.apr_short_bps <= 10_000
                     && p.crash_guard_bps <= 10_000
                     && p.ema_band_bps <= 10_000
+                    && p.slice_bps <= 10_000
+                    && p.rebalance_target_bps <= 10_000
+                    && p.rebalance_rate_bps <= 10_000
                     && p.move_bps > 0
                     && p.ref_tao > 0
                     && p.settle_ema_blocks > 0
                     && p.new_subnet_ramp > 0
+                    && p.new_subnet_min_age <= MAX_NEW_SUBNET_MIN_AGE
                     && p.max_loan_duration >= MIN_MAX_LOAN_DURATION
                     && p.max_loan_duration <= MAX_MAX_LOAN_DURATION
                     && p.max_settlement_deferral > 0

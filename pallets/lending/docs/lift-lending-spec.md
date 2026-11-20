@@ -10,6 +10,7 @@
   * Reject if `now >= expires_at` (`DeadlinePassed`); reject if spot outside the directional 15% EMA band (`ensure_open_ema_band` on current spot, no trade).
   * First `charge_interest` to now (`final_charge=false`, `permissionless=false`); re-check LTV at current open price as a fresh open; reject over-cap books with `ΔL = 0` so caps shrink by attrition.
   * Set `expires_at = now + max_loan_duration`; move expiry queue; clear `BandDeferralSince`. Do **not** change principal, collateral, proceeds / escrow_alpha, lift legs, or `last_exposure_added_at` (young-short age unchanged).
+  * **Roll may shorten the remaining term** when root has lowered `max_loan_duration` since open: the new end is always `now +` the live max, so a cut in the root param is intentional attrition (not a bug).
   * Emit `Rolled { owner, netuid, side, old_expires_at, new_expires_at }`. Proxy: `LendingCalls` under **`Any` only** (not Staking, not NonTransfer — existing NonTransfer delegates must not silently gain loan authority).
   * Increases / partial repay still preserve `expires_at` (no silent renewal). Roll is the explicit renew path.
 * **2026-11-19: all economic params root-settable via `LiftParams` / `set_lift_params`.**
@@ -33,7 +34,15 @@
 | `apr_long_bps` | 10_000 | ≤ 10_000 | `set_lift_params` |
 | `apr_short_bps` | 10_000 | ≤ 10_000 | `set_lift_params` |
 | `ema_band_bps` | 1500 | ≤ 10_000 | `set_lift_params` |
-| `new_subnet_min_age` | 50_400 | ≥ 0 | `set_lift_params` |
+| `ref_tao` | 1000 τ | > 0 | `set_lift_params` |
+| `move_bps` | 1000 | > 0 | `set_lift_params` |
+| `rebalance_target_bps` | 0 (off) | ≤ 10_000 | `set_lift_params` |
+| `rebalance_rate_bps` | 0 | ≤ 10_000 | `set_lift_params` |
+| `thin_tao` | 3000 τ | ≥ 0 | `set_lift_params` |
+| `slice_bps` | 1 | ≤ 10_000 | `set_lift_params` |
+| `crash_guard_bps` | 9500 | ≤ 10_000 | `set_lift_params` |
+| `settle_ema_blocks` | 7200 | > 0 | `set_lift_params` |
+| `new_subnet_min_age` | 50_400 | ≤ 216_000 (≈ 30 days) | `set_lift_params` |
 | `new_subnet_ramp` | 216_000 | > 0 | `set_lift_params` |
 | `max_loan_duration` | 216_000 | 7200..=2_628_000 | `set_lift_params` |
 | `max_settlement_deferral` | 50_400 | > 0 | `set_lift_params` |

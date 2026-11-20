@@ -10968,6 +10968,10 @@ fn reopen_after_expiry_starts_fresh_max_loan_clock() {
 }
 
 fn max_duration_migration_key() -> BoundedVec<u8, ConstU32<128>> {
+    BoundedVec::truncate_from(b"migrate_position_max_duration_v2".to_vec())
+}
+
+fn max_duration_migration_key_v1() -> BoundedVec<u8, ConstU32<128>> {
     BoundedVec::truncate_from(b"migrate_position_max_duration_v1".to_vec())
 }
 
@@ -11028,6 +11032,79 @@ fn position_max_duration_migration_rewrites_and_is_idempotent() {
             Positions::<Test>::get(&owner, netuid()).unwrap().expires_at,
             want
         );
+    });
+}
+
+/// Clone/fast-chain bug: v1 already stamped before `last_exposure_added_at` was
+/// appended under the same key → undecodable 127-byte positions (PositionMissing).
+#[test]
+fn position_max_duration_v2_translates_old_layout_when_v1_already_stamped() {
+    new_test_ext().execute_with(|| {
+        use codec::Encode;
+        use frame_support::storage::unhashed;
+        use migrations::PositionBeforeExposure;
+
+        let owner = account(1);
+        let net = netuid();
+        let old = PositionBeforeExposure {
+            side: Side::Short,
+            custody: owner.clone(),
+            principal: 1_000_000_000,
+            collateral: 2_000_000_000,
+            proceeds: 500_000_000,
+            escrow_alpha: 0,
+            lift_tao: 100,
+            lift_alpha: 200,
+            annual_interest: 0,
+            last_accrued: 1u64,
+            interest_remainder: 0,
+            due: 50u64,
+            expires_at: 50_000u64,
+            expiry_due: 50_000u64,
+            terms_version: TERMS_VERSION_V2,
+            interest_period: 10u64,
+            blocks_per_year: 2_628_000,
+        };
+        let key = Positions::<Test>::hashed_key_for(&owner, net);
+        unhashed::put_raw(&key, &old.encode());
+        // Current Position decoder cannot read the pre-exposure layout.
+        assert!(
+            Positions::<Test>::get(&owner, net).is_none(),
+            "old-layout bytes must not decode as Position"
+        );
+
+        // Simulate a chain that already ran migrate_position_max_duration_v1.
+        HasMigrationRun::<Test>::insert(max_duration_migration_key_v1(), true);
+        HasMigrationRun::<Test>::remove(max_duration_migration_key());
+        CurrentTermsVersion::<Test>::put(TERMS_VERSION_V2);
+
+        System::set_block_number(100);
+        let _ = migrations::migrate_position_max_duration::<Test>();
+        assert!(
+            HasMigrationRun::<Test>::get(max_duration_migration_key()),
+            "v2 key must stamp"
+        );
+        let after = Positions::<Test>::get(&owner, net).expect("position readable after v2");
+        assert_eq!(after.principal, old.principal);
+        assert_eq!(after.collateral, old.collateral);
+        assert_eq!(after.proceeds, old.proceeds);
+        assert_eq!(after.lift_tao, old.lift_tao);
+        assert_eq!(after.lift_alpha, old.lift_alpha);
+        assert_eq!(after.terms_version, TERMS_VERSION_V2);
+        assert_eq!(
+            after.expires_at,
+            100u64.saturating_add(TestMaxLoanDuration::get())
+        );
+        assert_eq!(after.expiry_due, after.expires_at);
+        // Seeded from prior term end when the field was missing.
+        assert_eq!(
+            after.last_exposure_added_at,
+            old.expires_at.saturating_sub(TestMaxLoanDuration::get())
+        );
+        assert!(Expiry::<Test>::contains_key(
+            after.expires_at,
+            (&owner, net)
+        ));
     });
 }
 
@@ -11637,12 +11714,37 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
                 max_expiry_settlements_per_block: 0,
                 ..test_lift_params()
             },
+            LiftParams {
+                slice_bps: 10_001,
+                ..test_lift_params()
+            },
+            LiftParams {
+                rebalance_target_bps: 10_001,
+                ..test_lift_params()
+            },
+            LiftParams {
+                rebalance_rate_bps: 10_001,
+                ..test_lift_params()
+            },
+            LiftParams {
+                new_subnet_min_age: MAX_NEW_SUBNET_MIN_AGE + 1,
+                ..test_lift_params()
+            },
         ] {
             assert_noop!(
                 Lending::set_lift_params(RuntimeOrigin::root(), bad),
                 Error::<Test>::InvalidLiftParams
             );
         }
+        // Boundary values still accepted.
+        let ok = LiftParams {
+            slice_bps: 10_000,
+            rebalance_target_bps: 10_000,
+            rebalance_rate_bps: 10_000,
+            new_subnet_min_age: MAX_NEW_SUBNET_MIN_AGE,
+            ..test_lift_params()
+        };
+        assert_ok!(Lending::set_lift_params(RuntimeOrigin::root(), ok));
     });
 }
 
