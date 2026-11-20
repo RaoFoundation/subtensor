@@ -3,6 +3,6 @@
   "spec_version": 493,
   "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v493-upgrade/page.tsx",
   "public_path": "/releases/v493-upgrade",
-  "audiences": ["node operators", "validators", "subnet owners"],
-  "summary": "Sudo can configure each subnet's Yuma timelocked commit cap per hotkey, mechanism, and commit epoch. The default remains ten; zero pauses new commits while queued commitments remain eligible to reveal. The release also adds Discord release announcements, standalone stable Python publishing, and required release notes."
+  "audiences": ["node operators", "validators", "subnet owners", "gamma holders", "service providers", "SDK users"],
+  "summary": "Gamma deposits are now spent by their own hotkey: it signs a fee-free spend at a service listed on the subnet, the gamma is burned, and services credit customers from a per-service total instead of spending deposits. The funding coldkey keeps the balance and daily spend cap, and a hotkey swap moves the deposit. This breaks gamma integrations: the separate spender and GammaSpend proxy permission are removed, the mint, spend and set_service calls change arguments and call indices, and GammaRuntimeApi moves to version 2, so update the Python SDK before using gamma. Sudo can also set each subnet's Yuma timelocked commit cap per hotkey, mechanism, and commit epoch; the default stays ten and zero pauses new commits while queued commitments remain eligible to reveal. The release also adds Discord release announcements, standalone stable Python publishing, and required release notes."
 }
