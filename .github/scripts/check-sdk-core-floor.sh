@@ -75,16 +75,21 @@ available = {
     wheel.name.split("-")[1]
     for wheel in dist.glob("bittensor_core-*.whl")
 }
+if floor in available:
+    print(floor)
+    raise SystemExit(0)
+# Only PyPI can say whether an older supported version exists, so fail
+# closed instead of testing a newer local wheel when it cannot answer.
 try:
     with urllib.request.urlopen("https://pypi.org/pypi/bittensor-core/json", timeout=30) as response:
         releases = json.load(response)["releases"]
-    available |= {
-        version
-        for version, files in releases.items()
-        if any(not file.get("yanked") for file in files)
-    }
-except Exception as error:  # dist/ alone still answers for this release
-    print(f"could not read PyPI releases: {error}", file=sys.stderr)
+except Exception as error:
+    raise SystemExit(f"could not read PyPI releases to resolve bittensor-core>={floor}: {error}")
+available |= {
+    version
+    for version, files in releases.items()
+    if any(not file.get("yanked") for file in files)
+}
 
 floor_key = key(floor)
 allow_rc = floor_key is not None and floor_key[3] != float("inf")
