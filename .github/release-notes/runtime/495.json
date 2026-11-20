@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 495,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v495-upgrade/page.tsx",
+  "public_path": "/releases/v495-upgrade",
+  "audiences": ["node operators", "validators", "subnet owners", "SDK users", "integrators"],
+  "summary": "V495 ships Lift lending as a dark-launch pallet (Enabled defaults false): escrowed short/long loans with root-settable LiftParams, a 30-day max loan duration and roll, continuous thin-depth blend for capacity floor and long LTV, realized expiry AMM slippage bounds with fair Expiry/ExpiryRetry budgeting, and freeze-forever settlement when the band cannot clear. Spec 495 sits above Greg's release-494 RC so the ships do not collide; remmerge after 494. Lending is pallet 34. Regenerate metadata before integrating."
+}
