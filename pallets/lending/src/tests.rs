@@ -4278,6 +4278,77 @@ fn owner_can_close_while_expiry_slippage_deferred() {
     });
 }
 
+// PROTECTED_REGRESSION: long AMM close/repay under BandDeferralSince must use
+// the same realized EMA sell band as protocol-forced long settles (parity with
+// short buyback); changes require explicit human approval.
+/// Deferred long: AMM close refuses when realized sell is outside the EMA band;
+/// wallet repay stays ungated.
+#[test]
+fn deferred_long_amm_close_refuses_outside_realized_band() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        mint_alpha(&owner, &hotkey, netuid(), 80_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            10_000_000_000_000,
+            Some(hotkey.clone()),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_some());
+        BandDeferralSince::<Test>::insert(&owner, netuid(), System::block_number());
+        sync_reference_ema_to_spot();
+        // Dump alpha price (~5%+): sell TAO << EMA fair · 0.98.
+        let alpha_before = pool_alpha();
+        write(
+            &key(b"test/pool_alpha", netuid()),
+            alpha_before.saturating_mul(105) / 100,
+        );
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let floor = ema.saturating_mul(U64F64::from_num(9_800u32)) / U64F64::from_num(10_000u32);
+        assert!(
+            spot < floor,
+            "precondition: dumped spot {spot} must sit below EMA·0.98 ({floor})"
+        );
+
+        assert_noop!(
+            Lending::close(
+                RuntimeOrigin::signed(owner.clone()),
+                netuid(),
+                hotkey.clone(),
+                false,
+                u64::MAX,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SettlementPriceOutsideEmaBand
+        );
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "manipulated AMM close must not clear the deferred long"
+        );
+
+        // Wallet repay remains unconstrained under the same deferral stamp.
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::close(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            hotkey,
+            true,
+            u64::MAX,
+            0,
+            deadline(),
+        ));
+        assert!(Positions::<Test>::get(&owner, netuid()).is_none());
+    });
+}
+
 /// Past max_settlement_deferral there is still no unbounded AMM escape — the
 /// realized band keeps deferring (Greg Shorting 102462 terminal policy a).
 #[test]

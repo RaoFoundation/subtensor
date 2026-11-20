@@ -4149,7 +4149,12 @@ pub mod pallet {
                     } else {
                         // Sell A, then the minimal collateral needed to cover P;
                         // leftover collateral returns as alpha (min_refund is alpha).
+                        // While settlement is deferred, AMM close uses the same
+                        // realized EMA band as protocol-forced settles (parity
+                        // with the short buyback path above).
+                        let realized_guard = BandDeferralSince::<T>::contains_key(&owner, netuid);
                         let mut raised = 0u64;
+                        let mut sold_alpha = 0u64;
                         let skip_flow = Self::skip_long_tao_flow(netuid);
                         if position.escrow_alpha > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
@@ -4162,6 +4167,12 @@ pub mod pallet {
                                 skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
+                            sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
+                            if realized_guard {
+                                Self::ensure_realized_sell_within_slippage(
+                                    netuid, raised, sold_alpha,
+                                )?;
+                            }
                         }
                         let mut coll_left = position.collateral;
                         if raised < position.principal && coll_left > 0 {
@@ -4182,7 +4193,13 @@ pub mod pallet {
                                 skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
+                            sold_alpha = Self::add(sold_alpha, sell)?;
                             coll_left = coll_left.saturating_sub(sell);
+                            if realized_guard {
+                                Self::ensure_realized_sell_within_slippage(
+                                    netuid, raised, sold_alpha,
+                                )?;
+                            }
                         }
                         ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
                         ensure!(
@@ -4542,7 +4559,11 @@ pub mod pallet {
                         );
                         (alpha_out, slice_a)
                     } else {
+                        // Deferred AMM repay: same realized EMA band as close /
+                        // protocol-forced long sells.
+                        let realized_guard = BandDeferralSince::<T>::contains_key(&owner, netuid);
                         let mut raised = 0u64;
+                        let mut sold_alpha = 0u64;
                         let skip_flow = Self::skip_long_tao_flow(netuid);
                         if slice_a > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
@@ -4555,6 +4576,12 @@ pub mod pallet {
                                 skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
+                            sold_alpha = Self::add(sold_alpha, slice_a)?;
+                            if realized_guard {
+                                Self::ensure_realized_sell_within_slippage(
+                                    netuid, raised, sold_alpha,
+                                )?;
+                            }
                         }
                         let mut coll_left = slice_c;
                         if raised < slice_p && coll_left > 0 {
@@ -4573,7 +4600,13 @@ pub mod pallet {
                                 skip_flow,
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
+                            sold_alpha = Self::add(sold_alpha, sell)?;
                             coll_left = coll_left.saturating_sub(sell);
+                            if realized_guard {
+                                Self::ensure_realized_sell_within_slippage(
+                                    netuid, raised, sold_alpha,
+                                )?;
+                            }
                         }
                         ensure!(raised >= slice_p, Error::<T>::InsufficientEscrow);
                         ensure!(slice_p <= max_payment, Error::<T>::SlippageExceeded);
