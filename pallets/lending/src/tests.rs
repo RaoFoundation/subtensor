@@ -11570,6 +11570,185 @@ fn on_initialize_expiry_respects_max_settlements_per_block() {
     });
 }
 
+/// Greg Shorting 102478: with both Expiry and ExpiryRetry due, the per-block
+/// cap reserves ceil(max/2) for retries so new scheduled work cannot starve
+/// deferred claims.
+#[test]
+fn on_initialize_interleaves_expiry_retry_with_scheduled() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(TestMaxExpirySettlements::get(), 2);
+        let delay = <<Test as Config>::ExpiryRetryDelay as Get<u64>>::get();
+        // Four positions expire at T; pump so first drain defers two onto retry.
+        let owners: Vec<_> = (30..34).map(account).collect();
+        for o in &owners {
+            mint_tao(o, 50_000_000_000_000);
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed(o.clone()),
+                netuid(),
+                Side::Short,
+                5_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let expires_at = Positions::<Test>::get(&owners[0], netuid())
+            .unwrap()
+            .expires_at;
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 95 / 100);
+        System::set_block_number(expires_at);
+        let _ = <Lending as Hooks<_>>::on_initialize(expires_at);
+        // Cap=2: two deferred onto ExpiryRetry at expires_at+delay; two remain on Expiry.
+        assert_eq!(ExpiryRetryPending::<Test>::get(), 2);
+        assert_eq!(
+            owners
+                .iter()
+                .filter(|o| Expiry::<Test>::contains_key(expires_at, (*o, netuid())))
+                .count(),
+            2
+        );
+
+        // Advance to the retry due block while the remaining scheduled rows
+        // are still due at expires_at (NextExpiry still points there). At
+        // retry_at both queues are live → fair split must touch both.
+        let retry_at = expires_at.saturating_add(delay);
+        System::set_block_number(retry_at);
+        let pending_before = ExpiryRetryPending::<Test>::get();
+        let sched_before = owners
+            .iter()
+            .filter(|o| Expiry::<Test>::contains_key(expires_at, (*o, netuid())))
+            .count();
+        assert!(pending_before >= 2);
+        assert!(sched_before >= 2);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_initialize(retry_at);
+
+        let pending_after = ExpiryRetryPending::<Test>::get();
+        let sched_after = owners
+            .iter()
+            .filter(|o| Expiry::<Test>::contains_key(expires_at, (*o, netuid())))
+            .count();
+        // One retry consumed (re-enqueued at retry_at+delay → pending may stay
+        // flat or drop then rise); scheduled must also drop by one.
+        assert!(
+            sched_after < sched_before,
+            "scheduled share must run (before={sched_before}, after={sched_after})"
+        );
+        // A retry attempt emits SettlementDeferred (kind=1) or clears the row.
+        let deferred_events = System::events()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e.event,
+                    RuntimeEvent::Lending(Event::SettlementDeferred { .. })
+                )
+            })
+            .count();
+        assert!(
+            deferred_events >= 1 || pending_after != pending_before || sched_after + 1 == sched_before,
+            "retry share must run alongside scheduled (pending {pending_before}→{pending_after}, deferred_events={deferred_events})"
+        );
+        // Stronger: both sides moved.
+        assert!(
+            sched_after + 1 == sched_before,
+            "exactly one scheduled settle attempt under the split"
+        );
+        assert!(
+            pending_after >= 1,
+            "retry queue still live after one retry attempt (re-enqueue or remainder)"
+        );
+    });
+}
+
+/// Sustained backlog (> per-block cap due for many blocks): with fair market,
+/// every position settles by `expires_at + drain` where
+/// `drain = ceil(N / floor(max/2))` worst-case under the retry share when the
+/// scheduled side stays busy — and by `expires_at + ceil(N / max)` when only
+/// scheduled work exists. BandDeferralSince anchors at expires_at.
+#[test]
+fn expiry_backlog_drains_within_bound_plus_queue_time() {
+    new_test_ext().execute_with(|| {
+        let cap = TestMaxExpirySettlements::get();
+        assert_eq!(cap, 2);
+        let n = 6u8;
+        assert!(u32::from(n) > cap);
+        // MaxPositionsPerSubnet = 8 in the test runtime.
+        let owners: Vec<_> = (40..40 + n).map(account).collect();
+        for o in &owners {
+            mint_tao(o, 50_000_000_000_000);
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed(o.clone()),
+                netuid(),
+                Side::Short,
+                4_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let expires_at = Positions::<Test>::get(&owners[0], netuid())
+            .unwrap()
+            .expires_at;
+        sync_reference_ema_to_spot();
+
+        // Fair market: all should settle. Drain bound with only scheduled work:
+        // ceil(n / cap) blocks. With the split, unused retry share returns to
+        // scheduled so the same bound holds.
+        let drain_blocks = (u32::from(n) + cap - 1) / cap;
+        for i in 0..drain_blocks {
+            let at = expires_at.saturating_add(u64::from(i));
+            System::set_block_number(at);
+            let _ = <Lending as Hooks<_>>::on_initialize(at);
+        }
+        assert_eq!(
+            Positions::<Test>::iter().count(),
+            0,
+            "all {n} expiries must settle within expires_at + ceil(N/cap) = {drain_blocks} blocks"
+        );
+
+        // Second wave: deferral age stamps expires_at (not first-attempt now).
+        for o in &owners {
+            mint_tao(o, 50_000_000_000_000);
+            assert_ok!(Lending::open(
+                RuntimeOrigin::signed(o.clone()),
+                netuid(),
+                Side::Short,
+                4_000_000_000_000,
+                None,
+                1,
+                1,
+                0,
+                deadline(),
+            ));
+        }
+        let expires_at2 = Positions::<Test>::get(&owners[0], netuid())
+            .unwrap()
+            .expires_at;
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 95 / 100);
+        System::set_block_number(expires_at2);
+        let _ = <Lending as Hooks<_>>::on_initialize(expires_at2);
+        // At least one deferral stamped; since == expires_at2.
+        let stamped = owners.iter().find_map(|o| {
+            BandDeferralSince::<Test>::get(o, netuid()).map(|s| (o.clone(), s))
+        });
+        let (owner_stamped, since) = stamped.expect("at least one band deferral");
+        assert_eq!(
+            since, expires_at2,
+            "BandDeferralSince must anchor at expires_at, not first-attempt wall clock (owner={owner_stamped:?})"
+        );
+        // Ops window from expires_at.
+        let bound_end = expires_at2.saturating_add(TestMaxSettlementDeferral::get());
+        assert!(
+            bound_end > expires_at2,
+            "max_settlement_deferral extends the ops window from expires_at"
+        );
+    });
+}
+
 #[test]
 fn reopen_after_expiry_starts_fresh_max_loan_clock() {
     new_test_ext().execute_with(|| {

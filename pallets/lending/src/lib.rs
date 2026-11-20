@@ -476,7 +476,7 @@ pub enum Side {
 }
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("765f405cfadfe5ad")]
+#[freeze_struct("dad07fb438136915")]
 #[derive(
     Encode,
     Decode,
@@ -538,12 +538,17 @@ pub struct LiftParams {
     /// (default 216_000 ≈ 30 days). Changing this never rewrites live
     /// `expires_at`. Bounds: [`MIN_MAX_LOAN_DURATION`]..=[`MAX_MAX_LOAN_DURATION`].
     pub max_loan_duration: u64,
-    /// Observability / ops window for how long a position may remain
-    /// band-deferred (default 50_400 ≈ 7 days), counted from
-    /// [`BandDeferralSince`]. Does **not** unlock an unbounded AMM settle —
-    /// realized [`LiftParams::expiry_max_slippage_bps`] still applies forever
-    /// while deferred; increases / rolls stay frozen until execution is inside
-    /// the band or the owner closes.
+    /// Ops window for settlement age (default 50_400 ≈ 7 days), measured from
+    /// the position's `expires_at` (stamped into [`BandDeferralSince`] on the
+    /// first band deferral — not from the first attempt block). Does **not**
+    /// unlock an unbounded AMM settle — realized
+    /// [`LiftParams::expiry_max_slippage_bps`] still applies forever while
+    /// deferred; increases / rolls stay frozen until execution is inside the
+    /// band or the owner closes. With the per-block expiry/retry budget split,
+    /// a deferred claim is attempted at least once by
+    /// `expires_at + max_settlement_deferral + drain`, where drain is the
+    /// worst-case queue catch-up under the retry share of
+    /// [`LiftParams::max_expiry_settlements_per_block`].
     pub max_settlement_deferral: u64,
     /// Age window under which a short at dissolution settles at `max(r, P_open)`
     /// (default 25_200 ≈ 3.5 days).
@@ -1255,10 +1260,11 @@ pub mod pallet {
         (u8, BlockNumberFor<T>, BoundedVec<u8, ConstU32<64>>),
         OptionQuery,
     >;
-    /// Block of the first §5.4-band / realized-slippage deferral for a
-    /// permissionless settle. Cleared with the position. While set: increases
-    /// and rolls are refused ([`Error::SettlementFrozen`]); there is no
-    /// unbounded AMM force after [`LiftParams::max_settlement_deferral`].
+    /// Age anchor for a band / realized-slippage deferral: the position's
+    /// `expires_at` (not the first-attempt wall-clock). Cleared with the
+    /// position. While set: increases and rolls are refused
+    /// ([`Error::SettlementFrozen`]); there is no unbounded AMM force after
+    /// [`LiftParams::max_settlement_deferral`].
     #[pallet::storage]
     pub type BandDeferralSince<T: Config> = StorageDoubleMap<
         _,
@@ -1677,9 +1683,19 @@ pub mod pallet {
                 .saturating_add(Self::expiry_empty_bucket_weight())
                 .saturating_add(T::DbWeight::get().reads_writes(8, 8));
             let mut meter = WeightMeter::with_limit(settle_budget);
-            let mut budget = max;
-            budget = Self::collect_expiry(now, &mut meter, budget);
-            let _ = Self::collect_expiry_retries(now, &mut meter, budget);
+            // Fair split so a sustained stream of new Expiry rows cannot starve
+            // ExpiryRetry past the advertised deferral window (Greg Shorting
+            // 102478). ceil(max/2) reserved for retries; leftover from either
+            // pass fills the other so an idle side does not waste budget.
+            let retry_share = max.saturating_add(1) / 2;
+            let sched_share = max.saturating_sub(retry_share);
+            let after_sched = Self::collect_expiry(now, &mut meter, sched_share);
+            let after_retry = Self::collect_expiry_retries(
+                now,
+                &mut meter,
+                retry_share.saturating_add(after_sched),
+            );
+            let _ = Self::collect_expiry(now, &mut meter, after_retry);
             let n = u64::from(ActiveNetCount::<T>::get()).clamp(1, MAX_ACTIVE_NET_UPDATES);
             meter
                 .consumed()
@@ -2335,11 +2351,13 @@ pub mod pallet {
         }
 
         /// Stamp [`BandDeferralSince`] on the first band deferral (outside the
-        /// rolled-back settle transaction).
+        /// rolled-back settle transaction). `since` is the age anchor: for
+        /// expiry settles pass `position.expires_at`; for interest-exhaustion
+        /// forfeit pass wall-clock `now`.
         fn note_band_deferral(
             owner: &T::AccountId,
             netuid: NetUid,
-            now: BlockNumberFor<T>,
+            since: BlockNumberFor<T>,
             error: DispatchError,
         ) {
             let is_band = match error {
@@ -2356,7 +2374,7 @@ pub mod pallet {
                 _ => false,
             };
             if is_band && !BandDeferralSince::<T>::contains_key(owner, netuid) {
-                BandDeferralSince::<T>::insert(owner, netuid, now);
+                BandDeferralSince::<T>::insert(owner, netuid, since);
             }
         }
 
@@ -6276,7 +6294,11 @@ pub mod pallet {
                             let _ = Self::take_expiry_retry(at, owner, netuid);
                         }
                     }
-                    Self::note_band_deferral(owner, netuid, now, error);
+                    // Age from expires_at (not first-attempt wall clock).
+                    let since = Positions::<T>::get(owner, netuid)
+                        .map(|p| p.expires_at)
+                        .unwrap_or(now);
+                    Self::note_band_deferral(owner, netuid, since, error);
                     if let Some(mut position) = Positions::<T>::get(owner, netuid) {
                         let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
                         Self::enqueue_expiry_retry(owner, netuid, retry_at);
