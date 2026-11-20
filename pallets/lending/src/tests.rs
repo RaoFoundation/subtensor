@@ -4983,6 +4983,86 @@ fn fixed_term_expiry_is_bounded_by_weight() {
     });
 }
 
+/// Skeptic fid:eb66f29d — after draining bucket A, a failed trailing peek must
+/// not resurrect A over the advanced `NextExpiry` head (bucket B).
+#[test]
+fn expiry_weight_stop_preserves_advanced_next_expiry_head() {
+    new_test_ext().execute_with(|| {
+        let owner_a = account(10);
+        let owner_b = account(11);
+        mint_tao(&owner_a, 50_000_000_000_000);
+        mint_tao(&owner_b, 50_000_000_000_000);
+
+        // Two opens at different blocks → two expiry buckets.
+        System::set_block_number(1);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let exp_a = Positions::<Test>::get(&owner_a, netuid())
+            .expect("A opened")
+            .expires_at;
+
+        System::set_block_number(2);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_b.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let exp_b = Positions::<Test>::get(&owner_b, netuid())
+            .expect("B opened")
+            .expires_at;
+        assert!(exp_b > exp_a, "distinct expiry buckets required");
+        assert_eq!(NextExpiry::<Test>::get(), Some(exp_a));
+
+        // Both due. Meter: one full settle of A's sole row, then no trailing peek.
+        System::set_block_number(exp_b);
+        let budget = Lending::expiry_collect_header_weight()
+            .saturating_add(Lending::expiry_bucket_open_weight())
+            .saturating_add(Lending::expiry_queue_peek_weight())
+            .saturating_add(<() as WeightInfo>::settle());
+        let mut meter = WeightMeter::with_limit(budget);
+        Lending::collect_expiry(exp_b, &mut meter, u32::MAX);
+
+        assert!(
+            Positions::<Test>::get(&owner_a, netuid()).is_none(),
+            "first bucket must settle"
+        );
+        assert!(
+            Positions::<Test>::get(&owner_b, netuid()).is_some(),
+            "second bucket must remain"
+        );
+        assert_eq!(
+            NextExpiry::<Test>::get(),
+            Some(exp_b),
+            "must keep advanced head, not resurrect drained bucket A"
+        );
+        assert!(
+            ExpiryBucketCursor::<Test>::get().is_none(),
+            "cursor must not point into the drained bucket"
+        );
+
+        // Full weight reaches B through the preserved head.
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(exp_b, &mut meter, u32::MAX);
+        assert!(Positions::<Test>::get(&owner_b, netuid()).is_none());
+        assert!(NextExpiry::<Test>::get().is_none());
+    });
+}
+
 #[test]
 fn dissolution_before_expiry_wins() {
     new_test_ext().execute_with(|| {

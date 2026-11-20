@@ -5690,6 +5690,24 @@ pub mod pallet {
             ExpiryBucketCursor::<T>::kill();
         }
 
+        /// Persist resume state after a mid-bucket stop in [`Self::collect_expiry`].
+        ///
+        /// Settling the last row of bucket `at` unlinks it and advances
+        /// [`NextExpiry`] (via [`Self::note_expiry_removed`]). If the meter then
+        /// fails the trailing peek, a naive `NextExpiry::put(at)` would resurrect
+        /// the detached bucket, drop the successor, and strand later expiries
+        /// (skeptic fid:eb66f29d). When the live head is no longer `at`, keep it.
+        fn resume_expiry_collect(at: BlockNumberFor<T>, last_done: Option<(T::AccountId, NetUid)>) {
+            if NextExpiry::<T>::get() != Some(at) {
+                // Unlinked / advanced (or cleared). Cursor already killed by
+                // `set_next_expiry_head`.
+                return;
+            }
+            if let Some(done) = last_done {
+                ExpiryBucketCursor::<T>::put(done);
+            }
+        }
+
         fn unlink_expiry_bucket(at: BlockNumberFor<T>) {
             let prev = ExpiryPrev::<T>::take(at);
             let next = ExpiryNext::<T>::take(at);
@@ -6012,10 +6030,8 @@ pub mod pallet {
                 // before the storage read; settle() before processing the row.
                 loop {
                     if meter.try_consume(Self::expiry_queue_peek_weight()).is_err() {
-                        if let Some(done) = last_done {
-                            ExpiryBucketCursor::<T>::put(done);
-                        }
-                        NextExpiry::<T>::put(at);
+                        // Do not resurrect a drained bucket (skeptic fid:eb66f29d).
+                        Self::resume_expiry_collect(at, last_done);
                         return budget;
                     }
                     let Some(((owner, netuid), ())) = iter.next() else {
@@ -6023,20 +6039,15 @@ pub mod pallet {
                     };
                     saw_entry = true;
                     if budget == 0 {
-                        if let Some(done) = last_done {
-                            ExpiryBucketCursor::<T>::put(done);
-                        }
-                        NextExpiry::<T>::put(at);
+                        Self::resume_expiry_collect(at, last_done);
                         return 0;
                     }
                     if meter.try_consume(T::WeightInfo::settle()).is_err() {
                         // Row was fetched under peek weight; resume from
                         // last_done so this key is retried (iter_prefix_from
-                        // is exclusive of the cursor).
-                        if let Some(done) = last_done {
-                            ExpiryBucketCursor::<T>::put(done);
-                        }
-                        NextExpiry::<T>::put(at);
+                        // is exclusive of the cursor) — unless the prior
+                        // settlement already advanced the head.
+                        Self::resume_expiry_collect(at, last_done);
                         return budget;
                     }
                     budget = budget.saturating_sub(1);
