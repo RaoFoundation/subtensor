@@ -3,15 +3,18 @@ name: Publish stable Python
 # Stable bittensor and bittensor-core with no runtime upgrade.
 # This file does not publish release candidates or TestPyPI packages.
 #
-# watch-mainnet-release.yml still publishes the same packages when a runtime
-# finalizes. That upload stays on the PyPI trusted publisher already registered
-# for watch-mainnet-release.yml and the mainnet environment. This workflow is
-# a second OIDC publisher. It cannot upload until PyPI has a trusted-publisher
-# row for publish-python-stable.yml on the mainnet environment.
+# When a runtime upgrade executes, release-train.yml publishes the same
+# packages from the job approved together with propose-mainnet, and a
+# dispatch of watch-mainnet-release.yml retries that upload. Each workflow
+# file is its own OIDC publisher: this one cannot upload until PyPI has a
+# trusted-publisher row for publish-python-stable.yml on the mainnet
+# environment.
 #
-# The two publish jobs share the concurrency group stable-python-pypi.
-# Before uploading, each one runs check-python-release.py, which accepts an
-# attestation from either workflow file. A complete release skips the upload.
+# This publish job and the watcher's retry share the concurrency group
+# stable-python-pypi. The release train's job does not take it, because it
+# would hold it while waiting for the upgrade to execute. Before uploading,
+# every path runs check-python-release.py, which accepts an attestation from
+# any of the three workflow files, and a complete release skips the upload.
 # uv publish --check-url also skips files that are already on the index.
 #
 # The tooling and package source are pinned to the main commit that started

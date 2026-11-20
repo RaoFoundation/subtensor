@@ -14,20 +14,24 @@ name: Watch Mainnet Release
 #   2. The release train's pre-release v<spec_version> becomes the final,
 #      latest GitHub release, with the verified srtool wasm, digest, and
 #      multisig call data attached.
-#   3. Stable Python SDK + bittensor-core wheels are published to PyPI.
-#   4. The production website/docs are deployed to Vercel.
-# Steps 3 and 4 still wait for a `mainnet` environment approval because the
-# PyPI trusted publisher and the production Vercel token are bound to that
-# environment. They are requested once, by the run that finalizes the
-# release, and never block steps 1 and 2. PyPI is the terminal state for
-# Python publication; a manual dispatch retries an incomplete upload.
+# Stable PyPI and the production docs are published by the release train
+# itself, in jobs approved together with propose-mainnet that wait for this
+# same on-chain execution (release-train.yml). Scheduled runs here never ask
+# for a `mainnet` approval. A manual dispatch is the retry path:
+#   3. Stable Python SDK + bittensor-core wheels are published to PyPI when
+#      PyPI is still incomplete for the release commit.
+#   4. The production website/docs are deployed to Vercel when the dispatch
+#      itself finalizes the release; otherwise use deploy-docs.yml.
+# Both wait for a `mainnet` environment approval because the PyPI trusted
+# publisher and the production Vercel token are bound to that environment.
+# PyPI is the terminal state for Python publication.
 #
 # Discord posts use mainnet-release (DISCORD_WEBHOOK_URL). One post runs
-# after this workflow finalizes the GitHub release. Another runs after the
-# stable PyPI publish. ANNOUNCE_OPENAI_API_KEY on that environment may
-# rewrite only the prose section from the committed summary. A rejected or
-# failed rewrite posts the human summary. A failed post does not move the
-# mainnet mirror back.
+# after this workflow finalizes the GitHub release. Another runs after a
+# dispatched stable PyPI publish; the release train posts its own.
+# ANNOUNCE_OPENAI_API_KEY on that environment may rewrite only the prose
+# section from the committed summary. A rejected or failed rewrite posts the
+# human summary. A failed post does not move the mainnet mirror back.
 # Merging this file does not announce a release that is already final.
 # workflow_dispatch input retry_announce posts only when that box is checked
 # and the commit status for that event is not already success.
@@ -375,10 +379,15 @@ jobs:
   # The notes file is read from the tagged commit. The checker itself is
   # the one on this workflow's checkout, so a release older than the checker
   # still runs. Grandfathered versions pass without a file.
+  # Stable Python is a dispatch-only retry here; the release train publishes
+  # it under the mainnet approval it already holds.
   check-python-notes:
     name: Check Python release notes
     needs: check
-    if: inputs.announce_dry_run != true && needs.check.outputs.python_needed == 'true'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.announce_dry_run != true &&
+      needs.check.outputs.python_needed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -403,9 +412,11 @@ jobs:
 
   # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
   # sdist) at the released commit; the SDK's committed .dev0 is stamped stable.
-  # Only the run that finalized the release requests stable Python
-  # publication, so an unanswered approval never stacks up across polls. A
-  # manual dispatch retries an incomplete PyPI publication.
+  # Scheduled runs never request stable Python publication: the release train
+  # publishes it from the job approved together with propose-mainnet, so no
+  # second approval is ever queued here. A manual dispatch retries an
+  # incomplete PyPI publication (a train that gave up waiting, a runtime
+  # deployed outside the train, or a failed upload).
   build-core:
     name: Build bittensor-core wheels
     needs: [check, release, check-python-notes]
@@ -416,14 +427,14 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
       inputs.announce_dry_run != true &&
       needs.check-python-notes.result == 'success' &&
       needs.check.outputs.python_needed == 'true' &&
       (
         (needs.release.result == 'success' &&
          needs.release.outputs.finalized == 'true') ||
-        (github.event_name == 'workflow_dispatch' &&
-         needs.check.outputs.release_needed == 'false' &&
+        (needs.check.outputs.release_needed == 'false' &&
          needs.release.result == 'skipped')
       )
     uses: ./.github/workflows/build-core-wheels.yml
@@ -561,10 +572,13 @@ jobs:
           echo "PyPI did not expose the complete attested release within two minutes."
           exit 1
 
+  # The release train deploys production docs once its upgrade executes, so
+  # scheduled runs leave this alone. A dispatch that itself finalizes a
+  # release (for example one the train stopped waiting for) still deploys.
   promote-website:
     name: Deploy production website and docs
     needs: [check, release]
-    if: needs.release.outputs.finalized == 'true'
+    if: github.event_name == 'workflow_dispatch' && needs.release.outputs.finalized == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     # The production Vercel credentials live in the mainnet environment.
     # deploy-docs.yml can redeploy production manually if this is missed.

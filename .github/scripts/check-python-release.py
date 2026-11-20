@@ -17,11 +17,15 @@ from urllib.request import Request, urlopen
 
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-# Stable publishes are attested by one of these workflow files. The watcher
-# keeps its existing publisher. publish-python-stable.yml is the extra path
-# for a release with no runtime upgrade. Rc and TestPyPI workflows are absent
-# on purpose.
+# Stable publishes are attested by one of these workflow files, always on the
+# mainnet environment. release-train.yml publishes a runtime's stable packages
+# once mainnet runs that runtime, under the approval that proposed it; its rc
+# uploads use the testnet environment and never count here. The watcher keeps
+# its publisher for manual retries. publish-python-stable.yml is the extra path
+# for a release with no runtime upgrade. TestPyPI workflows are absent on
+# purpose.
 PUBLISHER_WORKFLOWS = (
+    "release-train.yml",
     "watch-mainnet-release.yml",
     "publish-python-stable.yml",
 )
