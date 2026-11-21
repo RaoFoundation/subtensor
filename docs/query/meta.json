@@ -90,6 +90,7 @@
     "lending-open-quote",
     "lending-position",
     "lending-positions",
+    "lending-positions-for-coldkey",
     "lending-raise-quote",
     "lending-repay-quote",
     "lending-required-collateral",

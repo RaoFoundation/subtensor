@@ -299,8 +299,9 @@ def _position_record(
     # Fixed max_loan_duration term end (~30 days); absent only on pre-term layouts.
     expires_at = int(raw["expires_at"]) if raw.get("expires_at") is not None else None
     expiry_due = int(raw["expiry_due"]) if raw.get("expiry_due") is not None else expires_at
-    # Match runtime: stop display accrual at expires_at during band deferral.
-    accrual_until = now if expires_at is None else min(now, expires_at)
+    # Match runtime: interest keeps accruing past expires_at while the loan is
+    # still open (including band-deferred freezes), bounded by collateral.
+    accrual_until = now
     accrued_blocks = max(accrual_until - int(raw["last_accrued"]), 0)
     interest_due = (
         annual * accrued_blocks + int(raw.get("interest_remainder") or 0)
@@ -537,11 +538,13 @@ async def lending_position(view, coldkey_ss58: str, netuid: int) -> Optional[dic
     (E_S) from the forced alpha sale at open; it is zero for longs.
     ``escrow_alpha`` is the long's escrowed alpha (A); zero for shorts.
     ``expires_at`` is the fixed max_loan_duration term end (~30 days; increases
-    do not extend it). ``runway_days`` is capped at days remaining until
-    ``expires_at``. Interest
-    and runway are estimates at the selected block. ``underwater`` /
-    ``insolvent`` are true when interest is exhausted or the escrow close
-    quote reports a positive ``shortfall`` (AMM cannot cover principal).
+    do not extend it). Interest keeps accruing past ``expires_at`` while the
+    position is still open (including band-deferred freezes), bounded by
+    collateral. ``runway_days`` before expiry is capped at days remaining until
+    ``expires_at``. Interest and runway are estimates at the selected block.
+    ``underwater`` / ``insolvent`` are true when interest is exhausted or the
+    escrow close quote reports a positive ``shortfall`` (AMM cannot cover
+    principal).
     """
     view = await view.at()
     record = await _load_position_storage(view, coldkey_ss58, netuid)
@@ -573,6 +576,36 @@ async def lending_positions(view, netuid: int) -> list[dict]:
             record = await _annotate_deferral(view, record)
             records.append(await _annotate_close_solvency(view, record))
     return sorted(records, key=lambda record: record["coldkey"])
+
+
+@read(
+    "lending_positions_for_coldkey",
+    {"coldkey_ss58": "string"},
+    category="Prices & swaps",
+    param_docs={"coldkey_ss58": "Owner whose open loans to list across every subnet."},
+)
+async def lending_positions_for_coldkey(view, coldkey_ss58: str) -> list[dict]:
+    """All open loans for one coldkey across every subnet, pinned to one block."""
+    view = await view.at()
+    rows = await view.query_map(POSITIONS, [coldkey_ss58])
+    if not rows:
+        return []
+    # Cache per-netuid interest clocks so multi-subnet wallets stay cheap.
+    clocks: dict[int, tuple[int, int]] = {}
+    records = []
+    for key, raw in rows:
+        netuid_raw = key[0] if isinstance(key, (list, tuple)) else key
+        try:
+            netuid = int(netuid_raw)
+        except (TypeError, ValueError):
+            continue
+        if netuid not in clocks:
+            clocks[netuid] = await _interest_clock(view, netuid)
+        record = _position_record(view, coldkey_ss58, netuid, raw, clocks[netuid])
+        if record is not None:
+            record = await _annotate_deferral(view, record)
+            records.append(await _annotate_close_solvency(view, record))
+    return sorted(records, key=lambda record: (record["netuid"], record["coldkey"]))
 
 
 @read(

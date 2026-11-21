@@ -178,8 +178,11 @@ def test_list_defaults_coldkey_unless_all():
     assert 'resolve_address("coldkey_ss58"' in source or "resolve_address('coldkey_ss58'" in source
     assert "list_all" in source
     assert "lending_positions" in source  # --all path
+    assert "lending_positions_for_coldkey" in source  # no --netuid wallet path
+    assert "Optional[int]" in source or "netuid: Optional" in source
     doc = lending_cli.list_positions.__doc__ or ""
     assert "wallet" in doc.lower() or "coldkey" in doc.lower()
+    assert "--all requires --netuid" in source
 
 
 def test_slippage_still_rejects_zero():
@@ -223,8 +226,8 @@ def test_proceeds_docstring_no_longer_claims_zero_for_new_shorts():
     assert "escrowed TAO" in doc or "E_S" in doc
 
 
-def test_interest_due_stops_at_expires_at():
-    """Display accrual matches runtime: no interest past expires_at."""
+def test_interest_due_accrues_past_expires_at():
+    """Display accrual matches runtime: interest continues past expires_at while open."""
 
     class _View:
         block = 5_000
@@ -248,11 +251,11 @@ def test_interest_due_stops_at_expires_at():
         "terms_version": 1,
         "blocks_per_year": 365,
     }
-    # now=5000, but accrual window is only expires_at-last_accrued=100.
+    # now=5000: accrual window is now-last_accrued=4000 (past expires_at).
     record = lending_reads._position_record(_View(), "5Owner", 1, raw, (5_000, 365))
     assert record is not None
-    assert record["interest_due"].rao == 365_000 * 100 // 365
-    raw_fully_accrued = {**raw, "last_accrued": 1_100}
+    assert record["interest_due"].rao == 365_000 * 4_000 // 365
+    raw_fully_accrued = {**raw, "last_accrued": 5_000}
     zero = lending_reads._position_record(_View(), "5Owner", 1, raw_fully_accrued, (5_000, 365))
     assert zero is not None
     assert zero["interest_due"].rao == 0

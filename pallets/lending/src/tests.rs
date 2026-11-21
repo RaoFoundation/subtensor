@@ -5739,7 +5739,9 @@ fn long_expiry_sells_collateral_through_amm_not_at_ema() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         let hotkey = account(2);
-        // Small pool so a large C dump is impactful vs EMA flat pricing.
+        let custody = Lending::custody_hotkey().unwrap();
+        // Small pool so a full leftover-C dump would be impactful vs EMA flat
+        // pricing — expiry must not sell that leftover (clone retest F1).
         set_pool(1_000_000_000_000, 1_000_000_000_000); // 1k τ / 1k α
         let spot = MockPool::price();
         References::<Test>::insert(
@@ -5771,7 +5773,7 @@ fn long_expiry_sells_collateral_through_amm_not_at_ema() {
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
         let c = pos.collateral;
         let r = References::<Test>::get(netuid()).unwrap().price;
-        let c_ema = (U64F64::from_num(c) * r).saturating_to_num::<u64>();
+        let c_ema = (U64F64::from_num(c) * r).to_num::<u64>();
         let c_amm = MockPool::quote_sell(netuid(), c.into()).unwrap().to_u64();
         assert!(
             c_amm < c_ema,
@@ -5780,18 +5782,23 @@ fn long_expiry_sells_collateral_through_amm_not_at_ema() {
             c_ema
         );
         let tao_before = tao(&owner);
+        let alpha_before = alpha(&owner, &custody, netuid());
         System::reset_events();
-        // Large C dump moves spot past expiry_max_slippage_bps; force after
-        // max deferral (same residual path as a 7-day pump through settle).
-        settle_expiry_allowing_max_deferral(&owner, pos.expires_at);
+        sync_reference_ema_to_spot();
+        System::set_block_number(pos.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(pos.expires_at, &mut meter, u32::MAX);
         assert!(!Positions::<Test>::contains_key(&owner, netuid()));
         let gained = tao(&owner).saturating_sub(tao_before);
-        // Everything above P comes from selling A and C through the pool.
+        let refunded_alpha = alpha(&owner, &custody, netuid()).saturating_sub(alpha_before);
         assert!(
-            gained <= c_amm.saturating_add(1_000_000_000),
-            "expiry refund {} must not exceed AMM-capped collateral (~{})",
-            gained,
-            c_amm
+            refunded_alpha > 0,
+            "leftover C must return as staked alpha, not an AMM dump"
+        );
+        // TAO refund is AMM surplus from the pool-whole sells only (A + min C).
+        assert!(
+            gained < c_amm,
+            "must not force-sell full leftover C to TAO (gained {gained} vs full-C quote {c_amm})"
         );
         assert!(
             gained < c_ema.saturating_sub(pos.principal),
@@ -6153,8 +6160,9 @@ fn short_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
 }
 
 /// Open a long, move the price, reach `expires_at`, then exit via expiry or a
-/// same-block default `close` followed by selling the refunded collateral alpha
-/// at spot (the one intentional difference: expiry has no hotkey to stake to).
+/// same-block default `close`. Both paths return leftover collateral as staked
+/// alpha (expiry stakes onto the custody hotkey; close uses the call hotkey);
+/// sell that refund at spot afterward so the money-path compare is TAO-equal.
 fn long_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
     let mut shortfalls = (0, 0);
     let mut outcome = None;
@@ -6162,6 +6170,7 @@ fn long_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
         clear_burned_surplus();
         let owner = account(1);
         let hotkey = account(2);
+        let custody = Lending::custody_hotkey().unwrap();
         mint_alpha(&owner, &hotkey, netuid(), 50_000_000_000_000);
         assert_ok!(Lending::open(
             RuntimeOrigin::signed(owner.clone()),
@@ -6181,13 +6190,26 @@ fn long_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
         clear_burned_surplus();
         System::set_block_number(position.expires_at);
         System::reset_events();
-        let alpha_before = alpha(&owner, &hotkey, netuid());
+        let alpha_before_hk = alpha(&owner, &hotkey, netuid());
+        let alpha_before_cust = alpha(&owner, &custody, netuid());
         match path {
             ExitPath::Expiry => {
                 let mut meter = WeightMeter::with_limit(Weight::MAX);
                 Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
                 let (_, _, _, sa, st) = expired_event(&owner);
                 shortfalls = (sa, st);
+                // Expiry refunds leftover C onto the custody hotkey.
+                let refunded = alpha(&owner, &custody, netuid()).saturating_sub(alpha_before_cust);
+                if refunded > 0 {
+                    assert_ok!(MockPool::sell_alpha(
+                        &owner,
+                        &custody,
+                        netuid(),
+                        refunded.into(),
+                        0u64.into(),
+                        false,
+                    ));
+                }
             }
             ExitPath::Close => {
                 assert_ok!(Lending::close(
@@ -6199,7 +6221,7 @@ fn long_exit(mv: PriceMove, path: ExitPath) -> (ExitOutcome, (u64, u64)) {
                     0,
                     deadline(),
                 ));
-                let refunded = alpha(&owner, &hotkey, netuid()).saturating_sub(alpha_before);
+                let refunded = alpha(&owner, &hotkey, netuid()).saturating_sub(alpha_before_hk);
                 if refunded > 0 {
                     assert_ok!(MockPool::sell_alpha(
                         &owner,
@@ -6838,10 +6860,11 @@ fn short_interest_valued_at_min_reference_and_spot() {
     });
 }
 
-/// Auditor fid:28de0a3f — close/repay quotes share the expires_at accrual cap
-/// with `charge_interest`, including when `last_accrued == expires_at`.
+/// Clone retest F2 / auditor fid:28de0a3f — close/repay quotes share post-expiry
+/// accrual with `charge_interest` while the position remains open (including
+/// when `last_accrued == expires_at` and the query is past the term).
 #[test]
-fn quote_close_and_repay_cap_interest_at_expires_at() {
+fn quote_close_and_repay_accrue_interest_past_expires_at() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 50_000_000_000_000);
@@ -6861,8 +6884,10 @@ fn quote_close_and_repay_cap_interest_at_expires_at() {
         let window: u64 = 100;
         let year = <<Test as Config>::BlocksPerYear as Get<u64>>::get();
         let past = snap.expires_at.saturating_add(5_000);
+        let post_expiry = past.saturating_sub(snap.expires_at);
 
-        // Already accrued through expiry: quotes must not invent more interest.
+        // Accrued through expiry, then queried later: quotes charge the
+        // post-expiry window (final_charge may round a remainder up).
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
                 p.last_accrued = snap.expires_at;
@@ -6873,28 +6898,33 @@ fn quote_close_and_repay_cap_interest_at_expires_at() {
         });
         System::set_block_number(past);
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let post_floor =
+            ((u128::from(annual) * u128::from(post_expiry) / u128::from(year)) as u64).saturating_add(1);
         let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
         assert_eq!(quoted.payment, pos.principal);
-        assert_eq!(
-            quoted.refund,
-            pos.collateral.saturating_add(pos.proceeds),
-            "zero post-expiry interest: refund must keep full coupon + escrow"
+        let interest_paid = pos
+            .collateral
+            .saturating_add(pos.proceeds)
+            .saturating_sub(quoted.refund);
+        assert!(
+            interest_paid == post_floor.saturating_sub(1) || interest_paid == post_floor,
+            "quote must accrue past expires_at (paid={interest_paid}, expected≈{post_floor})"
         );
         let half = pos.principal / 2;
         let partial = Lending::quote_repay(&owner, netuid(), None, half, true).unwrap();
+        assert_eq!(partial.payment, half);
+        let remaining = pos.collateral.saturating_sub(interest_paid);
         let slice_c =
-            (u128::from(pos.collateral) * u128::from(half) / u128::from(pos.principal)) as u64;
+            (u128::from(remaining) * u128::from(half) / u128::from(pos.principal)) as u64;
         let slice_e =
             (u128::from(pos.proceeds) * u128::from(half) / u128::from(pos.principal)) as u64;
-        assert_eq!(partial.payment, half);
         assert_eq!(
             partial.refund,
             slice_c.saturating_add(slice_e),
-            "partial repay quote must also omit post-expiry interest"
+            "partial repay quote must share post-expiry interest"
         );
 
-        // Accrual window ending at expires_at, queried well after: interest is
-        // the pre-expiry coupon only (final_charge rounds a leftover remainder up).
+        // Window that spans expires_at into the past block.
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
                 p.last_accrued = snap.expires_at.saturating_sub(window);
@@ -6904,35 +6934,34 @@ fn quote_close_and_repay_cap_interest_at_expires_at() {
             }
         });
         let pos = Positions::<Test>::get(&owner, netuid()).unwrap();
-        let expected_floor =
+        let full_elapsed = past.saturating_sub(snap.expires_at.saturating_sub(window));
+        assert!(full_elapsed > window);
+        let full_floor =
+            ((u128::from(annual) * u128::from(full_elapsed) / u128::from(year)) as u64).saturating_add(1);
+        let capped_floor =
             ((u128::from(annual) * u128::from(window) / u128::from(year)) as u64).saturating_add(1);
-        let unclamped_elapsed = past.saturating_sub(snap.expires_at.saturating_sub(window));
-        assert!(unclamped_elapsed > window);
         let quoted = Lending::quote_close(&owner, netuid(), None, true).unwrap();
-        // Interest charged ∈ [floor(annual·window/year), floor+1] depending on
-        // remainder rounding; refund must match a capped pre-expiry charge.
         let interest_paid = pos
             .collateral
             .saturating_add(pos.proceeds)
             .saturating_sub(quoted.refund);
         assert!(
-            interest_paid == expected_floor.saturating_sub(1)
-                || interest_paid == expected_floor,
-            "quote interest must stop at expires_at (paid={interest_paid}, expected≈{expected_floor})"
+            interest_paid == full_floor.saturating_sub(1) || interest_paid == full_floor,
+            "quote interest must cover the full open window (paid={interest_paid}, expected≈{full_floor})"
         );
-        let unclamped =
-            ((u128::from(annual) * u128::from(unclamped_elapsed) / u128::from(year)) + 1) as u64;
-        let unclamped_remaining = pos.collateral.saturating_sub(unclamped.min(pos.collateral));
         assert!(
-            quoted.refund > unclamped_remaining.saturating_add(pos.proceeds),
-            "unclamped accrual would understate the refund"
+            interest_paid > capped_floor,
+            "must exceed the old expires_at-only coupon (paid={interest_paid} ≤ capped≈{capped_floor})"
         );
     });
 }
 
-/// Forced settle after a band deferral must not charge interest past `expires_at`.
+/// Forced settle after a band deferral must keep charging interest past
+/// `expires_at` (bounded by collateral) so a freeze is never a free option.
+/// Explicit authorization (clone retest F2): replace the prior stops-at-expires
+/// expectation with post-expiry deferred accrual.
 #[test]
-fn band_deferral_stops_interest_accrual_at_expires_at() {
+fn band_deferral_accrues_interest_past_expires_at() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 50_000_000_000_000);
@@ -6988,12 +7017,13 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
         ExpiryRetryPending::<Test>::put(1);
         NextExpiryRetry::<Test>::put(force_at);
 
-        // Solvent coupon with a known accrual window ending at expires_at.
-        // Extra escrow keeps the force path on Expired (not forfeit).
+        // Solvent coupon spanning pre-expiry + deferral. Extra escrow keeps the
+        // force path on Expired (not forfeit).
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
-                p.proceeds = p.proceeds.saturating_add(p.principal.saturating_mul(2));
-                p.collateral = p.collateral.max(annual);
+                p.proceeds = p.proceeds.saturating_add(p.principal.saturating_mul(4));
+                // Cover the full post-expiry coupon without starving the buyback pot.
+                p.collateral = p.collateral.max(annual.saturating_mul(2));
                 p.last_accrued = snap.expires_at.saturating_sub(accrued_window);
                 p.annual_interest = annual;
                 p.interest_remainder = 0;
@@ -7007,11 +7037,12 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
         );
         sync_reference_ema_to_spot();
 
-        let expected_paid =
+        let capped_at_expires =
             (u128::from(annual) * u128::from(accrued_window) / u128::from(year) + 1) as u64;
-        let unclamped = (u128::from(annual)
+        let full_window = (u128::from(annual)
             * u128::from(force_at.saturating_sub(snap.expires_at.saturating_sub(accrued_window)))
-            / u128::from(year)) as u64;
+            / u128::from(year)
+            + 1) as u64;
         System::set_block_number(force_at);
         System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
@@ -7025,16 +7056,101 @@ fn band_deferral_stops_interest_accrual_at_expires_at() {
             })
             .sum();
         assert!(
-            burned > 0,
-            "forced settle must charge the pre-expiry coupon"
+            burned > capped_at_expires,
+            "must accrue past expires_at while deferred: burned {burned} ≤ capped ~{capped_at_expires}"
         );
         assert!(
-            burned <= expected_paid.saturating_add(1),
-            "accrual must stop at expires_at: burned {burned} > expected ~{expected_paid}"
+            burned <= full_window.saturating_add(1),
+            "accrual must match the full open window: burned {burned} vs ~{full_window}"
+        );
+        // Accrual is the F2 invariant under test. Settle may still defer on
+        // unrelated pot/liquidity after the synthetic coupon reshape.
+    });
+}
+
+/// Thin-pool long expiry (clone retest F1): leftover C is large vs depth
+/// (~3%+), so force-selling it through the 2% realized band would defer
+/// forever with no manipulation. Expiry must settle by selling only what
+/// repays P and returning leftover C as staked alpha.
+#[test]
+fn thin_pool_long_expiry_returns_leftover_alpha_without_band_deferral() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let custody = Lending::custody_hotkey().unwrap();
+        // ~268 τ pool like SN35; ~8 τ collateral (~3% of depth).
+        let pool = 268_000_000_000u64;
+        let collateral = 8_000_000_000u64;
+        set_pool(pool, pool);
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = pool;
+        });
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+        sync_reference_ema_to_spot();
+
+        mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(2));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            collateral,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        assert!(position.collateral > 0, "long must keep leftover C after open");
+        // Re-anchor EMA after the open trade so spot/ref is flat (no manipulation).
+        sync_reference_ema_to_spot();
+        let spot = MockPool::price();
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let ratio = spot.saturating_mul(U64F64::from_num(10_000u32)) / ema;
+        assert!(
+            ratio > U64F64::from_num(9_900u32) && ratio < U64F64::from_num(10_100u32),
+            "precondition: spot within 1% of EMA (got ratio {ratio})"
+        );
+        // Selling all leftover C would exceed the default 200 bps band.
+        let leftover_quote = MockPool::quote_sell(netuid(), position.collateral.into())
+            .expect("leftover C must be quotable")
+            .to_u64();
+        let fair_tao = (U64F64::from_num(position.collateral) * ema).to_num::<u64>();
+        assert!(fair_tao > 0, "precondition: fair leftover value");
+        let realized_bps = fair_tao
+            .saturating_sub(leftover_quote)
+            .saturating_mul(10_000)
+            / fair_tao;
+        assert!(
+            realized_bps > 200,
+            "precondition: full leftover sale must breach 200 bps (got {realized_bps})"
+        );
+
+        let alpha_before = alpha(&owner, &custody, netuid());
+        System::set_block_number(position.expires_at);
+        System::reset_events();
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
+
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "thin-pool long must settle at expiry without band deferral"
         );
         assert!(
-            burned < unclamped,
-            "must not charge the full deferral window: burned {burned} vs unclamped ~{unclamped}"
+            BandDeferralSince::<Test>::get(&owner, netuid()).is_none(),
+            "must not stamp a band deferral on an unmanipulated thin pool"
+        );
+        let refunded = alpha(&owner, &custody, netuid()).saturating_sub(alpha_before);
+        assert!(
+            refunded > 0,
+            "leftover collateral must return as staked alpha on custody"
+        );
+        let (_, tao_refund, _, sa, st) = expired_event(&owner);
+        assert_eq!((sa, st), (0, 0));
+        // tao_refund is AMM surplus only — not the full leftover C as TAO.
+        assert!(
+            tao_refund < leftover_quote / 2,
+            "must not force-sell leftover C to TAO (refund {tao_refund} vs leftover quote {leftover_quote})"
         );
     });
 }

@@ -908,9 +908,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1992,
-        "end_line": 2011,
-        "url": "/code/pallets/lending/src/lib.rs#L1989-L2011",
+        "line": 1996,
+        "end_line": 2015,
+        "url": "/code/pallets/lending/src/lib.rs#L1993-L2015",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2806,18 +2806,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1924,
-        "end_line": 1948,
-        "url": "/code/pallets/lending/src/lib.rs#L1914-L1948",
+        "line": 1928,
+        "end_line": 1952,
+        "url": "/code/pallets/lending/src/lib.rs#L1918-L1952",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1955,
-        "end_line": 1982,
-        "url": "/code/pallets/lending/src/lib.rs#L1951-L1982",
+        "line": 1959,
+        "end_line": 1986,
+        "url": "/code/pallets/lending/src/lib.rs#L1955-L1986",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3036,9 +3036,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 2024,
-        "end_line": 2052,
-        "url": "/code/pallets/lending/src/lib.rs#L2014-L2052",
+        "line": 2028,
+        "end_line": 2056,
+        "url": "/code/pallets/lending/src/lib.rs#L2018-L2056",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3715,9 +3715,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 2081,
-        "end_line": 2102,
-        "url": "/code/pallets/lending/src/lib.rs#L2076-L2102",
+        "line": 2085,
+        "end_line": 2106,
+        "url": "/code/pallets/lending/src/lib.rs#L2080-L2106",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3903,9 +3903,9 @@
         "pallet": "Lending",
         "call": "roll",
         "path": "pallets/lending/src/lib.rs",
-        "line": 2134,
-        "end_line": 2137,
-        "url": "/code/pallets/lending/src/lib.rs#L2125-L2137",
+        "line": 2138,
+        "end_line": 2141,
+        "url": "/code/pallets/lending/src/lib.rs#L2129-L2141",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

@@ -1737,8 +1737,12 @@ def raise_loan(
 @with_globals
 def list_positions(
     ctx: typer.Context,
-    netuid: int = typer.Option(
-        ..., "--netuid", min=1, max=65535, help="Subnet whose loans to list."
+    netuid: Optional[int] = typer.Option(
+        None,
+        "--netuid",
+        min=1,
+        max=65535,
+        help="Subnet whose loans to list. Omit to list the wallet's loans on every subnet.",
     ),
     coldkey_ss58: Optional[str] = typer.Option(
         None,
@@ -1748,13 +1752,21 @@ def list_positions(
     list_all: bool = typer.Option(
         False,
         "--all",
-        help="List every open loan on the subnet (ignore wallet coldkey default).",
+        help=(
+            "List every open loan on the subnet (ignore wallet coldkey default). Requires --netuid."
+        ),
     ),
 ):
-    """List open loans for the wallet coldkey (default) or the whole subnet."""
+    """List open loans for the wallet coldkey (default) or the whole subnet.
+
+    Without ``--netuid``, lists every open loan for the wallet across all
+    subnets. ``--all`` still requires ``--netuid`` (subnet-wide scan).
+    """
     context = ctx_of(ctx)
     if list_all and coldkey_ss58 is not None:
         _exit_error(context, "--all and --coldkey are mutually exclusive")
+    if list_all and netuid is None:
+        _exit_error(context, "--all requires --netuid")
     # Help already says coldkey defaults to the wallet; resolve that unless --all.
     owner = None if list_all else context.resolve_address("coldkey_ss58", coldkey_ss58)
 
@@ -1765,7 +1777,10 @@ def list_positions(
         except Exception:
             head_time = datetime.now(timezone.utc)
         if owner is None:
+            assert netuid is not None  # guarded above
             positions = await client.read("lending_positions", netuid=netuid)
+        elif netuid is None:
+            positions = await client.read("lending_positions_for_coldkey", coldkey_ss58=owner)
         else:
             position = await client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
             positions = [position] if position is not None else []
@@ -1775,6 +1790,7 @@ def list_positions(
 
     positions, head, head_time = context.run(_positions)
     columns = [
+        "netuid",
         "owner",
         "side",
         "principal",
@@ -1791,6 +1807,7 @@ def list_positions(
         status = _position_status_label(position)
         rows.append(
             [
+                str(position.get("netuid") or netuid or "-"),
                 position["coldkey"],
                 position["side"],
                 _fmt_amount(position["principal"]),
@@ -1803,8 +1820,11 @@ def list_positions(
                 _format_runway_field(position, head=head),
             ]
         )
+    title = (
+        f"loans on netuid {netuid}" if netuid is not None else f"loans for {owner} (all netuids)"
+    )
     context.output.table(
-        f"loans on netuid {netuid}",
+        title,
         columns,
         rows,
         [_position_json(position) for position in positions],

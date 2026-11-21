@@ -11,7 +11,7 @@ from typing import Any, Optional
 from .balance import Balance
 from .metagraph import Metagraph, NeuronCommitment
 from .reads.delegation import DelegateInfo, DelegatedStake
-from .reads.identity import Commitment
+from .reads.identity import ChannelCommitment, Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
@@ -255,7 +255,9 @@ class Gamma(_ReadNamespace):
     async def gamma_spent(self, netuid: int, service_hotkey_ss58: str, hotkey_ss58: str, *, block: Optional[int] = None) -> str:
         """The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.
 
-        It only grows, until the subnet is dissolved, which clears it.
+        It only grows, until the subnet is dissolved, which clears it. A service crediting spends
+        reads it at a finalized block:
+        `(await client.at(await client.finalized_block())).gamma.gamma_spent(...)`.
         """
 
     async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> dict:
@@ -311,12 +313,13 @@ class Hyperparameters(_ReadNamespace):
 class Identity(_ReadNamespace):
     """On-chain identities and commitments."""
 
-    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[Commitment]:
+    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[ChannelCommitment]:
         """One hotkey's independent channel commitment, or None when absent.
 
         Reads the v2 runtime API and decodes the returned SCALE registration. On a
         node without v2, reads the equivalent channel storage instead; both paths
-        distinguish this target from the legacy `commitment` read.
+        distinguish this target from the legacy `commitment` read. The `revealed`
+        list reports plaintext and reveal blocks even after the active record is removed.
         """
 
     async def commit_burn(self, netuid: int, mechid: int = 0, channel: int = 0, *, block: Optional[int] = None) -> Optional[dict]:
@@ -525,15 +528,20 @@ class Prices(_ReadNamespace):
         (E_S) from the forced alpha sale at open; it is zero for longs.
         `escrow_alpha` is the long's escrowed alpha (A); zero for shorts.
         `expires_at` is the fixed max_loan_duration term end (~30 days; increases
-        do not extend it). `runway_days` is capped at days remaining until
-        `expires_at`. Interest
-        and runway are estimates at the selected block. `underwater` /
-        `insolvent` are true when interest is exhausted or the escrow close
-        quote reports a positive `shortfall` (AMM cannot cover principal).
+        do not extend it). Interest keeps accruing past `expires_at` while the
+        position is still open (including band-deferred freezes), bounded by
+        collateral. `runway_days` before expiry is capped at days remaining until
+        `expires_at`. Interest and runway are estimates at the selected block.
+        `underwater` / `insolvent` are true when interest is exhausted or the
+        escrow close quote reports a positive `shortfall` (AMM cannot cover
+        principal).
         """
 
     async def lending_positions(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
         """All open loans on a subnet, pinned to one block and sorted by owner."""
+
+    async def lending_positions_for_coldkey(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """All open loans for one coldkey across every subnet, pinned to one block."""
 
     async def lending_raise_quote(self, netuid: int, coldkey_ss58: str, hotkey_ss58: str, borrow_tao: Optional[str] = '', collateral_alpha: Optional[str] = '', sell_alpha: Optional[str] = '', *, block: Optional[int] = None) -> dict:
         """Quote an atomic raise: escrowed long sizing plus optional unlocked sale."""
