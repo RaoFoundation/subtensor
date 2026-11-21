@@ -7,7 +7,9 @@ description: "The object or state already exists; treat the goal as met or pick 
 
 This coldkey's derived lending escrow is still assigned to another open loan (usually after a coldkey swap that kept the original custody account). Close or wait for that loan to settle before opening a new position on this subnet.
 
-It classifies to the semantic code [`already_exists`](/docs/errors/already-exists).
+Declared by the `Lending` pallet; it classifies to the semantic code [`already_exists`](/docs/errors/already-exists).
+
+Declared at [`pallets/lending/src/lib.rs#L1710`](/code/pallets/lending/src/lib.rs#L1710).
 
 ## Remediation
 

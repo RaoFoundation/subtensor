@@ -7,7 +7,9 @@ description: "The pool cannot absorb this trade; reduce the amount or split it i
 
 The subnet AMM has zero TAO or zero alpha in reserve, so a lift cannot be sized. Wait for liquidity or pick another subnet.
 
-It classifies to the semantic code [`insufficient_liquidity`](/docs/errors/insufficient-liquidity).
+Declared by the `Lending` pallet; it classifies to the semantic code [`insufficient_liquidity`](/docs/errors/insufficient-liquidity).
+
+Declared at [`pallets/lending/src/lib.rs#L1733`](/code/pallets/lending/src/lib.rs#L1733).
 
 ## Remediation
 
