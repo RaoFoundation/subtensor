@@ -195,3 +195,14 @@ class HashedAccounts:
     DerivedRegistrationDeposit = Item('HashedAccounts', 'DerivedRegistrationDeposit')
     MldsaAccountProfiles = Item('HashedAccounts', 'MldsaAccountProfiles')
     FalconAccountProfiles = Item('HashedAccounts', 'FalconAccountProfiles')
+
+class Lending:
+    PalletId = Item('Lending', 'PalletId')
+    InterestPeriod = Item('Lending', 'InterestPeriod')
+    BlocksPerYear = Item('Lending', 'BlocksPerYear')
+    ReferenceWarmup = Item('Lending', 'ReferenceWarmup')
+    MaxPositionsPerSubnet = Item('Lending', 'MaxPositionsPerSubnet')
+    MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
+    ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
+    InterestRetryDelay = Item('Lending', 'InterestRetryDelay')
+    MaxExpirySettlementsPerBlock = Item('Lending', 'MaxExpirySettlementsPerBlock')

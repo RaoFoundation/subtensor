@@ -49,6 +49,7 @@ from .governance import (
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
+from .lending import CloseLoan, OpenLoan, RaiseLoan, RepayLoan, RollLoan
 from .limit_orders import (
     AuthorizeOrder,
     CancelOrder,
@@ -137,6 +138,7 @@ __all__ = [
     "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
     "CloseGammaDeposit",
+    "CloseLoan",
     "CommitWeightHash",
     "CommitWeights",
     "ContributeCrowdloan",
@@ -168,9 +170,11 @@ __all__ = [
     "MultisigCancel",
     "MultisigExecute",
     "MultisigThreshold1",
+    "OpenLoan",
     "Plan",
     "Policy",
     "PowRegister",
+    "RaiseLoan",
     "RefundCrowdloan",
     "RegisterLeasedNetwork",
     "RegisterSubnet",
@@ -180,8 +184,10 @@ __all__ = [
     "RemoveProxyAnnouncement",
     "RemoveStake",
     "RemoveStakeLimit",
+    "RepayLoan",
     "ResetAxon",
     "RevealWeights",
+    "RollLoan",
     "RootRegister",
     "ServeAxon",
     "ServeAxonTls",

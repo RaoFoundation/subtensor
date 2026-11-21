@@ -81,4 +81,11 @@ ignore = [
     # libsqlite3-sys to >=0.39 requires moving Frontier off sqlx 0.8.6.
     # https://rustsec.org/advisories/RUSTSEC-2026-0459.html
     "RUSTSEC-2026-0459",
+    # RUSTSEC-2026-0566/0569/0571 (added 2026-11-19): wasmtime 8.0.1 WASI/http
+    # empty-write heap growth and get_module_export panic. Same sc-executor pin
+    # as 0269/0316/0424; the node never exposes WASI filesystem/http to runtime
+    # Wasm. Fix needs wasmtime >=36 / >=48; revisit on the next polkadot-sdk bump.
+    "RUSTSEC-2026-0566",
+    "RUSTSEC-2026-0569",
+    "RUSTSEC-2026-0571",
 ]

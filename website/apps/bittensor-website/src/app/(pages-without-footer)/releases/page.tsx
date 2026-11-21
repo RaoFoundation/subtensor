@@ -23,6 +23,17 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v495',
+    date: 'Upcoming',
+    title: 'Lift Lending (Dark Launch)',
+    summary:
+      'Adds the Lift lending pallet as a dark launch (Enabled defaults false): escrowed ' +
+      'short/long loans, root-settable LiftParams, 30-day max duration and roll, continuous ' +
+      'thin-depth blend, and realized expiry AMM slippage bounds with fair retry budgeting. ' +
+      'Spec 495 sits above the release-494 candidate so the ships do not collide.',
+    href: '/releases/v495-upgrade',
+  },
+  {
     tag: 'v493',
     date: 'Upcoming',
     title: 'Hotkey Gamma Spends, Yuma Commit Limits and Release Announcements',

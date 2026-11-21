@@ -7922,9 +7922,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.32"
+version = "1.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69965d2409bff8c8cea3829009fff66a86f05a0570656552ef70f616e8e4bd85"
+checksum = "fee3f59f4321dab0c78d828942e7aa09d0bd8ad6e78a501977e6bf3d02938045"
 dependencies = [
  "cc",
  "pkg-config",
@@ -8905,6 +8905,8 @@ dependencies = [
  "pallet-hashed-accounts",
  "pallet-hotfix-sufficients",
  "pallet-insecure-randomness-collective-flip",
+ "pallet-lending",
+ "pallet-lending-runtime-api",
  "pallet-limit-orders",
  "pallet-multisig 41.0.0",
  "pallet-nomination-pools",
@@ -10501,6 +10503,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-lending"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "substrate-fixed",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+ "subtensor-swap-interface",
+]
+
+[[package]]
+name = "pallet-lending-runtime-api"
+version = "1.0.0"
+dependencies = [
+ "pallet-lending",
+ "parity-scale-codec",
+ "sp-api",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-limit-orders"
 version = "0.1.0"
 dependencies = [
@@ -11375,6 +11405,7 @@ dependencies = [
  "pallet-commitments",
  "pallet-crowdloan",
  "pallet-drand",
+ "pallet-lending",
  "pallet-preimage",
  "pallet-scheduler",
  "pallet-shield",

@@ -23,5 +23,6 @@ The exact chain error names (from the extrinsic receipt) that classify to `subne
 | [`RootNetworkDoesNotExist`](/docs/errors/chain/RootNetworkDoesNotExist) | Root registration or root stake claiming found no root network in chain state, which only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists in `NetworksAdded`. |
 | [`SubnetDoesNotExist`](/docs/errors/chain/SubnetDoesNotExist) | The admin-utils call targets a netuid with no registered subnet. Verify the `netuid` argument against `NetworksAdded` (the set of existing subnets) before setting hyperparameters. |
 | [`SubnetNotExists`](/docs/errors/chain/SubnetNotExists) | The netuid passed to the call does not correspond to a registered subnet. Verify the netuid argument against `NetworksAdded` or `btcli subnets list`; the subnet may also have been dissolved. |
+| [`SubnetUnavailable`](/docs/errors/chain/SubnetUnavailable) | The subnet is absent, is root, or is dissolving. Check its lifecycle before borrowing or closing. |
 
 The same explanation is available in the terminal: `btcli explain subnet_not_exists` (or `btcli explain <ChainErrorName>` for one exact chain error).

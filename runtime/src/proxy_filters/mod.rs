@@ -22,15 +22,20 @@ use crate::RuntimeCall;
 // ============================================================================
 
 /// Admin-utils configuration granted to broad proxies. Root-only
-/// (`RootConfigCalls`) calls are still inert (they need `ensure_root`).
-/// Owner-key rotation is **not** inert: `sudo_set_sn_owner_hotkey` is
-/// owner-or-root, so `OwnerKeyCalls` stays inventory-only.
-type AdminAll = (SubnetManagementCalls, RootConfigCalls);
+/// (`RootConfigCalls`, `LendingRootCalls`) calls are still inert (they need
+/// `ensure_root`). Owner-key rotation is **not** inert:
+/// `sudo_set_sn_owner_hotkey` is owner-or-root, so `OwnerKeyCalls` stays
+/// inventory-only.
+type AdminAll = (SubnetManagementCalls, RootConfigCalls, LendingRootCalls);
 
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
 /// `Staking`: stake position management and accumulated root-dividend claims.
+/// Loan open/close/repay/raise are **not** included (Greg Zaitsev P2-c) — use
+/// `Any` for those (not NonTransfer — skeptic fid:3d310144 / d3fefb26). Keep
+/// this type body free of the loan pallet
+/// name so SDK `test_protected_preparation` word-scan of the alias stays exact.
 type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
 /// `Lock`: stake conviction-lock management and nothing else.
@@ -83,6 +88,9 @@ type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
     StakeManagementCalls,
+    // Lending / raise require ProxyType::Any (or a future dedicated grant).
+    // Existing NonTransfer delegates must not silently gain loan authority
+    // when lending is enabled (skeptic fid:3d310144 / d3fefb26).
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     FaucetCalls,
@@ -157,6 +165,12 @@ fn supports_recipient_guards(proxy_type: &ProxyType) -> bool {
 }
 
 pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> bool {
+    // Raise needs Lending + stake surfaces. Staking never grants lending (P2-c);
+    // NonTransfer is also excluded so existing delegates cannot open loans
+    // without a fresh Any (or future Lending) grant (skeptic fid:3d310144).
+    if LendingRaiseCalls::contains(call) {
+        return matches!(proxy_type, ProxyType::Any);
+    }
     if supports_recipient_guards(proxy_type) && RecipientGuardCalls::contains(call) {
         return true;
     }
@@ -413,6 +427,9 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        // Lending creates interest / settlement exposure; require ProxyType::Any
+        // (skeptic fid:3d310144). Root setters stay via AdminAll (ensure_root).
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRaiseCalls)>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -448,6 +465,8 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        // Open/raise move value; root setters stay via AdminAll (ensure_root).
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRaiseCalls)>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -751,6 +770,9 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls)>();
+        // Raise needs both open and remove_stake; NonCritical has stake mgmt
+        // but not lending open/close. Root setters remain via AdminAll.
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRaiseCalls)>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -1032,6 +1054,8 @@ mod tests {
                 "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
+        // P2-c / skeptic fid:3d310144: Staking and NonTransfer must not grant
+        // lending; use ProxyType::Any (or a future dedicated grant).
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
@@ -1800,5 +1824,102 @@ mod pow_proxy_tests {
         assert!(ProxyType::NonCritical.filter(&pow));
         assert!(!ProxyType::NonCritical.filter(&legacy));
         assert!(!ProxyType::Staking.filter(&pow));
+    }
+
+    #[test]
+    fn lending_raise_and_open_close_proxy_paths() {
+        use pallet_lending::{Call as LendingCall, Side};
+        use subtensor_runtime_common::{AccountId, NetUid};
+
+        let hotkey = AccountId::new([9u8; 32]);
+        let netuid = NetUid::from(1);
+        let open = RuntimeCall::Lending(LendingCall::open {
+            netuid,
+            side: Side::Short,
+            collateral: 1,
+            source_hotkey: None,
+            min_borrow: 1,
+            min_proceeds: 0,
+            min_escrow_alpha: 0,
+            valid_until: 100,
+        });
+        let open_exact = RuntimeCall::Lending(LendingCall::open_exact {
+            netuid,
+            side: Side::Long,
+            collateral: 1,
+            source_hotkey: Some(hotkey.clone()),
+            principal: 1,
+            min_proceeds: 0,
+            min_escrow_alpha: 0,
+            valid_until: 100,
+        });
+        let close = RuntimeCall::Lending(LendingCall::close {
+            netuid,
+            hotkey: hotkey.clone(),
+            repay_from_wallet: true,
+            max_payment: u64::MAX,
+            min_refund: 0,
+            valid_until: 100,
+        });
+        let repay = RuntimeCall::Lending(LendingCall::repay {
+            netuid,
+            hotkey: hotkey.clone(),
+            principal_part: 1,
+            repay_from_wallet: true,
+            max_payment: u64::MAX,
+            min_refund: 0,
+            valid_until: 100,
+        });
+        let raise = RuntimeCall::Lending(LendingCall::open_long_and_sell {
+            netuid,
+            hotkey: hotkey.clone(),
+            collateral_alpha: Some(1),
+            borrow_tao: None,
+            max_collateral_alpha: 1,
+            min_borrow_tao: 1,
+            sell_alpha: None,
+            min_tao_out: 0,
+            min_escrow_alpha: 0,
+            valid_until: 100,
+        });
+        let warm = RuntimeCall::Lending(LendingCall::warm_reference { netuid });
+        let roll = RuntimeCall::Lending(LendingCall::roll { netuid });
+
+        // Any may open, close, repay, roll, raise, and warm.
+        assert!(ProxyType::Any.filter(&open), "Any must allow open");
+        assert!(
+            ProxyType::Any.filter(&open_exact),
+            "Any must allow open_exact"
+        );
+        assert!(ProxyType::Any.filter(&close), "Any must allow close");
+        assert!(ProxyType::Any.filter(&repay), "Any must allow repay");
+        assert!(ProxyType::Any.filter(&roll), "Any must allow roll");
+        assert!(ProxyType::Any.filter(&raise), "Any must allow raise");
+        assert!(
+            ProxyType::Any.filter(&warm),
+            "Any must allow warm_reference"
+        );
+        // Staking and NonTransfer must not gain lending authority (P2-c /
+        // skeptic fid:3d310144).
+        for proxy in [ProxyType::Staking, ProxyType::NonTransfer] {
+            assert!(!proxy.filter(&open), "{proxy:?} must deny open");
+            assert!(!proxy.filter(&close), "{proxy:?} must deny close");
+            assert!(!proxy.filter(&roll), "{proxy:?} must deny roll");
+            assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
+            assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
+        }
+        // Transfer-only, Registration, NonFungible, and RootClaim must not touch lending.
+        for proxy in [
+            ProxyType::Transfer,
+            ProxyType::Registration,
+            ProxyType::RootClaim,
+            ProxyType::NonFungible,
+        ] {
+            assert!(!proxy.filter(&open), "{proxy:?} must deny open");
+            assert!(!proxy.filter(&close), "{proxy:?} must deny close");
+            assert!(!proxy.filter(&roll), "{proxy:?} must deny roll");
+            assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
+            assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
+        }
     }
 }

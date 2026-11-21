@@ -505,5 +505,8 @@ mod errors {
         ServiceDoesNotExist,
         /// The signer is not the validator's delegate for this exact mechanism.
         NotMechWeightDelegate,
+        // Appended after Release 494 so mainnet SCALE indices stay stable.
+        /// Third-party stake onto the lending custody hotkey is rejected (§14).
+        CustodyHotkey,
     }
 }

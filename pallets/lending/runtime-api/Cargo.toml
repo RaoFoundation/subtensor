@@ -1,0 +1,21 @@
+[package]
+name = "pallet-lending-runtime-api"
+publish = false
+version = "1.0.0"
+description = "Runtime quotes for fixed-principal subnet lending"
+edition.workspace = true
+
+[dependencies]
+codec.workspace = true
+pallet-lending = { path = "..", default-features = false }
+sp-api.workspace = true
+sp-runtime.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "pallet-lending/std",
+    "sp-api/std",
+    "sp-runtime/std",
+]
