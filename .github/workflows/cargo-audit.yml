@@ -48,12 +48,14 @@ jobs:
           python3 .github/scripts/check-audit-feature-exclusions.py
 
       - name: Test bounded DNS decoder allocation
-        # These excluded standalone crates intentionally have no lockfiles.
-        # Resolve only the locally cached registry, without changing the root lock.
+        # These excluded standalone crates intentionally have no lockfiles. Cargo
+        # resolves their published dependencies and writes only standalone locks.
+        # --locked fails on a fresh checkout, while --offline cannot resolve optional
+        # dependencies absent from the runner cache; the root Cargo.lock is untouched.
         run: |
-          cargo test --offline --manifest-path vendor/hickory-dns/hickory-proto-0.24.4/Cargo.toml \
+          cargo test --manifest-path vendor/hickory-dns/hickory-proto-0.24.4/Cargo.toml \
             --no-default-features --test allocation_limit
-          cargo test --offline --manifest-path vendor/hickory-dns/hickory-proto-0.25.2/Cargo.toml \
+          cargo test --manifest-path vendor/hickory-dns/hickory-proto-0.25.2/Cargo.toml \
             --no-default-features --test allocation_limit
 
       - name: cargo audit
