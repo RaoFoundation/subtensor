@@ -136,7 +136,7 @@ mod benchmarks {
     use crate::tests::mock;
     use sp_runtime::PerU16;
     use substrate_fixed::types::{I64F64, U64F64};
-    use subtensor_runtime_common::{NetUid, TaoBalance};
+    use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 
     #[benchmark]
     fn swap_authorities(a: Linear<0, 32>) {
@@ -1203,6 +1203,21 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_commit_burn() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        sudo_set_commit_burn_min(
+            RawOrigin::Signed(owner),
+            netuid,
+            MechId::MAIN,
+            0,
+            TaoBalance::ZERO,
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_collateral_lock_share() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);
@@ -1296,6 +1311,36 @@ mod benchmarks {
     fn sudo_set_basket_liquidity_cap() {
         #[extrinsic_call]
         _(RawOrigin::Root, 6553u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trade_max_slippage_bps() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 500u16);
+
+        assert_eq!(pallet_subtensor::BasketTradeMaxSlippageBps::<T>::get(), 500);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trade_refill_blocks() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 7200u64);
+
+        assert_eq!(pallet_subtensor::BasketTradeRefillBlocks::<T>::get(), 7200);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trade_price_reference() {
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            pallet_subtensor::BasketTradePriceReference::SpotOnly,
+        );
+
+        assert_eq!(
+            pallet_subtensor::BasketTradePriceReferenceMode::<T>::get(),
+            pallet_subtensor::BasketTradePriceReference::SpotOnly
+        );
     }
 
     #[benchmark]
@@ -1404,6 +1449,17 @@ mod benchmarks {
         assert_eq!(
             pallet_subtensor::Pallet::<T>::get_subnet_emission_weights(netuid),
             [0, 0, owner_share, validator, miner]
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_emission_weights_rate_limit() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 360u64);
+
+        assert_eq!(
+            pallet_subtensor::SubnetEmissionWeightsRateLimit::<T>::get(),
+            360
         );
     }
 

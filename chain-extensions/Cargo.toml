@@ -38,6 +38,9 @@ subtensor-swap-interface.workspace = true
 num_enum.workspace = true
 substrate-fixed.workspace = true
 
+[dev-dependencies]
+pallet-commitments = { workspace = true, default-features = false }
+
 [lints]
 workspace = true
 
@@ -55,10 +58,11 @@ std = [
 	"scale-info/std",
 	"subtensor-runtime-common/std",
 	"pallet-alpha-assets/std",
+	"pallet-balances/std",
 	"pallet-contracts/std",
 	"pallet-subtensor/std",
 	"pallet-subtensor-swap/std",
-	"pallet-balances/std",
+	"pallet-commitments/std",
 	"pallet-scheduler/std",
 	"pallet-preimage/std",
 	"pallet-timestamp/std",
@@ -78,6 +82,7 @@ runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-contracts/runtime-benchmarks",
+	"pallet-commitments/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
 	"pallet-drand/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",

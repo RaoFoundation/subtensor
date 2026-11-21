@@ -134,7 +134,7 @@ DESCRIPTIONS: dict[str, str] = {
         "rolled back; nothing moved. The pool moved between your quote and execution, or "
         "the floor was set above what the trade could ever yield. Re-quote and retry, or "
         "widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 "
-        "disables this check; the 2% protocol band still applies."
+        "disables this check; the configured protocol band still applies."
     ),
     "BasketSwapBatchEmpty": (
         "`swap_basket_many` was submitted without any trade legs. Include at least one "
@@ -159,7 +159,8 @@ DESCRIPTIONS: dict[str, str] = {
     "BasketTurnoverBudgetExceeded": (
         "The trade would push more TAO through the fund than its turnover bucket holds. "
         "The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund "
-        "NAV, default 10%); it refills continuously over 7200 blocks and each swap takes "
+        "NAV, default 10%); it refills continuously over `BasketTradeRefillBlocks` "
+        "(7200 by default) and each swap takes "
         "the TAO through its middle out of it, so at most one capacity can be traded at "
         "any instant. Query `basket_trading_status` for the remaining budget, the capacity, "
         "and the refill rate; trade a smaller amount or wait for the bucket to refill."
@@ -603,6 +604,12 @@ DESCRIPTIONS: dict[str, str] = {
         "the subnet owner's, without holding a validator permit on that subnet. Check "
         "`ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets "
         "metagraph`) and whether its stake ranks it as a validator."
+    ),
+    "NotMechWeightDelegate": (
+        "The signer is not the validator's currently authorized delegate for this exact netuid "
+        "and mechanism, or the validator's grant is still moving after a hotkey change. Query "
+        "the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the "
+        "validator grant or renew the delegation before retrying."
     ),
     "NewColdKeyIsHotkey": (
         "The proposed new coldkey in a coldkey swap is already an existing hotkey account, "

@@ -632,6 +632,9 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
         RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
         RuntimeCall::SubtensorModule(SubtensorCall::close_gamma_deposit),
+        // Coldkey-paid channel commitments spend TAO and must never use the free
+        // hotkey commitment proxy permission.
+        RuntimeCall::Commitments(CommitmentsCall::set_commitment_to),
     ]
 );
 
@@ -653,6 +656,10 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::reveal_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_reveal_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights_for),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_mechanism_weights_for),
+        RuntimeCall::SubtensorModule(SubtensorCall::reveal_mechanism_weights_for),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights_for),
     ]
 );
 
@@ -694,6 +701,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_root_claim_threshold),
         RuntimeCall::SubtensorModule(SubtensorCall::enable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::disable_voting_power_tracking),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_mech_weight_delegate),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_voting_power_ema_alpha),
     ]
 );
@@ -740,6 +748,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_mechanism_emission_split),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights_v2),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_weights_rate_limit),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_to_max_allowed_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_trim_null_uids_batch),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_allowed_uids),
@@ -750,6 +759,11 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_lock_share),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_drain_ratio),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_gamma_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_burn_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_burn_min),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_burn_max),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_burn_half_life),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_burn_increase_mult),
     ]
 );
 
@@ -817,6 +831,9 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_daily_turnover_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_liquidity_cap),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_min_trade_tao),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trade_max_slippage_bps),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trade_price_reference),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trade_refill_blocks),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_claim_dust),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_usd_price_oracle),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_gamma_enabled),

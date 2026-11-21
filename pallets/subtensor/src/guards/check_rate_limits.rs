@@ -28,6 +28,9 @@ impl<T: Config> CheckRateLimits<T> {
                 | Call::commit_crv3_mechanism_weights { .. }
                 | Call::set_weights { .. }
                 | Call::set_mechanism_weights { .. }
+                | Call::set_mechanism_weights_for { .. }
+                | Call::commit_mechanism_weights_for { .. }
+                | Call::commit_timelocked_mechanism_weights_for { .. }
                 | Call::register_network { .. }
         )
     }
@@ -67,6 +70,23 @@ impl<T: Config> CheckRateLimits<T> {
                 Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
                 Error::<T>::CommittingWeightsTooFast,
             ),
+            Call::commit_mechanism_weights_for {
+                netuid,
+                mecid,
+                hotkey,
+                ..
+            }
+            | Call::commit_timelocked_mechanism_weights_for {
+                netuid,
+                mecid,
+                hotkey,
+                ..
+            } => Self::check_weights_rate_limit(
+                hotkey,
+                *netuid,
+                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                Error::<T>::CommittingWeightsTooFast,
+            ),
             Call::commit_timelocked_weights { netuid, .. } => Self::check_weights_rate_limit(
                 who,
                 *netuid,
@@ -102,6 +122,19 @@ impl<T: Config> CheckRateLimits<T> {
                     Error::<T>::SettingWeightsTooFast,
                 )
             }
+            Call::set_mechanism_weights_for {
+                netuid,
+                mecid,
+                hotkey,
+                ..
+            } if !Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) => {
+                Self::check_weights_rate_limit(
+                    hotkey,
+                    *netuid,
+                    Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                    Error::<T>::SettingWeightsTooFast,
+                )
+            }
             Call::register_network { .. }
                 if !TransactionType::RegisterNetwork.passes_rate_limit::<T>(who) =>
             {
@@ -126,6 +159,31 @@ impl<T: Config> CheckRateLimits<T> {
                 *netuid,
                 Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
             ),
+            Call::commit_mechanism_weights_for {
+                netuid,
+                mecid,
+                hotkey,
+                ..
+            }
+            | Call::commit_timelocked_mechanism_weights_for {
+                netuid,
+                mecid,
+                hotkey,
+                ..
+            } => {
+                return if Pallet::<T>::get_weights_set_rate_limit(*netuid) == 0 {
+                    Vec::new()
+                } else {
+                    vec![
+                        (
+                            b"weight-commit",
+                            hotkey,
+                            Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                        )
+                            .encode(),
+                    ]
+                };
+            }
             _ => return Vec::new(),
         };
 

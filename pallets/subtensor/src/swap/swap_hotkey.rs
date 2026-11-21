@@ -1033,7 +1033,21 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // 3.6. Swap the subnet loaded emission.
+        // 3.6. Move channel commitments, but revoke grants made by the old signer.
+        if is_network_member {
+            T::CommitmentsInterface::swap_neuron(netuid, old_hotkey, new_hotkey);
+            for hotkey in [old_hotkey, new_hotkey] {
+                if Self::mech_weight_delegate_lifecycle_pending(netuid, hotkey)
+                    || MechWeightDelegateTargets::<T>::iter_key_prefix((netuid, hotkey))
+                        .next()
+                        .is_some()
+                {
+                    Self::purge_mech_weight_delegates(netuid, hotkey, None);
+                }
+            }
+        }
+
+        // 3.7. Swap the subnet loaded emission.
         // LoadedEmission( netuid ) --> Vec<(hotkey, u64)> -- the loaded emission for the subnet.
         if is_network_member && let Some(mut old_loaded_emission) = LoadedEmission::<T>::get(netuid)
         {

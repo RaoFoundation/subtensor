@@ -172,10 +172,15 @@ pub const DEFAULT_BASKET_CONCENTRATION_CAP: u16 = u16::MAX / 16 + 1;
 /// NAV (u16-normalized).
 pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
 
-/// Blocks for an empty `swap_basket` turnover bucket to refill completely (one day at 12s
-/// blocks). The bucket refills continuously at `budget / BASKET_TRADE_REFILL_BLOCKS` per
-/// block, so at any instant at most one full budget can be spent.
-pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
+/// Default [`BasketTradeRefillBlocks`]: an empty `swap_basket` turnover bucket refills
+/// completely in one day at 12-second blocks. The bucket refills continuously, so at any
+/// instant at most one full budget can be spent.
+pub const DEFAULT_BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
+
+/// Legacy test-only spelling retained for protected tests whose arithmetic must not change.
+/// Runtime code reads [`BasketTradeRefillBlocks`] instead.
+#[cfg(test)]
+pub const BASKET_TRADE_REFILL_BLOCKS: u64 = DEFAULT_BASKET_TRADE_REFILL_BLOCKS;
 
 /// Most legs accepted by one [`Pallet::swap_basket_many`] call. The call values the
 /// basket and flushes queued dividends once, then updates the two affected marks after
@@ -212,17 +217,15 @@ pub const DEFAULT_BASKET_CLAIM_SLICE_DUST_TAO: u64 = 100_000;
 /// of a small row is sold as before.
 pub const DEFAULT_BASKET_CLAIM_FORFEIT_CAP_TAO: u64 = 10_000_000;
 
-/// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
-/// points (2%). The reference is the *strictest* of the subnet's slow moving (emission
-/// EMA) price, its fast moving price ([`SubnetFastMovingPrice`]), and its spot price: the
-/// fast anchor defeats a same-block (or short-held) pump or dump, the slow anchor caps how
-/// far a held pump can carry the fund, and the spot anchor caps the trade's own price
-/// impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
-/// `price_limit`; a leg that cannot fill fully within the bound fails.
-pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
+/// Default [`BasketTradeMaxSlippageBps`]: preserve the pre-upgrade 2% band around the
+/// strictest slow-EMA, fast-EMA, and spot reference. Governance can opt into a 5% band
+/// and [`BasketTradePriceReference::SpotOnly`] separately.
+/// Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM `price_limit`;
+/// a leg that cannot fill fully within the bound fails.
+pub const DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS: u16 = 200;
 
 /// Maximum basket NAV impact of out-of-band prices on dividend share minting (0.1%).
-/// The per-pool 2% band still defines which prices require an anchored comparison.
+/// The configured per-pool trade band defines which prices require an anchored comparison.
 pub const BASKET_DIVIDEND_PRICE_IMPACT_BPS: u64 = 10;
 
 /// Gross incoming-dividend and combined mint-ratio impact budget (2%). This preserves
@@ -328,7 +331,7 @@ pub mod pallet {
         traits::{
             OriginTrait, QueryPreimage, StorePreimage, UnfilteredDispatchable, tokens::fungible,
         },
-        weights::Weight,
+        weights::{Weight, WeightMeter},
     };
     use frame_system::pallet_prelude::*;
     use pallet_drand::types::RoundNumber;
@@ -654,6 +657,33 @@ pub mod pallet {
         /// Use previous consensus at maximum bond penalty, otherwise current consensus.
         #[default]
         Auto,
+    }
+
+    /// Selects the price reference used to bound validator basket trade legs.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum BasketTradePriceReference {
+        /// Measure both the sell floor and buy ceiling from the current spot price only.
+        /// Governance must select this mode explicitly; unlike the default, it does not
+        /// retain the fast-EMA bound on chained same-block price manipulation.
+        #[codec(index = 0)]
+        SpotOnly,
+        /// Default legacy mode: sell floor from `max(slow EMA, fast EMA, spot)` and buy
+        /// ceiling from `min(slow EMA, fast EMA, spot)`. Missing or zero EMAs refuse the trade.
+        #[default]
+        #[codec(index = 1)]
+        StrictestEmaAndSpot,
     }
 
     /// Miner registration collateral for a `(hotkey, coldkey)` stake position
@@ -2039,11 +2069,10 @@ pub mod pallet {
     /// MAP ( netuid ) --> fast moving price | A fast EMA of the subnet's spot price
     /// (TAO per alpha, unclamped) with a [`BASKET_FAST_EMA_HALF_LIFE_BLOCKS`] half-life,
     /// updated once per block right after [`SubnetMovingPrice`] from the spot at the end of
-    /// the previous block, so no extrinsic in the current block can move it. It is a trading
-    /// anchor only — `swap_basket` bounds every leg to within
-    /// [`BASKET_TRADE_MAX_SLIPPAGE_BPS`] of the strictest of this, the slow EMA, and spot —
-    /// and plays no part in emission. Absent until the subnet's first update after the
-    /// upgrade (trading on it is refused until then).
+    /// the previous block, so no extrinsic in the current block can move it. It remains an
+    /// emission-independent valuation anchor and is required by `swap_basket` in the default
+    /// [`BasketTradePriceReference::StrictestEmaAndSpot`] mode. Trades are refused while it
+    /// is missing or zero; governance-selected spot-only mode does not require it.
     #[pallet::storage]
     pub type SubnetFastMovingPrice<T: Config> =
         StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
@@ -3466,14 +3495,53 @@ pub mod pallet {
     }
 
     /// --- ITEM --> capacity of a fund's `swap_basket` turnover bucket as a u16-normalized
-    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills at
-    /// `capacity / BASKET_TRADE_REFILL_BLOCKS` per block, so at most one capacity can be
-    /// pushed through the fund at any instant and about one per day sustained. Each leg is
-    /// also bounded to [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price
-    /// and the spot price. Set via `AdminUtils::sudo_set_basket_daily_turnover_cap`.
+    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills continuously over
+    /// [`BasketTradeRefillBlocks`], so at most one capacity can be pushed through the fund
+    /// at any instant. Each leg is also bounded by [`BasketTradeMaxSlippageBps`] around the
+    /// reference selected by [`BasketTradePriceReferenceMode`]. Set via
+    /// `AdminUtils::sudo_set_basket_daily_turnover_cap`.
     #[pallet::storage]
     pub type BasketDailyTurnoverCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
+
+    #[pallet::type_value]
+    /// Default maximum deviation of a basket trade leg from its price reference: 2%.
+    pub fn DefaultBasketTradeMaxSlippageBps<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_TRADE_MAX_SLIPPAGE_BPS
+    }
+
+    /// Maximum `swap_basket` leg price deviation from its selected reference, in basis
+    /// points (`10_000` = 100%). Defaults to 2% around the strictest EMA/spot reference.
+    /// Set via `AdminUtils::sudo_set_basket_trade_max_slippage_bps`.
+    #[pallet::storage]
+    pub type BasketTradeMaxSlippageBps<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketTradeMaxSlippageBps<T>>;
+
+    #[pallet::type_value]
+    /// Default full turnover-bucket refill period: 7200 blocks.
+    pub fn DefaultBasketTradeRefillBlocks<T: Config>() -> u64 {
+        crate::DEFAULT_BASKET_TRADE_REFILL_BLOCKS
+    }
+
+    /// Blocks for an empty `swap_basket` turnover bucket to refill completely and for
+    /// destination-pool flow usage to decay to zero. Defaults to 7200 blocks. Set via
+    /// `AdminUtils::sudo_set_basket_trade_refill_blocks`; zero is rejected.
+    #[pallet::storage]
+    pub type BasketTradeRefillBlocks<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultBasketTradeRefillBlocks<T>>;
+
+    #[pallet::type_value]
+    /// Default basket trade price reference: preserve the strictest EMA/spot behavior.
+    pub fn DefaultBasketTradePriceReference<T: Config>() -> BasketTradePriceReference {
+        BasketTradePriceReference::StrictestEmaAndSpot
+    }
+
+    /// Price reference for `swap_basket` leg bounds. Defaults to the strictest of slow EMA,
+    /// fast EMA, and spot. Governance can select `SpotOnly` through
+    /// `AdminUtils::sudo_set_basket_trade_price_reference`.
+    #[pallet::storage]
+    pub type BasketTradePriceReferenceMode<T: Config> =
+        StorageValue<_, BasketTradePriceReference, ValueQuery, DefaultBasketTradePriceReference<T>>;
 
     #[pallet::type_value]
     /// Default minimum basket trade value: 0.5 TAO, in rao.
@@ -3571,7 +3639,7 @@ pub mod pallet {
     /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
     /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).
     /// On each trade the bucket is refilled for the blocks elapsed since `last_refill_block`
-    /// at `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamped to one budget (NAV at
+    /// at `budget / BasketTradeRefillBlocks` per block, clamped to one budget (NAV at
     /// that moment), then the TAO through the middle of the swap is taken out. Follows the
     /// fund on hotkey swap (lower level, later refill block).
     #[pallet::storage]
@@ -3583,7 +3651,7 @@ pub mod pallet {
     ///
     /// The standing-position liquidity cap resets when the fund sells the holding
     /// back to zero. This map does not: it accumulates alpha bought into `netuid`
-    /// and decays to zero over [`crate::BASKET_TRADE_REFILL_BLOCKS`], so
+    /// and decays to zero over [`BasketTradeRefillBlocks`], so
     /// accumulate/unwind cycles cannot spend the turnover budget as band slack.
     /// Follows the fund on hotkey swap (higher used, later block).
     #[pallet::storage]
@@ -3907,13 +3975,19 @@ pub mod pallet {
         prod_or_fast!(7_200, 1)
     }
 
-    /// ITEM (Rate limit for subnet emission weight vector updates: once a week at 12 s
-    /// blocks, keyed per subnet. Root is exempt; a subnet's first call is always allowed,
-    /// and dissolution clears the key so a reused netuid starts fresh.)
+    /// ITEM (Rate limit for subnet emission weight vector updates: once per default
+    /// 360-block tempo, keyed per subnet. Root is exempt; a subnet's first call is always
+    /// allowed, and dissolution clears the key so a reused netuid starts fresh.)
     #[pallet::type_value]
-    pub fn SubnetEmissionWeightsRateLimit<T: Config>() -> u64 {
-        prod_or_fast!(50_400, 1)
+    pub fn DefaultSubnetEmissionWeightsRateLimit<T: Config>() -> u64 {
+        prod_or_fast!(360, 1)
     }
+
+    /// Blocks an owner must wait between subnet emission weight vector updates.
+    /// Set network-wide through `AdminUtils::sudo_set_subnet_emission_weights_rate_limit`.
+    #[pallet::storage]
+    pub type SubnetEmissionWeightsRateLimit<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultSubnetEmissionWeightsRateLimit<T>>;
 
     /// MAP ( netuid ) --> Current number of subnet mechanisms
     #[pallet::storage]
@@ -4005,6 +4079,100 @@ pub mod pallet {
         BoundedVec<T::AccountId, ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>>,
         ValueQuery,
     >;
+
+    /// The account authorized to submit weights for a validator on one mechanism.
+    /// The tuple key is the mechanism storage index and the validator hotkey.
+    #[pallet::storage]
+    pub type MechWeightDelegate<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUidStorageIndex>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    /// Mechanisms granted by one validator. Per-grant rows avoid rewriting a set.
+    #[pallet::storage]
+    pub type MechWeightDelegateTargets<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, MechId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
+    /// Invalidated validator hotkeys awaiting bounded removal of their grants.
+    #[pallet::storage]
+    pub type MechWeightDelegatePurgeQueue<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        Option<u16>,
+        OptionQuery,
+    >;
+
+    /// A grant being moved with its original UID to a new validator hotkey.
+    #[derive(Clone, PartialEq, Eq, Encode, Decode, TypeInfo, MaxEncodedLen, Debug)]
+    #[scale_info(skip_type_params(T))]
+    pub struct PendingMechWeightDelegateMove<T: Config> {
+        /// UID originally moved from the source hotkey.
+        pub uid: u16,
+        /// Hotkey that must still own this UID when the move drains.
+        pub destination: T::AccountId,
+        /// Authorized delegate to install, or no delegate for a revoked grant.
+        pub delegate: Option<T::AccountId>,
+    }
+
+    #[pallet::storage]
+    pub type MechWeightDelegateMoveQueue<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, MechId>,
+        ),
+        PendingMechWeightDelegateMove<T>,
+        OptionQuery,
+    >;
+
+    /// Incoming rename edges for a validator hotkey. These must be removed on deregistration.
+    #[pallet::storage]
+    pub type MechWeightDelegateMoveOrigins<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Identity, MechId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
+    /// Pending moves indexed by mechanism and origin hotkey.
+    #[pallet::storage]
+    pub type MechWeightDelegateMechanismMoves<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Identity, MechId>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
+    /// Retired mechanisms whose grants must be removed before another count change.
+    #[pallet::storage]
+    pub type MechWeightDelegateRetirementQueue<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, MechId, (), OptionQuery>;
 
     /// ITEM ( enabled ) | Whether gamma can be minted at all; a subnet also needs
     /// [`SubnetGammaEnabled`].
@@ -4422,6 +4590,8 @@ pub trait CommitmentsInterface<AccountId> {
     fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
 
     fn purge_neuron(netuid: NetUid, account: &AccountId);
+
+    fn swap_neuron(netuid: NetUid, old_hotkey: &AccountId, new_hotkey: &AccountId);
 }
 
 /// Default minimum TAO value through the middle of a `swap_basket` trade. The call costs

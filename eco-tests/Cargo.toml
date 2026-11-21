@@ -35,6 +35,7 @@ pallet-balances = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", r
 pallet-scheduler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false, features = ["std"] }
 pallet-preimage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false, features = ["std"] }
 pallet-drand = { path = "../pallets/drand", default-features = false, features = ["std"] }
+pallet-commitments = { path = "../pallets/commitments", default-features = false, features = ["std"] }
 pallet-subtensor-swap = { path = "../pallets/swap", default-features = false, features = ["std"] }
 pallet-subtensor-swap-runtime-api = { path = "../pallets/swap/runtime-api", default-features = false, features = ["std"] }
 subtensor-custom-rpc-runtime-api = { path = "../pallets/subtensor/runtime-api", default-features = false, features = ["std"] }

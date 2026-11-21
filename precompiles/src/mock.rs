@@ -72,6 +72,7 @@ frame_support::construct_runtime!(
         Evm: pallet_evm = 12,
         AdminUtils: pallet_admin_utils = 13,
         EVMChainId: pallet_evm_chain_id = 14,
+        CommitmentsPallet: pallet_commitments = 16,
     }
 );
 
@@ -448,6 +449,54 @@ impl AuthorshipInfo<AccountId> for MockAuthorshipProvider {
     }
 }
 
+pub struct TestCanCommit;
+impl pallet_commitments::CanCommit<AccountId> for TestCanCommit {
+    type Error = pallet_subtensor::Error<Runtime>;
+
+    fn validate(_: NetUid, _: &AccountId) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn validation_weight() -> Weight {
+        Weight::zero()
+    }
+}
+
+pub struct TestTempo;
+impl pallet_commitments::GetTempoInterface for TestTempo {
+    fn get_epoch_index(_: NetUid, block: u64) -> u64 {
+        block / 360
+    }
+}
+
+pub struct MaxCommitFields;
+impl frame_support::traits::Get<u32> for MaxCommitFields {
+    fn get() -> u32 {
+        16
+    }
+}
+impl TypeInfo for MaxCommitFields {
+    type Identity = Self;
+
+    fn type_info() -> scale_info::Type {
+        scale_info::Type::builder()
+            .path(scale_info::Path::new("MaxCommitFields", module_path!()))
+            .composite(scale_info::build::Fields::unit())
+    }
+}
+
+impl pallet_commitments::Config for Runtime {
+    type Currency = Balances;
+    type WeightInfo = ();
+    type CanCommit = TestCanCommit;
+    type OnMetadataCommitment = ();
+    type MaxFields = MaxCommitFields;
+    type InitialDeposit = subtensor_runtime_common::ConstTao<0>;
+    type FieldDeposit = subtensor_runtime_common::ConstTao<0>;
+    type TempoInterface = TestTempo;
+    type CommitBurn = SubtensorModule;
+}
+
 pub struct CommitmentsI;
 impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
@@ -458,6 +507,8 @@ impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     }
 
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
+
+    fn swap_neuron(_netuid: NetUid, _old_hotkey: &AccountId, _new_hotkey: &AccountId) {}
 }
 
 impl pallet_subtensor::Config for Runtime {

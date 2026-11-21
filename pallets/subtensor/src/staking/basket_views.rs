@@ -175,16 +175,31 @@ impl<T: Config> Pallet<T> {
     }
 
     /// TAO the fund's `swap_basket` turnover bucket holds at block `now` given a bucket
-    /// capacity of `budget`: the stored level plus `budget / BASKET_TRADE_REFILL_BLOCKS` per
+    /// capacity of `budget`: the stored level plus `budget / BasketTradeRefillBlocks` per
     /// block elapsed since the last refill, clamped to `budget`. A fund with no stored
     /// bucket (never traded) is full. Clamping also absorbs a NAV drop: the level can never
     /// exceed one current budget.
     pub fn basket_trade_bucket_at(hotkey: &T::AccountId, now: u64, budget: u64) -> u64 {
+        Self::basket_trade_bucket_at_with_refill(
+            hotkey,
+            now,
+            budget,
+            BasketTradeRefillBlocks::<T>::get().max(1),
+        )
+    }
+
+    /// Variant of [`Self::basket_trade_bucket_at`] using a previously read refill period.
+    pub(crate) fn basket_trade_bucket_at_with_refill(
+        hotkey: &T::AccountId,
+        now: u64,
+        budget: u64,
+        refill_blocks: u64,
+    ) -> u64 {
         match BasketTradeBucket::<T>::get(hotkey) {
             None => budget,
             Some((level, last_refill_block)) => {
                 let elapsed = now.saturating_sub(last_refill_block);
-                let refill = Self::mul_div_u64(budget, elapsed, crate::BASKET_TRADE_REFILL_BLOCKS);
+                let refill = Self::mul_div_u64(budget, elapsed, refill_blocks);
                 level.saturating_add(refill).min(budget)
             }
         }
@@ -229,7 +244,7 @@ impl<T: Config> Pallet<T> {
         BasketTradingStatus {
             enabled: BasketTradingEnabled::<T>::get(),
             frozen: BasketTradingFrozen::<T>::contains_key(hotkey),
-            refill_blocks: crate::BASKET_TRADE_REFILL_BLOCKS,
+            refill_blocks: BasketTradeRefillBlocks::<T>::get(),
             tao_available: Self::basket_trade_bucket_at(hotkey, now, budget).into(),
             budget_tao: budget.into(),
         }

@@ -13,7 +13,7 @@ use sp_runtime::{
     testing::Header,
     traits::{BlakeTwo256, ConstU16, IdentityLookup},
 };
-use subtensor_runtime_common::{ConstTao, TaoBalance};
+use subtensor_runtime_common::{ConstTao, MechId, TaoBalance, Token};
 
 pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
 pub type UncheckedExtrinsic =
@@ -102,6 +102,80 @@ impl pallet_commitments::CanCommit<u64> for TestCanCommit {
     }
 }
 
+pub struct TestCommitDeposit;
+thread_local! {
+    static COMMIT_INITIAL_DEPOSIT: std::cell::Cell<TaoBalance> = const { std::cell::Cell::new(TaoBalance::ZERO) };
+    static COMMIT_FIELD_DEPOSIT: std::cell::Cell<TaoBalance> = const { std::cell::Cell::new(TaoBalance::ZERO) };
+}
+impl TestCommitDeposit {
+    pub fn set(initial: u64, field: u64) {
+        COMMIT_INITIAL_DEPOSIT.with(|value| value.set(initial.into()));
+        COMMIT_FIELD_DEPOSIT.with(|value| value.set(field.into()));
+    }
+}
+impl Get<TaoBalance> for TestCommitDeposit {
+    fn get() -> TaoBalance {
+        COMMIT_INITIAL_DEPOSIT.with(|value| value.get())
+    }
+}
+pub struct TestCommitFieldDeposit;
+impl Get<TaoBalance> for TestCommitFieldDeposit {
+    fn get() -> TaoBalance {
+        COMMIT_FIELD_DEPOSIT.with(|value| value.get())
+    }
+}
+
+pub struct TestCommitBurn;
+thread_local! {
+    static ACCEPT_ANY_COMMIT_OWNER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static COMMIT_OWNER: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+impl TestCommitBurn {
+    pub fn set_accepts_any_owner(value: bool) {
+        ACCEPT_ANY_COMMIT_OWNER.with(|enabled| enabled.set(value));
+    }
+    pub fn set_coldkey_for_hotkey(_hotkey: u64, coldkey: u64) {
+        COMMIT_OWNER.with(|owner| owner.set(Some(coldkey)));
+    }
+}
+impl pallet_commitments::CommitBurnInterface<u64> for TestCommitBurn {
+    type Error = sp_runtime::DispatchError;
+
+    fn ensure_mechanism(_: NetUid, _: MechId) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn ensure_coldkey_hotkey(_: NetUid, coldkey: &u64, hotkey: &u64) -> Result<(), Self::Error> {
+        (COMMIT_OWNER
+            .with(|owner| owner.get())
+            .is_none_or(|owner| owner == *coldkey)
+            && (*coldkey == *hotkey || ACCEPT_ANY_COMMIT_OWNER.with(|enabled| enabled.get())))
+        .then_some(())
+        .ok_or(sp_runtime::DispatchError::Other("not owner"))
+    }
+    fn burn_enabled(_: NetUid, _: MechId, _: u8) -> bool {
+        false
+    }
+    fn current_price(
+        _: NetUid,
+        _: MechId,
+        _: u8,
+    ) -> Option<pallet_commitments::CommitBurnParameters> {
+        None
+    }
+    fn pay(
+        _: NetUid,
+        _: &u64,
+        _: &u64,
+        _: TaoBalance,
+    ) -> Result<subtensor_runtime_common::AlphaBalance, Self::Error> {
+        Ok(subtensor_runtime_common::AlphaBalance::ZERO)
+    }
+    fn bump(_: NetUid, _: MechId, _: u8) {}
+    fn payment_weight() -> Weight {
+        Weight::zero()
+    }
+}
+
 pub struct TestWeightInfo;
 impl pallet_commitments::WeightInfo for TestWeightInfo {
     fn set_commitment() -> Weight {
@@ -122,10 +196,11 @@ impl pallet_commitments::Config for Test {
     type WeightInfo = TestWeightInfo;
     type MaxFields = TestMaxFields;
     type CanCommit = TestCanCommit;
-    type FieldDeposit = ConstTao<0>;
-    type InitialDeposit = ConstTao<0>;
+    type FieldDeposit = TestCommitFieldDeposit;
+    type InitialDeposit = TestCommitDeposit;
     type TempoInterface = MockTempoInterface;
     type OnMetadataCommitment = ();
+    type CommitBurn = TestCommitBurn;
 }
 
 pub struct MockTempoInterface;

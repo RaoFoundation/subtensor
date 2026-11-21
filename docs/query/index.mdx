@@ -82,6 +82,8 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 
 | Query | Summary |
 | --- | --- |
+| [`channel-commitment`](/docs/query/channel-commitment) | One hotkey's independent channel commitment, or None when absent. |
+| [`commit-burn`](/docs/query/commit-burn) | Live decayed channel burn price and its stored configuration. |
 | [`commitment`](/docs/query/commitment) | The commitment a hotkey has published on a subnet, or None. |
 | [`commitments`](/docs/query/commitments) | Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state. |
 | [`hotkey-identities`](/docs/query/hotkey-identities) | On-chain identities for hotkeys (via each hotkey's owner coldkey), keyed by hotkey. |
@@ -204,5 +206,6 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | Query | Summary |
 | --- | --- |
 | [`bonds`](/docs/query/bonds) | Validator bond rows as `{validator_uid: {miner_uid: bond}}`, scaled to 0..1. |
+| [`mech-weight-delegate`](/docs/query/mech-weight-delegate) | The account authorized to set weights for this hotkey/mechanism, or None. |
 | [`timelocked-weight-commits`](/docs/query/timelocked-weight-commits) | Pending (still-encrypted) commit-reveal weight commits, grouped by epoch. |
 | [`weights`](/docs/query/weights) | Validator weight rows as `{validator_uid: {miner_uid: fraction}}`, each row summing to 1. |

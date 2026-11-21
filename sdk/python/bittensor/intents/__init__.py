@@ -16,6 +16,7 @@ from .coldkey import (
     SwapColdkeyAnnounced,
 )
 from .collateral import AddCollateral, SetMinCollateral
+from .commitments import SetChannelCommitment, SetCommitBurn
 from .crowdloan import (
     ContributeCrowdloan,
     CreateCrowdloan,
@@ -106,7 +107,14 @@ from .staking import (
     UnstakeAllAlpha,
 )
 from .transfer import Transfer, TransferAll
-from .weights import CommitWeights, RevealWeights, SetWeights, normalize
+from .weights import (
+    CommitWeightHash,
+    CommitWeights,
+    RevealWeights,
+    SetMechWeightDelegate,
+    SetWeights,
+    normalize,
+)
 
 __all__ = [
     "ALL",
@@ -131,6 +139,7 @@ __all__ = [
     "ClearColdkeySwapAnnouncement",
     "CloseGammaDeposit",
     "CloseLoan",
+    "CommitWeightHash",
     "CommitWeights",
     "ContributeCrowdloan",
     "CreateCrowdloan",
@@ -184,12 +193,15 @@ __all__ = [
     "ServeAxonTls",
     "ServePrometheus",
     "SetAutoStake",
+    "SetChannelCommitment",
     "SetChildkeyTake",
     "SetChildren",
+    "SetCommitBurn",
     "SetCrowdloanMaxContribution",
     "SetGammaDepositDailySpendCap",
     "SetHyperparameter",
     "SetIdentity",
+    "SetMechWeightDelegate",
     "SetMechanismCount",
     "SetMinCollateral",
     "SetPerpetualLock",

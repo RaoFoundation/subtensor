@@ -24,7 +24,17 @@ from ...settings import NETWORKS, resolve_endpoint
 from ..context import AppContext, ctx_of
 from ..globals import with_globals
 from ..output import GLYPH_FAIL, GLYPH_OK, PASTEL_RED, STYLE_SUCCESS
-from . import axon, collateral, crowd, extension, lending, timelock, upgrade, weights
+from . import (
+    axon,
+    collateral,
+    commitments,
+    crowd,
+    extension,
+    lending,
+    timelock,
+    upgrade,
+    weights,
+)
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -43,6 +53,7 @@ app.add_typer(weights.app, name="weights", rich_help_panel=PANEL_OPERATORS)
 app.add_typer(axon.app, name="axon", rich_help_panel=PANEL_OPERATORS)
 app.add_typer(collateral.app, name="collateral", rich_help_panel=PANEL_OPERATORS)
 app.add_typer(timelock.app, name="timelock", rich_help_panel=PANEL_OPERATORS)
+app.add_typer(commitments.app, name="commitments", rich_help_panel=PANEL_OPERATORS)
 
 app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
 app.add_typer(lending.app, name="lending", rich_help_panel=PANEL_STAKING)

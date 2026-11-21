@@ -7,10 +7,81 @@ use sp_core::{H256, U256};
 use sp_io::hashing::{keccak_256, sha2_256};
 use sp_runtime::Saturating;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
+use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, Token};
 use system::pallet_prelude::BlockNumberFor;
 
 const LOG_TARGET: &str = "runtime::subtensor::registration";
+
+impl<T: Config> pallet_commitments::CommitBurnInterface<T::AccountId> for Pallet<T> {
+    type Error = DispatchError;
+
+    fn ensure_mechanism(netuid: NetUid, mecid: MechId) -> Result<(), Self::Error> {
+        Self::ensure_mechanism_exists(netuid, mecid)
+    }
+
+    fn ensure_coldkey_hotkey(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> Result<(), Self::Error> {
+        ensure!(
+            Self::is_hotkey_registered_on_network(netuid, hotkey),
+            Error::<T>::HotKeyNotRegisteredInSubNet
+        );
+        ensure!(
+            Self::coldkey_owns_hotkey(coldkey, hotkey),
+            Error::<T>::NonAssociatedColdKey
+        );
+        Ok(())
+    }
+
+    fn burn_enabled(netuid: NetUid, mecid: MechId, channel: u8) -> bool {
+        Self::get_commit_burn(netuid, mecid, channel).is_some()
+    }
+
+    fn current_price(
+        netuid: NetUid,
+        mecid: MechId,
+        channel: u8,
+    ) -> Option<pallet_commitments::CommitBurnParameters> {
+        Self::get_commit_burn(netuid, mecid, channel)
+    }
+
+    fn pay(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        amount: TaoBalance,
+    ) -> Result<AlphaBalance, Self::Error> {
+        // Registration clips to keep-alive; reject that short fill before swapping.
+        ensure!(
+            Self::get_keep_alive_balance(coldkey) >= amount,
+            Error::<T>::NotEnoughBalanceToStake
+        );
+        Self::pay_registration_with_result(netuid, hotkey, coldkey, amount, TaoBalance::ZERO, false)
+            .map(|payment| payment.alpha_recycled)
+    }
+
+    fn bump(netuid: NetUid, mecid: MechId, channel: u8) {
+        let index = Self::get_mechanism_storage_index(netuid, mecid);
+        if let Some(mut config) = Self::get_commit_burn(netuid, mecid, channel) {
+            config.burn = TaoBalance::from(Self::bumped_registration_price(
+                config.burn.into(),
+                config.min_burn.into(),
+                config.max_burn.into(),
+                config.increase_mult.max(U64F64::saturating_from_num(1)),
+            ));
+            config.last_update_block = Self::get_current_block_as_u64();
+            pallet_commitments::CommitBurnConfig::<T>::insert((index, channel), config);
+        }
+    }
+
+    fn payment_weight() -> Weight {
+        // Reuse the registration envelope for the shared transfer/swap/recycle
+        // path. Reference benchmarking for the composed extrinsic remains pending.
+        <<T as Config>::WeightInfo as crate::weights::WeightInfo>::burned_register()
+    }
+}
 
 /// Allow periodic challenge refresh plus signing and propagation time.
 pub(crate) const POW_MAX_WORK_AGE_BLOCKS: u64 = 5;
@@ -804,6 +875,46 @@ impl<T: Config> Pallet<T> {
                 }
             }
         }
+    }
+
+    pub fn get_commit_burn(
+        netuid: NetUid,
+        mecid: subtensor_runtime_common::MechId,
+        channel: u8,
+    ) -> Option<pallet_commitments::CommitBurnParameters> {
+        if !Self::if_subnet_exist(netuid) || Self::ensure_mechanism_exists(netuid, mecid).is_err() {
+            return None;
+        }
+        let index = Self::get_mechanism_storage_index(netuid, mecid);
+        let mut config = pallet_commitments::CommitBurnConfig::<T>::get((index, channel))?;
+        if !config.enabled {
+            return None;
+        }
+        let current_block = Self::get_current_block_as_u64();
+        let elapsed = current_block.saturating_sub(config.last_update_block);
+        if elapsed > 0 && config.half_life > 0 {
+            let mut factor = Self::decay_factor_q32(config.half_life);
+            let mut result = 1u64 << 32;
+            let mut power = elapsed;
+            while power > 0 {
+                if power & 1 == 1 {
+                    result = Self::mul_by_q32(result, factor);
+                }
+                power >>= 1;
+                if power > 0 {
+                    factor = Self::mul_by_q32(factor, factor);
+                }
+            }
+            let factor = result;
+            config.burn = TaoBalance::from(Self::decayed_registration_price(
+                config.burn.into(),
+                config.min_burn.into(),
+                config.max_burn.into(),
+                Some(factor),
+            ));
+            config.last_update_block = current_block;
+        }
+        Some(config)
     }
 
     pub fn bump_registration_price_after_registration(netuid: NetUid) {

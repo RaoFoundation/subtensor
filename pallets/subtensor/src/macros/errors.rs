@@ -395,7 +395,7 @@ mod errors {
         BasketTradingFrozen,
         /// The trade would push more TAO through the fund than its turnover bucket holds
         /// ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over
-        /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade
+        /// [`crate::BasketTradeRefillBlocks`]). Wait for the bucket to refill or trade
         /// a smaller amount.
         BasketTurnoverBudgetExceeded,
         /// `swap_basket` origin and destination are the same subnet.
@@ -503,7 +503,9 @@ mod errors {
         GammaEmissionNotSettableOnLeasedSubnet,
         /// The hotkey has no service on this subnet.
         ServiceDoesNotExist,
-        // Appended after Release 493 so mainnet SCALE indices stay stable.
+        /// The signer is not the validator's delegate for this exact mechanism.
+        NotMechWeightDelegate,
+        // Appended after Release 494 so mainnet SCALE indices stay stable.
         /// Third-party stake onto the lending custody hotkey is rejected (§14).
         CustodyHotkey,
     }
