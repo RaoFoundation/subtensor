@@ -99,8 +99,6 @@ RAW_ONLY: dict[str, set[str]] = {
         # reveal_weights is wrapped by the RevealWeights intent for salt commits)
         "set_weights",
         "commit_weights",
-        "commit_mechanism_weights",
-        "reveal_mechanism_weights",
         "commit_crv3_mechanism_weights",
         "commit_timelocked_weights",
         "batch_set_weights",
@@ -284,12 +282,17 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_basket_daily_turnover_cap",
         "sudo_set_basket_liquidity_cap",
         "sudo_set_basket_min_trade_tao",
+        "sudo_set_basket_trade_max_slippage_bps",
+        "sudo_set_basket_trade_price_reference",
+        "sudo_set_basket_trade_refill_blocks",
         "sudo_set_basket_claim_dust",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
         # superseded by v2, which the SetSubnetEmissionWeights intent sends
         "sudo_set_subnet_emission_weights",
+        # global owner-update interval for the emission weight vector — root-only
+        "sudo_set_subnet_emission_weights_rate_limit",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
         # owner-cut setters deprecated by the emission weight vector (both always

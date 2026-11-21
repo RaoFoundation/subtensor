@@ -50,6 +50,8 @@
     "subnet-gamma-emission-whitelisted",
     "weights-rate-limit",
     "---Identity & commitments---",
+    "channel-commitment",
+    "commit-burn",
     "commitment",
     "commitments",
     "hotkey-identities",
@@ -129,6 +131,7 @@
     "token-symbols",
     "---Weights & bonds---",
     "bonds",
+    "mech-weight-delegate",
     "timelocked-weight-commits",
     "weights"
   ]

@@ -43,6 +43,7 @@ frame_support::construct_runtime!(
         Swap: pallet_subtensor_swap = 9,
         Crowdloan: pallet_crowdloan = 10,
         Proxy: pallet_subtensor_proxy = 11,
+        CommitmentsPallet: pallet_commitments = 12,
     }
 );
 
@@ -346,6 +347,18 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
+impl pallet_commitments::Config for Test {
+    type Currency = Balances;
+    type WeightInfo = ();
+    type CanCommit = super::mock::TestCanCommit;
+    type OnMetadataCommitment = ();
+    type MaxFields = super::mock::TestMaxFields;
+    type InitialDeposit = subtensor_runtime_common::ConstTao<0>;
+    type FieldDeposit = subtensor_runtime_common::ConstTao<0>;
+    type TempoInterface = super::mock::MockTempoInterface;
+    type CommitBurn = SubtensorModule;
+}
+
 pub struct CommitmentsI;
 impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
@@ -356,6 +369,8 @@ impl CommitmentsInterface<AccountId> for CommitmentsI {
     }
 
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
+
+    fn swap_neuron(_netuid: NetUid, _old_hotkey: &AccountId, _new_hotkey: &AccountId) {}
 }
 
 parameter_types! {

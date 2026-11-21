@@ -2288,9 +2288,11 @@ mod dispatches {
         /// side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker
         /// entitlements are unchanged; only the fund's composition moves.
         ///
-        /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
-        /// the TAO through the middle is taken from the fund's turnover bucket
-        /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
+        /// Guardrails: each AMM leg must fill fully within the configured
+        /// `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (5% from spot by
+        /// default; legacy strictest-of-EMAs-and-spot is available); the TAO through the
+        /// middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV,
+        /// refilling over `BasketTradeRefillBlocks`); the destination holding may not
         /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
         /// `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for
         /// the hotkey by governance. On top of the protocol band the caller may set its own
@@ -2304,7 +2306,7 @@ mod dispatches {
         /// * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root).
         /// * `min_amount_out`: Least amount the buy leg must credit to the destination
         ///   holding, in `destination_netuid` alpha (rao of TAO when the destination is
-        ///   root), after fees. `0` sets no floor; the 2% protocol band still applies.
+        ///   root), after fees. `0` sets no floor; the configured protocol band still applies.
         ///
         /// # Events
         /// * `BasketSwapped`: On success, with the amounts on both legs.
@@ -2315,7 +2317,7 @@ mod dispatches {
         /// * `NonAssociatedColdKey`: Caller does not own `hotkey`.
         /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
-        /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
+        /// * `SlippageTooHigh`: A leg could not fill within the configured price band.
         /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
         /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
         /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
@@ -3271,6 +3273,106 @@ mod dispatches {
             url: BoundedVec<u8, ConstU32<MAX_SERVICE_URL_LEN>>,
         ) -> DispatchResult {
             Self::do_set_service(origin, netuid, hotkey, url)
+        }
+
+        /// Authorizes an account to set weights for this registered hotkey on one mechanism.
+        #[pallet::call_index(170)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(5, 2))]
+        pub fn set_mech_weight_delegate(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            delegate: Option<T::AccountId>,
+        ) -> DispatchResult {
+            Self::do_set_mech_weight_delegate(origin, netuid, mecid, delegate)
+        }
+
+        /// Sets weights as the validator's authorized delegate on this mechanism only.
+        #[pallet::call_index(171)]
+        #[pallet::weight((Pallet::<T>::set_mechanism_weights_weight(*netuid, dests.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            dests: Vec<u16>,
+            weights: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            if Self::get_commit_reveal_weights_enabled(netuid) {
+                Err(Error::<T>::CommitRevealEnabled.into())
+            } else {
+                Self::do_set_mechanism_weights_for(
+                    origin,
+                    netuid,
+                    mecid,
+                    hotkey,
+                    dests,
+                    weights,
+                    version_key,
+                )
+            }
+        }
+
+        /// Commits a weight hash for the validator through its mechanism delegate.
+        #[pallet::call_index(172)]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights().saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn commit_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            commit_hash: H256,
+        ) -> DispatchResult {
+            Self::do_commit_mechanism_weights_for(origin, netuid, mecid, hotkey, commit_hash)
+        }
+
+        /// Reveals a validator's hash commit through its mechanism delegate.
+        #[pallet::call_index(173)]
+        #[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn reveal_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            uids: Vec<u16>,
+            values: Vec<u16>,
+            salt: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            Self::do_reveal_mechanism_weights_for(
+                origin,
+                netuid,
+                mecid,
+                hotkey,
+                uids,
+                values,
+                salt,
+                version_key,
+            )
+        }
+
+        /// Commits timelocked weights for a validator through its mechanism delegate.
+        #[pallet::call_index(174)]
+        #[pallet::weight((Pallet::<T>::timelock_weight_for_mode(*netuid, <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), <T as Config>::WeightInfo::commit_timelocked_mechanism_weights_null()).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+        pub fn commit_timelocked_mechanism_weights_for(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            hotkey: T::AccountId,
+            commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+            reveal_round: u64,
+            commit_reveal_version: u16,
+        ) -> DispatchResult {
+            Self::do_commit_timelocked_mechanism_weights_for(
+                origin,
+                netuid,
+                mecid,
+                hotkey,
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            )
         }
     }
 }

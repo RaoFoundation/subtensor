@@ -25,6 +25,7 @@
     "evm",
     "local-development",
     "running-a-node",
-    "timelock"
+    "timelock",
+    "channel-commitments"
   ]
 }

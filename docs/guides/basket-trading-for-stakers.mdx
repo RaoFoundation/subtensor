@@ -84,12 +84,12 @@ pay you right now.
 The validator cannot trade freely. Every trade must pass these checks, and a
 trade that fails any of them does nothing at all:
 
-- **Each leg fills within 2% of the subnet's moving prices and spot.** Two
-  moving averages anchor the band — a slow one (about a month) and a fast
-  one (about two hours, written each block from the previous block's
-  close) — so the fund cannot be sold into a crash or bought into a spike,
-  a price someone just pumped or dumped cannot be traded at, and one trade
-  cannot move a pool's price by more than about 2%.
+- **Each leg fills within the configured price band.** By default this is 2%
+  from the strictest of the subnet's slow EMA, fast EMA, and current spot price.
+  Both moving averages must exist and be nonzero, and a lagging moving average
+  can temporarily prevent an exit after a price drop. Governance may instead
+  select spot-only, which removes those EMA constraints and their protection
+  against chained same-block price manipulation.
 - **A turnover budget of 10% of NAV.** The fund holds a bucket of that size;
   each trade drains it by the TAO it moves, and it refills over one day. At
   most one budget can be spent at any instant, and about one per day.
@@ -105,9 +105,10 @@ trade that fails any of them does nothing at all:
 - **Governance can freeze a fund** or switch trading off network-wide at
   any time. A frozen fund still accrues dividends and pays claims.
 
-Together these bound what a stolen trader key working with a counterparty
-could extract at about 1.3% of the fund's NAV per day until it is frozen —
-and honest trading costs only the pool fees on the legs it runs.
+Together these limit per-slice price movement, pool accumulation, and fund
+turnover. The exact extraction bound depends on the configured band, reference,
+and caps; spot-only mode does not retain the legacy fast-EMA ceiling on chained
+legs. Honest trading still pays AMM fees and its own price impact.
 
 ## If you dislike a validator's trading
 
