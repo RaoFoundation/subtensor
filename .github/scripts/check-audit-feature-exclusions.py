@@ -23,6 +23,38 @@ def violations(tree: str) -> list[str]:
             failures.add(
                 "Wasmtime component-model is enabled; reassess RustSec exclusions"
             )
+        if name == "wasmtime" and any(
+            feature.startswith(("wasi", "component-model", "runtime"))
+            for feature in re.split(r"[,\s]+", features)
+        ):
+            failures.add(
+                "RUSTSEC-2026-0566/0569/0571: Wasmtime WASI or host-runtime "
+                "features changed; reassess the reviewed exclusions"
+            )
+        if name in {"wasmtime-wasi", "wasmtime-wasi-http", "wasi-common"}:
+            failures.add(
+                "RUSTSEC-2026-0566/0569/0571: WASI filesystem or HTTP support "
+                "entered the build graph; reassess the reviewed exclusions"
+            )
+        if name in {"libp2p-quic", "quinn", "quinn-proto", "quinn-udp"}:
+            failures.add(
+                "RUSTSEC-2026-0523/0524/0525/0538: QUIC entered the build graph; "
+                "reassess the reviewed exclusions"
+            )
+        if name == "libp2p":
+            active_features = set(re.split(r"[,\s]+", features.split(" (*")[0]))
+            if not {"dns", "noise"} <= active_features or "quic" in active_features:
+                failures.add(
+                    "RUSTSEC-2026-0487..0551: libp2p DNS/Noise/QUIC features "
+                    "changed; reassess the reviewed DNS and QUIC exclusions"
+                )
+        if name in {"hickory-proto", "hickory-resolver"}:
+            active_features = set(re.split(r"[,\s]+", features.split(" (*")[0]))
+            if version not in {(0, 24, 4), (0, 25, 2)} or "dnssec" in active_features:
+                failures.add(
+                    "RUSTSEC-2026-0487..0551: Hickory version or DNSSEC feature "
+                    "changed; reassess the reviewed DNS exclusions"
+                )
     return sorted(failures)
 
 

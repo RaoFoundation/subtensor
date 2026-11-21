@@ -62,12 +62,17 @@ jobs:
           #   pin (0.24 / 0.25). No fixed upgrade for most; 0.26.2 fixes a
           #   subset but needs an SDK networking bump. Default network is
           #   litep2p; libp2p peers authenticate via Noise, not DNSSEC trust.
+          #   The feature-exclusion check fails if these reviewed Hickory
+          #   versions, DNS/Noise features, or DNSSEC-disabled assumptions change.
           # RUSTSEC-2026-0523/0524/0525/0538: quinn-proto / quinn-udp /
           #   libp2p-quic. QUIC is not enabled in the node build; same
-          #   lockfile-only class as the rustls-webpki 0.101 ignore.
+          #   lockfile-only class as the rustls-webpki 0.101 ignore. The
+          #   feature-exclusion check fails if libp2p's QUIC feature appears.
           # RUSTSEC-2026-0566/0569/0571: wasmtime 8.0.1 WASI/http / host-export
           #   issues. Same sc-executor pin as the other wasmtime ignores; the
-          #   node never exposes WASI filesystem/http to runtime Wasm.
+          #   node never exposes WASI filesystem/http to runtime Wasm. The
+          #   feature-exclusion check fails if WASI support or host features
+          #   beyond the reviewed core-Wasm graph appear.
           # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
           # RUSTSEC-2025-0137 / RUSTSEC-2026-0220: ruint via the frontier/EVM
           #   fork tree; 0220 needs >=1.20.0, pinned below that by frontier.
