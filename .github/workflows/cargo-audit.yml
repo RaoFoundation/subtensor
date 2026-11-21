@@ -55,15 +55,27 @@ jobs:
           #   the polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
           # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
           #   libp2p networking stack.
-          # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
-          # RUSTSEC-2026-0487/0489/0490/0491/0504/0505/0511/0512/0514/0530/
-          #   0531/0532/0549/0550/0551: additional hickory-proto /
-          #   hickory-resolver DNSSEC / parser issues on the same libp2p-dns
-          #   pin (0.24 / 0.25). No fixed upgrade for most; 0.26.2 fixes a
-          #   subset but needs an SDK networking bump. Default network is
-          #   litep2p; libp2p peers authenticate via Noise, not DNSSEC trust.
-          #   The feature-exclusion check fails if these reviewed Hickory
-          #   versions, DNS/Noise features, or DNSSEC-disabled assumptions change.
+          # RUSTSEC-2026-0118: DNSSEC-only NSEC3 loop. The all-feature/all-target
+          #   graph check rejects every `dnssec*` feature, including backend-specific
+          #   ring/aws-lc-rs features; neither networking backend validates DNSSEC.
+          # RUSTSEC-2026-0119: accepted residual CPU-DoS risk in DNS message encoding
+          #   for both litep2p (default) and opt-in libp2p. This is not unreachable:
+          #   hostname resolution and message construction use Hickory. The default
+          #   litep2p backend and Noise-authenticated libp2p peers reduce network
+          #   exposure but do not protect DNS codec operations; keep host resource
+          #   limits and use trusted DNS infrastructure. No compatible fixed release
+          #   exists below 0.26.1; updating requires the pinned SDK networking stack.
+          # RUSTSEC-2026-0487/0489/0490: zone-file/text parsing panics. These paths
+          #   are not used by node DNS resolution; wire decoding does not use them.
+          # RUSTSEC-2026-0491: accepted residual memory-amplification risk when
+          #   decoding a spoofed resolver response (also applies to default litep2p).
+          #   Noise does not authenticate DNS responses. Use trusted resolvers and
+          #   host memory limits; fixed in Hickory 0.26.2, requiring an SDK bump.
+          # RUSTSEC-2026-0504/0505/0511/0512/0514/0530/0531/0532/0549/0550/0551:
+          #   DNSSEC validation issues, unreachable with every `dnssec*` feature
+          #   disabled in both backends. The feature-exclusion check pins the exact
+          #   reviewed Hickory versions and feature sets; any addition/removal,
+          #   including backend-specific DNSSEC, requires a fresh risk review.
           # RUSTSEC-2026-0523/0524/0525/0538: quinn-proto / quinn-udp /
           #   libp2p-quic. QUIC is not enabled in the node build; same
           #   lockfile-only class as the rustls-webpki 0.101 ignore. The

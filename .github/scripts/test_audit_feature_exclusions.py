@@ -40,9 +40,10 @@ class AuditExclusions(unittest.TestCase):
         tree = "\n".join(
             (
                 "libp2p v0.54.1 dns,identify,noise,tcp",
-                "hickory-proto v0.24.4 mdns,tokio",
+                "hickory-proto v0.24.4 mdns,socket2,tokio,tokio-runtime",
                 "hickory-proto v0.25.2 futures-io,std,tokio (*)",
-                "hickory-resolver v0.24.4 system-config,tokio",
+                "hickory-resolver v0.24.4 ipconfig,resolv-conf,system-config,"
+                "tokio,tokio-runtime",
                 "hickory-resolver v0.25.2 default,system-config,tokio",
             )
         )
@@ -57,7 +58,10 @@ class AuditExclusions(unittest.TestCase):
             "quinn-proto v0.11.13",
             "quinn-udp v0.5.14",
             "hickory-proto v0.24.4 dnssec,tokio",
-            "hickory-resolver v0.25.2 default,dnssec,tokio (*)",
+            "hickory-proto v0.25.2 futures-io,std,tokio,dnssec-ring",
+            "hickory-proto v0.25.2 futures-io,std,tokio,dnssec-aws-lc-rs",
+            "hickory-resolver v0.25.2 default,system-config,tokio,dnssec-ring",
+            "hickory-proto v0.25.2 futures-io,std",
             "hickory-proto v0.26.2 std,tokio",
             "hickory-resolver v0.24.3 system-config,tokio",
         ):
