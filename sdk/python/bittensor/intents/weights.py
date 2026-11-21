@@ -32,6 +32,7 @@ from .base import BuiltCall, Intent
 from .registry import register
 
 DEFAULT_COMMIT_REVEAL_VERSION = 4
+TOTAL_NULL_WEIGHT_BUDGET = 2_500
 
 NETUID_HELP = "Subnet whose miners the weights score."
 UIDS_HELP = (
@@ -226,7 +227,17 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
     # LastUpdate (like the weights themselves) is keyed by the mechanism storage
     # index; for mechid 0 that index equals the netuid.
     storage_index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
-    uid_raw, cr_raw, rate_raw, last_raw, min_raw, max_raw, mode = await asyncio.gather(
+    (
+        uid_raw,
+        cr_raw,
+        rate_raw,
+        last_raw,
+        min_raw,
+        max_raw,
+        mode,
+        mechanism_count_raw,
+        subnet_n_raw,
+    ) = await asyncio.gather(
         substrate.query(*st.Uids, [netuid, hotkey_ss58], block_hash=block_hash),
         substrate.query(*st.CommitRevealWeightsEnabled, [netuid], block_hash=block_hash),
         substrate.query(*st.WeightsSetRateLimit, [netuid], block_hash=block_hash),
@@ -234,6 +245,8 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
         substrate.query(*st.MinAllowedWeights, [netuid], block_hash=block_hash),
         substrate.query(*st.MaxWeightsLimit, [netuid], block_hash=block_hash),
         substrate.query(*st.SubnetEpochConsensus, [netuid], block_hash=block_hash),
+        substrate.query(*st.MechanismCountCurrent, [netuid], block_hash=block_hash),
+        substrate.query(*st.SubnetworkN, [netuid], block_hash=block_hash),
     )
 
     if uid_raw is None:
@@ -242,6 +255,7 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
             code=ErrorCode.NOT_REGISTERED,
         )
     uid = int(uid_raw)
+    min_allowed_weights = int(min_raw or 0)
     if mode == "Null" or mode == {"Null": None} or mode == 1:
         permits = await substrate.query(*st.ValidatorPermit, [netuid], block_hash=block_hash)
         if not isinstance(permits, (list, tuple)) or uid >= len(permits) or not permits[uid]:
@@ -249,6 +263,11 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
                 f"Only the sole Null validator permit holder may set weights on netuid {netuid}.",
                 code=ErrorCode.NOT_AUTHORIZED,
             )
+        # ValueQuery defaults to one mechanism; preserve the minimum-one cap for
+        # any inconsistent zero value rather than dividing by zero client-side.
+        mechanism_count = max(1, int(mechanism_count_raw or 1))
+        row_cap = max(1, TOTAL_NULL_WEIGHT_BUDGET // mechanism_count)
+        min_allowed_weights = min(min_allowed_weights, row_cap, int(subnet_n_raw or 0))
 
     rate_limit = int(rate_raw or 0)
     if (
@@ -271,7 +290,7 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
     return _Preflight(
         uid=uid,
         commit_reveal=bool(cr_raw),
-        min_allowed_weights=int(min_raw or 0),
+        min_allowed_weights=min_allowed_weights,
         max_weight_limit=int(max_raw) if max_raw is not None else U16_MAX,
     )
 

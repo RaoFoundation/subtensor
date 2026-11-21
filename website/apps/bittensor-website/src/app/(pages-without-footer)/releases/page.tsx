@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v495',
+    date: 'Proposed',
+    title: 'Null Consensus with up to 16 Mechanisms',
+    summary:
+      'Null subnets allow 2,500 UIDs independently of mechanism count, share a 2,500-entry ' +
+      'weight-row budget across mechanisms, and retain the existing Yuma capacity rule. Root ' +
+      'can raise the default two-mechanism maximum to the existing hard maximum of 16.',
+    href: '/releases/v495-upgrade',
+  },
+  {
     tag: 'v493',
     date: 'Upcoming',
     title: 'Hotkey Gamma Spends, Yuma Commit Limits and Release Announcements',

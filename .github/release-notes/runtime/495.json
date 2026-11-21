@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 495,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v495-upgrade/page.tsx",
+  "public_path": "/releases/v495-upgrade",
+  "audiences": ["node operators", "validators", "miners", "subnet owners", "SDK users"],
+  "summary": "V495 proposes independent Null-consensus UID capacity and up to 16 mechanisms per subnet. Null subnets allow MaxAllowedUids up to 2500 regardless of mechanism count, while Yuma retains the existing max-UIDs-times-mechanism-count limit of 256. The global mechanism maximum still defaults to two; root can raise it to the existing hard maximum of 16. A shared 2500-entry Null weight-row budget is divided by the current mechanism count, rounded down with a minimum of one entry, and applies to direct, delegated, commit-reveal, timelocked-reveal, and batch weight writes. The effective minimum non-self Null row length is bounded by that cap and the registered UID count without rewriting the stored MinAllowedWeights setting; Yuma retains its existing minimum-row rule. No new sudo storage, cap setter, event, or AdminUtils call index is added, and existing mechanism storage layout and legacy oversized rows remain unchanged. Runtime spec version 495 and unchanged transaction version 2 require signers and indexers to refresh metadata. This page describes a proposed upgrade, not an activation or deployment."
+}

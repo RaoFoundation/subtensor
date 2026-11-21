@@ -113,3 +113,59 @@ async def test_null_nonpermit_rejected_before_composing_or_encrypting(monkeypatc
     with pytest.raises(ChainError) as error:
         await SetWeights(netuid=1, weights={0: 1}, raw_u16=True).build(substrate, dev_wallet())
     assert error.value.code == ErrorCode.NOT_AUTHORIZED
+
+
+# The SDK must not reject a valid capped Null row locally when the stored minimum
+# exceeds the cap, completely blocking validator weight submission.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+@pytest.mark.asyncio
+async def test_null_effective_minimum_allows_capped_row_and_rejects_shorter_row():
+    from bittensor.intents import SetWeights
+    from bittensor.result import ChainError
+    from tests.harness.fake_substrate import FakeSubstrate
+    from tests.harness.samples import dev_wallet
+
+    substrate = FakeSubstrate()
+    substrate.seed_default("SubtensorModule", "SubnetEpochConsensus", "Null")
+    substrate.seed_default("SubtensorModule", "ValidatorPermit", [True])
+    substrate.seed_default("SubtensorModule", "MinAllowedWeights", 1_024)
+    substrate.seed_default("SubtensorModule", "MechanismCountCurrent", 16)
+    substrate.seed_default("SubtensorModule", "SubnetworkN", 256)
+
+    built = await SetWeights(netuid=1, uids=list(range(156)), weights=[1] * 156).build(
+        substrate, dev_wallet()
+    )
+    assert built.function == "set_mechanism_weights"
+    assert built.params["dests"] == list(range(156))
+
+    with pytest.raises(ChainError, match="at least 156 weights"):
+        await SetWeights(netuid=1, uids=list(range(155)), weights=[1] * 155).build(
+            substrate, dev_wallet()
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "mechanisms", "subnet_n", "expected_minimum"),
+    [
+        ("Null", 1, 100, 100),
+        ("Null", 16, 256, 156),
+        ("Yuma", 16, 100, 1_024),
+    ],
+)
+async def test_weight_preflight_effective_minimum_matches_runtime(
+    mode, mechanisms, subnet_n, expected_minimum
+):
+    from bittensor.intents.weights import _preflight
+    from tests.harness.fake_substrate import FakeSubstrate
+    from tests.harness.samples import dev_wallet
+
+    substrate = FakeSubstrate()
+    substrate.seed_default("SubtensorModule", "SubnetEpochConsensus", mode)
+    substrate.seed_default("SubtensorModule", "ValidatorPermit", [True])
+    substrate.seed_default("SubtensorModule", "MinAllowedWeights", 1_024)
+    substrate.seed_default("SubtensorModule", "MechanismCountCurrent", mechanisms)
+    substrate.seed_default("SubtensorModule", "SubnetworkN", subnet_n)
+
+    preflight = await _preflight(substrate, dev_wallet().hotkey.ss58_address, 1, 0)
+    assert preflight.min_allowed_weights == expected_minimum

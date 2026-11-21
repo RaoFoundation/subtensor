@@ -556,6 +556,107 @@ fn yuma_to_null_switch_does_not_clamp_for_mechanism_count() {
     });
 }
 
+// A configured MinAllowedWeights above a Null subnet's derived row cap must not
+// make every valid non-self row impossible and block validator weight setting.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn null_min_allowed_weights_cannot_exceed_effective_row_capacity() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = setup_null_subnet(16, 256);
+        SubtensorModule::set_min_allowed_weights(netuid, 1_024);
+
+        let (uids, values) = row(156);
+        assert_ok!(SubtensorModule::set_weights(
+            RuntimeOrigin::signed(U256::zero()),
+            netuid,
+            uids,
+            values,
+            0,
+        ));
+        let (uids, values) = row(155);
+        assert_noop!(
+            SubtensorModule::set_weights(
+                RuntimeOrigin::signed(U256::zero()),
+                netuid,
+                uids,
+                values,
+                0,
+            ),
+            Error::<Test>::WeightVecLengthIsLow
+        );
+        assert_eq!(SubtensorModule::get_min_allowed_weights(netuid), 1_024);
+    });
+}
+
+#[test]
+fn null_effective_minimum_tracks_configuration_without_storage_migration() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = setup_null_subnet(1, 256);
+        SubtensorModule::set_min_allowed_weights(netuid, 200);
+
+        let (uids, values) = row(199);
+        assert_noop!(
+            SubtensorModule::set_weights(
+                RuntimeOrigin::signed(U256::zero()),
+                netuid,
+                uids,
+                values,
+                0,
+            ),
+            Error::<Test>::WeightVecLengthIsLow
+        );
+
+        assert_ok!(SubtensorModule::do_set_max_mechanism_count(16.into()));
+        assert_ok!(SubtensorModule::do_set_mechanism_count(netuid, 16.into()));
+        let (uids, values) = row(156);
+        assert_ok!(SubtensorModule::set_weights(
+            RuntimeOrigin::signed(U256::zero()),
+            netuid,
+            uids,
+            values,
+            0,
+        ));
+
+        SubtensorModule::set_min_allowed_weights(netuid, 1_024);
+        assert_ok!(SubtensorModule::do_set_mechanism_count(netuid, 1.into()));
+        let (uids, values) = row(199);
+        assert_noop!(
+            SubtensorModule::set_weights(
+                RuntimeOrigin::signed(U256::zero()),
+                netuid,
+                uids,
+                values,
+                0,
+            ),
+            Error::<Test>::WeightVecLengthIsLow
+        );
+
+        assert_ok!(SubtensorModule::do_set_epoch_consensus(
+            netuid,
+            EpochConsensus::Yuma
+        ));
+        assert_ok!(SubtensorModule::set_weights(
+            RuntimeOrigin::signed(U256::zero()),
+            netuid,
+            row(256).0,
+            row(256).1,
+            0,
+        ));
+        let (uids, values) = row(199);
+        assert_noop!(
+            SubtensorModule::set_weights(
+                RuntimeOrigin::signed(U256::zero()),
+                netuid,
+                uids,
+                values,
+                0,
+            ),
+            Error::<Test>::WeightVecLengthIsLow
+        );
+        assert_eq!(SubtensorModule::get_min_allowed_weights(netuid), 1_024);
+    });
+}
+
 #[test]
 fn null_max_mechanism_count_defaults_to_two_and_allows_sixteen() {
     new_test_ext(1).execute_with(|| {

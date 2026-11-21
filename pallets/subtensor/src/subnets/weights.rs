@@ -1541,7 +1541,12 @@ impl<T: Config> Pallet<T> {
     /// Returns True if the uids and weights are have a valid length for uid on network.
     pub fn check_length(netuid: NetUid, uid: u16, uids: &[u16], weights: &[u16]) -> bool {
         let subnet_n: usize = Self::get_subnetwork_n(netuid) as usize;
-        let min_allowed_length: usize = Self::get_min_allowed_weights(netuid) as usize;
+        let mut min_allowed_length: usize = Self::get_min_allowed_weights(netuid) as usize;
+        // Preserve a feasible minimum when a Null mechanism-count change reduces the row cap.
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            min_allowed_length =
+                min_allowed_length.min(usize::from(Self::max_null_weights_per_row(netuid)));
+        }
         let min_allowed: usize = {
             if subnet_n < min_allowed_length {
                 subnet_n

@@ -247,7 +247,10 @@ validators target one via the `mechid` field on
   allows `max_allowed_uids ≤ 2,500` independently of mechanism count.
 - Null weight rows are limited to `max(1, floor(2500 / mechanism_count))`,
   preserving the current full-row limit with one mechanism. The budget is fixed,
-  not sudo-settable. Yuma has no additional row cap.
+  not sudo-settable. For non-self Null rows, the effective minimum length is also
+  bounded by this cap and the registered UID count, without rewriting the stored
+  `min_allowed_weights` setting. Yuma has no additional row cap and keeps its
+  existing minimum-row rule.
 - The emission split is a vector of u16 weights summing to 65,535 (e.g.
   `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
   mechanism count resets the split to even.
