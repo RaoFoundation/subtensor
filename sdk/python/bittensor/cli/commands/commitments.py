@@ -108,13 +108,16 @@ def show(
         )
 
     result, revealed = app_ctx.run(_records)
-    active_fields = asdict(result) if is_dataclass(result) else result
-    if active_fields is not None:
-        active_fields.pop("revealed", None)
-        active_fields.pop("has_active", None)
-        if result is not None and not getattr(result, "has_active", False):
-            active_fields = None
-    app_ctx.output.detail("active channel commitment", active_fields or {})
+    combined_fields = asdict(result) if is_dataclass(result) else dict(result or {})
+    if app_ctx.output.json_mode:
+        # Keep the established single-document response; consumers must not
+        # have to parse one JSON object per human-readable card.
+        app_ctx.output.detail("channel commitment", combined_fields)
+        return
+    active_fields = dict(combined_fields)
+    has_active = active_fields.pop("has_active", False)
+    active_fields.pop("revealed", None)
+    app_ctx.output.detail("active channel commitment", active_fields if has_active else {})
     app_ctx.output.detail(
         "revealed channel commitment",
         {str(index): record for index, record in enumerate(revealed or [])},

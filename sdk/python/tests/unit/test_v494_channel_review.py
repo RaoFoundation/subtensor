@@ -1,6 +1,7 @@
 """Focused coverage for the v494 channel-read review repair."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -66,9 +67,10 @@ def test_commitments_show_labels_active_and_revealed_records(monkeypatch):
             work(SimpleNamespace(read=lambda name, **params: _channel_read(name, params)))
         ),
         output=SimpleNamespace(
+            json_mode=False,
             detail=lambda title, fields, json_fields=None: details.append(
                 (title, fields, json_fields)
-            )
+            ),
         ),
     )
     monkeypatch.setattr("bittensor.cli.commands.commitments.ctx_of", lambda _: ctx)
@@ -103,7 +105,7 @@ def test_commitments_show_labels_active_and_revealed_records(monkeypatch):
     ]
 
 
-async def _channel_read(name, params):
+async def _channel_read(name, params, active=True):
     assert params == {"netuid": 1, "mechid": 2, "channel": 7, "hotkey_ss58": ALICE_HOT}
     if name == "channel_commitment":
         return ChannelCommitment(
@@ -112,10 +114,50 @@ async def _channel_read(name, params):
             data="active",
             fields=[],
             revealed=[{"data": "revealed", "block": 321}],
-            has_active=True,
+            has_active=active,
         )
     assert name == "revealed_channel_commitment"
     return [{"data": "revealed", "block": 321}]
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_commitments_show_json_is_one_document_with_revealed_history(monkeypatch, active):
+    from bittensor.cli.output import Output
+
+    output = Output(json_mode=True, quiet=True)
+    ctx = SimpleNamespace(
+        resolve_address=lambda *_: ALICE_HOT,
+        run=lambda work: asyncio.run(
+            work(
+                SimpleNamespace(
+                    read=lambda name, **params: _channel_read(name, params, active=active)
+                )
+            )
+        ),
+        output=output,
+    )
+    monkeypatch.setattr("bittensor.cli.commands.commitments.ctx_of", lambda _: ctx)
+    result = CliRunner().invoke(
+        app,
+        [
+            "commitments",
+            "show",
+            "--netuid",
+            "1",
+            "--mechid",
+            "2",
+            "--channel",
+            "7",
+            "--hotkey",
+            ALICE_HOT,
+            "--json",
+        ],
+        obj=SimpleNamespace(output=output),
+    )
+    assert result.exit_code == 0, result.output
+    record = json.loads(result.output)
+    assert record["has_active"] is active
+    assert record["revealed"] == [{"data": "revealed", "block": 321}]
 
 
 def test_revealed_channel_storage_descriptor_covers_the_new_read():
