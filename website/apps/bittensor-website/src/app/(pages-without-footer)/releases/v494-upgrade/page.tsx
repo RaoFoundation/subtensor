@@ -93,17 +93,17 @@ btcli commitments commit --netuid 1 --mechid 1 --channel 7 \\
 btcli commitments price --netuid 1 --mechid 1 --channel 7
 btcli commitments show --netuid 1 --mechid 1 --channel 7 --hotkey HOTKEY
 
-# The subnet owner configures each channel independently.
-btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
-  --name enabled --value true -w subnet_owner
-btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
-  --name min_burn --value 0.1 -w subnet_owner
+# The subnet owner configures each channel independently. Set max before min.
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
   --name max_burn --value 10 -w subnet_owner
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
+  --name min_burn --value 0.1 -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
   --name half_life --value 360 -w subnet_owner
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
-  --name increase_mult --value 1.26 -w subnet_owner`} />
+  --name increase_mult --value 1.26 -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \\
+  --name enabled --value true -w subnet_owner`} />
           <Code language='python' code={`import bittensor as bt
 
 # Use the SDK release carrying v494 metadata.

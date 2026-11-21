@@ -442,9 +442,9 @@ pub mod pallet {
     pub type ChannelNeuronPurgeQueue<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Twox64Concat, T::AccountId, (), OptionQuery>;
 
-    /// Per-block cap on mechanism-retirement rows. Ordinary channel usage is limited
-    /// to `MaxSpace / 100` writes per neuron per tempo; a network that reaches the
-    /// cap across every neuron must still have a finite administrative drain cost.
+    /// Per-block cap on mechanism-retirement rows. Each channel allows at most
+    /// `MaxSpace / 100` writes per neuron per tempo. The per-block cap bounds the
+    /// drain work even when many channels have retained state.
     pub const MAX_CHANNEL_PURGE_ROWS_PER_BLOCK: u32 = 256;
 
     /// Last `TimelockedIndex` entry visited by a reveal pass that hit the per-block

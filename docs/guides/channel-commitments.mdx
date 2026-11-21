@@ -26,6 +26,11 @@ move or release channel state through bounded idle-work queues; new writes wait
 while a hotkey's migration is pending. Burn configuration and receipt sequences
 are scoped to the channel, not the hotkey, and are not migrated.
 
+The write budget resets each subnet epoch for each hotkey, mechanism, and channel.
+A hotkey can retain state on all 256 channels of a mechanism, with up to
+10 revealed entries per channel. Storage deposits are zero by default.
+Retained records add to the cleanup work when a hotkey or mechanism is retired.
+
 The SDK constructs the same `CommitmentInfo` shape used by `set_commitment`,
 including length-tagged plaintext fields and drand timelocked fields. Pass
 `max_burn_tao` as an exact decimal TAO amount: the call fails if the current
