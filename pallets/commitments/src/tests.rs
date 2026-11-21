@@ -36,6 +36,29 @@ fn drain_channel_queues() {
     Pallet::<Test>::drain_channel_purges(&mut meter);
 }
 
+#[test]
+fn channel_commit_rejects_bond_reset_flag() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = 123;
+        let info = CommitmentInfo::<TestMaxFields> {
+            fields: BoundedVec::try_from(vec![Data::ResetBondsFlag]).expect("one field fits"),
+        };
+        assert_noop!(
+            Pallet::<Test>::set_commitment_to(
+                RuntimeOrigin::signed(hotkey),
+                netuid,
+                MechId::MAIN,
+                7,
+                hotkey,
+                Box::new(info),
+                TaoBalance::ZERO,
+            ),
+            Error::<Test>::AccountNotAllowedCommit
+        );
+    });
+}
+
 fn purge_netuid_with_meter(netuid: NetUid, limit: Weight) -> bool {
     let mut weight_meter = frame_support::weights::WeightMeter::with_limit(limit);
     Pallet::<Test>::purge_netuid(netuid, &mut weight_meter)

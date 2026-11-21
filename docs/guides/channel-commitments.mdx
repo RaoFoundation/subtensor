@@ -112,6 +112,11 @@ The subnet owner coldkey (or root) configures five parameters independently
 for each mechanism and channel. Updates respect the subnet-owner rate-limit
 and admin-window rules.
 
+For a new channel, set the ceiling before setting a positive floor. Enable
+burn after configuring the price. On mechanism 0, channel 0, enabling burn
+also disables new writes through the legacy `Commitments.set_commitment` call.
+Switch publishers on that target to `Commitments.set_commitment_to` first.
+
 | Parameter | Meaning | SDK/CLI value |
 | --- | --- | --- |
 | `enabled` | Whether paid burn applies | `true` or `false` |
@@ -122,15 +127,15 @@ and admin-window rules.
 
 ```bash
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
-  --name enabled --value true -w subnet_owner
+  --name max_burn --value 10 -w subnet_owner
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
   --name min_burn --value 0.1 -w subnet_owner
-btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
-  --name max_burn --value 10 -w subnet_owner
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
   --name half_life --value 360 -w subnet_owner
 btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
   --name increase_mult --value 1.26 -w subnet_owner
+btcli commitments burn-config --netuid 1 --mechid 1 --channel 7 \
+  --name enabled --value true -w subnet_owner
 ```
 
 Disabling burn makes subsequent channel commitments free apart from fees; it

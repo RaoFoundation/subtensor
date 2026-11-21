@@ -60,6 +60,76 @@ fn configure_burn(netuid: NetUid, mecid: MechId, channel: u8, enabled: bool) {
 }
 
 #[test]
+fn paid_commit_keeps_the_registration_drain_ratio() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(11);
+        let coldkey = U256::from(12);
+        add_network(netuid, 100, 0);
+        setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, TaoBalance::from(1_000_000u64));
+        let position = MinerCollateralState {
+            locked: AlphaBalance::from(100u64),
+            drain_ratio: U64F64::from_num(0.25),
+            min_locked: AlphaBalance::ZERO,
+            earned: AlphaBalance::ZERO,
+        };
+        MinerCollateral::<Test>::insert((netuid, hotkey, coldkey), position.clone());
+        CollateralDrainRatio::<Test>::insert(netuid, U64F64::from_num(0.5));
+        configure_burn(netuid, MechId::MAIN, 0, true);
+
+        assert_ok!(CommitmentsPallet::<Test>::set_commitment_to(
+            RuntimeOrigin::signed(coldkey),
+            netuid,
+            MechId::MAIN,
+            0,
+            hotkey,
+            Box::new(raw_info()),
+            TaoBalance::from(1_000u64),
+        ));
+        assert_eq!(
+            MinerCollateral::<Test>::get((netuid, hotkey, coldkey)),
+            Some(position)
+        );
+    });
+}
+
+#[test]
+fn replacing_a_neuron_purges_a_stale_grant_at_the_new_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let old_hotkey = U256::from(11);
+        let new_hotkey = U256::from(12);
+        let delegate = U256::from(13);
+        add_network(netuid, 100, 0);
+        register_ok_neuron(netuid, old_hotkey, U256::from(14), 0);
+        let uid = Uids::<Test>::get(netuid, old_hotkey).expect("old hotkey registered");
+        let index = SubtensorModule::get_mechanism_storage_index(netuid, MechId::MAIN);
+        MechWeightDelegate::<Test>::insert((index, new_hotkey), delegate);
+        MechWeightDelegateTargets::<Test>::insert((netuid, new_hotkey, MechId::MAIN), ());
+
+        assert!(SubtensorModule::replace_neuron(netuid, uid, &new_hotkey, 1));
+        assert_eq!(Uids::<Test>::get(netuid, new_hotkey), Some(uid));
+        assert!(SubtensorModule::mech_weight_delegate_lifecycle_pending(
+            netuid,
+            &new_hotkey
+        ));
+        SubtensorModule::drain_mech_weight_delegate_lifecycle(
+            &mut frame_support::weights::WeightMeter::new(),
+        );
+        assert!(!MechWeightDelegate::<Test>::contains_key((
+            index, new_hotkey
+        )));
+        assert!(!MechWeightDelegateTargets::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            MechId::MAIN
+        )));
+    });
+}
+
+#[test]
 fn channel_commit_refunds_payment_weight_only_on_the_free_path() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
