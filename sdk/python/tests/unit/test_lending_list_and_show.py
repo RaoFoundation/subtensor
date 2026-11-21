@@ -302,7 +302,7 @@ def test_past_expiry_and_band_deferral_wording():
     assert "awaiting settlement" in _format_expiry_field(position, head=200)
     assert _format_runway_field(position, head=200) == "past expiry"
     assert "0d" not in _format_runway_field(position, head=200)
-    # Outside band: terminal policy (a) — no unbounded force at max deferral.
+    # Outside band: force-at-market after max deferral window.
     explained = _explain_band_deferral(
         "Lending::SettlementPriceOutsideEmaBand",
         spot_vs_ema_pct=22.5,
@@ -313,10 +313,8 @@ def test_past_expiry_and_band_deferral_wording():
     assert "22.5%" in explained
     assert "±15%" in explained
     assert "retries at block 350" in explained
-    assert "no unbounded AMM force" in explained
-    assert "50400" in explained
-    assert "band stops applying" not in explained
-    assert "forced settle at block" not in explained
+    assert "force-at-market after ~block 50400" in explained
+    assert "no unbounded AMM force" not in explained
     # U6: spot already back inside → settle at next retry.
     inside = _explain_band_deferral(
         "Lending::SettlementPriceOutsideEmaBand",
@@ -326,7 +324,7 @@ def test_past_expiry_and_band_deferral_wording():
         force_at=50_400,
     )
     assert inside == "spot now inside band; settles at next retry block 420"
-    # Past max-deferral window: still no unbounded force; same freeze wording.
+    # Past max-deferral window: still names the force-at-market bound.
     after = _explain_band_deferral(
         "Lending::SettlementPriceOutsideEmaBand",
         spot_vs_ema_pct=40.0,
@@ -334,8 +332,8 @@ def test_past_expiry_and_band_deferral_wording():
         retry_at=50_500,
         force_at=50_400,
     )
-    assert "no unbounded AMM force" in after
+    assert "force-at-market after ~block 50400" in after
     assert "retries at block 50500" in after
-    assert "band no longer applies" not in after
     assert "7 days" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]
     assert "50_400" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]
+    assert "force-settles at market" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]

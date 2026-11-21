@@ -238,9 +238,10 @@ def _explain_band_deferral(
 ) -> str:
     """Turn ``SettlementPriceOutsideEmaBand`` into a readable deferral line (U2/U5/U6).
 
-    ``force_at`` is retained for ops visibility (BandDeferralSince +
-    max_settlement_deferral) but does **not** unlock an unbounded AMM settle —
-    realized expiry_max_slippage_bps still applies; increases/rolls stay frozen.
+    ``force_at`` is BandDeferralSince + max_settlement_deferral. After that
+    block the next expiry pass force-settles at market (skips the per-trade
+    band; still paced by ProtocolForcedImpact). Increases/rolls stay frozen
+    until settled.
     """
     if "SettlementPriceOutsideEmaBand" not in reason:
         return reason
@@ -255,8 +256,8 @@ def _explain_band_deferral(
     parts = [head, f"retries at block {retry_at}"]
     if force_at is not None:
         parts.append(
-            f"deferral marked since max window ending ~block {int(force_at)}; "
-            "no unbounded AMM force — close/repay when inside the band, or wait"
+            f"force-at-market after ~block {int(force_at)} "
+            "(skips per-trade band; impact cap still paces)"
         )
     return "; ".join(parts)
 

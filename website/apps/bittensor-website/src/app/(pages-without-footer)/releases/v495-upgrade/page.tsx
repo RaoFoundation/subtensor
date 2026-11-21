@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: 'The V495 Upgrade — Lift Lending (Dark Launch)',
   description:
     'V495 adds Lift lending as a dark-launch pallet: escrowed short and long loans, ' +
-    'root-settable LiftParams, realized expiry slippage bounds, and a continuous thin-depth blend.',
+    'root-settable LiftParams, force-at-market after max deferral, ProxyType::Lending, and a continuous thin-depth blend.',
   alternates: {canonical: '/releases/v495-upgrade'},
 };
 
@@ -19,7 +19,7 @@ export default function Page() {
         <section className={styles.title_section}>
           <h1 className={styles.paper_title}>The V495 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Lift lending · dark launch · expiry settlement bounds · thin-depth blend
+            Lift lending · dark launch · bounded unwind · ProxyType::Lending · thin-depth blend
           </p>
         </section>
 
@@ -66,15 +66,33 @@ export default function Page() {
             Protocol-forced AMM settles (expiry, forfeit buybacks, paced interest sells) check
             realized cumulative TAO against the lending EMA within{' '}
             <code>expiry_max_slippage_bps</code> (default 2%). A breach rolls the settle back and
-            defers. There is no unbounded AMM escape after <code>max_settlement_deferral</code>:
-            positions stay frozen for increases and rolls until execution is inside the band or the
-            owner closes. Wallet repay remains unconstrained; AMM close stays under the same
-            realized bound.
+            defers. After <code>max_settlement_deferral</code> (default ~7 days from the first band
+            deferral) the next expiry pass <strong>force-settles at market</strong>, bypassing that
+            per-trade band, but still subject to the per-subnet per-block{' '}
+            <code>ProtocolForcedImpact</code> cap — surplus claims wait for later blocks. Increases
+            and rolls stay frozen until settled or the owner closes. Wallet repay remains
+            unconstrained. With opens and rolls disabled, every position closes within the 30-day
+            term plus max deferral plus a few drain blocks.
           </p>
           <p>
             Per-block expiry work splits the settle budget fairly between scheduled Expiry and
             ExpiryRetry so retries cannot starve under a sustained backlog. Settlement age is
-            measured from <code>expires_at</code>, not from the first attempt block.
+            measured from <code>expires_at</code>, not from the first attempt block. Shorts that
+            cannot buy back principal forfeit to the escrow/collateral limit (same interest-cap
+            forfeit path).
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.subtitle}>ProxyType::Lending</h2>
+          <p>
+            Spec 495 appends <code>ProxyType::Lending</code> at index <strong>23</strong> so existing
+            proxy indices stay stable. A Lending delegate may call only Lift lending user
+            extrinsics (<code>open</code>, <code>open_exact</code>, <code>close</code>,{' '}
+            <code>repay</code>, <code>roll</code>, <code>open_long_and_sell</code>,{' '}
+            <code>warm_reference</code>) and Utility batch wrappers of those calls. Transfers and
+            staking stay denied. <code>Any</code> still covers lending; <code>Staking</code> and{' '}
+            <code>NonTransfer</code> do not.
           </p>
         </section>
 

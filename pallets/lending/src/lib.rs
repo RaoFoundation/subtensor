@@ -479,7 +479,7 @@ pub enum Side {
 pub const MAX_THIN_BLEND_TAO: u64 = 1_000_000_000_000_000;
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("adb56e3eb13f43d9")]
+#[freeze_struct("253a88d4340ca840")]
 #[derive(
     Encode,
     Decode,
@@ -545,12 +545,13 @@ pub struct LiftParams {
     pub max_loan_duration: u64,
     /// Ops window for settlement age (default 50_400 ≈ 7 days), measured from
     /// the position's `expires_at` (stamped into [`BandDeferralSince`] on the
-    /// first band deferral — not from the first attempt block). Does **not**
-    /// unlock an unbounded AMM settle — realized
-    /// [`LiftParams::expiry_max_slippage_bps`] still applies forever while
-    /// deferred; increases / rolls stay frozen until execution is inside the
-    /// band or the owner closes. With the per-block expiry/retry budget split,
-    /// a deferred claim is attempted at least once by
+    /// first band deferral — not from the first attempt block). After this
+    /// window the next expiry/retry pass **force-settles at market**, bypassing
+    /// [`LiftParams::expiry_max_slippage_bps`], but still subject to the
+    /// per-subnet per-block [`ProtocolForcedImpact`] cap (surplus claims wait
+    /// for later blocks). Increases / rolls stay frozen until settled or the
+    /// owner closes. With the per-block expiry/retry budget split, a deferred
+    /// claim is attempted at least once by
     /// `expires_at + max_settlement_deferral + drain`, where drain is the
     /// worst-case queue catch-up under the retry share of
     /// [`LiftParams::max_expiry_settlements_per_block`].
@@ -572,14 +573,15 @@ pub struct LiftParams {
     /// must be `≥ EMA·α·(1−band)`. Checked after every internal chunk; a
     /// breach rolls the whole settle back and defers. Same bound gates
     /// further expiry settles once per-subnet per-block cumulative impact
-    /// exceeds the band. There is **no** unbounded escape after
-    /// [`Self::max_settlement_deferral`] — the position stays frozen
-    /// (increases / rolls blocked; interest keeps accruing past `expires_at`
-    /// up to remaining collateral while deferred, so freezing is never a
-    /// free option) until execution is inside the band or the owner closes
-    /// (wallet repay unconstrained; AMM close under the same realized bound).
-    /// Only trades needed to make the pool whole are band-gated; leftover
-    /// long collateral is returned as staked alpha, not force-sold.
+    /// exceeds the band. After [`Self::max_settlement_deferral`] the next
+    /// expiry pass force-settles at market (this per-trade band is skipped)
+    /// but the cumulative impact cap still paces how much can clear per
+    /// block. Increases / rolls stay frozen until settled; interest keeps
+    /// accruing past `expires_at` up to remaining collateral while deferred
+    /// so freezing is never a free option. Owner wallet repay is
+    /// unconstrained; AMM close under deferral uses the same realized bound
+    /// until the force window. Only trades needed to make the pool whole are
+    /// band-gated; leftover long collateral is returned as staked alpha.
     pub expiry_max_slippage_bps: u16,
     /// Width of the continuous thin→full blend on G_ref (default 3000 τ).
     ///
@@ -1376,8 +1378,9 @@ pub mod pallet {
     /// Age anchor for a band / realized-slippage deferral: the position's
     /// `expires_at` (not the first-attempt wall-clock). Cleared with the
     /// position. While set: increases and rolls are refused
-    /// ([`Error::SettlementFrozen`]); there is no unbounded AMM force after
-    /// [`LiftParams::max_settlement_deferral`].
+    /// ([`Error::SettlementFrozen`]). After
+    /// [`LiftParams::max_settlement_deferral`] the next expiry pass
+    /// force-settles at market (still paced by [`ProtocolForcedImpact`]).
     #[pallet::storage]
     pub type BandDeferralSince<T: Config> = StorageDoubleMap<
         _,
@@ -1722,8 +1725,10 @@ pub mod pallet {
         /// per-block cumulative impact) outside
         /// [`LiftParams::expiry_max_slippage_bps`] of the lending EMA, or the
         /// wider §5.4 spot band on interest-exhaustion forfeit pre-checks.
-        /// There is no unbounded AMM escape after max deferral — collectors
-        /// keep deferring via `SettlementDeferred` / `InterestDeferred`.
+        /// The claim is deferred and retried. After
+        /// [`LiftParams::max_settlement_deferral`] the next pass force-settles
+        /// at market (skips the per-trade band); this error then means only
+        /// the cumulative impact cap blocked the settle for this block.
         SettlementPriceOutsideEmaBand,
         /// Principal, principal_part, or borrow amount is zero.
         PrincipalZero,
@@ -2336,16 +2341,30 @@ pub mod pallet {
             spot >= floor && spot <= ceiling
         }
 
+        /// True once [`BandDeferralSince`] + [`LiftParams::max_settlement_deferral`]
+        /// has elapsed. The next protocol-forced settle then runs at market
+        /// (skips [`LiftParams::expiry_max_slippage_bps`] and the EMA spot
+        /// band) but still respects per-block [`ProtocolForcedImpact`].
+        fn past_max_settlement_deferral(owner: &T::AccountId, netuid: NetUid) -> bool {
+            let Some(since) = BandDeferralSince::<T>::get(owner, netuid) else {
+                return false;
+            };
+            let now = frame_system::Pallet::<T>::block_number();
+            now >= since.saturating_add(Self::max_settlement_deferral())
+        }
+
         /// Gate permissionless interest-exhaustion forfeit on the §5.4 EMA
-        /// spot band. No unbounded force after max deferral — collectors keep
-        /// deferring. Realized chunk checks on the forfeit AMM itself use
-        /// [`Self::ensure_realized_buy_within_slippage`] /
-        /// [`Self::ensure_realized_sell_within_slippage`].
+        /// spot band. After max deferral the gate lifts so collectors can
+        /// force-settle at market (realized chunk checks are also skipped on
+        /// that path; [`ProtocolForcedImpact`] still paces the block).
         fn ensure_settlement_ema_band(
-            _owner: &T::AccountId,
+            owner: &T::AccountId,
             netuid: NetUid,
             _now: BlockNumberFor<T>,
         ) -> DispatchResult {
+            if Self::past_max_settlement_deferral(owner, netuid) {
+                return Ok(());
+            }
             ensure!(
                 Self::spot_within_settlement_band(netuid),
                 Error::<T>::SettlementPriceOutsideEmaBand
@@ -5385,13 +5404,14 @@ pub mod pallet {
                             frame_system::Pallet::<T>::block_number(),
                         )?;
                     }
-                    // Permissionless forfeit always uses realized slippage;
-                    // expiry path also passes enforce_realized_slippage=true.
+                    // Permissionless / expiry forfeit uses realized slippage
+                    // unless past max deferral (force at market).
+                    let force_market = Self::past_max_settlement_deferral(owner, netuid);
                     Self::forfeit(
                         owner,
                         netuid,
                         position,
-                        enforce_realized_slippage || permissionless,
+                        !force_market && (enforce_realized_slippage || permissionless),
                     )?;
                 }
             }
@@ -7598,14 +7618,17 @@ pub mod pallet {
         ///   [`LiftParams::expiry_max_slippage_bps`] on every AMM chunk
         ///   needed to make the pool whole (shorts: TAO spent buying P;
         ///   longs: TAO received from selling A and minimal C). Breach →
-        ///   transactional rollback + defer. **No** unbounded escape after
-        ///   max deferral.
-        /// * Per-block cumulative protocol-forced impact can defer further
-        ///   expiry settles once the same tolerance is exceeded.
+        ///   transactional rollback + defer. After
+        ///   [`LiftParams::max_settlement_deferral`] the next pass
+        ///   force-settles at market (this per-trade band is skipped).
+        /// * Per-block cumulative protocol-forced impact still paces force
+        ///   settles once the same tolerance is exceeded — excess claims
+        ///   wait for later blocks (transactional rollback + retry).
         /// * Owner may wallet-repay unconstrained while deferred; AMM close
-        ///   uses the same realized bound. Increases / rolls are frozen.
-        /// * Underwater short / insolvent long: [`Self::forfeit`] under the
-        ///   same realized guard.
+        ///   uses the same realized bound until the force window. Increases
+        ///   / rolls are frozen.
+        /// * Underwater short / insolvent long: [`Self::forfeit`] (best-effort
+        ///   buyback under the same realized / force-market guard).
         /// * No call-supplied hotkey: leftover long collateral returns as
         ///   staked alpha on the custody hotkey (not force-sold through the
         ///   band). Short buyback overshoot still sells to TAO for the owner
@@ -7623,11 +7646,13 @@ pub mod pallet {
             let expires_at = position.expires_at;
             let side = position.side;
             let spot_price_for_event = T::Pool::current_alpha_price(netuid);
-            // Stop further expiry settles this block once cumulative forced
-            // impact already exceeds the tolerance.
+            // Past max deferral: force at market (skip per-trade band). The
+            // cumulative impact cap still gates how much clears this block.
+            let force_market = Self::past_max_settlement_deferral(owner, netuid);
+            let realized_guard = !force_market;
             Self::ensure_block_forced_impact_ok(netuid)?;
 
-            // Interest forfeit (if any) uses realized slippage on AMM steps.
+            // Interest forfeit (if any) shares the same realized / force guard.
             Self::charge_interest(
                 owner,
                 netuid,
@@ -7635,7 +7660,7 @@ pub mod pallet {
                 interest_until,
                 true,
                 false,
-                true,
+                realized_guard,
             )?;
             if !Positions::<T>::contains_key(owner, netuid) {
                 Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
@@ -7643,7 +7668,9 @@ pub mod pallet {
             }
 
             if !Self::can_fully_close_from_escrow(netuid, &position)? {
-                Self::forfeit(owner, netuid, &position, true)?;
+                // Shorts that cannot buy P back: best-effort forfeit (burn
+                // leftover; record shortfall). Force-market skips the band.
+                Self::forfeit(owner, netuid, &position, realized_guard)?;
                 Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
                 return Ok(());
             }
@@ -7663,7 +7690,7 @@ pub mod pallet {
                             netuid,
                             position.principal,
                             pot,
-                            true,
+                            realized_guard,
                         )?;
                         let impact_fair = Self::fair_ema_tao(netuid, bought, true)?.unwrap_or(paid);
                         let impact_realized = paid;
@@ -7745,7 +7772,11 @@ pub mod pallet {
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
-                            Self::ensure_realized_sell_within_slippage(netuid, raised, sold_alpha)?;
+                            if realized_guard {
+                                Self::ensure_realized_sell_within_slippage(
+                                    netuid, raised, sold_alpha,
+                                )?;
+                            }
                         }
                         let mut coll_left = position.collateral;
                         if raised < position.principal && coll_left > 0 {
@@ -7765,7 +7796,11 @@ pub mod pallet {
                             raised = Self::add(raised, out.to_u64())?;
                             sold_alpha = Self::add(sold_alpha, sell)?;
                             coll_left = coll_left.saturating_sub(sell);
-                            Self::ensure_realized_sell_within_slippage(netuid, raised, sold_alpha)?;
+                            if realized_guard {
+                                Self::ensure_realized_sell_within_slippage(
+                                    netuid, raised, sold_alpha,
+                                )?;
+                            }
                         }
                         ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
                         let impact_fair =

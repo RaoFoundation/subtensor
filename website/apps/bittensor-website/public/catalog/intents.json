@@ -92,7 +92,7 @@
         },
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend, Lending. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -908,9 +908,9 @@
         "pallet": "Lending",
         "call": "close",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1996,
-        "end_line": 2015,
-        "url": "/code/pallets/lending/src/lib.rs#L1993-L2015",
+        "line": 2001,
+        "end_line": 2020,
+        "url": "/code/pallets/lending/src/lib.rs#L1998-L2020",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1253,7 +1253,7 @@
       "properties": {
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, BasketTrading, Validate, Weights, Lock, GammaSpend, Lending. Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -2806,18 +2806,18 @@
         "pallet": "Lending",
         "call": "open",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1928,
-        "end_line": 1952,
-        "url": "/code/pallets/lending/src/lib.rs#L1918-L1952",
+        "line": 1933,
+        "end_line": 1957,
+        "url": "/code/pallets/lending/src/lib.rs#L1923-L1957",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
         "pallet": "Lending",
         "call": "open_exact",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1959,
-        "end_line": 1986,
-        "url": "/code/pallets/lending/src/lib.rs#L1955-L1986",
+        "line": 1964,
+        "end_line": 1991,
+        "url": "/code/pallets/lending/src/lib.rs#L1960-L1991",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3036,9 +3036,9 @@
         "pallet": "Lending",
         "call": "open_long_and_sell",
         "path": "pallets/lending/src/lib.rs",
-        "line": 2028,
-        "end_line": 2056,
-        "url": "/code/pallets/lending/src/lib.rs#L2018-L2056",
+        "line": 2033,
+        "end_line": 2061,
+        "url": "/code/pallets/lending/src/lib.rs#L2023-L2061",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3715,9 +3715,9 @@
         "pallet": "Lending",
         "call": "repay",
         "path": "pallets/lending/src/lib.rs",
-        "line": 2085,
-        "end_line": 2106,
-        "url": "/code/pallets/lending/src/lib.rs#L2080-L2106",
+        "line": 2090,
+        "end_line": 2111,
+        "url": "/code/pallets/lending/src/lib.rs#L2085-L2111",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -3903,9 +3903,9 @@
         "pallet": "Lending",
         "call": "roll",
         "path": "pallets/lending/src/lib.rs",
-        "line": 2138,
-        "end_line": 2141,
-        "url": "/code/pallets/lending/src/lib.rs#L2129-L2141",
+        "line": 2143,
+        "end_line": 2146,
+        "url": "/code/pallets/lending/src/lib.rs#L2134-L2146",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

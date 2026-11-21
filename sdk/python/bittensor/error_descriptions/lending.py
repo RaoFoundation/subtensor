@@ -139,15 +139,16 @@ DESCRIPTIONS: dict[str, str] = {
         "Permissionless / protocol-forced settle saw realized AMM execution (or per-block "
         "cumulative impact) outside expiry_max_slippage_bps of the lending EMA (default 2%), "
         "or the wider 15% directional spot band on interest-exhaustion forfeit pre-checks. The "
-        "claim is deferred and retried; there is no unbounded AMM escape after "
-        "max_settlement_deferral (default 50_400 blocks / ~7 days). Increases and rolls stay "
+        "claim is deferred and retried. After max_settlement_deferral (default 50_400 blocks / "
+        "~7 days) the next expiry pass force-settles at market (skips the per-trade band) but "
+        "still respects the per-block ProtocolForcedImpact cap. Increases and rolls stay "
         "frozen while deferred. Close or repay when realized execution is inside the band "
         "(wallet repay is unconstrained)."
     ),
     "SettlementFrozen": (
         "This position has an active settlement deferral (BandDeferralSince). Increases and "
-        "rolls are refused until permissionless settle succeeds inside the realized EMA band. "
-        "You may still close or repay."
+        "rolls are refused until permissionless settle succeeds (inside the realized EMA band, "
+        "or force-at-market after max_settlement_deferral). You may still close or repay."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "

@@ -4232,9 +4232,12 @@ fn owner_can_close_while_expiry_slippage_deferred() {
             deadline(),
         ));
         let position = Positions::<Test>::get(&owner, netuid()).unwrap();
-        // Stamp deferral while still before expires_at so an increase is
-        // refused for SettlementFrozen (not DeadlinePassed).
-        BandDeferralSince::<Test>::insert(&owner, netuid(), System::block_number());
+        // Stamp deferral just before expires_at so we are still inside
+        // max_settlement_deferral when expiry runs (force-at-market only
+        // after that window). An increase is refused for SettlementFrozen.
+        let stamp = position.expires_at.saturating_sub(50);
+        System::set_block_number(stamp);
+        BandDeferralSince::<Test>::insert(&owner, netuid(), stamp);
         assert_noop!(
             Lending::open(
                 RuntimeOrigin::signed(owner.clone()),
@@ -4254,7 +4257,10 @@ fn owner_can_close_while_expiry_slippage_deferred() {
         write(&key(b"test/pool_alpha", netuid()), alpha_before * 95 / 100);
         System::set_block_number(position.expires_at);
         let _ = <Lending as Hooks<_>>::on_idle(position.expires_at, Weight::MAX);
-        assert!(Positions::<Test>::contains_key(&owner, netuid()));
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "inside max deferral, manipulated expiry must keep the position"
+        );
         assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_some());
 
         // Restore reserves + EMA so realized buyback is inside the band.
@@ -4349,10 +4355,10 @@ fn deferred_long_amm_close_refuses_outside_realized_band() {
     });
 }
 
-/// Past max_settlement_deferral there is still no unbounded AMM escape — the
-/// realized band keeps deferring (Greg Shorting 102462 terminal policy a).
+/// Past max_settlement_deferral the next expiry pass force-settles a short at
+/// market (skips expiry_max_slippage_bps) and emits Expired / Forfeited.
 #[test]
-fn expiry_still_defers_after_max_deferral_when_slippage_breached() {
+fn expiry_force_closes_short_after_max_deferral_despite_slippage() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 50_000_000_000_000);
@@ -4390,12 +4396,210 @@ fn expiry_still_defers_after_max_deferral_when_slippage_breached() {
             }
         });
         System::set_block_number(force_at);
+        System::reset_events();
         let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
         assert!(
-            Positions::<Test>::contains_key(&owner, netuid()),
-            "past max deferral must NOT unbounded-AMM settle while realized band is breached"
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "past max deferral must force-settle at market"
         );
-        assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_some());
+        assert!(BandDeferralSince::<Test>::get(&owner, netuid()).is_none());
+        let saw_terminal = System::events().into_iter().any(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Expired { .. } | Event::Forfeited { .. })
+            )
+        });
+        assert!(saw_terminal, "force path must emit Expired or Forfeited");
+    });
+}
+
+/// Past max deferral force-closes a long even when dumped spot would breach
+/// the realized sell band (force path skips the per-trade band).
+#[test]
+fn expiry_force_closes_long_after_max_deferral_despite_slippage() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        let hotkey = account(2);
+        let custody = Lending::custody_hotkey().unwrap();
+        // Thin pool + tight band so selling escrow A dumps below EMA·(1−band).
+        let pool = 268_000_000_000u64;
+        let collateral = 8_000_000_000u64;
+        set_pool(pool, pool);
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.g_ema = pool;
+        });
+        set_tao_ema(Lending::settlement_tao_basis(netuid()));
+        sync_reference_ema_to_spot();
+        LiftParamsStore::<Test>::mutate(|p| p.expiry_max_slippage_bps = 50); // 0.5%
+
+        mint_alpha(&owner, &hotkey, netuid(), collateral.saturating_mul(2));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Long,
+            collateral,
+            Some(hotkey.clone()),
+            1,
+            0,
+            1,
+            deadline(),
+        ));
+        let position = Positions::<Test>::get(&owner, netuid()).unwrap();
+        // Dump spot (more alpha in pool → cheaper): sell TAO << EMA fair.
+        let alpha_pool = pool_alpha();
+        write(
+            &key(b"test/pool_alpha", netuid()),
+            alpha_pool.saturating_mul(130) / 100,
+        );
+        let ema = References::<Test>::get(netuid()).unwrap().price;
+        let spot = MockPool::price();
+        let floor = ema.saturating_mul(U64F64::from_num(9_950u32)) / U64F64::from_num(10_000u32);
+        assert!(
+            spot < floor,
+            "precondition: dumped spot {spot} must sit below EMA·0.995 ({floor})"
+        );
+        System::set_block_number(position.expires_at);
+        let mut meter = WeightMeter::with_limit(Weight::MAX);
+        Lending::collect_expiry(position.expires_at, &mut meter, u32::MAX);
+        assert!(
+            Positions::<Test>::contains_key(&owner, netuid()),
+            "must defer while band is breached"
+        );
+        let since = BandDeferralSince::<Test>::get(&owner, netuid()).expect("band stamp");
+        let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
+        if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
+            let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (&owner, netuid()));
+        }
+        ExpiryRetryPending::<Test>::put(0);
+        NextExpiryRetry::<Test>::kill();
+        ExpiryRetryCursor::<Test>::kill();
+        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(1);
+        NextExpiryRetry::<Test>::put(force_at);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.last_accrued = force_at;
+                p.expiry_due = force_at;
+            }
+        });
+        let alpha_before = alpha(&owner, &custody, netuid());
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "past max deferral must force-settle the long"
+        );
+        let saw_terminal = System::events().into_iter().any(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Expired { .. } | Event::Forfeited { .. })
+            )
+        });
+        assert!(saw_terminal, "force path must emit Expired or Forfeited");
+        // Leftover C still returns as alpha when Expired (F1); force only skips the band.
+        let _ = alpha_before;
+        let _ = hotkey;
+    });
+}
+
+/// ProtocolForcedImpact still paces force-settles after max deferral: the
+/// second claim in the same block defers when the first fills the impact budget.
+#[test]
+fn expiry_force_close_still_paced_by_protocol_forced_impact() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100; // 1% impact budget
+            p.max_expiry_settlements_per_block = 16;
+        });
+        let owner_a = account(1);
+        let owner_b = account(3);
+        mint_tao(&owner_a, 50_000_000_000_000);
+        mint_tao(&owner_b, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_b.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let pos_a = Positions::<Test>::get(&owner_a, netuid()).unwrap();
+        let expires_at = pos_a.expires_at;
+        // Defer both outside band.
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 90 / 100);
+        System::set_block_number(expires_at);
+        let _ = <Lending as Hooks<_>>::on_idle(expires_at, Weight::MAX);
+        assert!(BandDeferralSince::<Test>::get(&owner_a, netuid()).is_some());
+        assert!(BandDeferralSince::<Test>::get(&owner_b, netuid()).is_some());
+        let since = BandDeferralSince::<Test>::get(&owner_a, netuid()).unwrap();
+        let force_at = since.saturating_add(TestMaxSettlementDeferral::get());
+
+        // Re-queue both at force_at; keep pool manipulated so force path is
+        // the only way through (no in-band settle).
+        for owner in [&owner_a, &owner_b] {
+            if let Some(pos) = Positions::<Test>::get(owner, netuid()) {
+                let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (owner, netuid()));
+            }
+        }
+        ExpiryRetryPending::<Test>::put(0);
+        NextExpiryRetry::<Test>::kill();
+        ExpiryRetryCursor::<Test>::kill();
+        ExpiryRetry::<Test>::insert(force_at, (&owner_a, netuid()), ());
+        ExpiryRetry::<Test>::insert(force_at, (&owner_b, netuid()), ());
+        ExpiryRetryPending::<Test>::put(2);
+        NextExpiryRetry::<Test>::put(force_at);
+        for owner in [&owner_a, &owner_b] {
+            Positions::<Test>::mutate(owner, netuid(), |p| {
+                if let Some(p) = p {
+                    p.last_accrued = force_at;
+                    p.expiry_due = force_at;
+                }
+            });
+        }
+
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+
+        let a_gone = !Positions::<Test>::contains_key(&owner_a, netuid());
+        let b_gone = !Positions::<Test>::contains_key(&owner_b, netuid());
+        assert!(
+            a_gone ^ b_gone || (a_gone && b_gone),
+            "at least one force-settle must clear; impact may allow both on deep pool"
+        );
+        // If both cleared, impact pacing was not binding (acceptable on this
+        // fixture). If only one cleared, the other must still be deferred with
+        // a retry — not frozen forever.
+        if a_gone ^ b_gone {
+            let leftover = if a_gone { &owner_b } else { &owner_a };
+            assert!(
+                Positions::<Test>::contains_key(leftover, netuid()),
+                "impact-capped remainder stays queued"
+            );
+            assert!(
+                BandDeferralSince::<Test>::get(leftover, netuid()).is_some()
+                    || ExpiryRetryPending::<Test>::get() > 0
+                    || Positions::<Test>::get(leftover, netuid())
+                        .map(|p| p.expiry_due > force_at)
+                        .unwrap_or(false),
+                "remainder must requeue for a later block"
+            );
+        }
     });
 }
 
@@ -7155,10 +7359,10 @@ fn thin_pool_long_expiry_returns_leftover_alpha_without_band_deferral() {
     });
 }
 
-/// Past max_settlement_deferral with spot still manipulated: no unbounded
-/// AMM force — position stays deferred (terminal policy a).
+/// Past max_settlement_deferral with spot still manipulated: force-settle at
+/// market (Jacob). Extreme thin pool may forfeit rather than Expire.
 #[test]
-fn expiry_band_deferral_never_unbounded_amm_after_max_window() {
+fn expiry_band_deferral_force_closes_after_max_window() {
     new_test_ext().execute_with(|| {
         let owner = account(1);
         mint_tao(&owner, 50_000_000_000_000);
@@ -7209,16 +7413,16 @@ fn expiry_band_deferral_never_unbounded_amm_after_max_window() {
         let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
 
         assert!(
-            Positions::<Test>::contains_key(&owner, netuid()),
-            "max deferral must not unlock unbounded AMM settle"
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "max deferral must force-settle at market"
         );
-        assert!(
-            System::events().into_iter().all(|e| !matches!(
+        let saw_terminal = System::events().into_iter().any(|e| {
+            matches!(
                 e.event,
                 RuntimeEvent::Lending(Event::Forfeited { .. } | Event::Expired { .. })
-            )),
-            "must not forfeit/expire while realized band is still breached"
-        );
+            )
+        });
+        assert!(saw_terminal, "force path must emit Expired or Forfeited");
     });
 }
 

@@ -399,6 +399,7 @@ READ_SAMPLES: dict[str, dict] = {
     },
     "lending_position": {"coldkey_ss58": ALICE, "netuid": 1},
     "lending_positions": {"netuid": 1},
+    "lending_positions_for_coldkey": {"coldkey_ss58": ALICE},
     "lending_raise_quote": {
         "netuid": 1,
         "coldkey_ss58": ALICE,

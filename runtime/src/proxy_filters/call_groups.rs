@@ -161,8 +161,8 @@ call_filter_group!(
     ]
 );
 
-// Open / close / repay / roll / warm: ProxyType::Any only (not Staking, not
-// NonTransfer — skeptic fid:3d310144 / d3fefb26). Root setters live in
+// Open / close / repay / roll / warm: ProxyType::Lending or Any (not Staking,
+// not NonTransfer — skeptic fid:3d310144 / d3fefb26). Root setters live in
 // `LendingRootCalls` (AdminAll / RootConfigCalls pattern — inert without
 // `ensure_root`).
 call_filter_group!(
@@ -177,9 +177,9 @@ call_filter_group!(
     ]
 );
 
-// Atomic raise (escrowed long + unlocked-alpha sale). ProxyType::Any only
-// (same as LendingCalls; needs stake removal but must not silently open loans
-// under Staking / NonTransfer).
+// Atomic raise (escrowed long + unlocked-alpha sale). ProxyType::Lending or
+// Any (same as LendingCalls; needs stake removal but must not silently open
+// loans under Staking / NonTransfer).
 call_filter_group!(
     LendingRaiseCalls,
     [RuntimeCall::Lending(LendingCall::open_long_and_sell),]
@@ -285,6 +285,18 @@ call_filter_group!(
         RuntimeCall::Utility(UtilityCall::with_weight),
         RuntimeCall::Utility(UtilityCall::if_else),
         RuntimeCall::Utility(UtilityCall::dispatch_as_fallible),
+    ]
+);
+
+// Batch wrappers only for narrow grants (e.g. ProxyType::Lending). Nested
+// children are still re-filtered by the outer proxy type. Excludes
+// as_safe_derivative / dispatch_as / pure-proxy spawn paths.
+call_filter_group!(
+    LendingUtilityCalls,
+    [
+        RuntimeCall::Utility(UtilityCall::batch),
+        RuntimeCall::Utility(UtilityCall::batch_all),
+        RuntimeCall::Utility(UtilityCall::force_batch),
     ]
 );
 

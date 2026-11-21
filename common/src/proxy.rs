@@ -58,6 +58,11 @@ pub enum ProxyType {
     Lock,
     /// Spend gamma deposits only (`spend_gamma`).
     GammaSpend,
+    /// Operate Lift lending only: open / close / repay / roll / raise /
+    /// warm_reference, plus Utility batch wrappers of those calls. No
+    /// transfers, staking, or root lending knobs. Appended at the end so
+    /// existing ProxyType indices stay stable.
+    Lending,
 }
 
 impl TryFrom<u8> for ProxyType {
@@ -88,6 +93,7 @@ impl TryFrom<u8> for ProxyType {
             20 => Ok(Self::Weights),
             21 => Ok(Self::Lock),
             22 => Ok(Self::GammaSpend),
+            23 => Ok(Self::Lending),
             _ => Err(()),
         }
     }
@@ -119,6 +125,7 @@ impl From<ProxyType> for u8 {
             ProxyType::Weights => 20,
             ProxyType::Lock => 21,
             ProxyType::GammaSpend => 22,
+            ProxyType::Lending => 23,
         }
     }
 }
@@ -271,7 +278,7 @@ mod tests {
                 "{proxy_type:?} SCALE index"
             );
         }
-        assert_eq!(seen, 23, "ProxyType variant count");
+        assert_eq!(seen, 24, "ProxyType variant count");
     }
 
     #[test]
@@ -285,9 +292,12 @@ mod tests {
         assert_eq!(ProxyType::try_from(21), Ok(ProxyType::Lock));
         assert_eq!(u8::from(ProxyType::GammaSpend), 22);
         assert_eq!(ProxyType::try_from(22), Ok(ProxyType::GammaSpend));
-        assert_eq!(ProxyType::try_from(23), Err(()));
+        assert_eq!(u8::from(ProxyType::Lending), 23);
+        assert_eq!(ProxyType::try_from(23), Ok(ProxyType::Lending));
+        assert_eq!(ProxyType::try_from(24), Err(()));
         assert!(!ProxyType::Validate.is_deprecated());
         assert!(!ProxyType::Weights.is_deprecated());
         assert!(!ProxyType::Lock.is_deprecated());
+        assert!(!ProxyType::Lending.is_deprecated());
     }
 }
