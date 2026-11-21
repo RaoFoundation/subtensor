@@ -141,6 +141,13 @@ async def test_delegate_missing_authorization_is_rejected():
             "value",
             {"bits": (63 * 2**64) // 50},
         ),
+        (
+            "increase_mult",
+            5 * 2**62,
+            "sudo_set_commit_burn_increase_mult",
+            "value",
+            {"bits": 5 * 2**62},
+        ),
     ],
 )
 async def test_commit_burn_setters(name, value, method, param, expected):

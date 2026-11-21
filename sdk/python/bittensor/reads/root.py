@@ -15,12 +15,15 @@ plus the claim-threshold storage entry.
 
 from __future__ import annotations
 
+import asyncio
+from decimal import Decimal
 from typing import Any, Optional
 
 from .._generated import runtime_apis as api
 from .._generated import storage as st
 from .._generated.runtime_apis import Method
 from .._generated.storage import Item
+from .._transport.errors import StorageFunctionNotFound
 from ..balance import Balance
 from ..settings import RAO_PER_TAO
 from .base import read
@@ -44,6 +47,8 @@ _GET_ALL_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_all_beta_pricing")
 _GET_BASKET_TRADING_STATUS = Method("BetaBasketRuntimeApi", "get_basket_trading_status")
 
 _ROOT_NETUID = 0
+
+_PRICE_REFERENCE_NAMES = {0: "SpotOnly", 1: "StrictestEmaAndSpot"}
 
 # Raw chain units per beta token. Chain units mint at par (1 per rao of TAO
 # value at fund inception), so one beta token had a par value of exactly τ1
@@ -417,6 +422,40 @@ async def basket_trading_status(view, hotkey_ss58: str) -> dict:
         "used_tao": view.balance(max(budget_rao - available_rao, 0), _ROOT_NETUID),
         "budget_tao": view.balance(budget_rao, _ROOT_NETUID),
         "remaining_tao": view.balance(min(available_rao, budget_rao), _ROOT_NETUID),
+    }
+
+
+@read(
+    "basket_trade_protection",
+    {},
+    category="Staking",
+)
+async def basket_trade_protection(view) -> Optional[dict]:
+    """The live per-leg basket band and price-reference mode, or None on old nodes.
+
+    `band_bps` is the configured deviation in basis points, `band_pct` its exact
+    decimal percentage, and `price_reference` either `StrictestEmaAndSpot` or
+    `SpotOnly`. These settings are network-wide, not per-validator.
+    """
+    try:
+        band_bps, reference = await asyncio.gather(
+            view.query(st.SubtensorModule.BasketTradeMaxSlippageBps),
+            view.query(st.SubtensorModule.BasketTradePriceReferenceMode),
+        )
+    except StorageFunctionNotFound:
+        return None
+    if band_bps is None or reference is None:
+        return None
+    if isinstance(reference, dict) and len(reference) == 1:
+        reference = next(iter(reference))
+    reference_name = _PRICE_REFERENCE_NAMES.get(reference, reference)
+    if reference_name not in ("SpotOnly", "StrictestEmaAndSpot"):
+        raise ValueError(f"Unknown basket price-reference mode: {reference!r}")
+    band_bps = int(band_bps)
+    return {
+        "band_bps": band_bps,
+        "band_pct": Decimal(band_bps) / 100,
+        "price_reference": reference_name,
     }
 
 

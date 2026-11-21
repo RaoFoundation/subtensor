@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from typing import Optional
 
@@ -29,6 +30,7 @@ def _swap_review(
     *,
     holdings: list[dict],
     status: Optional[dict],
+    protection: Optional[dict],
     expected_out: Optional[Balance],
     max_slippage_pct: float,
 ) -> tuple[str, list[tuple]]:
@@ -87,9 +89,13 @@ def _swap_review(
     rows.append(
         (
             "note",
-            "each leg must fill within the configured band of its price reference; "
-            "the TAO through the middle counts against "
-            "the fund's turnover budget",
+            (
+                f"each leg must fill within {protection['band_pct']:g}% of the live "
+                f"{protection['price_reference']} price reference"
+                if protection is not None
+                else "each leg must fill within the live configured band of its price reference"
+            )
+            + "; the TAO through the middle counts against the fund's turnover budget",
             "dim",
         )
     )
@@ -134,9 +140,9 @@ def root_swap(
     moves. Sign with the validator's coldkey, or run as its `BasketTrading`
     proxy with `--proxy-for <coldkey>` (the intended setup for a trader
     multisig). Each leg must fill within the configured band of its price
-    reference, the TAO through the middle counts
-    against the fund's turnover budget, and the destination may not end above the
-    concentration cap.
+    reference. The review screen reports the live band and reference. The TAO
+    through the middle counts against the fund's turnover budget, and the
+    destination may not end above the concentration cap.
 
     btcli quotes the trade first and sets `min_amount_out` to the quoted
     output less `--max-slippage` (default 1%), so a pool that moves against
@@ -178,9 +184,18 @@ def root_swap(
 
     async def _fund_context(
         client,
-    ) -> tuple[list[dict], Optional[dict], Optional[Balance]]:
-        holdings = await client.read("validator_basket", hotkey_ss58=hotkey)
-        status = await client.read("basket_trading_status", hotkey_ss58=hotkey)
+    ) -> tuple[list[dict], Optional[dict], Optional[dict], Optional[Balance]]:
+        holdings, status, protection = await asyncio.gather(
+            client.read("validator_basket", hotkey_ss58=hotkey),
+            client.read("basket_trading_status", hotkey_ss58=hotkey),
+            client.read("basket_trade_protection"),
+            return_exceptions=True,
+        )
+        if isinstance(holdings, Exception) or isinstance(status, Exception):
+            raise holdings if isinstance(holdings, Exception) else status
+        if isinstance(protection, Exception):
+            # Price protection is display-only; old nodes may not expose its storage.
+            protection = None
         expected: Optional[Balance] = None
         sell = _origin_amount(holdings)
         if sell is not None and sell.rao > 0:
@@ -189,14 +204,14 @@ def root_swap(
             except Exception:
                 # The floor is a convenience on top of the chain band: no quote, no floor.
                 expected = None
-        return holdings, status, expected
+        return holdings, status, protection, expected
 
     try:
         with app_ctx.output.activity("quoting the fund…"):
-            holdings, status, expected_out = app_ctx.run(_fund_context)
+            holdings, status, protection, expected_out = app_ctx.run(_fund_context)
     except Exception:
         # Display-only context; a quoting hiccup (or a pre-v4 node) must not block the swap.
-        holdings, status, expected_out = [], None, None
+        holdings, status, protection, expected_out = [], None, None, None
 
     if expected_out is not None and expected_out.rao > 0:
         intent = SwapBasket(
@@ -214,6 +229,7 @@ def root_swap(
         intent,
         holdings=holdings,
         status=status,
+        protection=protection,
         expected_out=expected_out,
         max_slippage_pct=max_slippage,
     )

@@ -82,12 +82,13 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 
 | Query | Summary |
 | --- | --- |
-| [`channel-commitment`](/docs/query/channel-commitment) | One hotkey's independent channel commitment, or None when absent. |
+| [`channel-commitment`](/docs/query/channel-commitment) | One hotkey's active and revealed channel records, or None when both are absent. |
 | [`commit-burn`](/docs/query/commit-burn) | Live decayed channel burn price and its stored configuration. |
 | [`commitment`](/docs/query/commitment) | The commitment a hotkey has published on a subnet, or None. |
 | [`commitments`](/docs/query/commitments) | Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state. |
 | [`hotkey-identities`](/docs/query/hotkey-identities) | On-chain identities for hotkeys (via each hotkey's owner coldkey), keyed by hotkey. |
 | [`identity`](/docs/query/identity) | The on-chain identity of a coldkey (name, links, description), or None. |
+| [`revealed-channel-commitment`](/docs/query/revealed-channel-commitment) | Raw revealed channel plaintext and reveal blocks, or None when history is absent. |
 | [`revealed-commitment`](/docs/query/revealed-commitment) | The revealed (timelock-decrypted) commitment for a hotkey on a subnet, or None. |
 
 ## Leases & crowdloans
@@ -147,6 +148,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`auto-stake`](/docs/query/auto-stake) | The hotkey a coldkey auto-stakes its rewards to on a subnet, or None if unset. |
 | [`auto-stake-all`](/docs/query/auto-stake-all) | Every auto-stake destination configured for a coldkey. |
 | [`basket-position`](/docs/query/basket-position) | A staker's beta token position in one validator's basket. |
+| [`basket-trade-protection`](/docs/query/basket-trade-protection) | The live per-leg basket band and price-reference mode, or None on old nodes. |
 | [`basket-trading-status`](/docs/query/basket-trading-status) | A validator's `swap_basket` trading status: gates and the turnover bucket. |
 | [`root-basket-owed`](/docs/query/root-basket-owed) | Total TAO a coldkey would realize by claiming its root dividends now. |
 | [`root-basket-owed-breakdown`](/docs/query/root-basket-owed-breakdown) | A coldkey's pending root dividends, itemized per validator hotkey. |

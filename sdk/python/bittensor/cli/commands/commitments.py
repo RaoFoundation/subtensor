@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, is_dataclass
 
 import typer
@@ -90,20 +91,37 @@ def show(
     mechid: int = typer.Option(0, "--mechid", help="Mechanism whose channel to inspect."),
     channel: int = typer.Option(0, "--channel", help="Independent channel index (0..255)."),
 ):
-    """Show a hotkey's independent channel commitment."""
+    """Show active and revealed channel records with explicit labels."""
     app_ctx: AppContext = ctx_of(ctx)
     address = app_ctx.resolve_address("hotkey_ss58", hotkey)
-    result = app_ctx.run(
-        lambda client: client.read(
-            "channel_commitment",
-            netuid=netuid,
-            mechid=mechid,
-            channel=channel,
-            hotkey_ss58=address,
+
+    async def _records(client):
+        params = {
+            "netuid": netuid,
+            "mechid": mechid,
+            "channel": channel,
+            "hotkey_ss58": address,
+        }
+        return await asyncio.gather(
+            client.read("channel_commitment", **params),
+            client.read("revealed_channel_commitment", **params),
         )
-    )
+
+    result, revealed = app_ctx.run(_records)
+    combined_fields = asdict(result) if is_dataclass(result) else dict(result or {})
+    if app_ctx.output.json_mode:
+        # Keep the established single-document response; consumers must not
+        # have to parse one JSON object per human-readable card.
+        app_ctx.output.detail("channel commitment", combined_fields)
+        return
+    active_fields = dict(combined_fields)
+    has_active = active_fields.pop("has_active", False)
+    active_fields.pop("revealed", None)
+    app_ctx.output.detail("active channel commitment", active_fields if has_active else {})
     app_ctx.output.detail(
-        "channel commitment", asdict(result) if is_dataclass(result) else result or {}
+        "revealed channel commitment",
+        {str(index): record for index, record in enumerate(revealed or [])},
+        json_fields=revealed,
     )
 
 
@@ -113,9 +131,7 @@ def burn_config(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help="Subnet owned by the signing coldkey."),
     name: str = typer.Option(..., "--name", help=SetCommitBurn.field_help("name")),
-    value: str = typer.Option(
-        ..., "--value", help="Enabled flag, TAO min/max, half-life in blocks, or decimal in 1..3."
-    ),
+    value: str = typer.Option(..., "--value", help=SetCommitBurn.field_help("value")),
     mechid: int = typer.Option(0, "--mechid", help="Mechanism whose channel to configure."),
     channel: int = typer.Option(0, "--channel", help="Independent channel index (0..255)."),
 ):

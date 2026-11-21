@@ -30,6 +30,7 @@ class ChannelCommitment(Commitment):
     """Active channel fields and separately labelled timelock reveal history."""
 
     revealed: list[dict] = field(default_factory=list)
+    has_active: bool = False
 
 
 @read(
@@ -231,6 +232,24 @@ async def _decode_commitment_registration(view, data: Any) -> Any:
     return await substrate.decode_commitment_registration(data)
 
 
+def _channel_key(netuid: int, mechid: int, channel: int, hotkey_ss58: Optional[str]) -> list:
+    if not 0 <= channel <= 255:
+        raise ValueError("channel must be in 0..255")
+    if hotkey_ss58 is None:
+        raise ValueError("hotkey_ss58 is required")
+    return [mechid * GLOBAL_MAX_SUBNET_COUNT + netuid, hotkey_ss58, channel]
+
+
+async def _revealed_channel_records(view, key: list) -> Optional[list[dict[str, Any]]]:
+    try:
+        records = await view.query(st.Commitments.ChannelRevealedCommitments, key)
+    except StorageFunctionNotFound:
+        return None
+    if records is None:
+        return None
+    return [{"data": utf8_text(data), "block": int(block)} for data, block in records]
+
+
 @read(
     "channel_commitment",
     {"netuid": "integer", "mechid": "integer", "channel": "integer", "hotkey_ss58": "string"},
@@ -245,19 +264,15 @@ async def _decode_commitment_registration(view, data: Any) -> Any:
 async def channel_commitment(
     view, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None
 ) -> Optional[ChannelCommitment]:
-    """One hotkey's independent channel commitment, or None when absent.
+    """One hotkey's active and revealed channel records, or None when both are absent.
 
-    Reads the v2 runtime API and decodes the returned SCALE registration. On a
-    node without v2, reads the equivalent channel storage instead; both paths
-    distinguish this target from the legacy `commitment` read. The `revealed`
-    list reports plaintext and reveal blocks even after the active record is removed.
+    `has_active` distinguishes an active registration from history retained after
+    its active row was removed. The `revealed` list contains raw decrypted
+    plaintext and reveal blocks; `revealed_channel_commitment` exposes that
+    history independently of the active registration. Reads the v2 runtime API,
+    falling back to equivalent channel storage on older nodes.
     """
-    if not 0 <= channel <= 255:
-        raise ValueError("channel must be in 0..255")
-    if hotkey_ss58 is None:
-        raise ValueError("hotkey_ss58 is required")
-    storage_index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
-    key = [storage_index, hotkey_ss58, channel]
+    key = _channel_key(netuid, mechid, channel, hotkey_ss58)
     try:
         encoded = await view.runtime(
             st.Item("SubnetRegistrationRuntimeApi", "get_channel_commitment"),
@@ -270,10 +285,7 @@ async def channel_commitment(
             encoded = await view.query(st.Commitments.ChannelCommitmentOf, key)
         except StorageFunctionNotFound:
             return None
-    try:
-        reveals = await view.query(st.Commitments.ChannelRevealedCommitments, key)
-    except StorageFunctionNotFound:
-        reveals = None
+    reveals = await _revealed_channel_records(view, key)
     if encoded is None and not reveals:
         return None
     if isinstance(encoded, str):
@@ -289,8 +301,32 @@ async def channel_commitment(
         active.deposit,
         active.data,
         active.fields,
-        [{"data": utf8_text(data), "block": int(block)} for data, block in reveals or []],
+        reveals or [],
+        encoded is not None,
     )
+
+
+@read(
+    "revealed_channel_commitment",
+    {"netuid": "integer", "mechid": "integer", "channel": "integer", "hotkey_ss58": "string"},
+    category="Identity & commitments",
+    param_docs={
+        "netuid": "Subnet containing the mechanism and hotkey.",
+        "mechid": "Mechanism whose independent channel to read.",
+        "channel": "Independent channel index (0..255).",
+        "hotkey_ss58": "Hotkey whose revealed channel plaintext to read.",
+    },
+)
+async def revealed_channel_commitment(
+    view, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None
+) -> Optional[list[dict[str, Any]]]:
+    """Raw revealed channel plaintext and reveal blocks, or None when history is absent.
+
+    This history is independent of the active `channel_commitment` registration:
+    revealing the last active field removes that row but retains its plaintext.
+    Each record has `data` (UTF-8 when possible, otherwise 0x-hex) and `block`.
+    """
+    return await _revealed_channel_records(view, _channel_key(netuid, mechid, channel, hotkey_ss58))
 
 
 def _age_text(seconds: float) -> str:

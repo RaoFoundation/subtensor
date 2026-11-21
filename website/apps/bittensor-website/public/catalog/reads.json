@@ -219,6 +219,37 @@
     "python": "sub.staking.basket_position(...)"
   },
   {
+    "name": "basket_trade_protection",
+    "summary": "The live per-leg basket band and price-reference mode, or None on old nodes.",
+    "description": "The live per-leg basket band and price-reference mode, or None on old nodes.\n\n`band_bps` is the configured deviation in basis points, `band_pct` its exact\ndecimal percentage, and `price_reference` either `StrictestEmaAndSpot` or\n`SpotOnly`. These settings are network-wide, not per-validator.",
+    "params": {},
+    "param_docs": {},
+    "category": "Staking",
+    "docs_url": "/docs/query/basket-trade-protection",
+    "markdown_url": "/llms.mdx/docs/query/basket-trade-protection/content.md",
+    "python": "sub.staking.basket_trade_protection(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BasketTradeMaxSlippageBps",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3511,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3511",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BasketTradePriceReferenceMode",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3537,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3537",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "basket_trading_status",
     "summary": "A validator's `swap_basket` trading status: gates and the turnover bucket.",
     "description": "A validator's `swap_basket` trading status: gates and the turnover bucket.\n\n`enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.\nThe turnover budget is a token bucket: `budget_tao` is its capacity\n(`BasketDailyTurnoverCap` share of the fund's guarded NAV \u2014 each holding at\nthe lower of its realizable value and its slow-moving-price value, so a\npumped pool cannot enlarge it), `remaining_tao` what a trade right\nnow could push through the fund, `used_tao` the difference, and the bucket\nrefills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,\na full refill over the configured `refill_blocks`, 7200 by default).",
@@ -396,8 +427,8 @@
   },
   {
     "name": "channel_commitment",
-    "summary": "One hotkey's independent channel commitment, or None when absent.",
-    "description": "One hotkey's independent channel commitment, or None when absent.\n\nReads the v2 runtime API and decodes the returned SCALE registration. On a\nnode without v2, reads the equivalent channel storage instead; both paths\ndistinguish this target from the legacy `commitment` read. The `revealed`\nlist reports plaintext and reveal blocks even after the active record is removed.",
+    "summary": "One hotkey's active and revealed channel records, or None when both are absent.",
+    "description": "One hotkey's active and revealed channel records, or None when both are absent.\n\n`has_active` distinguishes an active registration from history retained after\nits active row was removed. The `revealed` list contains raw decrypted\nplaintext and reveal blocks; `revealed_channel_commitment` exposes that\nhistory independently of the active registration. Reads the v2 runtime API,\nfalling back to equivalent channel storage on older nodes.",
     "params": {
       "netuid": "integer",
       "mechid": "integer",
@@ -422,15 +453,6 @@
         "path": "pallets/commitments/src/lib.rs",
         "line": 309,
         "url": "/code/pallets/commitments/src/lib.rs#L309",
-        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
-      },
-      {
-        "kind": "storage",
-        "container": "Commitments",
-        "name": "ChannelRevealedCommitments",
-        "path": "pallets/commitments/src/lib.rs",
-        "line": 322,
-        "url": "/code/pallets/commitments/src/lib.rs#L322",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -1966,6 +1988,27 @@
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
+  },
+  {
+    "name": "revealed_channel_commitment",
+    "summary": "Raw revealed channel plaintext and reveal blocks, or None when history is absent.",
+    "description": "Raw revealed channel plaintext and reveal blocks, or None when history is absent.\n\nThis history is independent of the active `channel_commitment` registration:\nrevealing the last active field removes that row but retains its plaintext.\nEach record has `data` (UTF-8 when possible, otherwise 0x-hex) and `block`.",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer",
+      "channel": "integer",
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet containing the mechanism and hotkey.",
+      "mechid": "Mechanism whose independent channel to read.",
+      "channel": "Independent channel index (0..255).",
+      "hotkey_ss58": "Hotkey whose revealed channel plaintext to read."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/revealed-channel-commitment",
+    "markdown_url": "/llms.mdx/docs/query/revealed-channel-commitment/content.md",
+    "python": "sub.identity.revealed_channel_commitment(...)"
   },
   {
     "name": "revealed_commitment",
