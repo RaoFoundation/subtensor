@@ -91,7 +91,7 @@ def _enabled_value(value: Any) -> bool:
 
 
 def _fixed_bits(value: Any) -> int:
-    """Round decimals down to U64F64 precision; plain integers remain raw bits."""
+    """Quantize decimals down to U64F64; plain integers remain exact raw bits."""
     if isinstance(value, int):
         return to_raw("burn_increase_mult", value)
     try:
@@ -217,8 +217,9 @@ class SetCommitBurn(Intent):
 
     ``name`` is one of ``enabled``, ``min_burn``, ``max_burn``, ``half_life``,
     or ``increase_mult``. Min/max values are TAO amounts, half-life is blocks,
-    and increase multiplier is a decimal in 1..3 (or its raw U64F64 bits).
-    Changes require the subnet-owner coldkey or root, respect the owner's
+    and increase multiplier is a decimal in 1..3 (rounded down to U64F64) or
+    its exact raw U64F64 bits supplied as an integer. Changes require the
+    subnet-owner coldkey or root, respect the owner's
     rate-limit window, and are independent for each mechanism and channel.
     Disabling burn makes subsequent channel commitments free apart from fees;
     it does not refund earlier burns. Read the live decayed price and stored

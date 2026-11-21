@@ -128,9 +128,7 @@ def burn_config(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help="Subnet owned by the signing coldkey."),
     name: str = typer.Option(..., "--name", help=SetCommitBurn.field_help("name")),
-    value: str = typer.Option(
-        ..., "--value", help="Enabled flag, TAO min/max, half-life in blocks, or decimal in 1..3."
-    ),
+    value: str = typer.Option(..., "--value", help=SetCommitBurn.field_help("value")),
     mechid: int = typer.Option(0, "--mechid", help="Mechanism whose channel to configure."),
     channel: int = typer.Option(0, "--channel", help="Independent channel index (0..255)."),
 ):
