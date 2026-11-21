@@ -23,9 +23,12 @@ They are excluded from the root workspace and selected through
   adds only that test target so the test can run without upstream's private
   workspace-only test-support crate.
 
-The audit workflow runs both allocation tests and retains the version-based
-`RUSTSEC-2026-0491` ignore because Cargo still identifies these as 0.24.4 and
-0.25.2. Reassess that ignore when the SDK networking stack moves to a fixed
-upstream Hickory release. This backport does not make the separate DNS codec,
-DNSSEC, or zone-parser advisories unreachable; their individual audit
-rationales and dependency/feature checks remain in force.
+The audit workflow runs both allocation tests through the root-locked
+`support/hickory-0244-allocation` and `support/hickory-0252-allocation` test
+harnesses. These manifests add no registry dependencies: every compiled build
+script, proc macro, and library is pinned by the audited root `Cargo.lock`.
+The workflow retains the version-based `RUSTSEC-2026-0491` ignore because Cargo
+still identifies these as 0.24.4 and 0.25.2. Reassess that ignore when the SDK
+networking stack moves to a fixed upstream Hickory release. This backport does
+not make the separate DNS codec, DNSSEC, or zone-parser advisories unreachable;
+their individual audit rationales and dependency/feature checks remain in force.

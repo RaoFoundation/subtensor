@@ -48,15 +48,13 @@ jobs:
           python3 .github/scripts/check-audit-feature-exclusions.py
 
       - name: Test bounded DNS decoder allocation
-        # These excluded standalone crates intentionally have no lockfiles. Cargo
-        # resolves their published dependencies and writes only standalone locks.
-        # --locked fails on a fresh checkout, while --offline cannot resolve optional
-        # dependencies absent from the runner cache; the root Cargo.lock is untouched.
+        # Compile the unchanged vendored regression sources through tiny workspace
+        # harnesses. All dependencies and executable build scripts/proc macros are
+        # pinned by the root Cargo.lock and covered by the cargo audit step below;
+        # do not resolve separate standalone dependency graphs for these tests.
         run: |
-          cargo test --manifest-path vendor/hickory-dns/hickory-proto-0.24.4/Cargo.toml \
-            --no-default-features --test allocation_limit
-          cargo test --manifest-path vendor/hickory-dns/hickory-proto-0.25.2/Cargo.toml \
-            --no-default-features --test allocation_limit
+          cargo test --locked -p hickory-0244-allocation --test allocation_limit
+          cargo test --locked -p hickory-0252-allocation --test allocation_limit
 
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
@@ -82,7 +80,9 @@ jobs:
           #   locally under vendor/hickory-dns with upstream 280c0e5c, bounding
           #   initial capacity to eight entries per DNS message section. The
           #   allocation_limit.rs test exercises forged u16::MAX counts through
-          #   the real decoder for both versions in this workflow. The package
+          #   the real decoder for both versions in this workflow. The support/
+          #   hickory-*-allocation harnesses compile these sources using only
+          #   dependencies in this audited root lockfile. The package
           #   versions remain 0.24.4/0.25.2, so retain the version-based ignore
           #   until the SDK networking stack consumes a fixed upstream release;
           #   this is a backport, not a claim that DNS decoding was unreachable.

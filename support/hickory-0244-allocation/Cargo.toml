@@ -1,0 +1,13 @@
+[package]
+name = "hickory-0244-allocation"
+version = "0.0.0"
+edition = "2024"
+publish = false
+autotests = false
+
+[dev-dependencies]
+hickory-proto = { path = "../../vendor/hickory-dns/hickory-proto-0.24.4", package = "hickory-proto", default-features = false }
+
+[[test]]
+name = "allocation_limit"
+path = "../../vendor/hickory-dns/hickory-proto-0.24.4/tests/allocation_limit.rs"

@@ -6187,6 +6187,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
+name = "hickory-0244-allocation"
+version = "0.0.0"
+dependencies = [
+ "hickory-proto 0.24.4",
+]
+
+[[package]]
+name = "hickory-0252-allocation"
+version = "0.0.0"
+dependencies = [
+ "hickory-proto 0.25.2",
+]
+
+[[package]]
 name = "hickory-proto"
 version = "0.24.4"
 dependencies = [
