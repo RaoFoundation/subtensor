@@ -47,6 +47,13 @@ jobs:
           python3 .github/scripts/test_audit_feature_exclusions.py
           python3 .github/scripts/check-audit-feature-exclusions.py
 
+      - name: Test bounded DNS decoder allocation
+        run: |
+          cargo test --locked --manifest-path vendor/hickory-dns/hickory-proto-0.24.4/Cargo.toml \
+            --no-default-features --test allocation_limit
+          cargo test --locked --manifest-path vendor/hickory-dns/hickory-proto-0.25.2/Cargo.toml \
+            --no-default-features --test allocation_limit
+
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
         # polkadot-sdk since most originate in the patched fork's tree.
@@ -67,10 +74,14 @@ jobs:
           #   exists below 0.26.1; updating requires the pinned SDK networking stack.
           # RUSTSEC-2026-0487/0489/0490: zone-file/text parsing panics. These paths
           #   are not used by node DNS resolution; wire decoding does not use them.
-          # RUSTSEC-2026-0491: accepted residual memory-amplification risk when
-          #   decoding a spoofed resolver response (also applies to default litep2p).
-          #   Noise does not authenticate DNS responses. Use trusted resolvers and
-          #   host memory limits; fixed in Hickory 0.26.2, requiring an SDK bump.
+          # RUSTSEC-2026-0491: both pinned hickory-proto versions are patched
+          #   locally under vendor/hickory-dns with upstream 280c0e5c, bounding
+          #   initial capacity to eight entries per DNS message section. The
+          #   allocation_limit.rs test exercises forged u16::MAX counts through
+          #   the real decoder for both versions in this workflow. The package
+          #   versions remain 0.24.4/0.25.2, so retain the version-based ignore
+          #   until the SDK networking stack consumes a fixed upstream release;
+          #   this is a backport, not a claim that DNS decoding was unreachable.
           # RUSTSEC-2026-0504/0505/0511/0512/0514/0530/0531/0532/0549/0550/0551:
           #   DNSSEC validation issues, unreachable with every `dnssec*` feature
           #   disabled in both backends. The feature-exclusion check pins the exact

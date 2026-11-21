@@ -40,8 +40,10 @@ class AuditExclusions(unittest.TestCase):
         tree = "\n".join(
             (
                 "libp2p v0.54.1 dns,identify,noise,tcp",
-                "hickory-proto v0.24.4 mdns,socket2,tokio,tokio-runtime",
-                "hickory-proto v0.25.2 futures-io,std,tokio (*)",
+                "hickory-proto v0.24.4 (/vendor/hickory-proto-0.24.4) "
+                "mdns,socket2,tokio,tokio-runtime",
+                "hickory-proto v0.25.2 (/vendor/hickory-proto-0.25.2) "
+                "futures-io,std,tokio (*)",
                 "hickory-resolver v0.24.4 ipconfig,resolv-conf,system-config,"
                 "tokio,tokio-runtime",
                 "hickory-resolver v0.25.2 default,system-config,tokio",

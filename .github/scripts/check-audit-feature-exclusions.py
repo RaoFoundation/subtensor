@@ -19,10 +19,21 @@ HICKORY_FEATURES = {
 }
 
 
+def package_features(line: str) -> re.Match[str] | None:
+    match = re.match(r"^(\S+) v(\d+)\.(\d+)\.(\d+)\b(.*)$", line)
+    if match is None:
+        return None
+    name, major, minor, patch, features = match.groups()
+    return re.match(
+        r"(\S+) (\d+) (\d+) (\d+) (?:\([^)]*\) )?(.*)",
+        f"{name} {major} {minor} {patch} {features.lstrip()}",
+    )
+
+
 def violations(tree: str) -> list[str]:
     failures = set()
     for line in tree.splitlines():
-        package = re.match(r"^(\S+) v(\d+)\.(\d+)\.(\d+)\b(.*)$", line)
+        package = package_features(line)
         if package is None:
             continue
         name, major, minor, patch, features = package.groups()
