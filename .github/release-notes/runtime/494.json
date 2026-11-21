@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 494,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v494-upgrade/page.tsx",
+  "public_path": "/releases/v494-upgrade",
+  "audiences": ["node operators", "validators", "subnet owners", "SDK users"],
+  "summary": "V494 is the next Bittensor runtime release. Its final feature and integration notes will be completed on the release branch before the upgrade is proposed."
+}
