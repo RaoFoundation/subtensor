@@ -312,6 +312,7 @@ READ_SAMPLES: dict[str, dict] = {
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "commitments": {"netuid": 1},
     "channel_commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
+    "revealed_channel_commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "commit_burn": {"netuid": 1},
     "mech_weight_delegate": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "crowdloan": {"crowdloan_id": 0},

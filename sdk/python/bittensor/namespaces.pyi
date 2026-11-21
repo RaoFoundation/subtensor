@@ -11,7 +11,7 @@ from typing import Any, Optional
 from .balance import Balance
 from .metagraph import Metagraph, NeuronCommitment
 from .reads.delegation import DelegateInfo, DelegatedStake
-from .reads.identity import Commitment
+from .reads.identity import ChannelCommitment, Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
@@ -311,12 +311,14 @@ class Hyperparameters(_ReadNamespace):
 class Identity(_ReadNamespace):
     """On-chain identities and commitments."""
 
-    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[Commitment]:
-        """One hotkey's independent channel commitment, or None when absent.
+    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[ChannelCommitment]:
+        """One hotkey's active and revealed channel records, or None when both are absent.
 
-        Reads the v2 runtime API and decodes the returned SCALE registration. On a
-        node without v2, reads the equivalent channel storage instead; both paths
-        distinguish this target from the legacy `commitment` read.
+        `has_active` distinguishes an active registration from history retained after
+        its active row was removed. The `revealed` list contains raw decrypted
+        plaintext and reveal blocks; `revealed_channel_commitment` exposes that
+        history independently of the active registration. Reads the v2 runtime API,
+        falling back to equivalent channel storage on older nodes.
         """
 
     async def commit_burn(self, netuid: int, mechid: int = 0, channel: int = 0, *, block: Optional[int] = None) -> Optional[dict]:
@@ -351,6 +353,14 @@ class Identity(_ReadNamespace):
 
     async def revealed_commitment(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Any:
         """The revealed (timelock-decrypted) commitment for a hotkey on a subnet, or None."""
+    async def revealed_channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[list[dict[str, Any]]]:
+        """Raw revealed channel plaintext and reveal blocks, or None when history is absent.
+
+        This history is independent of the active `channel_commitment` registration:
+        revealing the last active field removes that row but retains its plaintext.
+        Each record has `data` (UTF-8 when possible, otherwise 0x-hex) and `block`.
+        """
+
 
 class Leasing(_ReadNamespace):
     """Leases and crowdloans."""

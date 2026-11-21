@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, is_dataclass
 
 import typer
@@ -90,20 +91,34 @@ def show(
     mechid: int = typer.Option(0, "--mechid", help="Mechanism whose channel to inspect."),
     channel: int = typer.Option(0, "--channel", help="Independent channel index (0..255)."),
 ):
-    """Show a hotkey's independent channel commitment."""
+    """Show active and revealed channel records with explicit labels."""
     app_ctx: AppContext = ctx_of(ctx)
     address = app_ctx.resolve_address("hotkey_ss58", hotkey)
-    result = app_ctx.run(
-        lambda client: client.read(
-            "channel_commitment",
-            netuid=netuid,
-            mechid=mechid,
-            channel=channel,
-            hotkey_ss58=address,
+
+    async def _records(client):
+        params = {
+            "netuid": netuid,
+            "mechid": mechid,
+            "channel": channel,
+            "hotkey_ss58": address,
+        }
+        return await asyncio.gather(
+            client.read("channel_commitment", **params),
+            client.read("revealed_channel_commitment", **params),
         )
-    )
+
+    result, revealed = app_ctx.run(_records)
+    active_fields = asdict(result) if is_dataclass(result) else result
+    if active_fields is not None:
+        active_fields.pop("revealed", None)
+        active_fields.pop("has_active", None)
+        if result is not None and not getattr(result, "has_active", False):
+            active_fields = None
+    app_ctx.output.detail("active channel commitment", active_fields or {})
     app_ctx.output.detail(
-        "channel commitment", asdict(result) if is_dataclass(result) else result or {}
+        "revealed channel commitment",
+        {str(index): record for index, record in enumerate(revealed or [])},
+        json_fields=revealed,
     )
 
 
