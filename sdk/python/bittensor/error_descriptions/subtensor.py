@@ -958,9 +958,16 @@ DESCRIPTIONS: dict[str, str] = {
         "against that hyperparameter and wait for the next interval to start."
     ),
     "TooManyUIDsPerMechanism": (
-        "Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed "
-        "the chain default of 256 UIDs per subnet. Check `MaxAllowedUids` and the subnet's "
-        "mechanism count so their product stays within the limit."
+        "The requested subnet UID capacity exceeds its consensus limit. Null consensus allows "
+        "`MaxAllowedUids` up to 2500 independently of mechanism count. Yuma consensus requires "
+        "max UIDs times mechanism count to remain at most 256. Reduce `MaxAllowedUids`, reduce "
+        "the mechanism count on Yuma, or switch to a consensus mode that supports the capacity."
+    ),
+    "TooManyWeightsForNullMechanism": (
+        "A Null-consensus weight row exceeds the shared 2500-entry budget divided by the "
+        "subnet's current mechanism count, rounded down with a minimum of one entry. Reduce "
+        "the UID list to that per-mechanism limit; opaque timelocked commits are checked at "
+        "reveal. Yuma-consensus rows do not use this additional limit."
     ),
     "TooManyUnrevealedCommits": (
         "Legacy hash commits (`commit_weights` and `commit_mechanism_weights`) reached their "

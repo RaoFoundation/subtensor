@@ -249,6 +249,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 206): ErrorInfo('SubtensorModule', 'GammaEmissionNotSettableOnLeasedSubnet', '`set_subnet_emission_weights_v2`: a subnet under a lease may not have gamma shares.'),
     (7, 207): ErrorInfo('SubtensorModule', 'ServiceDoesNotExist', 'The hotkey has no service on this subnet.'),
     (7, 208): ErrorInfo('SubtensorModule', 'NotMechWeightDelegate', "The signer is not the validator's delegate for this exact mechanism."),
+    (7, 209): ErrorInfo('SubtensorModule', 'TooManyWeightsForNullMechanism', 'A Null weight row exceeds the total row budget divided by mechanism count.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (11, 2): ErrorInfo('Utility', 'SafeDerivationFailed', 'No full-width off-curve account could be derived within the fixed bound.'),
