@@ -835,74 +835,6 @@
     ]
   },
   {
-    "name": "commit_weight_hash",
-    "summary": "Submit a legacy salt-based weight hash for one subnet mechanism.",
-    "description": "Submit a legacy salt-based weight hash for one subnet mechanism.\n\nUse this only with the legacy commit/reveal protocol, followed by\n`RevealWeights` with the same mechanism, uids, values, salt, and version\nkey. Most validators should use `CommitWeights` for a timelocked commit\nor `SetWeights` to select the subnet's configured path automatically.\nWith `for_hotkey`, the signing hotkey must be that validator's authorized\ndelegate on this mechanism; the delegate pays the normal transaction fee.",
-    "signer": "hotkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "SubtensorModule",
-        "commit_mechanism_weights"
-      ],
-      [
-        "SubtensorModule",
-        "commit_mechanism_weights_for"
-      ]
-    ],
-    "docs_url": "/docs/tx/commit-weight-hash",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet whose miners the weights score."
-        },
-        "commit_hash": {
-          "type": "string",
-          "description": "Legacy weight commit hash (0x-prefixed H256)."
-        },
-        "mechid": {
-          "type": "integer",
-          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
-        },
-        "for_hotkey": {
-          "type": "string",
-          "description": "Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate."
-        }
-      },
-      "required": [
-        "netuid",
-        "commit_hash"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx commit-weight-hash --netuid <int> --commit-hash <value>",
-    "python_class": "CommitWeightHash",
-    "markdown_url": "/llms.mdx/docs/tx/commit-weight-hash/content.md",
-    "sources": [
-      {
-        "pallet": "SubtensorModule",
-        "call": "commit_mechanism_weights",
-        "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 214,
-        "end_line": 221,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221",
-        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      },
-      {
-        "pallet": "SubtensorModule",
-        "call": "commit_mechanism_weights_for",
-        "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3320,
-        "end_line": 3328,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3318-L3328",
-        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      }
-    ]
-  },
-  {
     "name": "close_loan",
     "summary": "Repay total principal and return remaining collateral on a subnet.",
     "description": "Repay total principal and return remaining collateral on a subnet.\n\nBy default (`repay_from_wallet=False`) an escrowed short buys its alpha\ndebt back through the AMM using escrow sale proceeds plus remaining TAO\ncollateral, then refunds any leftover TAO. Set `repay_from_wallet=True`\nto repay short alpha from stake on `hotkey_ss58` instead and receive the\nfull escrow pot. A long with the default sells escrow (then collateral) for\nprincipal TAO (selling only enough collateral to cover any shortfall,\nreturning leftover collateral as alpha to `hotkey_ss58`);\n`repay_from_wallet=True` pays TAO from free balance and returns escrow\nalpha to `hotkey_ss58`. Both charge accrued interest through the closing\nblock. A failed repayment, payment ceiling or refund floor rolls back.\n\nPositions do not store a hotkey; `hotkey_ss58` is required whenever alpha\nmoves to or from the caller's stake (wallet alpha repay, or alpha refund).\n`max_payment` is TAO for AMM short closes and long repayment, or alpha\nfor a wallet-repaid short. `min_refund` is TAO for shorts and alpha for\nlongs (matching the refund asset on each path). Units are checked against\nthe owner's actual stored position. Closing remains available when new\nborrowing is disabled.\n\nOn fork / clone chains without a live MEV decryptor, submit with\n`--no-mev-shield`.",
@@ -980,6 +912,74 @@
         "end_line": 2011,
         "url": "/code/pallets/lending/src/lib.rs#L1989-L2011",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "commit_weight_hash",
+    "summary": "Submit a legacy salt-based weight hash for one subnet mechanism.",
+    "description": "Submit a legacy salt-based weight hash for one subnet mechanism.\n\nUse this only with the legacy commit/reveal protocol, followed by\n`RevealWeights` with the same mechanism, uids, values, salt, and version\nkey. Most validators should use `CommitWeights` for a timelocked commit\nor `SetWeights` to select the subnet's configured path automatically.\nWith `for_hotkey`, the signing hotkey must be that validator's authorized\ndelegate on this mechanism; the delegate pays the normal transaction fee.",
+    "signer": "hotkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "commit_mechanism_weights"
+      ],
+      [
+        "SubtensorModule",
+        "commit_mechanism_weights_for"
+      ]
+    ],
+    "docs_url": "/docs/tx/commit-weight-hash",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose miners the weights score."
+        },
+        "commit_hash": {
+          "type": "string",
+          "description": "Legacy weight commit hash (0x-prefixed H256)."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
+        },
+        "for_hotkey": {
+          "type": "string",
+          "description": "Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate."
+        }
+      },
+      "required": [
+        "netuid",
+        "commit_hash"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx commit-weight-hash --netuid <int> --commit-hash <value>",
+    "python_class": "CommitWeightHash",
+    "markdown_url": "/llms.mdx/docs/tx/commit-weight-hash/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_mechanism_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 214,
+        "end_line": 221,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_mechanism_weights_for",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3320,
+        "end_line": 3328,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3318-L3328",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
