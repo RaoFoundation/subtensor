@@ -531,6 +531,14 @@ class Staking(_ReadNamespace):
 
     async def basket_trading_status(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
         """A validator's `swap_basket` trading status: gates and the turnover bucket.
+    async def basket_trade_protection(self, *, block: Optional[int] = None) -> Optional[dict]:
+        """The live per-leg basket band and price-reference mode, or None on old nodes.
+
+        `band_bps` is the configured deviation in basis points, `band_pct` its exact
+        decimal percentage, and `price_reference` either `StrictestEmaAndSpot` or
+        `SpotOnly`. These settings are network-wide, not per-validator.
+        """
+
 
         `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
         The turnover budget is a token bucket: `budget_tao` is its capacity

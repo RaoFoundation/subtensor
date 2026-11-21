@@ -219,6 +219,37 @@
     "python": "sub.staking.basket_position(...)"
   },
   {
+    "name": "basket_trade_protection",
+    "summary": "The live per-leg basket band and price-reference mode, or None on old nodes.",
+    "description": "The live per-leg basket band and price-reference mode, or None on old nodes.\n\n`band_bps` is the configured deviation in basis points, `band_pct` its exact\ndecimal percentage, and `price_reference` either `StrictestEmaAndSpot` or\n`SpotOnly`. These settings are network-wide, not per-validator.",
+    "params": {},
+    "param_docs": {},
+    "category": "Staking",
+    "docs_url": "/docs/query/basket-trade-protection",
+    "markdown_url": "/llms.mdx/docs/query/basket-trade-protection/content.md",
+    "python": "sub.staking.basket_trade_protection(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BasketTradeMaxSlippageBps",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3511,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3511",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "BasketTradePriceReferenceMode",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 3537,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3537",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "basket_trading_status",
     "summary": "A validator's `swap_basket` trading status: gates and the turnover bucket.",
     "description": "A validator's `swap_basket` trading status: gates and the turnover bucket.\n\n`enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.\nThe turnover budget is a token bucket: `budget_tao` is its capacity\n(`BasketDailyTurnoverCap` share of the fund's guarded NAV \u2014 each holding at\nthe lower of its realizable value and its slow-moving-price value, so a\npumped pool cannot enlarge it), `remaining_tao` what a trade right\nnow could push through the fund, `used_tao` the difference, and the bucket\nrefills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,\na full refill over the configured `refill_blocks`, 7200 by default).",

@@ -391,6 +391,7 @@ READ_SAMPLES: dict[str, dict] = {
     "tx_rate_limit": {},
     "uid": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "basket_trading_status": {"hotkey_ss58": ALICE_HOT},
+    "basket_trade_protection": {},
     "validator_basket": {"hotkey_ss58": ALICE_HOT},
     "validator_basket_nav": {"hotkey_ss58": ALICE_HOT},
     "validator_basket_summary": {"hotkey_ss58": ALICE_HOT},
