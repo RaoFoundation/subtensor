@@ -35,6 +35,7 @@ mod move_stake;
 mod networks;
 mod neuron_info;
 mod null_consensus;
+mod null_mechanism_limits;
 mod owner_hotkey_lock_aggregates;
 mod recycle_alpha;
 mod registration;

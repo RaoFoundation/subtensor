@@ -39,10 +39,20 @@ btcli hparams set --netuid 1 --name epoch_consensus --value Null
 btcli hparams set --netuid 1 --name max_allowed_uids --value 2500
 ```
 
-Capacity is `floor(2500 / mechanism_count)` for Null, and
-`floor(256 / mechanism_count)` for Yuma. Increasing the mechanism count also checks
-the configured capacity. Reduce capacity first if the shared limit would be exceeded.
-Switching to Null does not automatically increase capacity.
+Capacity is `max_allowed_uids <= 2500` for Null, independent of mechanism count.
+For Yuma, `max_allowed_uids × mechanism_count` must stay ≤ 256, so the ceiling is
+`floor(256 / mechanism_count)`. Increasing the mechanism count also checks the
+configured capacity. Reduce capacity first if the Yuma shared limit would be
+exceeded. Switching to Null does not automatically increase capacity.
+
+The default global mechanism limit remains 2. Root may raise it to the hard
+maximum of 16 and then configure up to 16 mechanisms on a subnet. Null weight
+rows are capped at `max(1, floor(2500 / mechanism_count))`: 2,500 with one
+mechanism, 1,250 with two, and 156 with sixteen. This total budget is fixed;
+there is no per-row sudo setting. The cap applies to direct and delegated weight
+submission and to revealed or timelocked weights. Existing rows are retained when
+the mechanism count changes, but new rows must fit the new cap. Yuma rows have
+no additional cap.
 
 Returning to Yuma requires the actual registered population to fit the Yuma ceiling.
 Use bounded owner pruning to shrink explicitly before switching. Switching

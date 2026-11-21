@@ -46,6 +46,7 @@ impl<T: Config> CheckWeights<T> {
         Self::check_input_lengths(call)?;
         Self::check_batch_size(call)?;
         Self::check_min_stake(who, call)?;
+        Self::check_null_weight_row_limit(call)?;
         Self::check_commit_reveal(who, call)
     }
 
@@ -142,6 +143,47 @@ impl<T: Config> CheckWeights<T> {
             }
             _ => Ok(()),
         }
+    }
+
+    fn check_null_weight_row_limit(call: &Call<T>) -> Result<(), Error<T>> {
+        match call {
+            Call::set_weights {
+                netuid,
+                dests: uids,
+                ..
+            }
+            | Call::set_mechanism_weights {
+                netuid,
+                dests: uids,
+                ..
+            }
+            | Call::set_mechanism_weights_for {
+                netuid,
+                dests: uids,
+                ..
+            }
+            | Call::reveal_weights { netuid, uids, .. }
+            | Call::reveal_mechanism_weights { netuid, uids, .. }
+            | Call::reveal_mechanism_weights_for { netuid, uids, .. } => {
+                Pallet::<T>::ensure_null_weight_row_limit(*netuid, uids.len())?;
+            }
+            Call::batch_set_weights {
+                netuids, weights, ..
+            } => {
+                for (netuid, row) in netuids.iter().zip(weights) {
+                    Pallet::<T>::ensure_null_weight_row_limit((*netuid).into(), row.len())?;
+                }
+            }
+            Call::batch_reveal_weights {
+                netuid, uids_list, ..
+            } => {
+                for uids in uids_list {
+                    Pallet::<T>::ensure_null_weight_row_limit(*netuid, uids.len())?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn find_commit_epoch(commits: &WeightCommitQueue, hash: H256) -> Option<u64> {

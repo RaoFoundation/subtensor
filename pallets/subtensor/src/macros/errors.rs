@@ -505,5 +505,7 @@ mod errors {
         ServiceDoesNotExist,
         /// The signer is not the validator's delegate for this exact mechanism.
         NotMechWeightDelegate,
+        /// A Null weight row exceeds the total row budget divided by mechanism count.
+        TooManyWeightsForNullMechanism,
     }
 }

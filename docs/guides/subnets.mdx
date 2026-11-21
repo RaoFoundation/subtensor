@@ -160,7 +160,7 @@ The important owner-settable parameters, with chain defaults:
 | `min_burn` / `max_burn` | 0.0005 τ / 100 τ | Clamp on the neuron registration price. Read the live price with [`burn`](/docs/query/burn). |
 | `burn_half_life` | 360 | Shared decay half-life; burn price and PoW difficulty each decay toward their own minimum. |
 | `burn_increase_mult` | 1.26 | Shared multiplier; each successful registration raises only the price of its own method. |
-| `max_allowed_uids` | 256 | UID slots. Floor 64; shared budget is 256 under Yuma or 2,500 under Null, divided by mechanism count. |
+| `max_allowed_uids` | 256 | UID slots. Floor 64. Under Yuma, `max_allowed_uids × mechanism_count ≤ 256`; under Null, `max_allowed_uids ≤ 2,500` independently of mechanism count. |
 | `registration_allowed` | true | Enables burn registration independently of PoW. Owners keep at least one method enabled. |
 | `network_pow_registration_allowed` | false | Enables fee-free proof-of-work registration on non-root subnets, independently of burn. |
 | `activity_cutoff_factor` | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
@@ -232,7 +232,8 @@ validators target one via the `mechid` field on
 [`mechanism-count`](/docs/query/mechanism-count) and
 [`mechanism-emission-split`](/docs/query/mechanism-emission-split).
 
-- The chain currently caps subnets at **2** mechanisms.
+- The default global limit is **2** mechanisms. Root may raise it to the hard
+  maximum of **16**, then configure a subnet's mechanism count accordingly.
 - Each mechanism runs Yuma Consensus independently, with its own weight matrix
   and separate bond pools. Miners keep one UID across all mechanisms — no
   separate registration — and their total emission is the sum across
@@ -241,8 +242,12 @@ validators target one via the `mechid` field on
   mechanism's own consensus, then combined according to the emission split.
 - Mechanisms were formerly called "subsubnets"; the old name survives in some
   APIs and code comments.
-- `max_allowed_uids` × mechanism count must stay ≤ 256; reduce
-  `max_allowed_uids` first if raising the count would exceed it.
+- Yuma requires `max_allowed_uids × mechanism count ≤ 256`; reduce
+  `max_allowed_uids` first if raising the count would exceed it. Null instead
+  allows `max_allowed_uids ≤ 2,500` independently of mechanism count.
+- Null weight rows are limited to `max(1, floor(2500 / mechanism_count))`,
+  preserving the current full-row limit with one mechanism. The budget is fixed,
+  not sudo-settable. Yuma has no additional row cap.
 - The emission split is a vector of u16 weights summing to 65,535 (e.g.
   `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
   mechanism count resets the split to even.

@@ -31,8 +31,11 @@ pub const GLOBAL_MAX_SUBNET_COUNT: u16 = 4096;
 // GLOBAL_MAX_SUBNET_COUNT * MAX_MECHANISM_COUNT_PER_SUBNET should be 0x10000
 pub const MAX_MECHANISM_COUNT_PER_SUBNET: u8 = 16;
 
-/// Shared UID capacity across all emission mechanisms in Null consensus.
+/// UID capacity for each Null mechanism.
 pub const NULL_UID_BUDGET: u16 = 2_500;
+/// Total row capacity shared across a Null subnet's mechanisms. A single
+/// mechanism retains the full existing Null row limit.
+pub const TOTAL_NULL_WEIGHT_BUDGET: u16 = NULL_UID_BUDGET;
 
 impl<T: Config> Pallet<T> {
     /// Queue a grant move with fixed-size storage writes. The old grant is
@@ -513,11 +516,16 @@ impl<T: Config> Pallet<T> {
         max_uids: u16,
         mechanism_count: MechId,
     ) -> DispatchResult {
-        let max_uids_over_all_mechanisms =
-            u32::from(max_uids).saturating_mul(u32::from(u8::from(mechanism_count)));
+        let mode = Self::get_epoch_consensus(netuid);
+        let budget = Self::epoch_uid_budget(mode);
+        let required_uids = match mode {
+            EpochConsensus::Null => u32::from(max_uids),
+            EpochConsensus::Yuma => {
+                u32::from(max_uids).saturating_mul(u32::from(u8::from(mechanism_count)))
+            }
+        };
         ensure!(
-            max_uids_over_all_mechanisms
-                <= u32::from(Self::epoch_uid_budget(Self::get_epoch_consensus(netuid))),
+            required_uids <= u32::from(budget),
             Error::<T>::TooManyUIDsPerMechanism
         );
         Ok(())
@@ -548,10 +556,14 @@ impl<T: Config> Pallet<T> {
                 );
             }
         }
-        let count = u16::from(u8::from(Self::get_current_mechanism_count(netuid)));
-        let ceiling = Self::epoch_uid_budget(mode)
-            .checked_div(count)
-            .ok_or(Error::<T>::InvalidValue)?;
+        let ceiling = match mode {
+            EpochConsensus::Null => NULL_UID_BUDGET,
+            EpochConsensus::Yuma => Self::epoch_uid_budget(mode)
+                .checked_div(u16::from(u8::from(Self::get_current_mechanism_count(
+                    netuid,
+                ))))
+                .ok_or(Error::<T>::InvalidValue)?,
+        };
         ensure!(
             Self::get_subnetwork_n(netuid) <= ceiling,
             Error::<T>::TooManyUIDsPerMechanism
