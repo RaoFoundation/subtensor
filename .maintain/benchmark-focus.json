@@ -7,6 +7,7 @@
     "block_step",
     "block_step_null_sole_owner",
     "block_step_yuma",
+    "null_epoch",
     "commit_crv3_mechanism_weights_null",
     "commit_timelocked_mechanism_weights_null",
     "commit_timelocked_weights_null",

@@ -33,11 +33,13 @@ mod hooks {
                 null_weight.proof_size().max(yuma_weight.proof_size()),
             );
             match block_step_result {
-                Ok(basket_flush_weight) => {
+                // The basket flush and each Null epoch report their own weight:
+                // a Null epoch's work depends on its mechanism and UID counts.
+                Ok(metered_weight) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
                     block_step_weight
-                        .saturating_add(basket_flush_weight)
+                        .saturating_add(metered_weight)
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }
