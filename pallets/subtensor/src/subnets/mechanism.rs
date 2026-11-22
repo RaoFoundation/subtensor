@@ -798,7 +798,7 @@ impl<T: Config> Pallet<T> {
         result
     }
 
-    fn weighted_acc_u16(existing: u16, added: u16, weight: U64F64) -> u16 {
+    pub(crate) fn weighted_acc_u16(existing: u16, added: u16, weight: U64F64) -> u16 {
         U64F64::saturating_from_num(existing)
             .saturating_add(U64F64::saturating_from_num(added).saturating_mul(weight))
             .saturating_to_num::<u16>()
@@ -835,6 +835,32 @@ impl<T: Config> Pallet<T> {
 
     /// Split funded pools before rounding individual mechanisms' payouts.
     pub(crate) fn epoch_with_mechanism_budgets(
+        netuid: NetUid,
+        miner_budget: AlphaBalance,
+        local_dividend_budget: AlphaBalance,
+        root_budget: AlphaBalance,
+    ) -> Vec<(T::AccountId, AlphaBalance, AlphaBalance)> {
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            // Same storage, events and emissions as the per-mechanism path,
+            // without repeating subnet-wide work for every mechanism.
+            return Self::null_epoch_with_mechanism_budgets(
+                netuid,
+                miner_budget,
+                local_dividend_budget,
+                root_budget,
+            );
+        }
+        Self::epoch_per_mechanism_with_budgets(
+            netuid,
+            miner_budget,
+            local_dividend_budget,
+            root_budget,
+        )
+    }
+
+    /// Runs one complete epoch per mechanism and folds the results. This is the
+    /// Yuma path, and the reference that the shared Null path must match.
+    pub(crate) fn epoch_per_mechanism_with_budgets(
         netuid: NetUid,
         miner_budget: AlphaBalance,
         local_dividend_budget: AlphaBalance,
