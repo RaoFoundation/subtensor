@@ -76,7 +76,10 @@ PROXY_TYPE_HELP = (
     + ". Triumvirate, Senate, Governance, RootWeights and GammaSpend are deprecated on "
     "the current runtime: they deny all calls, so a proxy of those types can "
     "dispatch nothing. Prefer the narrowest type that covers your use; Any "
-    "can do everything the account can, including transfers."
+    "can do everything the account can, including transfers. Lending admits only "
+    "Lift lending user calls plus Utility batch / batch_all / force_batch of those "
+    "(no transfers or staking); with Lending, batch / force_batch still run later "
+    "lending calls after a filtered child — use batch_all for all-or-nothing."
 )
 
 DELAY_HELP = (

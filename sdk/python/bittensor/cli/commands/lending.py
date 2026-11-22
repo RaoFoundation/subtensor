@@ -238,13 +238,24 @@ def _explain_band_deferral(
 ) -> str:
     """Turn ``SettlementPriceOutsideEmaBand`` into a readable deferral line (U2/U5/U6).
 
-    ``force_at`` is BandDeferralSince + max_settlement_deferral. After that
-    block the next expiry pass force-settles at market (skips the per-trade
-    band; still paced by ProtocolForcedImpact). Increases/rolls stay frozen
-    until settled.
+    ``force_at`` is BandDeferralSince + max_settlement_deferral. When the next
+    retry is at or past that block, the pass force-settles at market (skips the
+    per-trade band; may still defer if ProtocolForcedImpact is already full).
+    Increases/rolls stay frozen until settled.
     """
     if "SettlementPriceOutsideEmaBand" not in reason:
         return reason
+    # Past max deferral: next retry is force-at-market (do not compare spot to
+    # the open EMA band — that gate no longer applies).
+    try:
+        retry_block = int(retry_at) if retry_at is not None else None
+    except (TypeError, ValueError):
+        retry_block = None
+    if force_at is not None and retry_block is not None and retry_block >= int(force_at):
+        return (
+            f"past max deferral; next retry at block {retry_block} force-settles at market "
+            "(skips per-trade band; may still defer if the per-block impact cap is hit)"
+        )
     band_pct = (int(band_bps) / 100.0) if band_bps is not None else 2.0
     # U6: spot may already be back inside while waiting for the next retry.
     if spot_vs_ema_pct is not None and abs(spot_vs_ema_pct) <= band_pct:
@@ -1972,9 +1983,14 @@ def show_position(
             elif price_raw is not None:
                 ema = int(price_raw) / float(2**64)
             spot = float(int(spot_rao or 0)) / float(RAO_PER_TAO)
+            # Prefer expiry_max_slippage_bps (realized settle band) over the
+            # wider open-side ema_band_bps for deferral explanations.
             band_bps = None
-            if isinstance(params, dict) and params.get("ema_band_bps") is not None:
-                band_bps = int(params["ema_band_bps"])
+            if isinstance(params, dict):
+                if params.get("expiry_max_slippage_bps") is not None:
+                    band_bps = int(params["expiry_max_slippage_bps"])
+                elif params.get("ema_band_bps") is not None:
+                    band_bps = int(params["ema_band_bps"])
             spot_vs_ema_pct = None
             if ema is not None and ema > 0 and spot > 0:
                 spot_vs_ema_pct = (spot / ema - 1.0) * 100.0

@@ -4603,6 +4603,188 @@ fn expiry_force_close_still_paced_by_protocol_forced_impact() {
     });
 }
 
+/// Helper: open a short, drain pot so expiry must forfeit, stamp band deferral,
+/// and requeue at `force_at` with a pumped spot so force-market is required.
+fn queue_underwater_short_force_forfeit(owner: &Account, force_at: u64) {
+    mint_tao(owner, 50_000_000_000_000);
+    assert_ok!(Lending::open(
+        RuntimeOrigin::signed(owner.clone()),
+        netuid(),
+        Side::Short,
+        5_000_000_000_000,
+        None,
+        1,
+        1,
+        0,
+        deadline(),
+    ));
+    let position = Positions::<Test>::get(owner, netuid()).unwrap();
+    Positions::<Test>::mutate(owner, netuid(), |p| {
+        if let Some(p) = p {
+            p.collateral = 0;
+            p.proceeds = p.principal / 2; // underwater
+            p.annual_interest = 0;
+            p.last_accrued = force_at;
+            p.expiry_due = force_at;
+        }
+    });
+    if let Some(pos) = Positions::<Test>::get(owner, netuid()) {
+        let _ = ExpiryRetry::<Test>::take(pos.expiry_due, (owner, netuid()));
+        let _ = Expiry::<Test>::take(pos.expires_at, (owner, netuid()));
+        let _ = position;
+    }
+    BandDeferralSince::<Test>::insert(
+        owner,
+        netuid(),
+        force_at.saturating_sub(TestMaxSettlementDeferral::get()),
+    );
+    ExpiryRetry::<Test>::insert(force_at, (owner, netuid()), ());
+}
+
+/// Two underwater shorts past max deferral in one block: first force-forfeits
+/// and notes ProtocolForcedImpact; second is requeued (cap hit).
+#[test]
+fn force_forfeit_notes_impact_and_paces_second_underwater_short() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100; // 1% — one pumped forfeit fills it
+            p.max_expiry_settlements_per_block = 16;
+        });
+        let owner_a = account(1);
+        let owner_b = account(3);
+        let force_at = 10_000u64;
+        queue_underwater_short_force_forfeit(&owner_a, force_at);
+        queue_underwater_short_force_forfeit(&owner_b, force_at);
+        ExpiryRetryPending::<Test>::put(2);
+        NextExpiryRetry::<Test>::put(force_at);
+        ExpiryRetryCursor::<Test>::kill();
+        // Pump spot so buyback is far over EMA fair (impact >> 1%).
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 80 / 100);
+
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+
+        let a_gone = !Positions::<Test>::contains_key(&owner_a, netuid());
+        let b_gone = !Positions::<Test>::contains_key(&owner_b, netuid());
+        assert!(
+            a_gone ^ b_gone,
+            "exactly one underwater force-forfeit must clear; the other is paced (a={a_gone} b={b_gone})"
+        );
+        let leftover = if a_gone { &owner_b } else { &owner_a };
+        assert!(
+            Positions::<Test>::contains_key(leftover, netuid()),
+            "impact-capped forfeit remainder stays open"
+        );
+        assert!(
+            ExpiryRetryPending::<Test>::get() > 0
+                || Positions::<Test>::get(leftover, netuid())
+                    .map(|p| p.expiry_due > force_at)
+                    .unwrap_or(false),
+            "remainder must requeue (ExpiryRetryDelay), not freeze forever"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::Forfeited { .. })
+            )),
+            "first claim must emit Forfeited"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::SettlementDeferred { .. })
+            )),
+            "second claim must emit SettlementDeferred"
+        );
+        let impact = ProtocolForcedImpact::<Test>::get(netuid());
+        assert!(
+            impact.is_some_and(|(at, diff, fair)| at == force_at && diff > 0 && fair > 0),
+            "force-market forfeit must note ProtocolForcedImpact (got {impact:?})"
+        );
+    });
+}
+
+/// Force-market forfeit notes impact so a later solvent force-settle on the
+/// same subnet is paced in the same block.
+#[test]
+fn force_forfeit_then_force_settle_paced_by_impact() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100; // 1%
+            p.max_expiry_settlements_per_block = 16;
+        });
+        let forfeit_owner = account(1);
+        let settle_owner = account(3);
+        let force_at = 10_000u64;
+        queue_underwater_short_force_forfeit(&forfeit_owner, force_at);
+
+        // Solvent short that would force-settle at market (not underwater).
+        mint_tao(&settle_owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(settle_owner.clone()),
+            netuid(),
+            Side::Short,
+            5_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        Positions::<Test>::mutate(&settle_owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.last_accrued = force_at;
+                p.expiry_due = force_at;
+            }
+        });
+        if let Some(pos) = Positions::<Test>::get(&settle_owner, netuid()) {
+            let _ = Expiry::<Test>::take(pos.expires_at, (&settle_owner, netuid()));
+        }
+        BandDeferralSince::<Test>::insert(
+            &settle_owner,
+            netuid(),
+            force_at.saturating_sub(TestMaxSettlementDeferral::get()),
+        );
+        ExpiryRetry::<Test>::insert(force_at, (&settle_owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(2);
+        NextExpiryRetry::<Test>::put(force_at);
+        ExpiryRetryCursor::<Test>::kill();
+        write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 80 / 100);
+
+        System::set_block_number(force_at);
+        System::reset_events();
+        let _ = <Lending as Hooks<_>>::on_idle(force_at, Weight::MAX);
+
+        assert!(
+            !Positions::<Test>::contains_key(&forfeit_owner, netuid()),
+            "underwater force-forfeit must clear first"
+        );
+        assert!(
+            Positions::<Test>::contains_key(&settle_owner, netuid()),
+            "solvent force-settle must defer once forfeit filled ProtocolForcedImpact"
+        );
+        assert!(
+            System::events()
+                .into_iter()
+                .any(|e| matches!(e.event, RuntimeEvent::Lending(Event::Forfeited { .. }))),
+            "must emit Forfeited for the underwater claim"
+        );
+        assert!(
+            System::events().into_iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::Lending(Event::SettlementDeferred { .. })
+            )),
+            "solvent claim must be SettlementDeferred under the impact cap"
+        );
+        assert!(
+            ProtocolForcedImpact::<Test>::get(netuid()).is_some(),
+            "forfeit buyback must populate ProtocolForcedImpact"
+        );
+    });
+}
+
 /// Sequential expiry drain: after one settle, a later spot move past
 /// `expiry_max_slippage_bps` makes the next position defer (same check that
 /// same-block batching uses after each prior trade).

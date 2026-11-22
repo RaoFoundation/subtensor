@@ -5425,11 +5425,14 @@ pub mod pallet {
         /// shortfall via [`Self::maybe_burn_invariant_surplus`]. No one-sided
         /// readd.
         ///
-        /// `enforce_realized_slippage`: when true (all protocol-forced paths —
-        /// expiry and interest-exhaustion forfeit), every AMM chunk is gated
-        /// by cumulative realized TAO vs EMA·α within
+        /// `enforce_realized_slippage`: when true, every AMM chunk is gated by
+        /// cumulative realized TAO vs EMA·α within
         /// [`LiftParams::expiry_max_slippage_bps`]. A breach rolls the settle
-        /// back. Manual close / repay never call forfeit with this set.
+        /// back. Force-at-market after max deferral passes `false` so the
+        /// per-trade band is skipped. Protocol-forced impact is **always**
+        /// paced via [`Self::ensure_block_forced_impact_ok`] and recorded via
+        /// [`Self::note_protocol_forced_impact`] (independent of the realized
+        /// guard) so force-market forfeits cannot skip the per-block cap.
         fn forfeit(
             owner: &T::AccountId,
             netuid: NetUid,
@@ -5437,6 +5440,10 @@ pub mod pallet {
             enforce_realized_slippage: bool,
         ) -> DispatchResult {
             Self::ensure_terms_version(position.terms_version)?;
+            // Pace with prior protocol-forced trades this block (force-market
+            // forfeits included). Cap already hit → Err → outer transactional
+            // rollback + ExpiryRetry / InterestRetry requeue.
+            Self::ensure_block_forced_impact_ok(netuid)?;
             let custody = Self::custody_hotkey()?;
             let reserve = Self::reserve_account(netuid);
             let escrow = position.custody.clone();
@@ -5630,11 +5637,12 @@ pub mod pallet {
                 position.lift_alpha,
                 Dissolutions::<T>::contains_key(netuid),
             )?;
-            if enforce_realized_slippage {
-                let fair = Self::fair_ema_tao(netuid, buyback_alpha, side == Side::Short)?
-                    .unwrap_or(buyback_tao);
-                Self::note_protocol_forced_impact(netuid, fair, buyback_tao);
-            }
+            // Always record forfeit AMM impact (force-market path included).
+            // Fair notional uses buyback_alpha when present; otherwise fair=0
+            // still notes realized so a pure-TAO-path trade paces later claims.
+            let fair = Self::fair_ema_tao(netuid, buyback_alpha, side == Side::Short)?
+                .unwrap_or(buyback_tao);
+            Self::note_protocol_forced_impact(netuid, fair, buyback_tao);
             let principal_lost = principal;
             Self::remove_position(owner, netuid, position);
             Self::deposit_event(Event::Forfeited {

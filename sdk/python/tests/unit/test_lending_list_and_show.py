@@ -302,7 +302,7 @@ def test_past_expiry_and_band_deferral_wording():
     assert "awaiting settlement" in _format_expiry_field(position, head=200)
     assert _format_runway_field(position, head=200) == "past expiry"
     assert "0d" not in _format_runway_field(position, head=200)
-    # Outside band: force-at-market after max deferral window.
+    # Outside band, still before max deferral: spot vs band + force window.
     explained = _explain_band_deferral(
         "Lending::SettlementPriceOutsideEmaBand",
         spot_vs_ema_pct=22.5,
@@ -324,7 +324,7 @@ def test_past_expiry_and_band_deferral_wording():
         force_at=50_400,
     )
     assert inside == "spot now inside band; settles at next retry block 420"
-    # Past max-deferral window: still names the force-at-market bound.
+    # Past max deferral: next retry force-settles at market (no ema_band compare).
     after = _explain_band_deferral(
         "Lending::SettlementPriceOutsideEmaBand",
         spot_vs_ema_pct=40.0,
@@ -332,8 +332,10 @@ def test_past_expiry_and_band_deferral_wording():
         retry_at=50_500,
         force_at=50_400,
     )
-    assert "force-at-market after ~block 50400" in after
-    assert "retries at block 50500" in after
+    assert "past max deferral" in after
+    assert "force-settles at market" in after
+    assert "impact cap" in after
+    assert "40.0%" not in after
     assert "7 days" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]
     assert "50_400" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]
     assert "force-settles at market" in LENDING_DESCRIPTIONS["SettlementPriceOutsideEmaBand"]
