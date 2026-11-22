@@ -709,6 +709,162 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
     }
 }
 
+/// Heaviest admissible state for one Null epoch over `mechanisms` and `uid_count`.
+///
+/// Every UID holds a distinct positive stake and belongs to registered
+/// five-child and five-parent rings, so each one earns a dividend. The emission
+/// split gives every mechanism its own budgets. The elected validator holds, in
+/// every mechanism, the longest row that mechanism index ever admitted. Commit
+/// reveal is enabled, with the Null commit queue filled for the current epoch.
+/// Returns the subnet and the miner, local dividend and root budgets to settle.
+pub(super) fn setup_null_epoch_benchmark<T: Config>(
+    mechanisms: u32,
+    uid_count: u32,
+) -> (NetUid, AlphaBalance, AlphaBalance, AlphaBalance) {
+    const TEMPO: u16 = 360;
+    const CURRENT_BLOCK: u64 = 7_000;
+    const RING: u16 = 5;
+
+    let netuid = NetUid::from(1);
+    let mechanisms = mechanisms.clamp(1, u32::from(MAX_MECHANISM_COUNT_PER_SUBNET)) as u8;
+    let n = uid_count.clamp(1, u32::from(NULL_UID_BUDGET)) as u16;
+
+    set_benchmark_block_number::<T>(CURRENT_BLOCK);
+    StakeThreshold::<T>::put(0u64);
+    Subtensor::<T>::set_tao_weight(u64::MAX / 6);
+    Subtensor::<T>::init_new_network(netuid, TEMPO);
+    Subtensor::<T>::set_epoch_consensus(netuid, EpochConsensus::Null);
+    Subtensor::<T>::set_max_allowed_uids(netuid, NULL_UID_BUDGET);
+    Subtensor::<T>::set_max_allowed_validators(netuid, 1);
+    VotingPowerTrackingEnabled::<T>::insert(netuid, true);
+    MaxMechanismCount::<T>::put(MechId::from(MAX_MECHANISM_COUNT_PER_SUBNET));
+    MechanismCountCurrent::<T>::insert(netuid, MechId::from(mechanisms));
+
+    // Shares 1 : 2 : ... : m, so no two mechanisms split to the same budget.
+    let weight_sum = u32::from(mechanisms) * (u32::from(mechanisms) + 1) / 2;
+    let mut split = (1..=u32::from(mechanisms))
+        .map(|weight| (u32::from(u16::MAX) * weight / weight_sum) as u16)
+        .collect::<Vec<_>>();
+    let assigned = split.iter().map(|share| u32::from(*share)).sum::<u32>();
+    if let Some(last) = split.last_mut() {
+        *last += (u32::from(u16::MAX) - assigned) as u16;
+    }
+    MechanismEmissionSplit::<T>::insert(netuid, split);
+
+    // A benchmark genesis may already hold neurons on this subnet.
+    let _ = Keys::<T>::clear_prefix(netuid, u32::MAX, None);
+    initialize_block_step_neuron_vectors::<T>(netuid, n);
+    let hotkeys = (0..n)
+        .map(|uid| account::<T::AccountId>("null_epoch_hot", u32::from(uid), 0))
+        .collect::<Vec<_>>();
+    let links = RING.min(n - 1);
+    let ring = |uid: u16, offset: u16| -> T::AccountId {
+        hotkeys
+            .get(usize::from((uid + offset) % n))
+            .cloned()
+            .unwrap()
+    };
+    for (uid, hotkey) in (0..n).zip(&hotkeys) {
+        let coldkey: T::AccountId = account("null_epoch_cold", u32::from(uid), 0);
+        Owner::<T>::insert(hotkey, coldkey);
+        Keys::<T>::insert(netuid, uid, hotkey);
+        Uids::<T>::insert(netuid, hotkey, uid);
+        BlockAtRegistration::<T>::insert(netuid, uid, 0);
+        IsNetworkMember::<T>::insert(hotkey, netuid, true);
+        TotalHotkeyAlpha::<T>::insert(
+            hotkey,
+            netuid,
+            AlphaBalance::from(1_000_000_000 + 1_000_003 * u64::from(uid)),
+        );
+        TotalHotkeyAlpha::<T>::insert(
+            hotkey,
+            NetUid::ROOT,
+            AlphaBalance::from(500_000_000 + 700_001 * u64::from(uid)),
+        );
+        ChildKeys::<T>::insert(
+            hotkey,
+            netuid,
+            (1..=links)
+                .map(|offset| (u64::MAX / 10, ring(uid, offset)))
+                .collect::<Vec<_>>(),
+        );
+        ParentKeys::<T>::insert(
+            hotkey,
+            netuid,
+            (1..=links)
+                .map(|offset| (u64::MAX / 10, ring(uid, n - offset)))
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    let (stakes, _, _) = Subtensor::<T>::get_null_stake_weights_for_network(netuid);
+    let winner = Subtensor::<T>::null_validator_winner(&stakes).unwrap() as u16;
+    let winner_hotkey = ring(winner, 0);
+    ValidatorPermit::<T>::insert(netuid, (0..n).map(|uid| uid == winner).collect::<Vec<_>>());
+    // The owner is registered and is not the validator: its self-weight stays masked.
+    SubnetOwnerHotkey::<T>::insert(netuid, ring(winner, 1));
+
+    Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, true);
+    let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+    let queued = (NULL_COMMIT_QUEUE_COUNT / usize::from(mechanisms)).max(1);
+    let payload: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>> =
+        vec![0u8; NULL_COMMIT_QUEUE_BYTES / NULL_COMMIT_QUEUE_COUNT]
+            .try_into()
+            .unwrap();
+    for mechanism in 0..mechanisms {
+        let index = Subtensor::<T>::get_mechanism_storage_index(netuid, MechId::from(mechanism));
+        // Every UID is active, and the validator's row is newer than each registration.
+        LastUpdate::<T>::insert(index, vec![CURRENT_BLOCK - 1; usize::from(n)]);
+        Incentive::<T>::insert(index, vec![PerU16::zero(); usize::from(n)]);
+        ConsensusByMechanism::<T>::insert(index, vec![PerU16::zero(); usize::from(n)]);
+
+        // Mechanism `k` only ever admitted `TOTAL_NULL_WEIGHT_BUDGET / (k + 1)` entries.
+        let row_len = n.min(TOTAL_NULL_WEIGHT_BUDGET / (u16::from(mechanism) + 1));
+        let mut row = (0..row_len)
+            .map(|target| {
+                (
+                    target,
+                    1 + (target.wrapping_mul(7919) ^ u16::from(mechanism)) % 1000,
+                )
+            })
+            .collect::<Vec<_>>();
+        // Stored rows keep submission order: shuffle with a fixed-seed Fisher-Yates.
+        let mut state = 0x9E37_79B9_u32 ^ u32::from(mechanism);
+        for last in (1..row.len()).rev() {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            row.swap(last, state as usize % (last + 1));
+        }
+        Weights::<T>::insert(index, winner, row);
+
+        WeightCommits::<T>::insert(
+            index,
+            &winner_hotkey,
+            VecDeque::from([(H256::zero(), epoch, CURRENT_BLOCK - 1, 0)]),
+        );
+        TimelockedWeightCommits::<T>::insert(
+            index,
+            epoch,
+            (0..queued)
+                .map(|slot| {
+                    (
+                        ring(winner, slot as u16),
+                        CURRENT_BLOCK - 1,
+                        payload.clone(),
+                        slot as u64,
+                    )
+                })
+                .collect::<VecDeque<_>>(),
+        );
+    }
+
+    (
+        netuid,
+        AlphaBalance::from(1_000_000_000_000_u64),
+        AlphaBalance::from(700_000_000_000_u64),
+        AlphaBalance::from(300_000_000_000_u64),
+    )
+}
+
 pub(super) fn runtime_call<T: Config>(call: Call<T>) -> <T as frame_system::Config>::RuntimeCall {
     <T as Config>::RuntimeCall::from(call).into()
 }
