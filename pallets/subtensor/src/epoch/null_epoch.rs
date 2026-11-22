@@ -283,7 +283,12 @@ impl<T: Config> Pallet<T> {
             })
             .collect();
 
+        // The reads keep the order of the per-mechanism epoch. In the benchmark,
+        // registration blocks read after stake cost a few percent more.
         let n = Self::get_subnetwork_n(netuid);
+        let current_block: u64 = Self::get_current_block_as_u64();
+        let activity_cutoff: u64 = Self::get_activity_cutoff_blocks(netuid);
+        let block_at_registration: Vec<u64> = Self::get_block_at_registration(netuid);
         let (total_stake, _alpha_stake, _tao_stake): (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) =
             Self::get_null_stake_weights_for_network(netuid);
         let min_stake = Self::get_stake_threshold();
@@ -352,9 +357,9 @@ impl<T: Config> Pallet<T> {
         let inputs = NullSubnetInputs {
             netuid,
             n,
-            current_block: Self::get_current_block_as_u64(),
-            activity_cutoff: Self::get_activity_cutoff_blocks(netuid),
-            block_at_registration: Self::get_block_at_registration(netuid),
+            current_block,
+            activity_cutoff,
+            block_at_registration,
             owner_uid,
             winner,
             winner_hotkey: winner.and_then(|uid| {
