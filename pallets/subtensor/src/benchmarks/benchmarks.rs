@@ -9,7 +9,10 @@
 
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
-use crate::subnets::mechanism::GLOBAL_MAX_SUBNET_COUNT;
+use crate::subnets::mechanism::{
+    GLOBAL_MAX_SUBNET_COUNT, MAX_MECHANISM_COUNT_PER_SUBNET, NULL_UID_BUDGET,
+    TOTAL_NULL_WEIGHT_BUDGET,
+};
 use crate::*;
 use codec::{Compact, Encode};
 use frame_benchmarking::v2::*;
@@ -1120,6 +1123,49 @@ mod pallet_benchmarks {
             assert_ok!(Subtensor::<T>::block_step());
         }
     }
+
+    /// One Null epoch for `m` mechanisms and `n` UIDs. Settlement of the returned
+    /// emissions is not measured: its work does not depend on mechanism count.
+    #[benchmark]
+    fn null_epoch(
+        m: Linear<1, { MAX_MECHANISM_COUNT_PER_SUBNET as u32 }>,
+        n: Linear<1, { NULL_UID_BUDGET as u32 }>,
+    ) {
+        let (netuid, miner_budget, local_dividend_budget, root_budget) =
+            setup_null_epoch_benchmark::<T>(m, n);
+
+        let emissions;
+        #[block]
+        {
+            emissions = Subtensor::<T>::epoch_with_mechanism_budgets(
+                netuid,
+                miner_budget,
+                local_dividend_budget,
+                root_budget,
+            );
+        }
+
+        assert_eq!(emissions.len(), n as usize);
+        let (miners, validators) = emissions.iter().fold(
+            (AlphaBalance::ZERO, AlphaBalance::ZERO),
+            |(miners, validators), (_, miner, validator)| {
+                (
+                    miners.saturating_add(*miner),
+                    validators.saturating_add(*validator),
+                )
+            },
+        );
+        assert_eq!(miners, miner_budget);
+        assert_eq!(
+            validators,
+            local_dividend_budget.saturating_add(root_budget)
+        );
+        for mechanism in 0..m as u8 {
+            let index = Subtensor::<T>::get_mechanism_storage_index(netuid, mechanism.into());
+            assert_eq!(Incentive::<T>::get(index).len(), n as usize);
+        }
+    }
+
     #[benchmark]
     fn start_call() {
         let netuid = NetUid::from(1);
