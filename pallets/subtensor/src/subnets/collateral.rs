@@ -538,6 +538,32 @@ impl<T: Config> Pallet<T> {
         emission: AlphaBalance,
         capturable: AlphaBalance,
     ) -> AlphaBalance {
+        Self::settle_miner_collateral_inner(netuid, hotkey, owner, emission, capturable, true)
+    }
+
+    /// Settle collateral without crediting captured stake. The caller must
+    /// credit the full `capturable` amount to the owner after this returns.
+    ///
+    /// This allows emission distribution to control payout ordering while
+    /// preserving the same collateral accounting as [`Self::settle_miner_collateral`].
+    pub(crate) fn settle_miner_collateral_without_stake_credit(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        owner: &T::AccountId,
+        emission: AlphaBalance,
+        capturable: AlphaBalance,
+    ) -> AlphaBalance {
+        Self::settle_miner_collateral_inner(netuid, hotkey, owner, emission, capturable, false)
+    }
+
+    fn settle_miner_collateral_inner(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        owner: &T::AccountId,
+        emission: AlphaBalance,
+        capturable: AlphaBalance,
+        credit_captured_stake: bool,
+    ) -> AlphaBalance {
         if emission.is_zero() {
             return AlphaBalance::ZERO;
         }
@@ -562,7 +588,9 @@ impl<T: Config> Pallet<T> {
                     if captured.is_zero() {
                         return AlphaBalance::ZERO;
                     }
-                    Self::credit_epoch_owner_emission(hotkey, owner, netuid, captured);
+                    if credit_captured_stake {
+                        Self::credit_epoch_owner_emission(hotkey, owner, netuid, captured);
+                    }
                     state.locked = state.locked.saturating_add(captured);
                     return captured;
                 }
