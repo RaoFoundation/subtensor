@@ -1986,6 +1986,11 @@ class Lending:
     """Call builders for the Lending pallet."""
 
     @staticmethod
+    def add_collateral(netuid: 'NetUid', amount: 'u64', source_hotkey: 'Any') -> Call:
+        'Add collateral to an open position without borrowing more principal.  Short: moves `amount` TAO from the owner into the position escrow (raises loss headroom). Long: locks `amount` alpha from `source_hotkey` into escrow custody (symmetric to open). Refused while the position is settlement-frozen / in forced deferral, or while the subnet is dissolving. Allowed under `ProxyType::Lending`. Positions are keyed by `(owner, netuid)` — there is no separate `position_id` argument.'
+        return Call('Lending', 'add_collateral', {'netuid': netuid, 'amount': amount, 'source_hotkey': source_hotkey})
+
+    @staticmethod
     def close(netuid: 'NetUid', hotkey: 'AccountId32', repay_from_wallet: 'bool', max_payment: 'u64', min_refund: 'u64', valid_until: 'u32') -> Call:
         'Close a position. Shorts buy back (or repay alpha); longs repay TAO (or sell escrow).  Wallet alpha repayment is drawn from stake on `hotkey`, and returned alpha is staked to `hotkey`. Short escrow buyback may pull extra free TAO from the owner when `E_S + C` is underwater (≤ `max_payment`).'
         return Call('Lending', 'close', {'netuid': netuid, 'hotkey': hotkey, 'repay_from_wallet': repay_from_wallet, 'max_payment': max_payment, 'min_refund': min_refund, 'valid_until': valid_until})

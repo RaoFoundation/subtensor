@@ -205,4 +205,5 @@ class Lending:
     MaxTotalPositions = Item('Lending', 'MaxTotalPositions')
     ExpiryRetryDelay = Item('Lending', 'ExpiryRetryDelay')
     InterestRetryDelay = Item('Lending', 'InterestRetryDelay')
+    ForcedSettlementRetryDelay = Item('Lending', 'ForcedSettlementRetryDelay')
     MaxExpirySettlementsPerBlock = Item('Lending', 'MaxExpirySettlementsPerBlock')
