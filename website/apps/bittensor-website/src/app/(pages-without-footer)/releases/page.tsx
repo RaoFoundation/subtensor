@@ -25,12 +25,27 @@ const releases: Release[] = [
   {
     tag: 'v495',
     date: 'Proposed',
-    title: 'Null Consensus with up to 16 Mechanisms',
+    title: '16 Null Mechanisms, a Shared Null Epoch and Open Gamma Emission Deposits',
     summary:
-      'Null subnets allow 2,500 UIDs independently of mechanism count, share a 2,500-entry ' +
-      'weight-row budget across mechanisms, and retain the existing Yuma capacity rule. Root ' +
-      'can raise the default two-mechanism maximum to the existing hard maximum of 16.',
+      'Null subnets allow 2,500 UIDs for any mechanism count and can run up to 16 mechanisms ' +
+      'when root raises the global limit of two. New Null weight rows share a budget of 2,500 ' +
+      'entries across the mechanisms. The Null epoch reads subnet-wide state once, with ' +
+      'identical results, and reports its own block weight. Gamma emission deposits open ' +
+      'without a daily spend cap. The guide gives one picture of V494 and V495, with CLI, ' +
+      'Python SDK and raw-call examples.',
     href: '/releases/v495-upgrade',
+  },
+  {
+    tag: 'v494',
+    date: 'Proposed',
+    title: 'Commit Burns, Weight Delegation, Basket Controls and Etao',
+    summary:
+      'Coldkeys publish commitments for each mechanism and channel, with an optional burn that ' +
+      'the subnet owner configures. A validator hotkey authorizes one delegate to send weights ' +
+      'for one mechanism. Root can set the basket trade band, price reference and refill ' +
+      'period; the defaults do not change. The owner limit for subnet emission weights is a ' +
+      'storage value of 360 blocks instead of a constant of 50,400 blocks.',
+    href: '/releases/v494-upgrade',
   },
   {
     tag: 'v493',
