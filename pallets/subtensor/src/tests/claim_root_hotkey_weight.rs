@@ -10,6 +10,11 @@
 //! A batch or proxy computes the declaration before any inner call runs. The fund's rows
 //! and queued credits cannot grow in a transaction, except through a `swap_basket` buy or
 //! a hotkey swap. A claim after one of those, in the same transaction, is refused.
+//!
+//! A claim starts with the settlement of the claimant's deferred-dividend debts. A debt can
+//! outlive the queued credit that made it, so the fund's rows and queued credits do not
+//! bound the debts. Each declaration has a fixed part for them: the settlement of the most
+//! debts that one claimant can hold on one validator (`MAX_ROOT_CLAIM_WORK`).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -18,7 +23,9 @@
     clippy::unwrap_used
 )]
 
-use crate::staking::{BasketFlushWork, RootClaimHotkeyWork};
+use crate::staking::{
+    BasketFlushWork, DeferredBasketConversion, DeferredBasketDebt, RootClaimHotkeyWork,
+};
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, register_on_root, root_stake_of,
     zero_claim_threshold,
@@ -26,18 +33,20 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    AlphaV2, BasketDailyTurnoverCap, BasketRate, BasketRowsOpenedAt, BasketShares,
-    BasketTradingEnabled, DeferredBasketRates, Error, MAX_ROOT_CLAIM_HOTKEY_WORK,
-    MIN_ROOT_CLAIM_HOTKEY_WORK, PendingBasketDeposits, RootClaimableThreshold, SubnetAlphaIn,
-    SubnetAlphaOut, SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice, SubnetTAO,
+    AlphaV2, BasketClaimed, BasketDailyTurnoverCap, BasketRate, BasketRowsOpenedAt, BasketShares,
+    BasketTradingEnabled, DeferredBasketConversions, DeferredBasketDebts, DeferredBasketRates,
+    Error, MAX_ROOT_CLAIM_HOTKEY_WORK, MAX_ROOT_CLAIM_WORK, MIN_ROOT_CLAIM_HOTKEY_WORK,
+    PendingBasketDeposits, RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut,
+    SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice, SubnetTAO,
 };
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use frame_support::weights::Weight;
-use frame_support::{assert_ok, assert_storage_noop};
+use frame_support::{BoundedBTreeMap, assert_ok, assert_storage_noop};
 use pallet_subtensor_utility as pallet_utility;
 use sp_core::U256;
 use sp_runtime::traits::Dispatchable;
-use substrate_fixed::types::{I96F32, U64F64};
+use std::collections::BTreeMap;
+use substrate_fixed::types::{I64F64, I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
 const TAO: u64 = 1_000_000_000;
@@ -61,11 +70,15 @@ fn declared(hotkey: U256) -> Weight {
         .saturating_sub(extension())
 }
 
-/// The bound for `work` plus the reads that count it: what a fund above the floor declares.
+/// The bound for `work`, the reads that count it, and the debt settlement bound: what a
+/// fund above the floor declares.
 fn sized(work: RootClaimHotkeyWork) -> Weight {
-    SubtensorModule::root_claim_hotkey_weight_for_work(work.units(), work.queued).saturating_add(
-        SubtensorModule::root_claim_hotkey_sizing_weight(work.rows, work.queued),
-    )
+    SubtensorModule::root_claim_hotkey_weight_for_work(work.units(), work.queued)
+        .saturating_add(SubtensorModule::root_claim_hotkey_sizing_weight(
+            work.rows,
+            work.queued,
+        ))
+        .saturating_add(SubtensorModule::root_claim_debt_settlement_weight_bound())
 }
 
 fn max_extrinsic() -> Weight {
@@ -511,10 +524,11 @@ fn declaration_covers_a_claim_that_settles_its_queue_and_redeems_every_row() {
             actual.all_lte(declared_before),
             "actual {actual:?} above declared {declared_before:?}"
         );
-        // The claim did real work on all 14 rows and 6 credits: far above the floor.
-        assert!(
-            actual.ref_time() > SubtensorModule::root_claim_hotkey_min_declared_weight().ref_time()
-        );
+        // The claim did real work on all 14 rows and 6 credits: far above the claim-unit
+        // part of the floor. The claimant has no debts, so the claim reports no settlement.
+        let floor_work = SubtensorModule::root_claim_hotkey_min_declared_weight()
+            .saturating_sub(SubtensorModule::root_claim_debt_settlement_weight_bound());
+        assert!(actual.ref_time() > floor_work.ref_time());
     });
 }
 
@@ -621,6 +635,291 @@ fn declaration_covers_a_claim_that_sweeps_dust_and_opens_the_root_slot() {
         assert_eq!(work.units(), 15);
         let fifteen_units = <Test as crate::Config>::WeightInfo::claim_root(15);
         assert!(actual.ref_time() >= fifteen_units.ref_time());
+    });
+}
+
+// =============================================================================
+// Deferred-dividend debts: the settlement that starts a claim.
+// =============================================================================
+
+/// The debt settlement bound is one read and one write for each debt that one claimant
+/// can hold on one validator, and three more of each for the debt map and the two
+/// watermarks. Every declaration has it, and the largest one still fits a block.
+#[test]
+fn every_declaration_has_the_debt_settlement_bound() {
+    new_test_ext(1).execute_with(|| {
+        let db = <Test as frame_system::Config>::DbWeight::get();
+        let bound = SubtensorModule::root_claim_debt_settlement_weight_bound();
+        assert_eq!(MAX_ROOT_CLAIM_WORK, 256);
+        assert_eq!(bound, db.reads_writes(259, 259));
+        assert_eq!(
+            bound,
+            SubtensorModule::root_claim_debt_settlement_weight(MAX_ROOT_CLAIM_WORK)
+        );
+        assert_eq!(
+            SubtensorModule::root_claim_debt_settlement_weight(0),
+            Weight::zero()
+        );
+        assert_eq!(
+            SubtensorModule::root_claim_debt_settlement_weight(1),
+            db.reads_writes(4, 4)
+        );
+
+        // The floor and the ceiling are the two work shapes plus the bound.
+        let units = MIN_ROOT_CLAIM_HOTKEY_WORK;
+        let floor_work = SubtensorModule::root_claim_weight_for_work(
+            units,
+            BasketFlushWork::new(u64::from(units) * 6, u64::from(units)),
+        )
+        .saturating_add(SubtensorModule::root_claim_hotkey_sizing_weight(
+            units, units,
+        ));
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_min_declared_weight(),
+            floor_work.saturating_add(bound)
+        );
+        let ceiling_work = SubtensorModule::root_claim_hotkey_weight_for_work(258, 257)
+            .saturating_add(SubtensorModule::root_claim_hotkey_sizing_weight(257, 257));
+        let ceiling = SubtensorModule::root_claim_hotkey_declared_weight();
+        assert_eq!(ceiling, ceiling_work.saturating_add(bound));
+        // The combined worst case: the largest fund, a queued credit for each of its rows,
+        // and the most debts.
+        assert!(ceiling.saturating_add(extension()).all_lte(max_extrinsic()));
+    });
+}
+
+/// What [`debts_of_settled_credits`] reports.
+struct DebtRun {
+    /// Debts that the claimant held when the claim started.
+    debts: u32,
+    declared: Weight,
+    actual: Weight,
+    /// Root stake that the claim paid to the claimant.
+    paid: u64,
+}
+
+/// Twelve dividend credits are deferred (the prices are out of the band). With
+/// `stake_change`, the claimant then adds root stake, which makes one debt for each
+/// deferred credit. The prices return, and the queue settles into the fund. The claim
+/// runs after that, with nothing queued.
+fn debts_of_settled_credits(stake_change: bool) -> DebtRun {
+    let mut run = None;
+    new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO; 12], &[3, 1]);
+        let claimant = fund.stakers[0];
+        for netuid in fund.netuids.iter() {
+            queue_credit(&fund.hotkey, *netuid, TAO);
+            SubnetTAO::<Test>::mutate(*netuid, |tao| *tao = tao.saturating_div(2u64.into()));
+        }
+        assert_ok!(SubtensorModule::snapshot_deferred_dividends(&fund.hotkey));
+        assert_eq!(
+            DeferredBasketRates::<Test>::iter_prefix(fund.hotkey).count(),
+            12
+        );
+
+        if stake_change {
+            let added = SHARE;
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &fund.hotkey,
+                &claimant,
+                NetUid::ROOT,
+                added.into(),
+            );
+            assert_ok!(
+                SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                    &fund.hotkey,
+                    &claimant,
+                    added
+                )
+            );
+            assert_eq!(
+                SubtensorModule::root_claim_debts(&fund.hotkey, &claimant),
+                12
+            );
+        }
+
+        // The prices return to the band, and the queue settles. The credits are gone.
+        for netuid in fund.netuids.iter() {
+            SubnetTAO::<Test>::mutate(*netuid, |tao| *tao = tao.saturating_mul(2u64.into()));
+        }
+        flush_baskets();
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_key_prefix(fund.hotkey).count(),
+            0
+        );
+        assert_eq!(
+            DeferredBasketRates::<Test>::iter_prefix(fund.hotkey).count(),
+            0
+        );
+
+        // The debts outlived their credits: each one has a conversion record now.
+        let debts = SubtensorModule::root_claim_debts(&fund.hotkey, &claimant);
+        assert_eq!(debts, if stake_change { 12 } else { 0 });
+        assert_eq!(
+            DeferredBasketConversions::<Test>::iter_prefix((fund.hotkey,)).count() as u32,
+            debts
+        );
+        // Neither the rows nor the queue of the fund show them.
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_work(&fund.hotkey),
+            Some(RootClaimHotkeyWork {
+                rows: 12,
+                queued: 0,
+                new_rows: 0,
+            })
+        );
+
+        let declared_before = declared(fund.hotkey);
+        let root_before = root_stake_of(&fund.hotkey, &claimant);
+        let actual = claim(claimant, fund.hotkey);
+
+        // The claim settled every debt and removed every conversion record.
+        assert_eq!(
+            SubtensorModule::root_claim_debts(&fund.hotkey, &claimant),
+            0
+        );
+        assert_eq!(
+            DeferredBasketConversions::<Test>::iter_prefix((fund.hotkey,)).count(),
+            0
+        );
+        run = Some(DebtRun {
+            debts,
+            declared: declared_before,
+            actual,
+            paid: root_stake_of(&fund.hotkey, &claimant).saturating_sub(root_before),
+        });
+    });
+    run.expect("the scenario ran")
+}
+
+/// A debt outlives the credit that made it. The claim that settles such debts reports
+/// their settlement on top of its row work, and its declaration covers both.
+#[test]
+fn claim_reports_the_settlement_of_debts_that_outlived_their_credits() {
+    let without = debts_of_settled_credits(false);
+    let with = debts_of_settled_credits(true);
+    assert_eq!(without.debts, 0);
+    assert_eq!(with.debts, 12);
+
+    // The fund is the same in both runs, so the declaration is the same.
+    assert_eq!(with.declared, without.declared);
+    // The two claims do the same row work. The claim with debts reports exactly the
+    // settlement of its twelve debts more.
+    let settlement = new_test_ext(1)
+        .execute_with(|| SubtensorModule::root_claim_debt_settlement_weight(with.debts));
+    assert!(settlement.ref_time() > 0);
+    assert_eq!(with.actual, without.actual.saturating_add(settlement));
+    assert!(
+        with.actual.all_lte(with.declared),
+        "actual {:?} above declared {:?}",
+        with.actual,
+        with.declared
+    );
+    // Both claimants are paid. The added stake earns nothing from the credits that were
+    // deferred before it: the debts take that part out again, up to rounding.
+    assert!(without.paid > 12 * TAO / 2);
+    assert!(with.paid > 12 * TAO / 2);
+    assert!(with.paid.abs_diff(without.paid) < TAO / 1_000);
+}
+
+/// A small fund with the most historical debts. Before the settlement bound, this claim
+/// declared 34.4 ms, the floor of a fund with one row, and did 32.4 ms of settlement that
+/// nothing declared and nothing reported.
+#[test]
+fn small_fund_with_the_most_historical_debts_fits_its_declaration() {
+    new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO], &[3, 1]);
+        let claimant = fund.stakers[0];
+
+        // 256 debts of the claimant, each with the conversion record that its credit left
+        // when it converted. No credit is queued, and the fund has no row on those subnets.
+        let generation = 7u64;
+        let debts: BTreeMap<NetUid, DeferredBasketDebt> = (0..MAX_ROOT_CLAIM_WORK)
+            .map(|index| {
+                (
+                    NetUid::from(1_000 + index as u16),
+                    DeferredBasketDebt {
+                        generation,
+                        amount: I64F64::from_num(2),
+                    },
+                )
+            })
+            .collect();
+        for netuid in debts.keys() {
+            DeferredBasketConversions::<Test>::insert(
+                (fund.hotkey, *netuid, generation),
+                DeferredBasketConversion {
+                    shares_per_alpha: I64F64::from_num(3),
+                    cash_per_alpha: I64F64::from_num(0),
+                    debt_count: 1,
+                },
+            );
+        }
+        DeferredBasketDebts::<Test>::insert(
+            fund.hotkey,
+            claimant,
+            BoundedBTreeMap::try_from(debts).expect("256 debts fit the map"),
+        );
+        assert_eq!(
+            SubtensorModule::root_claim_debts(&fund.hotkey, &claimant),
+            MAX_ROOT_CLAIM_WORK
+        );
+
+        // The fund is small: one row, nothing queued. It declares the floor.
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_work(&fund.hotkey),
+            Some(RootClaimHotkeyWork {
+                rows: 1,
+                queued: 0,
+                new_rows: 0,
+            })
+        );
+        let floor = SubtensorModule::root_claim_hotkey_min_declared_weight();
+        let declared_before = declared(fund.hotkey);
+        assert_eq!(declared_before, floor);
+
+        let claimed_before = BasketClaimed::<Test>::get(fund.hotkey, claimant);
+        let owed_before = SubtensorModule::get_basket_owed_shares(&fund.hotkey, &claimant);
+        let root_before = root_stake_of(&fund.hotkey, &claimant);
+        let actual = claim(claimant, fund.hotkey);
+
+        // Every debt is settled: 2 alpha at 3 shares for each alpha, 256 times, went into
+        // the share watermark. The claim then redeemed what was left of the entitlement.
+        // The watermark also moves by the paid stake, at the fund rate of 1.
+        let correction = 256 * 2 * 3;
+        assert_eq!(owed_before, 3 * SHARE - correction);
+        let paid = root_stake_of(&fund.hotkey, &claimant) - root_before;
+        assert!(paid > 0);
+        assert_eq!(
+            BasketClaimed::<Test>::get(fund.hotkey, claimant),
+            claimed_before + i128::from(correction) + i128::from(owed_before) + i128::from(paid)
+        );
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&fund.hotkey, &claimant),
+            0
+        );
+        assert!(!DeferredBasketDebts::<Test>::contains_key(
+            fund.hotkey,
+            claimant
+        ));
+        assert_eq!(
+            DeferredBasketConversions::<Test>::iter_prefix((fund.hotkey,)).count(),
+            0
+        );
+
+        // The claim reports the settlement, and the declaration covers the claim.
+        let bound = SubtensorModule::root_claim_debt_settlement_weight_bound();
+        assert!(actual.ref_time() > bound.ref_time());
+        assert!(
+            actual.all_lte(declared_before),
+            "actual {actual:?} above declared {declared_before:?}"
+        );
+        // The declaration without the settlement bound does not cover it.
+        let without_bound = declared_before.saturating_sub(bound);
+        assert!(
+            actual.ref_time() > without_bound.ref_time(),
+            "actual {actual:?} must exceed the declaration without the bound {without_bound:?}"
+        );
     });
 }
 

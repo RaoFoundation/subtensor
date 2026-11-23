@@ -2234,17 +2234,23 @@ mod dispatches {
 
             let admitted =
                 Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+            // The claim starts with the settlement of the claimant's deferred-dividend
+            // debts. The work counters of the claim do not count it.
+            let settlement =
+                Self::root_claim_debt_settlement_weight(Self::root_claim_debts(&hotkey, &coldkey));
             let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
                 |(done, error)| {
                     Self::fail_with_weight(
                         error,
-                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
+                        Self::root_claim_actual_weight(1, 0, &done)
+                            .saturating_add(admitted)
+                            .saturating_add(settlement),
                     )
                 },
             )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::root_claim_actual_weight(1, 0, &outcome);
+            let weight = Self::root_claim_actual_weight(1, 0, &outcome).saturating_add(settlement);
             Ok((Some(weight), Pays::Yes).into())
         }
 

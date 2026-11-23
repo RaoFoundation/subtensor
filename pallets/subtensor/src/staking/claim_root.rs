@@ -1314,31 +1314,69 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// Deferred-dividend debts that `coldkey` holds on `hotkey`'s fund
+    /// ([`DeferredBasketDebts`]): at most [`crate::MAX_ROOT_CLAIM_WORK`], the bound of
+    /// that map.
+    pub fn root_claim_debts(hotkey: &T::AccountId, coldkey: &T::AccountId) -> u32 {
+        DeferredBasketDebts::<T>::decode_len(hotkey, coldkey)
+            .map_or(0, |debts| u32::try_from(debts).unwrap_or(u32::MAX))
+    }
+
+    /// Weight of the debt settlement that starts a claim, for a claimant who holds `debts`
+    /// deferred-dividend debts on the validator.
+    ///
+    /// A debt is the stake-change correction of one deferred dividend credit. It can
+    /// outlive that credit: when the credit converts, the debt stays, with a conversion
+    /// record ([`DeferredBasketConversions`]), until the next operation of its account.
+    /// Thus the fund's rows and queued credits do not bound the debts of a claimant, and
+    /// the claimant of the claim benchmark has no debt when the claim starts. The claim
+    /// looks up the conversion record of each debt (one read) and settles each debt that
+    /// has one (one write). This weight is one read and one write for every debt, and one
+    /// read and one write each for the debt map, the share watermark and the cash
+    /// watermark.
+    pub fn root_claim_debt_settlement_weight(debts: u32) -> Weight {
+        if debts == 0 {
+            return Weight::zero();
+        }
+        let accesses = u64::from(debts).saturating_add(3);
+        T::DbWeight::get().reads_writes(accesses, accesses)
+    }
+
+    /// Debt settlement that every single-hotkey claim declares. The declaration is made
+    /// before the claimant is known, so it is the weight for the most debts that one
+    /// claimant can hold on one validator.
+    pub fn root_claim_debt_settlement_weight_bound() -> Weight {
+        Self::root_claim_debt_settlement_weight(crate::MAX_ROOT_CLAIM_WORK)
+    }
+
     /// Smallest weight a single-hotkey claim declares: [`crate::MIN_ROOT_CLAIM_HOTKEY_WORK`]
-    /// claim units with as many holdings and queued credits to flush. The runtime bills a
-    /// claim for at most this shape, so a smaller declaration would only change the fee
-    /// quoted before dispatch.
+    /// claim units with as many holdings and queued credits to flush, and the debt
+    /// settlement bound. The runtime bills a claim for at most the claim-unit shape, so a
+    /// smaller declaration would only change the fee quoted before dispatch.
     pub fn root_claim_hotkey_min_declared_weight() -> Weight {
         let units = crate::MIN_ROOT_CLAIM_HOTKEY_WORK;
         let rows = u64::from(units);
         Self::root_claim_weight_for_work(units, BasketFlushWork::new(rows.saturating_mul(6), rows))
             .saturating_add(Self::root_claim_hotkey_sizing_weight(units, units))
+            .saturating_add(Self::root_claim_debt_settlement_weight_bound())
     }
 
     /// Largest weight a single-hotkey claim declares: a fund at the admission ceiling
     /// ([`crate::MAX_ROOT_CLAIM_HOTKEY_WORK`] claim units) with a queued credit for each
-    /// of its rows. A fund above the ceiling also declares this, and is refused at
-    /// dispatch after the bounded count.
+    /// of its rows, and the debt settlement bound. A fund above the ceiling also declares
+    /// this, and is refused at dispatch after the bounded count.
     pub fn root_claim_hotkey_declared_weight() -> Weight {
         let units = Self::root_claim_hotkey_declared_work();
         let rows = units.saturating_sub(1);
         Self::root_claim_hotkey_weight_for_work(units, rows)
             .saturating_add(Self::root_claim_hotkey_sizing_weight(rows, rows))
+            .saturating_add(Self::root_claim_debt_settlement_weight_bound())
     }
 
     /// Declared weight of [`Pallet::claim_root_with_hotkey`] for `hotkey`: the bound for
-    /// the fund's stored rows and queued credits, plus the reads that count them. Never
-    /// below [`Self::root_claim_hotkey_min_declared_weight`] and never above
+    /// the fund's stored rows and queued credits, the reads that count them, and the debt
+    /// settlement bound ([`Self::root_claim_debt_settlement_weight_bound`]). Never below
+    /// [`Self::root_claim_hotkey_min_declared_weight`] and never above
     /// [`Self::root_claim_hotkey_declared_weight`].
     ///
     /// A wrapper call (batch, proxy) computes this before it runs any inner call. The
@@ -1353,6 +1391,7 @@ impl<T: Config> Pallet<T> {
                     work.rows,
                     work.queued,
                 ))
+                .saturating_add(Self::root_claim_debt_settlement_weight_bound())
                 .max(Self::root_claim_hotkey_min_declared_weight()),
             None => Self::root_claim_hotkey_declared_weight(),
         }
