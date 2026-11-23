@@ -211,6 +211,9 @@ class _Preflight:
     commit_reveal: bool
     min_allowed_weights: int
     max_weight_limit: int
+    # Null only: the most entries one weight row may hold on a mechanism,
+    # max(1, 2500 // mechanism_count). None on Yuma, which has no such cap.
+    max_row_len: Optional[int] = None
 
 
 async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _Preflight:
@@ -256,6 +259,7 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
         )
     uid = int(uid_raw)
     min_allowed_weights = int(min_raw or 0)
+    max_row_len: Optional[int] = None
     if mode == "Null" or mode == {"Null": None} or mode == 1:
         permits = await substrate.query(*st.ValidatorPermit, [netuid], block_hash=block_hash)
         if not isinstance(permits, (list, tuple)) or uid >= len(permits) or not permits[uid]:
@@ -268,6 +272,7 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
         mechanism_count = max(1, int(mechanism_count_raw or 1))
         row_cap = max(1, TOTAL_NULL_WEIGHT_BUDGET // mechanism_count)
         min_allowed_weights = min(min_allowed_weights, row_cap, int(subnet_n_raw or 0))
+        max_row_len = row_cap
 
     rate_limit = int(rate_raw or 0)
     if (
@@ -292,6 +297,7 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
         commit_reveal=bool(cr_raw),
         min_allowed_weights=min_allowed_weights,
         max_weight_limit=int(max_raw) if max_raw is not None else U16_MAX,
+        max_row_len=max_row_len,
     )
 
 
@@ -303,6 +309,9 @@ def _conform(
     Applies the ``max_weight_limit`` clip, quantizes to u16 (dropping zeros), and
     enforces ``min_allowed_weights`` on what will actually be submitted. A single
     self-weight is exempt from both constraints, matching the chain's rules.
+    On a Null subnet it also enforces the row cap before anything is signed or
+    encrypted: the chain cannot check a timelocked commit until its reveal, and
+    it skips a reveal whose row is above the cap.
     """
     is_self_weight = uids == [preflight.uid]
     if raw_u16:
@@ -334,6 +343,14 @@ def _conform(
             f"Subnet {netuid} requires at least {preflight.min_allowed_weights} "
             f"weights; only {len(norm_uids)} are nonzero after normalization.",
             code=ErrorCode.INVALID_ARGUMENT,
+        )
+    if preflight.max_row_len is not None and len(norm_uids) > preflight.max_row_len:
+        raise ChainError(
+            f"Null subnet {netuid} accepts at most {preflight.max_row_len} weights in one "
+            f"row at its current mechanism count (2500 // mechanism count, at least 1); "
+            f"{len(norm_uids)} are nonzero after normalization.",
+            name="TooManyWeightsForNullMechanism",
+            code=ErrorCode.LIMIT_EXCEEDED,
         )
     return norm_uids, norm_vals
 
@@ -446,7 +463,10 @@ class SetWeights(Intent):
     that are not preflighted: the hotkey must hold the minimum stake to set
     weights and a validator permit. Null has one permit holder, the highest-stake
     UID; self weights and subnet ownership do not bypass that permit. Yuma retains
-    its owner and self-weight exceptions. ``version_key`` must not be older than the subnet's
+    its owner and self-weight exceptions. On a Null subnet one row holds at most
+    ``max(1, 2500 // mechanism_count)`` weights (2,500 with one mechanism, 156
+    with sixteen); a longer row is refused before it is signed or encrypted.
+    ``version_key`` must not be older than the subnet's
     required version. Prefer this over ``commit_weights``/``reveal_weights``
     unless you specifically need to force one path.
     """
