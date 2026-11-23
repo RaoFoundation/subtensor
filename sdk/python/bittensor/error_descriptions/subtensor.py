@@ -107,14 +107,18 @@ DESCRIPTIONS: dict[str, str] = {
         "a hotkey the beneficiary coldkey actually owns."
     ),
     "RootClaimTooHeavy": (
-        "A root claim would process more than the fixed 256-unit admission envelope. Only "
-        "root-relevant validator hotkeys and their stored basket rows count as claim work; "
-        "classifying the staking-hotkey relationship vector is separately capped at 256, and "
-        "the queued dividend credits plus weight-vector destinations the claim would flush "
-        "first are capped at 512 across all validators claimed (one validator always fits). "
-        "Unrelated subnet stakes are not multiplied by the total network count. Split a "
-        "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
-        "individually oversized basket."
+        "A root claim would process more than its admission envelope. A coldkey-wide claim "
+        "admits 256 units: only root-relevant validator hotkeys and their stored basket rows "
+        "count as claim work; classifying the staking-hotkey relationship vector is separately "
+        "capped at 256, and the queued dividend credits the claim would flush first are capped "
+        "at 512 across all validators claimed. Unrelated subnet stakes are not multiplied by "
+        "the total network count. A single-validator claim admits 258 units: the validator, "
+        "its stored basket rows, and one for each queued dividend credit on a subnet the fund "
+        "does not hold. A single-validator claim also fails with this error when a "
+        "`swap_basket` buy or a hotkey swap gave the same fund a new row earlier in the same "
+        "transaction; send the claim in a later transaction. Split a coldkey-wide claim by "
+        "validator where that fits, and investigate or consolidate an individually oversized "
+        "basket."
     ),
     "RootWeightCapExceeded": (
         "Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): one "

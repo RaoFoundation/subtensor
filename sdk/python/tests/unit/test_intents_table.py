@@ -1021,14 +1021,14 @@ class TestRootClaimOnUnstake:
         substrate.seed_runtime(
             "BetaBasketRuntimeApi",
             "get_validator_basket",
-            [(netuid, 1) for netuid in range(257)],
+            [(netuid, 1) for netuid in range(258)],
         )
 
         client = Client("local", substrate=substrate)
         plan = await client.plan(intent, wallet)
-        assert any("257 basket holdings" in block for block in plan.violations)
+        assert any("258 basket holdings" in block for block in plan.violations)
 
-        with pytest.raises(PolicyError, match="130-unit admission limit"):
+        with pytest.raises(PolicyError, match="258-unit admission limit"):
             await client.submit_shielded(intent, wallet)
         assert not substrate.submissions
 

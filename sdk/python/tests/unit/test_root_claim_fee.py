@@ -66,13 +66,13 @@ def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
         limit=fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
         selection_scans=0,
     )
-    assert admission.limit == 130
+    assert admission.limit == 258
     assert not admission.too_heavy
 
     overloaded = fees.RootClaimAdmission(
         hotkeys=(ALICE_HOT,),
-        holding_counts=(130,),
-        networks=130,
+        holding_counts=(258,),
+        networks=258,
         limit=fees._MAX_ROOT_CLAIM_HOTKEY_WORK,
         selection_scans=0,
     )
@@ -80,32 +80,53 @@ def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
 
 
 # Based on the spec 467 CI release-node quotes (PR #3183, commit 546d26bd9), adjusted in
-# spec 484 for the single-hotkey envelope increase from 129 to 130 units. The charged fee
+# spec 484 for the single-hotkey envelope increase from 129 to 130 units, and in spec 495
+# for the fund-sized single-hotkey declaration: the single-hotkey rows are for a validator
+# without a fund, which declares the smallest envelope (a spec 495 node returns this call
+# weight plus 75_000_000 for its transaction extensions). The charged fee
 # stays fixed at the four-unit allowance. The 60_000_000 ref_time gap between the node
 # weight and the SDK's declared model is the folded dispatch-extension weight, which the
 # fee wrapper does not discount.
 _EXTENSION_REF_TIME = 60_000_000
+#: Marks a single-hotkey claim in ``_NODE_QUOTES``: it has no fixed limit to declare.
+_HOTKEY_CLAIM = "claim_root_with_hotkey"
 _NODE_QUOTES = [
-    ("claim_root_with_hotkey", 2_051_581_040_648, 8_224_263, [fees._MAX_ROOT_CLAIM_HOTKEY_WORK]),
+    ("claim_root_with_hotkey", 34_454_612_996, 8_224_263, [_HOTKEY_CLAIM]),
     ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
     (
         "batch_all[claim_root_with_hotkey, claim_root]",
-        4_528_660_932_786,
+        2_511_534_505_134,
         16_481_677,
-        [fees._MAX_ROOT_CLAIM_HOTKEY_WORK, fees._MAX_ROOT_CLAIM_WORK],
+        [_HOTKEY_CLAIM, fees._MAX_ROOT_CLAIM_WORK],
     ),
 ]
 
 
+def _quoted_declared_ref_time(limit) -> int:
+    if limit == _HOTKEY_CLAIM:
+        return fees.root_claim_hotkey_declared_ref_time()
+    return fees.root_claim_declared_ref_time(limit)
+
+
+def _quoted_discount_ref_time(limit) -> int:
+    if limit == _HOTKEY_CLAIM:
+        return fees.root_claim_hotkey_fee_discount_ref_time()
+    return fees.root_claim_fee_discount_ref_time(limit)
+
+
+def _quoted_charged_ref_time(limit) -> int:
+    if limit == _HOTKEY_CLAIM:
+        return fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
+    return fees.root_claim_charged_ref_time(limit)
+
+
 @pytest.mark.parametrize(("name", "weight", "weight_fee", "limits"), _NODE_QUOTES)
 def test_discount_model_matches_the_release_node_quotes(name, weight, weight_fee, limits):
-    discount = sum(fees.root_claim_fee_discount_ref_time(limit) for limit in limits)
+    discount = sum(_quoted_discount_ref_time(limit) for limit in limits)
     assert fees._weight_fee_rao(weight - discount) == weight_fee, name
     if len(limits) == 1:
-        assert weight == fees.root_claim_declared_ref_time(limits[0]) + _EXTENSION_REF_TIME
-        assert (
-            weight - discount == fees.root_claim_charged_ref_time(limits[0]) + _EXTENSION_REF_TIME
-        )
+        assert weight == _quoted_declared_ref_time(limits[0]) + _EXTENSION_REF_TIME
+        assert weight - discount == _quoted_charged_ref_time(limits[0]) + _EXTENSION_REF_TIME
 
 
 def test_charged_allowance_is_the_same_for_both_claim_paths():
@@ -113,8 +134,71 @@ def test_charged_allowance_is_the_same_for_both_claim_paths():
     assert charged == fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
     assert charged == fees._claim_ref_time(4, 24, 4)
     assert fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK) == 8_209_263
-    assert fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK) < (
+    # A single-hotkey claim reserves less than a coldkey-wide claim, also at its ceiling.
+    assert fees.root_claim_hotkey_fee_discount_ref_time(rows=fees._MAX_ROOT_CLAIM_HOTKEY_WORK) < (
         fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_WORK)
+    )
+
+
+def test_single_hotkey_declared_weight_follows_the_fund_size():
+    """Runtime 495 sizes the single-hotkey declaration from the validator's fund."""
+    floor = fees.root_claim_hotkey_declared_ref_time()
+    ceiling = fees.root_claim_hotkey_declared_ref_time(rows=257, queued=257)
+    assert floor == 34_394_612_996
+    assert ceiling == 2_431_861_331_766
+
+    full_fund = fees.root_claim_hotkey_declared_ref_time(rows=129)
+    full_fund_and_queue = fees.root_claim_hotkey_declared_ref_time(rows=129, queued=128)
+    assert floor < full_fund < full_fund_and_queue < ceiling
+    # A small fund declares the floor, and a fund above the ceiling declares the ceiling.
+    assert fees.root_claim_hotkey_declared_ref_time(rows=1) == floor
+    assert fees.root_claim_hotkey_declared_ref_time(rows=258) == ceiling
+    assert fees.root_claim_hotkey_declared_ref_time(rows=200, queued=58, new_rows=58) == ceiling
+
+    # The fee does not follow the fund: every declaration is discounted to the allowance.
+    charged = fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
+    for fund in [(0, 0, 0), (129, 0, 0), (129, 128, 0), (200, 57, 57), (257, 257, 0)]:
+        declared = fees.root_claim_hotkey_declared_ref_time(*fund)
+        assert declared - fees.root_claim_hotkey_fee_discount_ref_time(*fund) == charged
+
+
+@pytest.mark.asyncio
+async def test_single_hotkey_admission_counts_queued_credits_that_open_rows():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 1_000_000},
+        holdings={ALICE_HOT: 200},
+    )
+    # The fund holds netuids 0..199. Ten of these credits are on held subnets; the other
+    # 57 can each open a row: 1 validator + 200 rows + 57 = 258 units, the limit.
+    substrate.seed_map(
+        "SubtensorModule",
+        "PendingBasketDeposits",
+        [(netuid, 1) for netuid in range(190, 257)],
+    )
+
+    admission = await fees.root_claim_admission(substrate, ALICE, hotkeys=[ALICE_HOT])
+
+    assert admission.limit == 258
+    assert admission.holdings == 200
+    assert admission.queued_new == 57
+    assert not admission.too_heavy
+
+    substrate.seed_map(
+        "SubtensorModule",
+        "PendingBasketDeposits",
+        [(netuid, 1) for netuid in range(190, 258)],
+    )
+
+    admission = await fees.root_claim_admission(substrate, ALICE, hotkeys=[ALICE_HOT])
+
+    assert admission.too_heavy
+    assert any(
+        "1 root hotkey + 200 basket holdings + 58 queued dividend credits on subnets the "
+        "fund does not hold = 259" in block
+        for block in admission.blocks()
     )
 
 

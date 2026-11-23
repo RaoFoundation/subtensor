@@ -1,8 +1,10 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
 Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
-admission. Single-hotkey claims declare one basket's 130-unit envelope. Since
-spec 467 the fee wrapper charges either call as if only
+admission. Since runtime 495 a single-hotkey claim declares the weight of the
+validator's own fund: its stored basket rows and its queued dividend credits,
+up to a fund of 258 claim units (256 subnets, the root cash slot and the
+validator). Since spec 467 the fee wrapper charges either call as if only
 ``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
 is a fee subsidy. Both still refund down to the work actually done when that is
 below the allowance. The reserve is what people see leave their free balance,
@@ -24,7 +26,7 @@ from ..balance import Balance
 from ..sp_core import ss58_decode
 
 # Mirrors of the runtime's claim pricing (fee allowance from spec 467; single-hotkey
-# admission envelope raised to 130 in spec 484). Sources:
+# admission ceiling 258 and fund-sized declaration from spec 495). Sources:
 # ``pallets/subtensor/src/weights.rs`` (``claim_root``, ``claim_root_scan``),
 # ``pallets/subtensor/src/staking/claim_root.rs`` (``basket_nav_sweep_weight``,
 # ``root_claim_weight_for_work``), ``basket_flush.rs`` (flush bound) and
@@ -36,7 +38,11 @@ _ROCKSDB_WRITE_PS = 100_000_000
 _WEIGHT_FEE_PARTS = 250_000
 _PERBILL = 1_000_000_000
 _MAX_ROOT_CLAIM_WORK = 256
-_MAX_ROOT_CLAIM_HOTKEY_WORK = 130
+# Runtime ``MAX_ROOT_CLAIM_HOTKEY_WORK``: the largest fund one single-hotkey claim admits,
+# in claim units (the validator, its basket rows, and the rows its queue can open).
+_MAX_ROOT_CLAIM_HOTKEY_WORK = 258
+# Runtime ``MIN_ROOT_CLAIM_HOTKEY_WORK``: the smallest single-hotkey declaration.
+_MIN_ROOT_CLAIM_HOTKEY_WORK = 4
 # ``MAX_BASKET_ROWS`` and the flat flush allowance every claim declares:
 # ``10 * MAX_BASKET_ROWS`` quotes and ``2 * MAX_BASKET_ROWS`` rows.
 _MAX_BASKET_ROWS = 256
@@ -72,6 +78,62 @@ def _basket_flush_ref_time(quotes: int, rows: int) -> int:
     return sweep + redeem
 
 
+def _flush_quotes_ref_time(quotes: int) -> int:
+    """``Pallet::basket_flush_weight`` ref_time for ``quotes`` read-only quotes and no
+    rows: the NAV-sweep price, plus seven stability-check reads for each quote up to
+    ``MAX_BASKET_ROWS``."""
+    if quotes == 0:
+        return 0
+    return (10_000_000 + 4 * _ROCKSDB_READ_PS) * quotes + (
+        min(quotes, _MAX_BASKET_ROWS) * 7 * _ROCKSDB_READ_PS
+    )
+
+
+def _hotkey_claim_bound_ref_time(units: int, queued: int) -> int:
+    """``Pallet::root_claim_hotkey_weight_for_work(units, queued)`` ref_time: ``units``
+    claim units, two rows of work for each queued credit, and the quotes of the flush."""
+    quotes = 0 if queued == 0 else 4 * queued + 2 * units
+    return (
+        _claim_root_ref_time(units + 2 * queued)
+        + _claim_root_scan_ref_time(units)
+        + _flush_quotes_ref_time(quotes)
+    )
+
+
+def _hotkey_claim_sizing_ref_time(rows: int, queued: int) -> int:
+    """``Pallet::root_claim_hotkey_sizing_weight(rows, queued)`` ref_time: the reads that
+    count the fund before dispatch."""
+    return (rows + queued + 4) * _ROCKSDB_READ_PS
+
+
+def root_claim_hotkey_declared_ref_time(rows: int = 0, queued: int = 0, new_rows: int = 0) -> int:
+    """Declared call weight (ref_time) of ``claim_root_with_hotkey`` since runtime 495.
+
+    ``rows`` is the number of stored basket rows of the validator's fund, ``queued`` its
+    queued dividend credits, and ``new_rows`` the queued credits on subnets the fund does
+    not hold. The declaration is the weight bound for that fund, never below the smallest
+    declaration (four claim units) and never above the ceiling (258 claim units). A fund
+    above the ceiling declares the ceiling, and the chain refuses its claim.
+    """
+    ceiling_rows = _MAX_ROOT_CLAIM_HOTKEY_WORK - 1
+    units = 1 + rows + new_rows
+    if units > _MAX_ROOT_CLAIM_HOTKEY_WORK:
+        return _hotkey_claim_bound_ref_time(
+            _MAX_ROOT_CLAIM_HOTKEY_WORK, ceiling_rows
+        ) + _hotkey_claim_sizing_ref_time(ceiling_rows, ceiling_rows)
+    floor_units = _MIN_ROOT_CLAIM_HOTKEY_WORK
+    floor = (
+        _claim_root_ref_time(2 * floor_units)
+        + _claim_root_scan_ref_time(floor_units)
+        + _flush_quotes_ref_time(6 * floor_units)
+        + _hotkey_claim_sizing_ref_time(floor_units, floor_units)
+    )
+    sized = _hotkey_claim_bound_ref_time(units, queued) + _hotkey_claim_sizing_ref_time(
+        rows, queued
+    )
+    return max(sized, floor)
+
+
 def _claim_ref_time(units: int, quotes: int, rows: int) -> int:
     """``Pallet::root_claim_weight_for_work(units, flush)`` ref_time."""
     return (
@@ -101,7 +163,9 @@ def _fee_units(limit: int) -> int:
 
 
 def root_claim_declared_ref_time(limit: int) -> int:
-    """Declared call weight (ref_time) of a claim admitted under ``limit`` units."""
+    """Declared call weight (ref_time) of a coldkey-wide claim admitted under ``limit``
+    units. A single-hotkey claim declares the weight of its fund instead; see
+    :func:`root_claim_hotkey_declared_ref_time`."""
     return _claim_ref_time(limit, _FLUSH_BOUND_QUOTES, _FLUSH_BOUND_ROWS)
 
 
@@ -116,9 +180,22 @@ def root_claim_charged_ref_time(limit: int) -> int:
 
 
 def root_claim_fee_discount_ref_time(limit: int) -> int:
-    """``FeeWeightDiscount`` the runtime subtracts for one claim under ``limit``. A batch or
-    proxy of claims is discounted by the sum over its inner claims."""
+    """``FeeWeightDiscount`` the runtime subtracts for one coldkey-wide claim under
+    ``limit``. A batch or proxy of claims is discounted by the sum over its inner claims."""
     return max(0, root_claim_declared_ref_time(limit) - root_claim_charged_ref_time(limit))
+
+
+def root_claim_hotkey_fee_discount_ref_time(
+    rows: int = 0, queued: int = 0, new_rows: int = 0
+) -> int:
+    """``FeeWeightDiscount`` the runtime subtracts for one single-hotkey claim: what the
+    fund-sized declaration reserves above the charged allowance. The fee is the same for
+    every fund."""
+    return max(
+        0,
+        root_claim_hotkey_declared_ref_time(rows, queued, new_rows)
+        - root_claim_charged_ref_time(_MAX_ROOT_CLAIM_HOTKEY_WORK),
+    )
 
 
 def _approx_declared_fee_rao(limit: int) -> int:
@@ -151,8 +228,9 @@ def _admission_blocks(
     holdings: int,
     limit: int,
     selection_scans: int,
+    queued_new: int = 0,
 ) -> list[str]:
-    work = hotkeys + holdings
+    work = hotkeys + holdings + queued_new
     if work <= limit and selection_scans <= limit:
         return []
     remediation = (
@@ -164,8 +242,15 @@ def _admission_blocks(
     if work > limit:
         hotkey_label = "hotkey" if hotkeys == 1 else "hotkeys"
         holding_label = "holding" if holdings == 1 else "holdings"
+        queued_part = (
+            f" + {queued_new} queued dividend {'credit' if queued_new == 1 else 'credits'}"
+            " on subnets the fund does not hold"
+            if queued_new
+            else ""
+        )
         reasons.append(
-            f"{hotkeys} root {hotkey_label} + {holdings} basket {holding_label} = {work}"
+            f"{hotkeys} root {hotkey_label} + {holdings} basket {holding_label}{queued_part}"
+            f" = {work}"
         )
     if selection_scans > limit:
         reasons.append(f"{selection_scans} staking-hotkey relationships to classify")
@@ -185,14 +270,26 @@ class RootClaimAdmission:
     networks: int
     limit: int
     selection_scans: int
+    #: Per selected hotkey, queued dividend credits on subnets the fund does not hold.
+    #: Each can open a basket row while the claim settles the queue, so the
+    #: single-validator limit counts it (runtime 495). Empty for a coldkey-wide claim,
+    #: whose queue has its own allowance.
+    queued_new_counts: tuple[int, ...] = ()
 
     @property
     def holdings(self) -> int:
         return sum(self.holding_counts)
 
     @property
+    def queued_new(self) -> int:
+        return sum(self.queued_new_counts)
+
+    @property
     def too_heavy(self) -> bool:
-        return len(self.hotkeys) + self.holdings > self.limit or self.selection_scans > self.limit
+        return (
+            len(self.hotkeys) + self.holdings + self.queued_new > self.limit
+            or self.selection_scans > self.limit
+        )
 
     def blocks(self) -> list[str]:
         return _admission_blocks(
@@ -200,6 +297,7 @@ class RootClaimAdmission:
             self.holdings,
             self.limit,
             self.selection_scans,
+            self.queued_new,
         )
 
 
@@ -249,6 +347,9 @@ class RootClaimFeeQuote:
     dust_rows: int = 0
     #: Estimated value of those skipped slices, left in the fund for the other holders.
     forfeited: Balance = field(default_factory=lambda: Balance.from_rao(0))
+    #: Queued dividend credits on subnets the fund does not hold, which the
+    #: single-validator admission limit counts (runtime 495).
+    queued_new: int = 0
 
     @property
     def refund(self) -> Balance:
@@ -269,7 +370,7 @@ class RootClaimFeeQuote:
     @property
     def too_heavy(self) -> bool:
         return (
-            self.hotkeys + self.holdings > self.admission_limit
+            self.hotkeys + self.holdings + self.queued_new > self.admission_limit
             or self.selection_scans > self.admission_limit
         )
 
@@ -354,6 +455,7 @@ class RootClaimFeeQuote:
                     self.holdings,
                     self.admission_limit,
                     self.selection_scans,
+                    self.queued_new,
                 )
             )
         if self.reserve_shortfall:
@@ -410,7 +512,7 @@ async def root_claim_admission(
 
     semaphore = asyncio.Semaphore(16)
 
-    async def holding_count(hotkey: str) -> int:
+    async def holding_netuids(hotkey: str) -> list[int]:
         async with semaphore:
             rows = await substrate.runtime_call(
                 *BetaBasketRuntimeApi.get_validator_basket,
@@ -418,17 +520,26 @@ async def root_claim_admission(
             )
         if rows is None:
             raise RuntimeError(f"validator basket is unavailable for {hotkey}")
-        return len(rows)
+        return [int(row[0]) for row in rows]
 
-    holding_counts = await asyncio.gather(*(holding_count(hotkey) for hotkey in selected))
+    holdings = await asyncio.gather(*(holding_netuids(hotkey) for hotkey in selected))
+
+    queued_new_counts: tuple[int, ...] = ()
+    if hotkeys is not None:
+        # The single-validator limit also counts the rows that queued dividend credits
+        # can open: one for each credit on a subnet the fund does not hold.
+        queued = await substrate.query_map(*st.SubtensorModule.PendingBasketDeposits, [selected[0]])
+        held = set(holdings[0])
+        queued_new_counts = (sum(1 for netuid, _alpha in queued or [] if int(netuid) not in held),)
 
     networks = await _existing_network_count(substrate)
     return RootClaimAdmission(
         hotkeys=selected,
-        holding_counts=tuple(holding_counts),
+        holding_counts=tuple(len(netuids) for netuids in holdings),
         networks=networks,
         limit=root_claim_declared_work(hotkeys),
         selection_scans=selection_scans,
+        queued_new_counts=queued_new_counts,
     )
 
 
@@ -604,6 +715,7 @@ async def _quote(
         selection_scans=admission.selection_scans,
         dust_rows=dust_rows,
         forfeited=Balance.from_rao(forfeited_rao),
+        queued_new=admission.queued_new,
     )
 
 
