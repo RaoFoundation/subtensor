@@ -1053,6 +1053,14 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               follows the epoch.
             </li>
             <li>
+              <strong>Lower mechanism count (accepted).</strong> When an owner lowers the mechanism
+              count, the call deletes the weight rows of each removed mechanism at once, and the
+              weight of the call is fixed. A Null subnet can now hold up to 2,500 weight rows for
+              each mechanism, so a change from 16 mechanisms to 1 can delete up to 37,500 rows in
+              one call. Only the elected validator can set a row, so rows collect only as the
+              elected validator changes. The project accepts this risk for V495.
+            </li>
+            <li>
               <strong>Gamma spending (accepted).</strong> The owner hotkey can spend emission gamma
               without a call from the owner coldkey. This is the purpose of the change.
             </li>

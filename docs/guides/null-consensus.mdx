@@ -231,6 +231,13 @@ of every parent of every UID, and the weight does not grow with the number of
 parents. An epoch on a subnet where each UID has hundreds of parents can take
 longer than its weight states. Such subnets are not expected.
 
+A second risk is known and accepted for runtime 495. When an owner lowers the
+mechanism count, the call deletes the weight rows of each removed mechanism at
+once, and the weight of the call is fixed. A Null subnet can hold up to 2,500
+weight rows for each mechanism, so a change from 16 mechanisms to 1 can delete
+up to 37,500 rows in one call. Only the elected validator can set a row, so
+rows collect only as the elected validator changes.
+
 ## Solidity callers
 
 The Subnet precompile at `0x0803` adds `setEpochConsensus(uint16,uint8)` (0 is

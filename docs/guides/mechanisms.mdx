@@ -348,7 +348,9 @@ pays the transaction fee. More details are in
 ## Lower the count or return to Yuma
 
 - A lower count deletes the state of the removed mechanisms (step 4). Tell
-  validators before you do it.
+  validators before you do it. The call deletes the weight rows at once, and
+  its weight is fixed. This is an accepted risk for runtime 495; see
+  [Null consensus](/docs/guides/null-consensus#operational-cost).
 - A return from Null to Yuma needs a registered population that fits the Yuma
   limit, `floor(256 / mechanism_count)`. Use the pruning workflow in
   [Null consensus](/docs/guides/null-consensus#owner-configuration).
