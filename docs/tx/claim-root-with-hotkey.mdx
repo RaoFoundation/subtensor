@@ -29,6 +29,8 @@ declared envelope. Since runtime 495 the chain
 reserves weight for this validator's own fund: its stored basket rows and
 its queued dividend credits, up to a fund of 258 claim units (256 subnets,
 the root cash slot and the validator). It refunds the unused part after.
+A runtime before 495 admits a fund of 130 claim units; the check before
+signing uses the limit of the connected runtime.
 A larger fund is refused with `RootClaimTooHeavy`. So is a claim that
 follows, in the same transaction (a batch, for example), a `swap_basket`
 buy or a hotkey swap that gave the fund a new row: send that claim in a
