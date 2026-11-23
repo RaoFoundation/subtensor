@@ -3292,6 +3292,33 @@ fn launch_defaults_match_jacob_economics() {
         p.short_book_max_pool_alpha_bps, 1_500,
         "short book ≤ 15% of pool alpha"
     );
+    assert_eq!(
+        p.long_book_max_pool_tao_bps, 1_500,
+        "long book ≤ 15% of pool TAO"
+    );
+    assert_eq!(p.apr_short_kink_bps, 2_000);
+    assert_eq!(p.apr_short_kink_utilization_bps, 5_000);
+    assert_eq!(p.apr_short_max_bps, 10_000);
+    assert_eq!(
+        p.short_apr_bps_at_utilization(0),
+        2_000,
+        "U=0 → base 20%"
+    );
+    assert_eq!(
+        p.short_apr_bps_at_utilization(5_000),
+        2_000,
+        "U=50% kink still 20% (flat then steep)"
+    );
+    assert_eq!(
+        p.short_apr_bps_at_utilization(10_000),
+        10_000,
+        "U=100% → 100% APR"
+    );
+    let mid = p.short_apr_bps_at_utilization(7_500);
+    assert!(
+        (5_500..=6_500).contains(&mid),
+        "U=75% mid-ramp ≈ 60% APR, got {mid}"
+    );
     let cap = 10_000u64;
     let cap_short = cap * u64::from(p.split_short_bps) / 10_000;
     let cap_long = cap.saturating_sub(cap_short);
@@ -3487,6 +3514,201 @@ fn short_book_pool_alpha_share_blocks_open_when_full() {
             "roll must extend term even when short book is over the alpha share"
         );
         assert_eq!(rolled.principal, opened.principal);
+    });
+}
+
+/// Utilization APR: filling the short book raises the live coupon above the
+/// stored base-APR `annual_interest` without rewriting the position field.
+#[test]
+fn short_utilization_apr_raises_accrual_above_base() {
+    new_test_ext().execute_with(|| {
+        let owner = account(1);
+        mint_tao(&owner, 500_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            20_000_000_000_000,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let base_annual = opened.annual_interest;
+        assert!(base_annual > 0);
+        let params = Lending::lift_params();
+        assert_eq!(params.apr_short_bps, 2_000);
+        assert_eq!(params.apr_short_max_bps, 10_000);
+
+        // Baseline accrual at U≈0 via roll (charges interest through now).
+        let elapsed = 1_000u64;
+        System::set_block_number(opened.last_accrued.saturating_add(elapsed));
+        let before_low = Positions::<Test>::get(&owner, netuid()).unwrap().collateral;
+        assert_ok!(Lending::roll(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+        ));
+        let after_low = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let paid_low = before_low.saturating_sub(after_low.collateral);
+        assert!(paid_low > 0, "base utilization must charge some interest");
+
+        // Force full utilization so live APR = 100% (= 5× base).
+        let pool_alpha = MockPool::pool_alpha(netuid()).to_u64();
+        let alpha_cap = pool_alpha
+            * u64::from(Lending::lift_params().short_book_max_pool_alpha_bps)
+            / 10_000;
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.short_sold_alpha = alpha_cap;
+        });
+        System::set_block_number(after_low.last_accrued.saturating_add(elapsed));
+        let before_high = Positions::<Test>::get(&owner, netuid()).unwrap().collateral;
+        assert_ok!(Lending::roll(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+        ));
+        let after_high = Positions::<Test>::get(&owner, netuid()).unwrap();
+        let paid_high = before_high.saturating_sub(after_high.collateral);
+        assert!(
+            paid_high >= paid_low.saturating_mul(4),
+            "U=1 must charge ~5× base: low={paid_low} high={paid_high} annual={base_annual}"
+        );
+        // Stored coupon stays at base APR; only accrual scales.
+        assert_eq!(after_high.annual_interest, base_annual);
+    });
+}
+
+/// Long opens refuse when `l_l + ΔP` would exceed pool_tao · share.
+#[test]
+fn long_book_pool_tao_share_blocks_open_when_full() {
+    new_test_ext().execute_with(|| {
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.long_book_max_pool_tao_bps = MIN_LONG_BOOK_MAX_POOL_TAO_BPS; // 1%
+        });
+        let pool_tao = MockPool::pool_tao(netuid()).to_u64();
+        let tao_cap = pool_tao / 100;
+        assert!(tao_cap > 1_000_000_000);
+
+        let owner_a = account(1);
+        let owner_b = account(3);
+        let hotkey_a = account(2);
+        let hotkey_b = account(4);
+        mint_tao(&owner_a, 500_000_000_000_000);
+        mint_tao(&owner_b, 500_000_000_000_000);
+        mint_alpha(&owner_a, &hotkey_a, netuid(), 500_000_000_000_000);
+        mint_alpha(&owner_b, &hotkey_b, netuid(), 500_000_000_000_000);
+
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_l = tao_cap.saturating_sub(1_000_000_000);
+        });
+        assert_noop!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner_a.clone()),
+                netuid(),
+                Side::Long,
+                50_000_000_000_000,
+                Some(hotkey_a.clone()),
+                10_000_000_000,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacity
+        );
+
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_l = 0;
+        });
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+            Side::Long,
+            20_000_000_000_000,
+            Some(hotkey_a.clone()),
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner_a, netuid()).unwrap();
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_l = tao_cap;
+        });
+        assert_noop!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner_b.clone()),
+                netuid(),
+                Side::Long,
+                20_000_000_000_000,
+                Some(hotkey_b.clone()),
+                opened.principal.max(1),
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacity
+        );
+        // Over-cap book: roll still allowed (ΔL = 0).
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.l_l = tao_cap.saturating_mul(2);
+        });
+        System::set_block_number(System::block_number().saturating_add(10));
+        assert_ok!(Lending::roll(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+        ));
+    });
+}
+
+#[test]
+fn migration_appends_util_apr_and_long_book_share() {
+    new_test_ext().execute_with(|| {
+        let key = BoundedVec::truncate_from(b"migrate_lift_params_util_apr_long_book_v1".to_vec());
+        HasMigrationRun::<Test>::remove(&key);
+        let before = LiftParamsBeforeUtilAprLongBook {
+            floor_bps: 3_300,
+            thin_floor_bps: 1_500,
+            ref_tao: 1_000_000_000_000,
+            move_bps: 1_000,
+            ceiling_bps: 5_000,
+            split_short_bps: 5_000,
+            rebalance_target_bps: 0,
+            rebalance_rate_bps: 0,
+            thin_tao: 3_000_000_000_000,
+            ltv_short_bps: 3_300,
+            ltv_long_bps: 3_300,
+            thin_ltv_long_bps: 1_500,
+            apr_long_bps: 10_000,
+            apr_short_bps: 2_000,
+            slice_bps: 1,
+            crash_guard_bps: 9_500,
+            total_tao_ema_blocks: 7_200,
+            new_subnet_min_age: 50_400,
+            new_subnet_ramp: 216_000,
+            ema_band_bps: 1_500,
+            max_loan_duration: 216_000,
+            max_settlement_deferral: 50_400,
+            young_short_settlement_window: 25_200,
+            minimum_loan_value: 1_000_000_000,
+            max_expiry_settlements_per_block: 16,
+            expiry_max_slippage_bps: 200,
+            thin_blend_tao: 3_000_000_000_000,
+            forced_min_buyback_bps: 100,
+            short_book_max_pool_alpha_bps: 1_500,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &LiftParamsStore::<Test>::hashed_key(),
+            &before.encode(),
+        );
+        let _ = migrations::migrate_lift_params_util_apr_long_book::<Test>();
+        assert!(HasMigrationRun::<Test>::get(&key));
+        let after = LiftParamsStore::<Test>::get();
+        assert_eq!(after.apr_short_kink_bps, 2_000);
+        assert_eq!(after.apr_short_kink_utilization_bps, 5_000);
+        assert_eq!(after.apr_short_max_bps, 10_000);
+        assert_eq!(after.long_book_max_pool_tao_bps, 1_500);
+        assert_eq!(after.short_book_max_pool_alpha_bps, 1_500);
     });
 }
 
@@ -14268,6 +14490,23 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
             },
             LiftParams {
                 short_book_max_pool_alpha_bps: MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS + 1,
+                ..test_lift_params()
+            },
+            LiftParams {
+                long_book_max_pool_tao_bps: MIN_LONG_BOOK_MAX_POOL_TAO_BPS - 1,
+                ..test_lift_params()
+            },
+            LiftParams {
+                long_book_max_pool_tao_bps: MAX_LONG_BOOK_MAX_POOL_TAO_BPS + 1,
+                ..test_lift_params()
+            },
+            LiftParams {
+                apr_short_max_bps: MAX_APR_SHORT_CURVE_BPS + 1,
+                ..test_lift_params()
+            },
+            LiftParams {
+                apr_short_kink_bps: 10_001,
+                apr_short_max_bps: 10_000,
                 ..test_lift_params()
             },
         ] {

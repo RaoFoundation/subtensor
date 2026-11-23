@@ -9,6 +9,7 @@ mod migrate_lift_params_forced_min_buyback;
 mod migrate_lift_params_launch_defaults;
 mod migrate_lift_params_short_book_alpha;
 mod migrate_lift_params_thin_blend;
+mod migrate_lift_params_util_apr_long_book;
 mod migrate_position_max_duration;
 mod migrate_position_terms_version;
 mod migrate_rebuild_due_tail;
@@ -57,6 +58,10 @@ pub use migrate_lift_params_short_book_alpha::{
 #[allow(unused_imports)]
 pub use migrate_lift_params_thin_blend::{
     Migration as LiftParamsThinBlendMigration, migrate_lift_params_thin_blend,
+};
+#[allow(unused_imports)]
+pub use migrate_lift_params_util_apr_long_book::{
+    Migration as LiftParamsUtilAprLongBookMigration, migrate_lift_params_util_apr_long_book,
 };
 #[allow(unused_imports)]
 pub use migrate_position_max_duration::{

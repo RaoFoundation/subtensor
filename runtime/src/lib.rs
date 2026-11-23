@@ -1935,6 +1935,8 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsForcedMinBuybackMigration<Runtime>,
     // Append short_book_max_pool_alpha_bps (15%) and revert 2× Cap_short split.
     pallet_lending::migrations::LiftParamsShortBookAlphaMigration<Runtime>,
+    // Utilization short APR curve + long_book_max_pool_tao_bps (15%).
+    pallet_lending::migrations::LiftParamsUtilAprLongBookMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

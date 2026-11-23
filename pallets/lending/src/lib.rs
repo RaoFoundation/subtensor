@@ -491,9 +491,15 @@ pub const MAX_THIN_BLEND_TAO: u64 = 1_000_000_000_000_000;
 pub const MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS: u16 = 100;
 /// Inclusive upper bound on [`LiftParams::short_book_max_pool_alpha_bps`] (50%).
 pub const MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS: u16 = 5_000;
+/// Inclusive lower bound on [`LiftParams::long_book_max_pool_tao_bps`] (1%).
+pub const MIN_LONG_BOOK_MAX_POOL_TAO_BPS: u16 = 100;
+/// Inclusive upper bound on [`LiftParams::long_book_max_pool_tao_bps`] (50%).
+pub const MAX_LONG_BOOK_MAX_POOL_TAO_BPS: u16 = 5_000;
+/// Inclusive upper bound on short utilization APR curve peaks (500%).
+pub const MAX_APR_SHORT_CURVE_BPS: u16 = 50_000;
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("40bb49294b4d0f86")]
+#[freeze_struct("4357ac49c5139b54")]
 #[derive(
     Encode,
     Decode,
@@ -619,9 +625,60 @@ pub struct LiftParams {
     /// not increase debt so it skips this gate). TAO Cap_short
     /// (`split_short_bps`) remains an additional bound.
     pub short_book_max_pool_alpha_bps: u16,
+    /// Short APR at utilization kink
+    /// ([`Self::apr_short_kink_utilization_bps`]). Default 2000 = 20% (flat
+    /// from base to kink under launch defaults).
+    pub apr_short_kink_bps: u16,
+    /// Utilization (bps of short-book alpha cap) where the short APR curve
+    /// reaches [`Self::apr_short_kink_bps`]. Default 5000 = 50%.
+    pub apr_short_kink_utilization_bps: u16,
+    /// Short APR at full utilization (U = 1). Default 10_000 = 100%.
+    /// May exceed 100% (bounded by [`MAX_APR_SHORT_CURVE_BPS`]).
+    pub apr_short_max_bps: u16,
+    /// Max total long-book borrowed TAO as a share of live pool TAO
+    /// (`SubnetTAO` / `pool_tao`). Default 1500 = 15%. Bounds
+    /// [`MIN_LONG_BOOK_MAX_POOL_TAO_BPS`]..=[`MAX_LONG_BOOK_MAX_POOL_TAO_BPS`].
+    /// Checked on open/increase only (never recalls live loans; roll with
+    /// ΔL = 0 skips). Cap_long (`split_short_bps`) remains an additional bound.
+    pub long_book_max_pool_tao_bps: u16,
 }
 
 impl LiftParams {
+    /// Short APR (bps) at utilization `u_bps` (0..=10_000 = 0%..=100% of the
+    /// short-book alpha cap). Kinked linear: base → kink_bps on
+    /// `[0, kink_util]`, then kink_bps → max_bps on `(kink_util, 10_000]`.
+    pub fn short_apr_bps_at_utilization(&self, u_bps: u16) -> u16 {
+        let u = u_bps.min(10_000);
+        let kink_u = self.apr_short_kink_utilization_bps.min(10_000);
+        let base = self.apr_short_bps;
+        let at_kink = self.apr_short_kink_bps;
+        let at_max = self.apr_short_max_bps;
+        if u <= kink_u {
+            if kink_u == 0 {
+                return at_kink;
+            }
+            let base_i = i128::from(base);
+            let kink_i = i128::from(at_kink);
+            let delta = (kink_i - base_i)
+                .saturating_mul(i128::from(u))
+                .checked_div(i128::from(kink_u))
+                .unwrap_or(0);
+            return base_i.saturating_add(delta).clamp(0, i128::from(u16::MAX)) as u16;
+        }
+        let span = 10_000u16.saturating_sub(kink_u);
+        if span == 0 {
+            return at_max;
+        }
+        let t = u.saturating_sub(kink_u);
+        let kink_i = i128::from(at_kink);
+        let max_i = i128::from(at_max);
+        let delta = (max_i - kink_i)
+            .saturating_mul(i128::from(t))
+            .checked_div(i128::from(span))
+            .unwrap_or(0);
+        kink_i.saturating_add(delta).clamp(0, i128::from(u16::MAX)) as u16
+    }
+
     /// Linear blend of `thin_bps` → `full_bps` across
     /// `[thin_tao, thin_tao + thin_blend_tao]` on `g_ref`.
     pub fn thin_depth_blend_bps(&self, g_ref: u64, thin_bps: u16, full_bps: u16) -> u16 {
@@ -688,6 +745,10 @@ impl Default for LiftParams {
             thin_blend_tao: 3_000_000_000_000,
             forced_min_buyback_bps: 100,
             short_book_max_pool_alpha_bps: 1_500,
+            apr_short_kink_bps: 2_000,
+            apr_short_kink_utilization_bps: 5_000,
+            apr_short_max_bps: 10_000,
+            long_book_max_pool_tao_bps: 1_500,
         }
     }
 }
@@ -781,6 +842,10 @@ impl LiftParamsBeforeEconomic {
             thin_blend_tao: LiftParams::default().thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
             short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
+            apr_short_kink_bps: LiftParams::default().apr_short_kink_bps,
+            apr_short_kink_utilization_bps: LiftParams::default().apr_short_kink_utilization_bps,
+            apr_short_max_bps: LiftParams::default().apr_short_max_bps,
+            long_book_max_pool_tao_bps: LiftParams::default().long_book_max_pool_tao_bps,
         }
     }
 }
@@ -849,6 +914,10 @@ impl LiftParamsBeforeExpirySlippage {
             thin_blend_tao: LiftParams::default().thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
             short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
+            apr_short_kink_bps: LiftParams::default().apr_short_kink_bps,
+            apr_short_kink_utilization_bps: LiftParams::default().apr_short_kink_utilization_bps,
+            apr_short_max_bps: LiftParams::default().apr_short_max_bps,
+            long_book_max_pool_tao_bps: LiftParams::default().long_book_max_pool_tao_bps,
         }
     }
 }
@@ -918,6 +987,10 @@ impl LiftParamsBeforeThinBlend {
             thin_blend_tao: LiftParams::default().thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
             short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
+            apr_short_kink_bps: LiftParams::default().apr_short_kink_bps,
+            apr_short_kink_utilization_bps: LiftParams::default().apr_short_kink_utilization_bps,
+            apr_short_max_bps: LiftParams::default().apr_short_max_bps,
+            long_book_max_pool_tao_bps: LiftParams::default().long_book_max_pool_tao_bps,
         }
     }
 }
@@ -988,6 +1061,10 @@ impl LiftParamsBeforeForcedMinBuyback {
             thin_blend_tao: self.thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
             short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
+            apr_short_kink_bps: LiftParams::default().apr_short_kink_bps,
+            apr_short_kink_utilization_bps: LiftParams::default().apr_short_kink_utilization_bps,
+            apr_short_max_bps: LiftParams::default().apr_short_max_bps,
+            long_book_max_pool_tao_bps: LiftParams::default().long_book_max_pool_tao_bps,
         }
     }
 }
@@ -1065,6 +1142,85 @@ impl LiftParamsBeforeShortBookAlpha {
             thin_blend_tao: self.thin_blend_tao,
             forced_min_buyback_bps: self.forced_min_buyback_bps,
             short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
+            apr_short_kink_bps: LiftParams::default().apr_short_kink_bps,
+            apr_short_kink_utilization_bps: LiftParams::default().apr_short_kink_utilization_bps,
+            apr_short_max_bps: LiftParams::default().apr_short_max_bps,
+            long_book_max_pool_tao_bps: LiftParams::default().long_book_max_pool_tao_bps,
+        }
+    }
+}
+
+/// Post-`short_book_max_pool_alpha_bps`, pre-utilization-APR / long-book-share
+/// layout. Decoded by [`migrations::migrate_lift_params_util_apr_long_book`].
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LiftParamsBeforeUtilAprLongBook {
+    pub floor_bps: u16,
+    pub thin_floor_bps: u16,
+    pub ref_tao: u64,
+    pub move_bps: u16,
+    pub ceiling_bps: u16,
+    pub split_short_bps: u16,
+    pub rebalance_target_bps: u16,
+    pub rebalance_rate_bps: u16,
+    pub thin_tao: u64,
+    pub ltv_short_bps: u16,
+    pub ltv_long_bps: u16,
+    pub thin_ltv_long_bps: u16,
+    pub apr_long_bps: u16,
+    pub apr_short_bps: u16,
+    pub slice_bps: u16,
+    pub crash_guard_bps: u16,
+    pub total_tao_ema_blocks: u64,
+    pub new_subnet_min_age: u64,
+    pub new_subnet_ramp: u64,
+    pub ema_band_bps: u16,
+    pub max_loan_duration: u64,
+    pub max_settlement_deferral: u64,
+    pub young_short_settlement_window: u64,
+    pub minimum_loan_value: u64,
+    pub max_expiry_settlements_per_block: u32,
+    pub expiry_max_slippage_bps: u16,
+    pub thin_blend_tao: u64,
+    pub forced_min_buyback_bps: u16,
+    pub short_book_max_pool_alpha_bps: u16,
+}
+
+impl LiftParamsBeforeUtilAprLongBook {
+    pub(crate) fn into_current(self) -> LiftParams {
+        LiftParams {
+            floor_bps: self.floor_bps,
+            thin_floor_bps: self.thin_floor_bps,
+            ref_tao: self.ref_tao,
+            move_bps: self.move_bps,
+            ceiling_bps: self.ceiling_bps,
+            split_short_bps: self.split_short_bps,
+            rebalance_target_bps: self.rebalance_target_bps,
+            rebalance_rate_bps: self.rebalance_rate_bps,
+            thin_tao: self.thin_tao,
+            ltv_short_bps: self.ltv_short_bps,
+            ltv_long_bps: self.ltv_long_bps,
+            thin_ltv_long_bps: self.thin_ltv_long_bps,
+            apr_long_bps: self.apr_long_bps,
+            apr_short_bps: self.apr_short_bps,
+            slice_bps: self.slice_bps,
+            crash_guard_bps: self.crash_guard_bps,
+            total_tao_ema_blocks: self.total_tao_ema_blocks,
+            new_subnet_min_age: self.new_subnet_min_age,
+            new_subnet_ramp: self.new_subnet_ramp,
+            ema_band_bps: self.ema_band_bps,
+            max_loan_duration: self.max_loan_duration,
+            max_settlement_deferral: self.max_settlement_deferral,
+            young_short_settlement_window: self.young_short_settlement_window,
+            minimum_loan_value: self.minimum_loan_value,
+            max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
+            expiry_max_slippage_bps: self.expiry_max_slippage_bps,
+            thin_blend_tao: self.thin_blend_tao,
+            forced_min_buyback_bps: self.forced_min_buyback_bps,
+            short_book_max_pool_alpha_bps: self.short_book_max_pool_alpha_bps,
+            apr_short_kink_bps: LiftParams::default().apr_short_kink_bps,
+            apr_short_kink_utilization_bps: LiftParams::default().apr_short_kink_utilization_bps,
+            apr_short_max_bps: LiftParams::default().apr_short_max_bps,
+            long_book_max_pool_tao_bps: LiftParams::default().long_book_max_pool_tao_bps,
         }
     }
 }
@@ -2524,7 +2680,10 @@ pub mod pallet {
                     && p.ltv_long_bps <= 5_000
                     && p.thin_ltv_long_bps <= 5_000
                     && p.apr_long_bps <= 10_000
-                    && p.apr_short_bps <= 10_000
+                    && p.apr_short_bps <= p.apr_short_max_bps
+                    && p.apr_short_kink_bps <= p.apr_short_max_bps
+                    && p.apr_short_max_bps <= MAX_APR_SHORT_CURVE_BPS
+                    && p.apr_short_kink_utilization_bps <= 10_000
                     && p.crash_guard_bps <= 10_000
                     && p.ema_band_bps <= 10_000
                     && p.slice_bps <= 10_000
@@ -2547,7 +2706,9 @@ pub mod pallet {
                     && p.thin_blend_tao <= MAX_THIN_BLEND_TAO
                     && p.forced_min_buyback_bps <= 10_000
                     && p.short_book_max_pool_alpha_bps >= MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS
-                    && p.short_book_max_pool_alpha_bps <= MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS,
+                    && p.short_book_max_pool_alpha_bps <= MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS
+                    && p.long_book_max_pool_tao_bps >= MIN_LONG_BOOK_MAX_POOL_TAO_BPS
+                    && p.long_book_max_pool_tao_bps <= MAX_LONG_BOOK_MAX_POOL_TAO_BPS,
                 Error::<T>::InvalidLiftParams
             );
             Ok(())
@@ -3344,6 +3505,84 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Max long-book borrowed TAO = `long_book_max_pool_tao_bps` of pool TAO.
+        fn long_book_tao_cap(netuid: NetUid, params: &LiftParams) -> Result<u64, DispatchError> {
+            Self::mul_bps(
+                T::Pool::pool_tao(netuid).to_u64(),
+                params.long_book_max_pool_tao_bps,
+            )
+        }
+
+        /// Outstanding long borrowed TAO (`Lifts.l_l`).
+        fn long_book_tao_used(netuid: NetUid) -> u64 {
+            Lifts::<T>::get(netuid).l_l
+        }
+
+        /// Open/increase: `l_l + delta_tao ≤ pool_tao · share`.
+        ///
+        /// `delta_tao == 0` (roll / no new borrow) always passes — never recalls
+        /// live longs.
+        fn ensure_long_book_pool_tao(netuid: NetUid, delta_tao: u64) -> DispatchResult {
+            if delta_tao == 0 {
+                return Ok(());
+            }
+            let params = Self::lift_params();
+            let max = Self::long_book_tao_cap(netuid, &params)?;
+            let used = Self::long_book_tao_used(netuid);
+            ensure!(
+                used.saturating_add(delta_tao) <= max,
+                Error::<T>::SideCapacity
+            );
+            Ok(())
+        }
+
+        /// Short-book utilization in bps of the alpha share cap (0..=10_000).
+        /// O(1): `short_sold_alpha` and `pool_alpha` only — no position scan.
+        fn short_book_utilization_bps(netuid: NetUid, params: &LiftParams) -> Result<u16, DispatchError> {
+            let cap = Self::short_book_alpha_cap(netuid, params)?;
+            if cap == 0 {
+                return Ok(10_000);
+            }
+            let used = u128::from(Self::short_book_alpha_used(netuid));
+            let u = used
+                .saturating_mul(10_000)
+                .checked_div(u128::from(cap))
+                .unwrap_or(10_000)
+                .min(10_000);
+            Ok(u as u16)
+        }
+
+        /// Live short APR from current book utilization (O(1)).
+        fn short_apr_bps_now(netuid: NetUid, params: &LiftParams) -> Result<u16, DispatchError> {
+            let u = Self::short_book_utilization_bps(netuid, params)?;
+            Ok(params.short_apr_bps_at_utilization(u))
+        }
+
+        /// Effective annual coupon for accrual. Shorts scale the stored
+        /// base-APR coupon by live utilization APR / base so the rate tracks
+        /// U without rewriting `annual_interest` or scanning the book.
+        fn effective_annual_interest(
+            netuid: NetUid,
+            position: &Position<T::AccountId, BlockNumberFor<T>>,
+        ) -> Result<u64, DispatchError> {
+            match position.side {
+                Side::Long => Ok(position.annual_interest),
+                Side::Short => {
+                    let params = Self::lift_params();
+                    let base = params.apr_short_bps.max(1);
+                    let live = Self::short_apr_bps_now(netuid, &params)?;
+                    if live == base {
+                        return Ok(position.annual_interest);
+                    }
+                    let scaled = u128::from(position.annual_interest)
+                        .saturating_mul(u128::from(live))
+                        .checked_div(u128::from(base))
+                        .ok_or(Error::<T>::Arithmetic)?;
+                    Ok(scaled.min(u128::from(u64::MAX)) as u64)
+                }
+            }
+        }
+
         fn ltv_tier_bps(netuid: NetUid, side: Side, params: &LiftParams) -> u16 {
             match side {
                 Side::Short => params.ltv_short_bps,
@@ -3760,7 +3999,15 @@ pub mod pallet {
                     }
                     p.min(x.saturating_sub(1)).min(alpha_headroom)
                 }
-                Side::Long => headroom_tao.min(y.saturating_sub(1)),
+                Side::Long => {
+                    let tao_cap = Self::long_book_tao_cap(netuid, params)?;
+                    let tao_used = Self::long_book_tao_used(netuid);
+                    let tao_headroom = tao_cap.saturating_sub(tao_used);
+                    if tao_headroom == 0 {
+                        return Err(Self::refuse_capacity(netuid, side, price, params));
+                    }
+                    headroom_tao.min(y.saturating_sub(1)).min(tao_headroom)
+                }
             };
             if add_cap == 0 {
                 return Err(Self::refuse_capacity(netuid, side, price, params));
@@ -4185,6 +4432,9 @@ pub mod pallet {
                 if side == Side::Short {
                     Self::ensure_short_book_pool_alpha(netuid, p)?;
                 }
+                if side == Side::Long {
+                    Self::ensure_long_book_pool_tao(netuid, p)?;
+                }
                 ensure!(
                     Self::principal_feasible(
                         netuid,
@@ -4215,6 +4465,9 @@ pub mod pallet {
                 // Max-borrow path already clamped add_cap by alpha headroom;
                 // re-check the chosen principal.
                 Self::ensure_short_book_pool_alpha(netuid, principal)?;
+            }
+            if side == Side::Long && requested_principal.is_none() {
+                Self::ensure_long_book_pool_tao(netuid, principal)?;
             }
 
             let price = Self::coupon_price(netuid, &reference);
@@ -5600,6 +5853,7 @@ pub mod pallet {
                 let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
                 let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
                 Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
+                Self::ensure_long_book_pool_tao(netuid, p)?;
                 ensure!(
                     Self::principal_feasible(
                         netuid,
@@ -5789,6 +6043,7 @@ pub mod pallet {
         }
 
         fn interest_due(
+            netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
             until: BlockNumberFor<T>,
             final_charge: bool,
@@ -5803,7 +6058,10 @@ pub mod pallet {
             // later Config / terms bump cannot rewrite remaining interest.
             let denominator = u128::from(position.blocks_per_year);
             ensure!(denominator > 0, Error::<T>::Arithmetic);
-            let numerator = u128::from(position.annual_interest)
+            // Shorts: live utilization APR (O(1) from short_sold_alpha /
+            // pool_alpha share). Longs: frozen annual_interest from open.
+            let annual = Self::effective_annual_interest(netuid, position)?;
+            let numerator = u128::from(annual)
                 .saturating_mul(u128::from(elapsed))
                 .saturating_add(u128::from(position.interest_remainder));
             let whole = numerator
@@ -5858,7 +6116,7 @@ pub mod pallet {
             }
             // Past `expires_at`, interest still accrues while the position is
             // open (including band-deferred freezes), bounded by collateral.
-            let (due, remainder) = Self::interest_due(position, until, final_charge)?;
+            let (due, remainder) = Self::interest_due(netuid, position, until, final_charge)?;
             let paid = due.min(position.collateral);
             if paid > 0 {
                 let escrow = position.custody.clone();
@@ -8088,7 +8346,7 @@ pub mod pallet {
                             until = d.frozen_at;
                         }
                     }
-                    let (due, rem) = Self::interest_due(&position, until, true)?;
+                    let (due, rem) = Self::interest_due(netuid, &position, until, true)?;
                     position.last_accrued = until;
                     position.interest_remainder = rem;
 
@@ -8899,6 +9157,9 @@ pub mod pallet {
                 if side == Side::Short {
                     Self::ensure_short_book_pool_alpha(netuid, p)?;
                 }
+                if side == Side::Long {
+                    Self::ensure_long_book_pool_tao(netuid, p)?;
+                }
                 ensure!(
                     Self::principal_feasible(
                         netuid, side, total_p, total_c, old_p, owner, &reference, ltv, &params,
@@ -8919,6 +9180,9 @@ pub mod pallet {
             };
             if side == Side::Short && requested.is_none() {
                 Self::ensure_short_book_pool_alpha(netuid, principal)?;
+            }
+            if side == Side::Long && requested.is_none() {
+                Self::ensure_long_book_pool_tao(netuid, principal)?;
             }
             let price = Self::coupon_price(netuid, &reference);
             // Zero additional principal: map via shared dust/capacity gate before
@@ -9024,7 +9288,7 @@ pub mod pallet {
             Self::ensure_subnet_repayable(netuid)?;
             let position = Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
             let (interest, _) =
-                Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
+                Self::interest_due(netuid, &position, frame_system::Pallet::<T>::block_number(), true)?;
             let remaining = position.collateral.saturating_sub(interest);
             let quoted = match position.side {
                 Side::Short => {
@@ -9121,7 +9385,7 @@ pub mod pallet {
                 T::Pool::current_alpha_price(netuid),
             )?;
             let (interest, _) =
-                Self::interest_due(&position, frame_system::Pallet::<T>::block_number(), true)?;
+                Self::interest_due(netuid, &position, frame_system::Pallet::<T>::block_number(), true)?;
             let remaining = position.collateral.saturating_sub(interest);
             let p = position.principal;
             let slice_p = principal_part;
@@ -9251,6 +9515,7 @@ pub mod pallet {
                 let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
                 let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
                 Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
+                Self::ensure_long_book_pool_tao(netuid, p)?;
                 ensure!(
                     Self::principal_feasible(
                         netuid,
@@ -9287,6 +9552,7 @@ pub mod pallet {
                 let ltv = Self::ltv_tier_bps(netuid, Side::Long, &params);
                 let delta_l = Self::lift_tao_for_principal(netuid, Side::Long, p)?;
                 Self::ensure_side_capacity(netuid, Side::Long, delta_l)?;
+                Self::ensure_long_book_pool_tao(netuid, p)?;
                 // Exponential search for a feasible upper bound, then bisect.
                 // A fixed hi=u64::MAX/4 with only 16 steps left a 2^46 artifact
                 // (Skeptic/E2E F2); doubling finds a tight window in ≤63 steps.

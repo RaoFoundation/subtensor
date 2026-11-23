@@ -1,8 +1,13 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.13: short-book pool-alpha share)
-**Version:** v5.13, 2026-11-23. Encodes Jacob's locked decisions as of 2026-10-20 (EMA band 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09; hard 30-day max_loan_duration / terms v2 2026-11-19; atomic `roll(netuid)` + root-settable economic params 2026-11-19; asymmetric APR + 33% LTV + impact-capped partial forced buyback 2026-11-23; `add_collateral` + roll collateral-adequacy 2026-11-23; **short book ≤ share of pool alpha + Cap_short back to 1× 2026-11-23**). Supersedes v5.12 (forced progress + add_collateral + roll adequacy), v5.11 (launch economics), v5.10 (roll + root economic params), v5.9 (hard 30-day term), v5.8 (net-long emission), v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
-**Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
-**Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
-**Files:** scripts `lending-pnl/{final,final2,final3,sim_final2,pnl_final2,plot11}.py`; data `data/final*.{json,csv}` (floor sweep: `data/final3.json`, `data/final3_pnl.csv`), `data/balancer_now.json`; figure `fig11_final.png`. v5 additions: `lift-lending-raise/calc.py` + `res.json` (escrowed-long impacts, raise example); companion implementer notes `lift-lending-raise-cli.md`; v5.1: `lift-lending-dereg/calc.py` + `res.json` (dereg settlement examples); why not zero-loss LTV: `zero-loss-ltv-example.md`; v5.2: `sn29-analysis.md` + `sn29/calc.py` → `res.json` (`r`-pump attack and fix numbers); v5.3: `lending-pnl/sim_final4.py` (escrowed-long books, same seeds and paths as `sim_final2.py`) + `lending-pnl/final4.py` → `data/final4.json`, `data/final4_pnl.csv`, `data/final4_long_default.csv` (thin floor on, tier LTV, escrowed-long P&L); `lift-lending-raise/calc.py` → `res.json` key `v53_raise_table` (raise tables, thin-tier mirrors).
+# Lift-based lending on main's Balancer pools: final spec (v5.14: util APR + long-book TAO share)
+**Version:** v5.14, 2026-11-23. Encodes Jacob's locked decisions as of 2026-10-20 through 2026-11-23 (utilization short APR + long-book pool-TAO share; short-book alpha share; Cap_short 1×; add_collateral; roll adequacy; forced buyback progress; launch economics). Supersedes v5.13–v4 archives listed previously.
+
+## Changelog: v5.14 vs v5.13
+* **2026-11-23: utilization-based short APR (Jacob).** Short interest rate tracks book utilization `U = short_sold_alpha / (short_book_max_pool_alpha_bps · pool_alpha)` (O(1); no position scan).
+  * Default kinked curve: **20% APR** for `U ∈ [0, 0.5]`, then linear to **100% APR** at `U = 1`. Sudo knobs: `apr_short_bps` (base), `apr_short_kink_bps`, `apr_short_kink_utilization_bps`, `apr_short_max_bps` (≤ 50_000).
+  * Rate applies at every accrual checkpoint for all open shorts (not frozen at open). Stored `annual_interest` stays the base-APR coupon; accrual scales by `live_apr / base_apr`. Interest still burned.
+* **2026-11-23: long book ≤ share of pool TAO (Jacob).** `long_book_max_pool_tao_bps` (default **1_500 = 15%**, bounds 100..=5_000): `Lifts.l_l + ΔP ≤ SubnetTAO · share` on open/increase only. Never recalls live longs; Cap_long remains an additional TAO bound.
+* Migration `LiftParamsUtilAprLongBookMigration` appends the new fields.
+* Touched: §2.2, §6, §8; runtime migration; SDK / CLI `show-params`.
 
 ## Changelog: v5.13 vs v5.12
 * **2026-11-23: short book ≤ share of pool alpha (Jacob).** Replace the temporary 2× TAO Cap_short experiment with a hard bound on total outstanding borrowed alpha.
@@ -67,11 +72,15 @@
 | `ceiling_bps` | 5000 | ≤ 10_000 | `set_lift_params` |
 | `split_short_bps` | 5000 (`Cap_short = Cap_long`) | ≤ 10_000 | `set_lift_params` |
 | `short_book_max_pool_alpha_bps` | 1500 (15% of pool α) | 100..=5_000 | `set_lift_params` — total short borrowed α ≤ share of `SubnetAlphaIn`; open/increase only |
+| `long_book_max_pool_tao_bps` | 1500 (15% of pool τ) | 100..=5_000 | `set_lift_params` — total long borrowed τ ≤ share of `SubnetTAO`; open/increase only |
+| `apr_short_kink_bps` | 2000 | ≤ `apr_short_max_bps` | `set_lift_params` — short APR at kink utilization |
+| `apr_short_kink_utilization_bps` | 5000 | ≤ 10_000 | `set_lift_params` — U where kink APR applies |
+| `apr_short_max_bps` | 10_000 | ≤ 50_000 | `set_lift_params` — short APR at U=1 |
 | `ltv_short_bps` | 3300 | ≤ 5000 | `set_lift_params` |
 | `ltv_long_bps` | 3300 | ≤ 5000 | `set_lift_params` |
 | `thin_ltv_long_bps` | 1500 | ≤ 5000 | `set_lift_params` |
 | `apr_long_bps` | 10_000 | ≤ 10_000 | `set_lift_params` |
-| `apr_short_bps` | 2_000 | ≤ 10_000 | `set_lift_params` |
+| `apr_short_bps` | 2_000 | ≤ `apr_short_max_bps` | `set_lift_params` — base short APR (U=0); live rate from utilization curve |
 | `ema_band_bps` | 1500 | ≤ 10_000 | `set_lift_params` |
 | `ref_tao` | 1000 τ | > 0 | `set_lift_params` |
 | `move_bps` | 1000 | > 0 | `set_lift_params` |
@@ -93,7 +102,7 @@
 | `forced_min_buyback_bps` | 100 (1% of remaining principal) | ≤ 10_000 | `set_lift_params` — force-market first-trade progress floor that may exceed the remaining impact budget |
 | `Enabled` | false (dark launch) | bool | `set_enabled` |
 
-*(v5.13 also documents `short_book_max_pool_alpha_bps` in the table above.)*
+*(v5.13–v5.14 fields `short_book_max_pool_alpha_bps`, `long_book_max_pool_tao_bps`, and the short utilization APR knobs are in the table above.)*
 
 ## Changelog: v5.9 vs v5.8
 * **2026-11-19: hard 30-day maximum loan duration (Jacob).** So the protocol can always fully unwind lending by waiting 30 days.
@@ -280,9 +289,10 @@ f         = blend(G_ref; thin_floor, floor, thin_tao, thin_blend_tao)
 Cap       = ramp(age) · max( f·G_ref ,  min( G_ref − y* ,  ceiling·G_ref ) )      // ramp = 1 for every subnet past the new-subnet ramp (§2.3)
 Cap_short = split_short · Cap ,   Cap_long = (1 − split_short) · Cap
 ShortBookα_max = short_book_max_pool_alpha · SubnetAlphaIn
+LongBookτ_max  = long_book_max_pool_tao · SubnetTAO
 open short iff  L_S + ΔL ≤ Cap_short  AND  short_sold_alpha + Δα ≤ ShortBookα_max
-open long  iff  L_L + ΔL ≤ Cap_long
-# roll / close never raise short_sold_alpha, so the α-share gate does not apply there
+open long  iff  L_L + ΔL ≤ Cap_long   AND  L_L + ΔP ≤ LongBookτ_max
+# roll / close with Δ = 0 skip the share gates (never force-close / recall)
 always:  y − ΔL ≥ MinimumReserve
 ```
 * In words: capacity = MAX(floor % of pool, the depth above which a 1k τ buy moves price 10%), capped by the 50% ceiling, then split 50/50 between sides.
@@ -464,7 +474,7 @@ require P ≤ LTV_tier · V_dyn
 * **#3211 `MinPriceImpactBps`.** Already dropped from this pallet (only dead weight stubs remain). Do not revive it; the EMA band replaces the anti-splitting purpose that a protocol-side per-trade impact dial would have served.
 
 ## 6. Interest: asymmetric APR (short 20% / long 100%), burn all, with paced long sales
-* **Rates (Jacob 2026-11-23):** `apr_short_bps = 2_000` (20%/yr), `apr_long_bps = 10_000` (100%/yr). Both root-settable; charged in fixed collateral units on opening loan value.
+* **Rates (Jacob 2026-11-23 / v5.14):** `apr_long_bps = 10_000` (100%/yr, frozen at open). Shorts use a **utilization curve**: base `apr_short_bps = 2_000` (20%) flat to kink utilization 50%, then linear to `apr_short_max_bps = 10_000` (100%) at full short-book alpha share. Live rate applies at each accrual for all open shorts (O(1) from `short_sold_alpha` / pool α); stored `annual_interest` stays the base coupon.
 * **Short TAO interest:** burned immediately (#3211 `burn_interest_tao`).
 * **F16 short coupon price (locked, terms v1):** at open / increase / quote, short `opening_value` and `annual_interest` use **`min(lending EMA, spot)`**. A pumped spot cannot inflate the TAO coupon, and a pumped reference cannot either. Long interest alpha uses the same `coupon_price` helper (lower price → larger alpha coupon). No terms bump: this was already the v1 open-path price and there are no open mainnet positions.
 * **Long alpha interest:** goes to `LongInterestPending[netuid]` and is sold over the next 7 days, one aggregated sale per subnet per block:
