@@ -17,7 +17,10 @@ error says how many blocks to wait. The chain additionally enforces checks
 that are not preflighted: the hotkey must hold the minimum stake to set
 weights and a validator permit. Null has one permit holder, the highest-stake
 UID; self weights and subnet ownership do not bypass that permit. Yuma retains
-its owner and self-weight exceptions. `version_key` must not be older than the subnet's
+its owner and self-weight exceptions. On a Null subnet one row holds at most
+`max(1, 2500 // mechanism_count)` weights (2,500 with one mechanism, 156
+with sixteen); a longer row is refused before it is signed or encrypted.
+`version_key` must not be older than the subnet's
 required version. Prefer this over `commit_weights`/`reveal_weights`
 unless you specifically need to force one path.
 
