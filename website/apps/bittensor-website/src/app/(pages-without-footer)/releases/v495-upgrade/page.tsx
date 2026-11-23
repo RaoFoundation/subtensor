@@ -829,7 +829,7 @@ await client.submit_call(raw, owner_wallet)`} />
               safe for single-validator claims: a fund with a row on every subnet stays claimable.
             </li>
           </ul>
-          <Code language='bash' code={`# Preview the claim: the reserved fee, the fee that will settle, and the 258-unit check.
+          <Code language='bash' code={`# Preview the claim: the reserved fee, the fee that will settle, and the claim-unit check.
 btcli root claim --hotkey VALIDATOR_HOTKEY --dry-run -w my_wallet
 
 # Send the claim.
@@ -840,7 +840,8 @@ queued = await client.query_map(
     bt.storage.SubtensorModule.PendingBasketDeposits, [validator_hotkey],
 )
 
-# The plan stops a claim on a fund above 258 claim units before it signs.
+# The plan stops a claim on a fund above the limit of the connected runtime before it
+# signs: 258 claim units from runtime 495, 130 before.
 plan = await client.plan(bt.ClaimRootWithHotkey(hotkey_ss58=validator_hotkey), wallet)
 await client.execute(bt.ClaimRootWithHotkey(hotkey_ss58=validator_hotkey), wallet)
 
@@ -1006,9 +1007,12 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               time.
             </li>
             <li>
-              The check before <code>ClaimRootWithHotkey</code> uses the limit of 258 claim units
-              and counts queued credits on subnets where the fund has no row. On a runtime before
-              495 the chain still applies its limit of 130 units.
+              The check before <code>ClaimRootWithHotkey</code> uses the rules of the connected
+              runtime. It reads the runtime version at the block from which it reads the fund. On
+              a runtime before 495 the limit is 130 claim units. From runtime 495 the limit is 258
+              claim units, and the check also counts queued credits on subnets where the fund has
+              no row. Thus the SDK does not sign a claim that the chain refuses with{' '}
+              <code>RootClaimTooHeavy</code>.
             </li>
             <li>
               For a raw call, use <code>client.submit_call(call, wallet)</code>. Add{' '}
