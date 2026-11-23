@@ -111,11 +111,16 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// (`Linear<1, N>`). Weight calculation cannot inspect the signer, so this path
 /// reserves the full envelope and refunds unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
-/// Single-hotkey quote: one validator, the current maximum 128 non-root subnet slots,
-/// and the root/TAO slot. Raise this in the same runtime upgrade that raises the subnet
-/// limit. The single-hotkey gate and declared weight must use this bound, not
-/// [`MAX_ROOT_CLAIM_WORK`], so a full 129-row basket has a 130-unit declaration.
-pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 130;
+/// Largest single-hotkey claim, in claim units: one validator, 256 non-root subnet slots,
+/// and the root/TAO slot. A single-hotkey claim declares the weight of its own fund
+/// ([`Pallet::root_claim_hotkey_declared_weight_for`]); this is the admission ceiling and
+/// the size of the largest declaration. A full fund stays claimable while the subnet limit
+/// is at most this value minus two, so raise both in the same runtime upgrade.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 258;
+/// Smallest single-hotkey claim declaration, in claim units. It is the number of units the
+/// runtime bills a root claim for (`ROOT_CLAIM_FEE_ALLOWANCE`), so the fee quoted before
+/// dispatch does not depend on the size of the fund.
+pub const MIN_ROOT_CLAIM_HOTKEY_WORK: u32 = 4;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
@@ -3639,6 +3644,16 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketTradeBucket<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> `(block, extrinsic_index)` of the last transaction
+    /// in which a `swap_basket` buy or a hotkey swap gave the fund a row that its
+    /// single-hotkey claim weight had not counted. `claim_root_with_hotkey` declares its
+    /// weight from the fund's rows before the transaction runs, so a claim later in that
+    /// same transaction is refused (`RootClaimTooHeavy`). A row from an earlier transaction
+    /// has no effect. Moves with the fund on hotkey swap.
+    #[pallet::storage]
+    pub type BasketRowsOpenedAt<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u32), OptionQuery>;
 
     /// --- MAP ( validator_hotkey, netuid ) --> `(alpha_bought, last_block)` of
     /// destination-pool flow used by `swap_basket` in the current refill window.

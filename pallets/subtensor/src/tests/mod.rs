@@ -5,6 +5,7 @@ mod beta_pricing;
 mod children;
 mod claim_root;
 mod claim_root_dust;
+mod claim_root_hotkey_weight;
 mod cleanup_tests;
 mod coinbase;
 mod coldkey_lineage;

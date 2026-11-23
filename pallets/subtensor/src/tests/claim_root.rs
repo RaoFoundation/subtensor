@@ -253,12 +253,12 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
         );
 
-        // The single-hotkey declaration reserves one validator unit, 128 non-root subnet
-        // slots, and the root slot, not the coldkey-wide 256-unit envelope.
+        // The single-hotkey declaration is sized from this validator's fund, not from the
+        // coldkey-wide 256-unit envelope.
         let single_call =
             RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey });
         let single_declared = single_call.get_dispatch_info().call_weight;
-        let single_envelope = SubtensorModule::root_claim_hotkey_declared_weight();
+        let single_envelope = SubtensorModule::root_claim_hotkey_declared_weight_for(&hotkey);
         assert!(single_declared.all_gte(single_envelope));
         assert!(single_declared.all_lt(declared_weight));
     });
@@ -435,9 +435,9 @@ fn test_claim_root_ignores_network_count_and_bounds_actual_basket_rows() {
         );
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hotkey]));
 
-        // The single-hotkey gate must use the 130-unit cap, not the 256-unit
-        // coldkey-wide envelope. A 131-unit claim (1 hotkey + 130 rows) would
-        // otherwise be admitted under a 130-unit declaration.
+        // The single-hotkey gate must use its own cap (`MAX_ROOT_CLAIM_HOTKEY_WORK`), not
+        // the coldkey-wide envelope. A claim of one unit more (1 hotkey + as many rows as
+        // the cap) would otherwise be admitted above the largest single-hotkey declaration.
         let single = U256::from(1003);
         for raw_netuid in 1..MAX_ROOT_CLAIM_HOTKEY_WORK as u16 {
             AlphaV2::<Test>::insert(
