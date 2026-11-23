@@ -8,7 +8,7 @@ from bittensor.balance import Balance
 from bittensor.client import Client
 from bittensor.intents import Policy
 from bittensor.intents import _root_claim_fee as fees
-from bittensor.intents.registration import ClaimRoot
+from bittensor.intents.registration import ClaimRoot, ClaimRootWithHotkey
 from bittensor.result import PolicyError
 from bittensor.sp_core import Keypair
 from tests.harness.fake_substrate import FakeSubstrate
@@ -165,6 +165,7 @@ def test_single_hotkey_declared_weight_follows_the_fund_size():
 @pytest.mark.asyncio
 async def test_single_hotkey_admission_counts_queued_credits_that_open_rows():
     substrate = FakeSubstrate()
+    substrate.runtime_spec_version = 495
     _seed_claim_quote(
         substrate,
         hotkeys=[ALICE_HOT],
@@ -200,6 +201,163 @@ async def test_single_hotkey_admission_counts_queued_credits_that_open_rows():
         "fund does not hold = 259" in block
         for block in admission.blocks()
     )
+
+
+class _RecordingSubstrate(FakeSubstrate):
+    """Records the block hash of each read that the admission check makes."""
+
+    def __init__(self):
+        super().__init__()
+        self.reads: list[tuple[str, object]] = []
+
+    async def spec_version(self, block_hash=None):
+        self.reads.append(("spec_version", block_hash))
+        return await super().spec_version(block_hash)
+
+    async def runtime_call(self, api, method, params, block_hash=None):
+        self.reads.append((method, block_hash))
+        return await super().runtime_call(api, method, params, block_hash)
+
+    async def query(self, module, storage_function, params=None, block_hash=None):
+        self.reads.append((storage_function, block_hash))
+        return await super().query(module, storage_function, params, block_hash)
+
+    async def query_map(self, module, storage_function, params=None, block_hash=None):
+        self.reads.append((storage_function, block_hash))
+        return await super().query_map(module, storage_function, params, block_hash)
+
+
+def _seed_single_fund(substrate: FakeSubstrate, *, holdings: int, queued=()) -> None:
+    """One validator fund that holds netuids ``0..holdings-1``, with one queued dividend
+    credit on each netuid in ``queued``."""
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 1_000_000},
+        holdings={ALICE_HOT: holdings},
+    )
+    substrate.seed_map(
+        "SubtensorModule",
+        "PendingBasketDeposits",
+        [(netuid, 1) for netuid in queued],
+    )
+
+
+def test_single_hotkey_limit_follows_the_runtime_version():
+    assert fees.root_claim_declared_work([ALICE_HOT], 494) == 130
+    assert fees.root_claim_declared_work([ALICE_HOT], 495) == 258
+    assert fees.root_claim_declared_work([ALICE_HOT], 496) == 258
+    # No version given: the newest known rules.
+    assert fees.root_claim_declared_work([ALICE_HOT]) == 258
+    # The coldkey-wide limit is the same on every runtime.
+    assert fees.root_claim_declared_work(None, 494) == 256
+    assert fees.root_claim_declared_work(None, 495) == 256
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("spec_version", "holdings", "limit", "too_heavy"),
+    [
+        # Runtime 494 admits 130 claim units: the validator and 129 basket rows.
+        (494, 129, 130, False),
+        (494, 130, 130, True),
+        # A fund between the two limits: refused by runtime 494, admitted by runtime 495.
+        (494, 200, 130, True),
+        (495, 200, 258, False),
+        # Runtime 495 admits 258 claim units: the validator and 257 basket rows.
+        (495, 257, 258, False),
+        (495, 258, 258, True),
+    ],
+)
+async def test_single_hotkey_admission_uses_the_rules_of_the_runtime_version(
+    spec_version, holdings, limit, too_heavy
+):
+    substrate = FakeSubstrate()
+    substrate.runtime_spec_version = spec_version
+    _seed_single_fund(substrate, holdings=holdings)
+
+    admission = await fees.root_claim_admission(substrate, ALICE, hotkeys=[ALICE_HOT])
+
+    assert admission.spec_version == spec_version
+    assert admission.limit == limit
+    assert admission.holdings == holdings
+    assert admission.too_heavy is too_heavy
+    blocks = admission.blocks()
+    if too_heavy:
+        expected = (
+            f"root claim exceeds the {limit}-unit admission limit "
+            f"(1 root hotkey + {holdings} basket holdings = {holdings + 1})"
+        )
+        assert any(expected in block for block in blocks)
+    else:
+        assert blocks == []
+
+
+@pytest.mark.asyncio
+async def test_queued_credits_count_from_runtime_495_only():
+    """Runtime 494 counts the validator and its stored rows. Runtime 495 also counts each
+    queued credit on a subnet that the fund does not hold."""
+    queued = range(129, 329)  # 200 credits; the fund holds netuids 0..128
+
+    before = _RecordingSubstrate()
+    before.runtime_spec_version = 494
+    _seed_single_fund(before, holdings=129, queued=queued)
+    admission = await fees.root_claim_admission(before, ALICE, hotkeys=[ALICE_HOT])
+    assert admission.limit == 130
+    assert admission.queued_new == 0
+    assert not admission.too_heavy  # 1 + 129 = 130 units
+    # The rule of runtime 494 has no queue term, so the check does not read the queue.
+    assert "PendingBasketDeposits" not in [name for name, _block in before.reads]
+
+    after = _RecordingSubstrate()
+    after.runtime_spec_version = 495
+    _seed_single_fund(after, holdings=129, queued=queued)
+    admission = await fees.root_claim_admission(after, ALICE, hotkeys=[ALICE_HOT])
+    assert admission.limit == 258
+    assert admission.queued_new == 200
+    assert admission.too_heavy  # 1 + 129 + 200 = 330 units
+    assert "PendingBasketDeposits" in [name for name, _block in after.reads]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hotkeys", [[ALICE_HOT], None])
+async def test_admission_reads_the_fund_and_the_runtime_version_at_one_block(hotkeys):
+    substrate = _RecordingSubstrate()
+    substrate.block = 9_572_146
+    substrate.runtime_spec_version = 495
+    _seed_single_fund(substrate, holdings=3, queued=[7])
+    head = await substrate.block_hash()
+
+    await fees.root_claim_admission(substrate, ALICE, hotkeys=hotkeys)
+
+    names = [name for name, _block in substrate.reads]
+    assert names[0] == "spec_version"
+    assert "get_validator_basket" in names
+    assert ("PendingBasketDeposits" in names) is (hotkeys is not None)
+    # The version that selects the rules and every fund read use the same block.
+    assert {block for _name, block in substrate.reads} == {head}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("spec_version", "blocked"), [(494, True), (495, False)])
+async def test_plan_blocks_a_fund_that_only_the_old_runtime_refuses(spec_version, blocked):
+    """The audit case: on runtime 494 a fund of 131 to 258 claim units must stop in the
+    plan, because the chain refuses the claim and still charges a fee."""
+    substrate = FakeSubstrate()
+    substrate.runtime_spec_version = spec_version
+    _seed_single_fund(substrate, holdings=200)
+
+    plan = await Client("local", substrate=substrate).plan(
+        ClaimRootWithHotkey(hotkey_ss58=ALICE_HOT), dev_wallet()
+    )
+
+    stopped = [block for block in plan.violations if "admission limit" in block]
+    if blocked:
+        assert len(stopped) == 1
+        assert "130-unit admission limit" in stopped[0]
+        assert "1 root hotkey + 200 basket holdings = 201" in stopped[0]
+    else:
+        assert stopped == []
 
 
 def test_spent_caps_at_the_fee_allowance():

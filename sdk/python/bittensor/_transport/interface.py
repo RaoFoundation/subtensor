@@ -221,14 +221,23 @@ class SubstrateConnection:
     async def genesis_hash(self) -> str:
         return await self._runtimes.genesis_hash()
 
-    async def runtime_spec_version(self) -> int:
-        """The connected runtime's ``spec_version`` at the chain head.
+    async def runtime_spec_version(self, block_hash: Optional[str] = None) -> int:
+        """The runtime's ``spec_version`` at the chain head, or in the state of ``block_hash``.
 
-        Served from the head codec, which re-validates against
+        The chain-head case is served from the head codec, which re-validates against
         ``state_getRuntimeVersion`` on a short TTL — so a runtime upgrade
         mid-session is reflected within about a block.
+
+        With a block hash this is the runtime that the state of that block holds: the
+        runtime that executes the next block. Use it when a rule that depends on the
+        runtime version must match other state read at the same block.
         """
-        return (await self._runtimes.codec_at(None)).spec_version
+        if block_hash is None:
+            return (await self._runtimes.codec_at(None)).spec_version
+        runtime_info = await self._session.request("state_getRuntimeVersion", [block_hash])
+        if runtime_info is None:
+            raise SubstrateRequestException(f"No runtime information for block '{block_hash}'")
+        return int(runtime_info["specVersion"])
 
     async def get_chain_head(self) -> str:
         return await self._session.request("chain_getHead", [])

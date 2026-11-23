@@ -132,8 +132,9 @@ class Substrate(Protocol):
         """Seconds per block, detected from the chain."""
         ...
 
-    async def spec_version(self) -> int:
-        """The connected runtime's ``spec_version`` (at the chain head)."""
+    async def spec_version(self, block_hash: Optional[str] = None) -> int:
+        """The connected runtime's ``spec_version``: at the chain head, or in the state
+        of ``block_hash``."""
         ...
 
     async def get_block(
@@ -490,14 +491,15 @@ class RpcSubstrate:
             self._block_time = int(await self.constant("Aura", "SlotDuration")) / 1000.0
         return self._block_time
 
-    async def spec_version(self) -> int:
+    async def spec_version(self, block_hash: Optional[str] = None) -> int:
         """The connected runtime's ``spec_version``.
 
         Read from the transport's head codec (TTL-validated against
         ``state_getRuntimeVersion``), so a runtime upgrade mid-session is
-        picked up within about a block.
+        picked up within about a block. With ``block_hash`` it is the runtime in the
+        state of that block, which executes the next block.
         """
-        return await self._read(lambda raw: raw.runtime_spec_version())
+        return await self._read(lambda raw: raw.runtime_spec_version(block_hash))
 
     async def get_block(
         self, block_number: Optional[int] = None, block_hash: Optional[str] = None

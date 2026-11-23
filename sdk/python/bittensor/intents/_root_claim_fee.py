@@ -4,7 +4,12 @@ Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
 admission. Since runtime 495 a single-hotkey claim declares the weight of the
 validator's own fund: its stored basket rows and its queued dividend credits,
 up to a fund of 258 claim units (256 subnets, the root cash slot and the
-validator). Since spec 467 the fee wrapper charges either call as if only
+validator). A runtime before 495 admits 130 claim units and counts only the
+validator and its stored basket rows. The admission check here applies the
+rules of the runtime version at the block it reads the fund from, so a claim
+that passes it is not refused by an older chain.
+
+Since spec 467 the fee wrapper charges either call as if only
 ``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
 is a fee subsidy. Both still refund down to the work actually done when that is
 below the allowance. The reserve is what people see leave their free balance,
@@ -43,6 +48,11 @@ _MAX_ROOT_CLAIM_WORK = 256
 _MAX_ROOT_CLAIM_HOTKEY_WORK = 258
 # Runtime ``MIN_ROOT_CLAIM_HOTKEY_WORK``: the smallest single-hotkey declaration.
 _MIN_ROOT_CLAIM_HOTKEY_WORK = 4
+# First runtime ``spec_version`` with the single-hotkey rules above. An earlier runtime
+# admits ``_MAX_ROOT_CLAIM_HOTKEY_WORK_BEFORE_495`` claim units, counts the validator and
+# its stored basket rows only, and does not count queued dividend credits.
+_FUND_SIZED_ROOT_CLAIM_SPEC = 495
+_MAX_ROOT_CLAIM_HOTKEY_WORK_BEFORE_495 = 130
 # ``MAX_BASKET_ROWS`` and the flat flush allowance every claim declares:
 # ``10 * MAX_BASKET_ROWS`` quotes and ``2 * MAX_BASKET_ROWS`` rows.
 _MAX_BASKET_ROWS = 256
@@ -150,11 +160,23 @@ def _weight_fee_rao(ref_time: int) -> int:
     return quotient + (1 if remainder * 2 > _PERBILL else 0)
 
 
-def root_claim_declared_work(hotkeys: Optional[list[str]]) -> int:
-    """Admission envelope for this claim path."""
-    if hotkeys is not None:
+def _single_hotkey_claim_counts_queued_rows(spec_version: Optional[int]) -> bool:
+    """Whether a single-hotkey claim on a runtime with ``spec_version`` has the runtime
+    495 rules: a limit of 258 claim units, with one unit for each queued dividend credit
+    on a subnet the fund does not hold. ``None`` means the newest known runtime."""
+    return spec_version is None or spec_version >= _FUND_SIZED_ROOT_CLAIM_SPEC
+
+
+def root_claim_declared_work(
+    hotkeys: Optional[list[str]], spec_version: Optional[int] = None
+) -> int:
+    """Admission envelope for this claim path on a runtime with ``spec_version``
+    (``None``: the newest known runtime)."""
+    if hotkeys is None:
+        return _MAX_ROOT_CLAIM_WORK
+    if _single_hotkey_claim_counts_queued_rows(spec_version):
         return _MAX_ROOT_CLAIM_HOTKEY_WORK
-    return _MAX_ROOT_CLAIM_WORK
+    return _MAX_ROOT_CLAIM_HOTKEY_WORK_BEFORE_495
 
 
 def _fee_units(limit: int) -> int:
@@ -272,9 +294,12 @@ class RootClaimAdmission:
     selection_scans: int
     #: Per selected hotkey, queued dividend credits on subnets the fund does not hold.
     #: Each can open a basket row while the claim settles the queue, so the
-    #: single-validator limit counts it (runtime 495). Empty for a coldkey-wide claim,
-    #: whose queue has its own allowance.
+    #: single-validator limit counts it from runtime 495. Empty for a coldkey-wide claim,
+    #: whose queue has its own allowance, and on a runtime before 495.
     queued_new_counts: tuple[int, ...] = ()
+    #: Runtime ``spec_version`` at the block the fund was read from. It selects the
+    #: single-validator limit and the counting rule. ``None`` when not read from a chain.
+    spec_version: Optional[int] = None
 
     @property
     def holdings(self) -> int:
@@ -474,13 +499,25 @@ async def root_claim_admission(
     Unlike the fee/yield quote, this check is not best-effort: callers use a
     failed read as a hard stop because signing an unverifiable claim can burn
     the full unreduced declared fee.
+
+    Every read here is at one block: the chain head when the check starts. The
+    runtime ``spec_version`` in the state of that block selects the rules for a
+    single-validator claim. A runtime before 495 admits 130 claim units and counts
+    the validator and its stored basket rows. From runtime 495 the limit is 258
+    claim units, and each queued dividend credit on a subnet the fund does not hold
+    is one more unit.
     """
+    block_hash = await substrate.block_hash()
+    spec_version = int(await substrate.spec_version(block_hash))
     if hotkeys is None:
-        raw_keys = await substrate.query(*st.SubtensorModule.StakingHotkeys, [claimant_address])
+        raw_keys = await substrate.query(
+            *st.SubtensorModule.StakingHotkeys, [claimant_address], block_hash
+        )
         raw_keys = tuple(str(key) for key in (raw_keys or []))
         stake_rows = await substrate.runtime_call(
             *StakeInfoRuntimeApi.get_stake_info_for_coldkey,
             [claimant_address],
+            block_hash,
         )
         if stake_rows is None:
             raise RuntimeError("coldkey stake positions are unavailable")
@@ -494,6 +531,7 @@ async def root_claim_admission(
                 substrate.query(
                     *st.SubtensorModule.BasketClaimed,
                     [hotkey, claimant_address],
+                    block_hash,
                 )
                 for hotkey in raw_keys
             )
@@ -517,6 +555,7 @@ async def root_claim_admission(
             rows = await substrate.runtime_call(
                 *BetaBasketRuntimeApi.get_validator_basket,
                 [hotkey],
+                block_hash,
             )
         if rows is None:
             raise RuntimeError(f"validator basket is unavailable for {hotkey}")
@@ -525,21 +564,25 @@ async def root_claim_admission(
     holdings = await asyncio.gather(*(holding_netuids(hotkey) for hotkey in selected))
 
     queued_new_counts: tuple[int, ...] = ()
-    if hotkeys is not None:
-        # The single-validator limit also counts the rows that queued dividend credits
-        # can open: one for each credit on a subnet the fund does not hold.
-        queued = await substrate.query_map(*st.SubtensorModule.PendingBasketDeposits, [selected[0]])
+    if hotkeys is not None and _single_hotkey_claim_counts_queued_rows(spec_version):
+        # From runtime 495 the single-validator limit also counts the rows that queued
+        # dividend credits can open: one for each credit on a subnet the fund does not
+        # hold. An earlier runtime does not count them.
+        queued = await substrate.query_map(
+            *st.SubtensorModule.PendingBasketDeposits, [selected[0]], block_hash
+        )
         held = set(holdings[0])
         queued_new_counts = (sum(1 for netuid, _alpha in queued or [] if int(netuid) not in held),)
 
-    networks = await _existing_network_count(substrate)
+    networks = await _existing_network_count(substrate, block_hash)
     return RootClaimAdmission(
         hotkeys=selected,
         holding_counts=tuple(len(netuids) for netuids in holdings),
         networks=networks,
-        limit=root_claim_declared_work(hotkeys),
+        limit=root_claim_declared_work(hotkeys, spec_version),
         selection_scans=selection_scans,
         queued_new_counts=queued_new_counts,
+        spec_version=spec_version,
     )
 
 
@@ -778,8 +821,8 @@ async def _claim_previews(
     return [_decode_claim_preview(raw)]
 
 
-async def _existing_network_count(substrate: Any) -> int:
-    rows = await substrate.query_map(*st.SubtensorModule.NetworksAdded)
+async def _existing_network_count(substrate: Any, block_hash: Optional[str] = None) -> int:
+    rows = await substrate.query_map(*st.SubtensorModule.NetworksAdded, None, block_hash)
     if rows is None:
         raise RuntimeError("existing-network map is unavailable")
     return max(sum(1 for _netuid, added in rows if added), 1)

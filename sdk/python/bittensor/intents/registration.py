@@ -13,7 +13,6 @@ from ._money import UNBOUNDED, Spend
 from ._root_claim_fee import (
     quote_root_claim_fee,
     root_claim_admission,
-    root_claim_declared_work,
     root_claim_reserve,
 )
 from .base import Intent, IntentPreflight
@@ -329,7 +328,6 @@ class _RootClaimIntent(Intent):
         call: Any = None,
     ) -> IntentPreflight:
         hotkeys = self._claim_hotkeys()
-        declared_work = root_claim_declared_work(hotkeys)
         try:
             admission = await root_claim_admission(
                 substrate,
@@ -363,7 +361,7 @@ class _RootClaimIntent(Intent):
                 fee_payer,
                 compose=compose,
                 call=call,
-                declared_work=declared_work,
+                declared_work=admission.limit,
             )
         except Exception as error:
             return IntentPreflight(
@@ -508,6 +506,8 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     reserves weight for this validator's own fund: its stored basket rows and
     its queued dividend credits, up to a fund of 258 claim units (256 subnets,
     the root cash slot and the validator). It refunds the unused part after.
+    A runtime before 495 admits a fund of 130 claim units; the check before
+    signing uses the limit of the connected runtime.
     A larger fund is refused with ``RootClaimTooHeavy``. So is a claim that
     follows, in the same transaction (a batch, for example), a ``swap_basket``
     buy or a hotkey swap that gave the fund a new row: send that claim in a
