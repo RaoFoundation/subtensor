@@ -76,6 +76,15 @@ pub trait CommitBurnInterface<AccountId> {
     ) -> Result<AlphaBalance, Self::Error>;
     fn bump(netuid: NetUid, mecid: MechId, channel: u8);
     fn payment_weight() -> Weight;
+
+    /// Benchmark-only: ensure `netuid` exists and `(coldkey, hotkey)` ownership
+    /// + registration satisfy [`Self::ensure_coldkey_hotkey`].
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_prepare_channel(_netuid: NetUid, _coldkey: &AccountId, _hotkey: &AccountId) {}
+
+    /// Benchmark-only: seed pool reserves so [`Self::pay`] can swap.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_pool(_netuid: NetUid) {}
 }
 
 impl<A> CommitBurnInterface<A> for () {

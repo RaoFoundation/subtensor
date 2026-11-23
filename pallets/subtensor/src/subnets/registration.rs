@@ -81,6 +81,24 @@ impl<T: Config> pallet_commitments::CommitBurnInterface<T::AccountId> for Pallet
         // path. Reference benchmarking for the composed extrinsic remains pending.
         <<T as Config>::WeightInfo as crate::weights::WeightInfo>::burned_register()
     }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_prepare_channel(netuid: NetUid, coldkey: &T::AccountId, hotkey: &T::AccountId) {
+        if !Self::if_subnet_exist(netuid) {
+            Self::init_new_network(netuid, 1);
+        }
+        SubtokenEnabled::<T>::insert(netuid, true);
+        let _ = Self::create_account_if_non_existent(coldkey, hotkey);
+        if !Self::is_hotkey_registered_on_network(netuid, hotkey) {
+            Self::append_neuron(netuid, hotkey, 0);
+        }
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_pool(netuid: NetUid) {
+        SubnetTAO::<T>::insert(netuid, TaoBalance::from(1_000_000_000_000_u64));
+        SubnetAlphaIn::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000_u64));
+    }
 }
 
 /// Allow periodic challenge refresh plus signing and propagation time.

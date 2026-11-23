@@ -156,6 +156,10 @@ mod benchmarks {
         let netuid = NetUid::from(1);
         let caller: T::AccountId = whitelisted_caller();
         let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        // `ensure_coldkey_hotkey` requires registration + ownership; CanCommit is
+        // stubbed under runtime-benchmarks but CommitBurn is not.
+        T::CommitBurn::benchmark_prepare_channel(netuid, &caller, &caller);
+        // Free path: no CommitBurnConfig so `current_price` is None.
         let info = Box::new(create_identity_info::<T>(0));
 
         #[extrinsic_call]
@@ -179,6 +183,8 @@ mod benchmarks {
         let netuid = NetUid::from(1);
         let caller: T::AccountId = whitelisted_caller();
         let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        T::CommitBurn::benchmark_prepare_channel(netuid, &caller, &caller);
+        T::CommitBurn::benchmark_seed_pool(netuid);
         CommitBurnConfig::<T>::insert(
             (NetUidStorageIndex::from(netuid), 0),
             CommitBurnParameters {

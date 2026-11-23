@@ -22,6 +22,16 @@ pub mod migrations;
 mod tests;
 pub mod weights;
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
+/// Sentinel: `on_initialize` has not yet published this block's leftover.
+const EXPIRY_ATTEMPTS_UNSET: u32 = u32::MAX;
+
+/// Block-local leftover expiry settle attempts after `on_initialize`.
+/// Handed to `on_idle` so idle cannot exceed the advertised per-block cap
+/// (skeptic fid:da997768). Not consensus storage — scratch within one block.
+static EXPIRY_ATTEMPTS_LEFT: AtomicU32 = AtomicU32::new(EXPIRY_ATTEMPTS_UNSET);
+
 /// Bound on `ActiveNets` walked per block. Matches `GLOBAL_MAX_SUBNET_COUNT` so
 /// every seeded subnet can age its reference / `G_ema` without exceeding the
 /// production block weight budget (`update_reference × 4096` ≪ block limit).
@@ -1814,7 +1824,9 @@ pub mod pallet {
                 &mut meter,
                 retry_share.saturating_add(after_sched),
             );
-            let _ = Self::collect_expiry(now, &mut meter, after_retry);
+            let leftover = Self::collect_expiry(now, &mut meter, after_retry);
+            // Hand unused attempt budget to on_idle (never u32::MAX there).
+            EXPIRY_ATTEMPTS_LEFT.store(leftover, Ordering::Relaxed);
             let n = u64::from(ActiveNetCount::<T>::get()).clamp(1, MAX_ACTIVE_NET_UPDATES);
             meter
                 .consumed()
@@ -1885,29 +1897,54 @@ pub mod pallet {
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
             let mut meter = WeightMeter::with_limit(remaining);
             // Resume hop-capped DueTail rebuild before queue collectors (audit M2).
-            if migrations::rebuild_due_tail_pending::<T>() {
-                let hop = T::DbWeight::get().reads(1);
-                let overhead = T::DbWeight::get().reads_writes(4, 3);
-                if meter.remaining().all_gte(overhead.saturating_add(hop)) {
-                    let room = meter.remaining().saturating_sub(overhead);
-                    let hops = room
-                        .ref_time()
-                        .checked_div(hop.ref_time().max(1))
-                        .unwrap_or(0)
-                        .min(u64::from(migrations::MAX_DUE_TAIL_WALK));
-                    if let Ok(hops) = u32::try_from(hops) {
-                        if hops > 0 {
-                            let used = migrations::migrate_rebuild_due_tail_limited::<T>(hops);
-                            let _ = meter.try_consume(used);
+            // Charge the pending probe first, then reserve hop budget before
+            // work so post-hoc consume cannot fail after execution
+            // (skeptic fid:849ace2f).
+            let hop = T::DbWeight::get().reads(1);
+            let overhead = T::DbWeight::get().reads_writes(4, 3);
+            let pending_probe = T::DbWeight::get().reads(4);
+            if meter.try_consume(pending_probe).is_ok()
+                && migrations::rebuild_due_tail_pending::<T>()
+                && meter.remaining().all_gte(overhead.saturating_add(hop))
+            {
+                let room = meter.remaining().saturating_sub(overhead);
+                let hops = room
+                    .ref_time()
+                    .checked_div(hop.ref_time().max(1))
+                    .unwrap_or(0)
+                    .min(u64::from(migrations::MAX_DUE_TAIL_WALK));
+                if let Ok(hops) = u32::try_from(hops) {
+                    if hops > 0 {
+                        let reserved = overhead.saturating_add(hop.saturating_mul(u64::from(hops)));
+                        if meter.try_consume(reserved).is_ok() {
+                            let _used = migrations::migrate_rebuild_due_tail_limited::<T>(hops);
                         }
                     }
                 }
             }
             Self::collect_due(now, &mut meter);
             Self::collect_interest_retries(now, &mut meter);
-            // Metered fallback after the bounded on_initialize drain.
-            let _ = Self::collect_expiry(now, &mut meter, u32::MAX);
-            let _ = Self::collect_expiry_retries(now, &mut meter, u32::MAX);
+            // Metered fallback after the bounded on_initialize drain. Attempt
+            // budget is the leftover from on_initialize — never a raw u32::MAX
+            // drain (skeptic fid:da997768). If on_initialize did not publish
+            // (unit tests that call on_idle alone), fall back to the live cap.
+            let published = EXPIRY_ATTEMPTS_LEFT.swap(EXPIRY_ATTEMPTS_UNSET, Ordering::Relaxed);
+            let left = if published == EXPIRY_ATTEMPTS_UNSET {
+                Self::max_expiry_settlements_per_block()
+            } else {
+                published
+            };
+            if left > 0 {
+                let retry_share = left.saturating_add(1) / 2;
+                let sched_share = left.saturating_sub(retry_share);
+                let after_sched = Self::collect_expiry(now, &mut meter, sched_share);
+                let after_retry = Self::collect_expiry_retries(
+                    now,
+                    &mut meter,
+                    retry_share.saturating_add(after_sched),
+                );
+                let _ = Self::collect_expiry(now, &mut meter, after_retry);
+            }
             Self::convert_pending(now, &mut meter);
             meter.consumed()
         }
@@ -2201,6 +2238,12 @@ pub mod pallet {
         pub(crate) fn expiry_queue_peek_weight() -> Weight {
             Weight::from_parts(0, Self::EXPIRY_ENTRY_PROOF)
                 .saturating_add(T::DbWeight::get().reads(1))
+        }
+
+        /// One `Due` / `InterestRetry` map probe before `iter.next()`. Same
+        /// key shape as expiry entries (`AccountId` + `NetUid`).
+        pub(crate) fn due_queue_peek_weight() -> Weight {
+            Self::expiry_queue_peek_weight()
         }
 
         /// Empty-bucket cleanup: `ExpiryIndex` remove + linked-list unlink
@@ -6512,7 +6555,7 @@ pub mod pallet {
                     NextDue::<T>::put(due);
                     return;
                 }
-                let iter = if let Some(cursor) = DueBucketCursor::<T>::get() {
+                let mut iter = if let Some(cursor) = DueBucketCursor::<T>::get() {
                     Due::<T>::iter_prefix_from(due, Due::<T>::hashed_key_for(due, cursor))
                 } else {
                     Due::<T>::iter_prefix(due)
@@ -6521,9 +6564,20 @@ pub mod pallet {
                 // Cursor stores the last successfully processed key so
                 // `iter_prefix_from` resumes at the next unprocessed entry.
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
-                for ((owner, netuid), ()) in iter {
+                // Bare loop: peek weight before each `iter.next()` (skeptic
+                // fid:5012ec2d).
+                loop {
+                    if meter.try_consume(Self::due_queue_peek_weight()).is_err() {
+                        if let Some(done) = last_done {
+                            DueBucketCursor::<T>::put(done);
+                        }
+                        NextDue::<T>::put(due);
+                        return;
+                    }
+                    let Some(((owner, netuid), ())) = iter.next() else {
+                        break;
+                    };
                     saw_entry = true;
-                    // Meter each position before charging interest.
                     if meter.try_consume(T::WeightInfo::collect()).is_err() {
                         if let Some(done) = last_done {
                             DueBucketCursor::<T>::put(done);
@@ -6721,7 +6775,7 @@ pub mod pallet {
                     NextInterestRetry::<T>::put(at);
                     return;
                 }
-                let iter = if let Some(cursor) = InterestRetryCursor::<T>::get() {
+                let mut iter = if let Some(cursor) = InterestRetryCursor::<T>::get() {
                     InterestRetry::<T>::iter_prefix_from(
                         at,
                         InterestRetry::<T>::hashed_key_for(at, cursor),
@@ -6731,7 +6785,19 @@ pub mod pallet {
                 };
                 let mut saw_entry = false;
                 let mut last_done: Option<(T::AccountId, NetUid)> = None;
-                for ((owner, netuid), ()) in iter {
+                // Bare loop: peek weight before each `iter.next()` (skeptic
+                // fid:5012ec2d).
+                loop {
+                    if meter.try_consume(Self::due_queue_peek_weight()).is_err() {
+                        if let Some(done) = last_done {
+                            InterestRetryCursor::<T>::put(done);
+                        }
+                        NextInterestRetry::<T>::put(at);
+                        return;
+                    }
+                    let Some(((owner, netuid), ())) = iter.next() else {
+                        break;
+                    };
                     saw_entry = true;
                     empty_bumps = 0;
                     if meter.try_consume(T::WeightInfo::collect()).is_err() {
@@ -6750,7 +6816,12 @@ pub mod pallet {
                 }
                 if saw_entry {
                     // More entries may remain under `at` if we stopped early; if
-                    // the prefix is drained, advance past this bucket.
+                    // the prefix is drained, advance past this bucket. Meter the
+                    // empty-prefix probe (skeptic fid:203d3004 class).
+                    if meter.try_consume(Self::due_queue_peek_weight()).is_err() {
+                        NextInterestRetry::<T>::put(at);
+                        return;
+                    }
                     if InterestRetry::<T>::iter_prefix(at).next().is_none() {
                         at = at.saturating_add(1u32.into());
                         NextInterestRetry::<T>::put(at);
@@ -6867,6 +6938,12 @@ pub mod pallet {
                     return budget;
                 }
                 if saw_entry {
+                    // Meter the empty-prefix probe before a fresh iterator
+                    // (skeptic fid:203d3004).
+                    if meter.try_consume(Self::expiry_queue_peek_weight()).is_err() {
+                        NextExpiryRetry::<T>::put(at);
+                        return budget;
+                    }
                     if ExpiryRetry::<T>::iter_prefix(at).next().is_none() {
                         at = at.saturating_add(1u32.into());
                         NextExpiryRetry::<T>::put(at);
@@ -6891,10 +6968,21 @@ pub mod pallet {
         }
 
         fn convert_pending(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
+            // Reserve params + cursor (+ optional cursor write on exit) before
+            // touching storage (skeptic fid:e2f153d7).
+            if meter
+                .try_consume(
+                    Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(2))
+                        .saturating_add(T::DbWeight::get().reads_writes(2, 1)),
+                )
+                .is_err()
+            {
+                return;
+            }
             let params = Self::lift_params();
             // Bounded, resumable walk — never materialise the full map first.
             // Cursor is exclusive (`iter_from`); store the last fully handled key.
-            let iter = if let Some(cursor) = ConversionCursor::<T>::get() {
+            let mut iter = if let Some(cursor) = ConversionCursor::<T>::get() {
                 LongInterestPending::<T>::iter_from(LongInterestPending::<T>::hashed_key_for(
                     cursor,
                 ))
@@ -6902,15 +6990,17 @@ pub mod pallet {
                 LongInterestPending::<T>::iter()
             };
             let mut last_done: Option<NetUid> = None;
-            for (netuid, pending) in iter {
-                // Charge the storage read before any conversion work.
-                if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
+            loop {
+                // Peek before each map advance (same ordering as expiry).
+                if meter.try_consume(Self::due_queue_peek_weight()).is_err() {
                     if let Some(done) = last_done {
                         ConversionCursor::<T>::put(done);
                     }
-                    // else: keep the prior exclusive cursor so this key is retried.
                     return;
                 }
+                let Some((netuid, pending)) = iter.next() else {
+                    break;
+                };
                 if pending == 0 || Dissolutions::<T>::contains_key(netuid) {
                     last_done = Some(netuid);
                     continue;
