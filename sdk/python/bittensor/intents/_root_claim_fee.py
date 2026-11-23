@@ -4,10 +4,12 @@ Coldkey-wide claims declare ``MAX_ROOT_CLAIM_WORK`` (256) weight units for
 admission. Since runtime 495 a single-hotkey claim declares the weight of the
 validator's own fund: its stored basket rows and its queued dividend credits,
 up to a fund of 258 claim units (256 subnets, the root cash slot and the
-validator). A runtime before 495 admits 130 claim units and counts only the
-validator and its stored basket rows. The admission check here applies the
-rules of the runtime version at the block it reads the fund from, so a claim
-that passes it is not refused by an older chain.
+validator). Each declaration also has a fixed part for the settlement of the
+claimant's deferred-dividend debts, which the fund does not bound. A runtime
+before 495 admits 130 claim units and counts only the validator and its stored
+basket rows. The admission check here applies the rules of the runtime version
+at the block it reads the fund from, so a claim that passes it is not refused
+by an older chain.
 
 Since spec 467 the fee wrapper charges either call as if only
 ``ROOT_CLAIM_FEE_ALLOWANCE`` (4) units were declared; the rest of the envelope
@@ -53,6 +55,13 @@ _MIN_ROOT_CLAIM_HOTKEY_WORK = 4
 # its stored basket rows only, and does not count queued dividend credits.
 _FUND_SIZED_ROOT_CLAIM_SPEC = 495
 _MAX_ROOT_CLAIM_HOTKEY_WORK_BEFORE_495 = 130
+# Runtime ``root_claim_debt_settlement_weight_bound``: every single-hotkey claim declares
+# the settlement of the most deferred-dividend debts that one claimant can hold on one
+# validator (``MAX_ROOT_CLAIM_WORK``). That is one read and one write for each debt, and
+# three more of each for the debt map and the two watermarks.
+_DEBT_SETTLEMENT_BOUND_REF_TIME = (_MAX_ROOT_CLAIM_WORK + 3) * (
+    _ROCKSDB_READ_PS + _ROCKSDB_WRITE_PS
+)
 # ``MAX_BASKET_ROWS`` and the flat flush allowance every claim declares:
 # ``10 * MAX_BASKET_ROWS`` quotes and ``2 * MAX_BASKET_ROWS`` rows.
 _MAX_BASKET_ROWS = 256
@@ -123,14 +132,18 @@ def root_claim_hotkey_declared_ref_time(rows: int = 0, queued: int = 0, new_rows
     queued dividend credits, and ``new_rows`` the queued credits on subnets the fund does
     not hold. The declaration is the weight bound for that fund, never below the smallest
     declaration (four claim units) and never above the ceiling (258 claim units). A fund
-    above the ceiling declares the ceiling, and the chain refuses its claim.
+    above the ceiling declares the ceiling, and the chain refuses its claim. Each
+    declaration includes the same debt settlement bound: the claim settles the claimant's
+    deferred-dividend debts first, and the fund does not bound them.
     """
     ceiling_rows = _MAX_ROOT_CLAIM_HOTKEY_WORK - 1
     units = 1 + rows + new_rows
     if units > _MAX_ROOT_CLAIM_HOTKEY_WORK:
-        return _hotkey_claim_bound_ref_time(
-            _MAX_ROOT_CLAIM_HOTKEY_WORK, ceiling_rows
-        ) + _hotkey_claim_sizing_ref_time(ceiling_rows, ceiling_rows)
+        return (
+            _hotkey_claim_bound_ref_time(_MAX_ROOT_CLAIM_HOTKEY_WORK, ceiling_rows)
+            + _hotkey_claim_sizing_ref_time(ceiling_rows, ceiling_rows)
+            + _DEBT_SETTLEMENT_BOUND_REF_TIME
+        )
     floor_units = _MIN_ROOT_CLAIM_HOTKEY_WORK
     floor = (
         _claim_root_ref_time(2 * floor_units)
@@ -141,7 +154,7 @@ def root_claim_hotkey_declared_ref_time(rows: int = 0, queued: int = 0, new_rows
     sized = _hotkey_claim_bound_ref_time(units, queued) + _hotkey_claim_sizing_ref_time(
         rows, queued
     )
-    return max(sized, floor)
+    return max(sized, floor) + _DEBT_SETTLEMENT_BOUND_REF_TIME
 
 
 def _claim_ref_time(units: int, quotes: int, rows: int) -> int:
@@ -910,8 +923,9 @@ def _spent_fee(
     Runtime actual weight is ``claim_root(active) + claim_root_scan(scanned)`` plus the
     flush work really done, with ``active = max(selected hotkeys, relationships
     classified, realized + swept, 1)``. Classifying a relationship reads its root
-    share-pool state, so it is priced as a full hotkey unit. The flush work is not
-    knowable offline and is left out, so ``spent`` is a floor. ``estimate_fee`` prices
+    share-pool state, so it is priced as a full hotkey unit. The flush work and, from
+    runtime 495, the settlement of the claimant's deferred-dividend debts are left out,
+    so ``spent`` is a floor. ``estimate_fee`` prices
     the charged allowance plus extrinsic base/length; the fee wrapper caps the charge
     at that allowance, so spent never exceeds reserved.
     """

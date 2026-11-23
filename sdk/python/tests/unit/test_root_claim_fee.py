@@ -83,7 +83,8 @@ def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
 # spec 484 for the single-hotkey envelope increase from 129 to 130 units, and in spec 495
 # for the fund-sized single-hotkey declaration: the single-hotkey rows are for a validator
 # without a fund, which declares the smallest envelope (a spec 495 node returns this call
-# weight plus 75_000_000 for its transaction extensions). The charged fee
+# weight plus 75_000_000 for its transaction extensions). The smallest envelope includes
+# the debt settlement bound of 32_375_000_000. The charged fee
 # stays fixed at the four-unit allowance. The 60_000_000 ref_time gap between the node
 # weight and the SDK's declared model is the folded dispatch-extension weight, which the
 # fee wrapper does not discount.
@@ -91,11 +92,11 @@ _EXTENSION_REF_TIME = 60_000_000
 #: Marks a single-hotkey claim in ``_NODE_QUOTES``: it has no fixed limit to declare.
 _HOTKEY_CLAIM = "claim_root_with_hotkey"
 _NODE_QUOTES = [
-    ("claim_root_with_hotkey", 34_454_612_996, 8_224_263, [_HOTKEY_CLAIM]),
+    ("claim_root_with_hotkey", 66_829_612_996, 8_224_263, [_HOTKEY_CLAIM]),
     ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
     (
         "batch_all[claim_root_with_hotkey, claim_root]",
-        2_511_534_505_134,
+        2_543_909_505_134,
         16_481_677,
         [_HOTKEY_CLAIM, fees._MAX_ROOT_CLAIM_WORK],
     ),
@@ -144,8 +145,12 @@ def test_single_hotkey_declared_weight_follows_the_fund_size():
     """Runtime 495 sizes the single-hotkey declaration from the validator's fund."""
     floor = fees.root_claim_hotkey_declared_ref_time()
     ceiling = fees.root_claim_hotkey_declared_ref_time(rows=257, queued=257)
-    assert floor == 34_394_612_996
-    assert ceiling == 2_431_861_331_766
+    assert floor == 66_769_612_996
+    assert ceiling == 2_464_236_331_766
+    # Each declaration includes the debt settlement bound: 259 reads and 259 writes.
+    assert fees._DEBT_SETTLEMENT_BOUND_REF_TIME == 259 * (25_000_000 + 100_000_000)
+    assert floor - fees._DEBT_SETTLEMENT_BOUND_REF_TIME == 34_394_612_996
+    assert ceiling - fees._DEBT_SETTLEMENT_BOUND_REF_TIME == 2_431_861_331_766
 
     full_fund = fees.root_claim_hotkey_declared_ref_time(rows=129)
     full_fund_and_queue = fees.root_claim_hotkey_declared_ref_time(rows=129, queued=128)
