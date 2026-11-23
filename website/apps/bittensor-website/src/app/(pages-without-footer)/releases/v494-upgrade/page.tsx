@@ -4,6 +4,7 @@ import {Link} from '@raofoundation/ui';
 import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
+import layout from '../v487-upgrade/page.module.css';
 
 export const metadata: Metadata = {
   title: 'The V494 Upgrade — Commit Burns, Weight Delegation, Basket Controls, and Etao',
@@ -49,22 +50,24 @@ export default function Page() {
             setters use 123–127, basket controls 128–130, and the Etao interval setter 131.
             Regenerate metadata rather than hard-coding call indices in an integration.
           </p>
-          <table>
-            <thead>
-              <tr><th>Pallet</th><th>Call</th><th>Index</th><th>Signer</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Commitments</td><td><code>set_commitment_to</code></td><td>3</td><td>Coldkey</td></tr>
-              <tr><td>SubtensorModule</td><td><code>set_mech_weight_delegate</code></td><td>170</td><td>Validator hotkey</td></tr>
-              <tr><td>SubtensorModule</td><td><code>set_mechanism_weights_for</code></td><td>171</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>commit_mechanism_weights_for</code></td><td>172</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>reveal_mechanism_weights_for</code></td><td>173</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>commit_timelocked_mechanism_weights_for</code></td><td>174</td><td>Delegate</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_commit_burn_enabled</code>, <code>_min</code>, <code>_max</code>, <code>_half_life</code>, <code>_increase_mult</code></td><td>123–127</td><td>Root, or subnet owner under its existing rules</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_basket_trade_max_slippage_bps</code>, <code>_refill_blocks</code>, <code>_price_reference</code></td><td>128–130</td><td>Root</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
-            </tbody>
-          </table>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Pallet</th><th>Call</th><th>Index</th><th>Signer</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Commitments</td><td><code>set_commitment_to</code></td><td>3</td><td>Coldkey</td></tr>
+                <tr><td>SubtensorModule</td><td><code>set_mech_weight_delegate</code></td><td>170</td><td>Validator hotkey</td></tr>
+                <tr><td>SubtensorModule</td><td><code>set_mechanism_weights_for</code></td><td>171</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>commit_mechanism_weights_for</code></td><td>172</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>reveal_mechanism_weights_for</code></td><td>173</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>commit_timelocked_mechanism_weights_for</code></td><td>174</td><td>Delegate</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_commit_burn_enabled</code>, <code>_min</code>, <code>_max</code>, <code>_half_life</code>, <code>_increase_mult</code></td><td>123–127</td><td>Root, or subnet owner under its existing rules</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_basket_trade_max_slippage_bps</code>, <code>_refill_blocks</code>, <code>_price_reference</code></td><td>128–130</td><td>Root</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className={styles.section} id='commit-burns'>

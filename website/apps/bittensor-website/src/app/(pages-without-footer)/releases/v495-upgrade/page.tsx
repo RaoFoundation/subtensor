@@ -4,6 +4,7 @@ import {Link} from '@raofoundation/ui';
 import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
+import layout from './page.module.css';
 
 export const metadata: Metadata = {
   title: 'The V495 Upgrade — 16 Null Mechanisms, a Shared Null Epoch, and the V494 Changes',
@@ -24,7 +25,7 @@ const DocLink = ({href, children}: {href: string; children: React.ReactNode}) =>
 export default function Page() {
   return (
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
-      <FadeInWrapper className={styles.page_container}>
+      <FadeInWrapper className={`${styles.page_container} ${layout.page}`}>
         <section className={styles.title_section}>
           <h1 className={styles.paper_title}>The V495 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
@@ -53,7 +54,7 @@ export default function Page() {
             Wallets, indexers, SDK users, and other signers must refresh runtime metadata for spec
             495. Do not reuse a signed payload that you prepared for another runtime version.
           </p>
-          <h3>Python packages</h3>
+          <h3 className={styles.subtitle_small}>Python packages</h3>
           <p>
             The Python packages for both releases are <code>bittensor</code>{' '}
             <strong>11.3.6</strong> and <code>bittensor-core</code> <strong>0.1.13</strong>. V494
@@ -62,90 +63,94 @@ export default function Page() {
           </p>
           <Code language='bash' code={`uv pip install "bittensor==11.3.6"
 btcli --version`} />
-          <h3>What changes on chain</h3>
+          <h3 className={styles.subtitle_small}>What changes on chain</h3>
           <p>
             V495 adds one SubtensorModule error, <code>TooManyWeightsForNullMechanism</code>, at
             error index <strong>209</strong>. It adds no call, no event, no storage item, and no
             migration. Mechanism storage keeps the index <code>netuid + mecid * 4096</code>.
           </p>
           <p>V494 added these calls. Regenerate metadata; do not hard-code call indices.</p>
-          <table>
-            <thead>
-              <tr><th>Pallet</th><th>Call</th><th>Index</th><th>Signer</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Commitments</td><td><code>set_commitment_to</code></td><td>3</td><td>Coldkey</td></tr>
-              <tr><td>SubtensorModule</td><td><code>set_mech_weight_delegate</code></td><td>170</td><td>Validator hotkey</td></tr>
-              <tr><td>SubtensorModule</td><td><code>set_mechanism_weights_for</code></td><td>171</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>commit_mechanism_weights_for</code></td><td>172</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>reveal_mechanism_weights_for</code></td><td>173</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>commit_timelocked_mechanism_weights_for</code></td><td>174</td><td>Delegate</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_commit_burn_enabled</code>, <code>_min</code>, <code>_max</code>, <code>_half_life</code>, <code>_increase_mult</code></td><td>123–127</td><td>Root or subnet owner</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_basket_trade_max_slippage_bps</code>, <code>_refill_blocks</code>, <code>_price_reference</code></td><td>128–130</td><td>Root</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
-            </tbody>
-          </table>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Pallet</th><th>Call</th><th>Index</th><th>Signer</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Commitments</td><td><code>set_commitment_to</code></td><td>3</td><td>Coldkey</td></tr>
+                <tr><td>SubtensorModule</td><td><code>set_mech_weight_delegate</code></td><td>170</td><td>Validator hotkey</td></tr>
+                <tr><td>SubtensorModule</td><td><code>set_mechanism_weights_for</code></td><td>171</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>commit_mechanism_weights_for</code></td><td>172</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>reveal_mechanism_weights_for</code></td><td>173</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>commit_timelocked_mechanism_weights_for</code></td><td>174</td><td>Delegate</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_commit_burn_enabled</code>, <code>_min</code>, <code>_max</code>, <code>_half_life</code>, <code>_increase_mult</code></td><td>123–127</td><td>Root or subnet owner</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_basket_trade_max_slippage_bps</code>, <code>_refill_blocks</code>, <code>_price_reference</code></td><td>128–130</td><td>Root</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className={styles.section} id='summary'>
           <h2 className={styles.subtitle}>What changes, at a glance</h2>
-          <table>
-            <thead>
-              <tr><th>Subject</th><th>Release</th><th>Before</th><th>After</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>UID capacity of a Null subnet</td><td>V495</td>
-                <td><code>MaxAllowedUids * mechanism_count</code> at most 2,500</td>
-                <td><code>MaxAllowedUids</code> at most 2,500 for any mechanism count</td>
-              </tr>
-              <tr>
-                <td>Mechanisms on a Null subnet</td><td>V495</td>
-                <td>More mechanisms meant fewer UIDs</td>
-                <td>Up to 16 mechanisms with the full UID capacity, when root raises the global limit</td>
-              </tr>
-              <tr>
-                <td>Length of a new Null weight row</td><td>V495</td>
-                <td>At most the registered UID count</td>
-                <td><code>max(1, floor(2500 / mechanism_count))</code> entries</td>
-              </tr>
-              <tr>
-                <td>Null epoch work</td><td>V495</td>
-                <td>One complete epoch for each mechanism</td>
-                <td>Subnet-wide state is read once; results are identical</td>
-              </tr>
-              <tr>
-                <td>Block weight of a Null epoch</td><td>V495</td>
-                <td>Inside one fixed hook weight</td>
-                <td>The hook adds a weight for each Null epoch that runs</td>
-              </tr>
-              <tr>
-                <td>Deposit that gamma emission opens</td><td>V495</td>
-                <td>Daily spend cap of 0: paused until the owner coldkey sets a cap</td>
-                <td>No cap: the owner hotkey can spend at once</td>
-              </tr>
-              <tr>
-                <td>Owner limit for subnet emission weights (Etao)</td><td>V494</td>
-                <td>Constant of 50,400 blocks</td>
-                <td>Storage value, 360 blocks by default; root can change it</td>
-              </tr>
-              <tr>
-                <td>Basket trade band, price reference, refill</td><td>V494</td>
-                <td>Constants</td>
-                <td>Storage values with the same defaults; root can change them</td>
-              </tr>
-              <tr>
-                <td>Channel commitments with an optional burn</td><td>V494</td>
-                <td>Not available</td>
-                <td>One commitment for each hotkey, mechanism, and channel</td>
-              </tr>
-              <tr>
-                <td>Weight delegation</td><td>V494</td>
-                <td>Not available</td>
-                <td>A validator hotkey authorizes one delegate for one mechanism</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Subject</th><th>Release</th><th>Before</th><th>After</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>UID capacity of a Null subnet</td><td>V495</td>
+                  <td><code>MaxAllowedUids * mechanism_count</code> at most 2,500</td>
+                  <td><code>MaxAllowedUids</code> at most 2,500 for any mechanism count</td>
+                </tr>
+                <tr>
+                  <td>Mechanisms on a Null subnet</td><td>V495</td>
+                  <td>More mechanisms meant fewer UIDs</td>
+                  <td>Up to 16 mechanisms with the full UID capacity, when root raises the global limit</td>
+                </tr>
+                <tr>
+                  <td>Length of a new Null weight row</td><td>V495</td>
+                  <td>At most the registered UID count</td>
+                  <td><code>max(1, floor(2500 / mechanism_count))</code> entries</td>
+                </tr>
+                <tr>
+                  <td>Null epoch work</td><td>V495</td>
+                  <td>One complete epoch for each mechanism</td>
+                  <td>Subnet-wide state is read once; results are identical</td>
+                </tr>
+                <tr>
+                  <td>Block weight of a Null epoch</td><td>V495</td>
+                  <td>Inside one fixed hook weight</td>
+                  <td>The hook adds a weight for each Null epoch that runs</td>
+                </tr>
+                <tr>
+                  <td>Deposit that gamma emission opens</td><td>V495</td>
+                  <td>Daily spend cap of 0: paused until the owner coldkey sets a cap</td>
+                  <td>No cap: the owner hotkey can spend at once</td>
+                </tr>
+                <tr>
+                  <td>Owner limit for subnet emission weights (Etao)</td><td>V494</td>
+                  <td>Constant of 50,400 blocks</td>
+                  <td>Storage value, 360 blocks by default; root can change it</td>
+                </tr>
+                <tr>
+                  <td>Basket trade band, price reference, refill</td><td>V494</td>
+                  <td>Constants</td>
+                  <td>Storage values with the same defaults; root can change them</td>
+                </tr>
+                <tr>
+                  <td>Channel commitments with an optional burn</td><td>V494</td>
+                  <td>Not available</td>
+                  <td>One commitment for each hotkey, mechanism, and channel</td>
+                </tr>
+                <tr>
+                  <td>Weight delegation</td><td>V494</td>
+                  <td>Not available</td>
+                  <td>A validator hotkey authorizes one delegate for one mechanism</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className={styles.section} id='capacity'>
@@ -202,25 +207,27 @@ async with bt.Client(network="finney") as client:
             <code>max(1, floor(2500 / current_mechanism_count))</code> entries. The budget of 2,500
             entries is fixed. No sudo call changes it. Yuma rows have no such cap.
           </p>
-          <table>
-            <thead>
-              <tr><th>Mechanisms</th><th>Entries in one new Null weight row</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>1</td><td>2,500</td></tr>
-              <tr><td>2</td><td>1,250</td></tr>
-              <tr><td>3</td><td>833</td></tr>
-              <tr><td>4</td><td>625</td></tr>
-              <tr><td>8</td><td>312</td></tr>
-              <tr><td>16</td><td>156</td></tr>
-            </tbody>
-          </table>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Mechanisms</th><th>Entries in one new Null weight row</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td>2,500</td></tr>
+                <tr><td>2</td><td>1,250</td></tr>
+                <tr><td>3</td><td>833</td></tr>
+                <tr><td>4</td><td>625</td></tr>
+                <tr><td>8</td><td>312</td></tr>
+                <tr><td>16</td><td>156</td></tr>
+              </tbody>
+            </table>
+          </div>
           <p>
             With one mechanism, nothing changes. With more mechanisms, a row cannot name every UID
             of a full subnet: at 16 mechanisms a row names at most 156 of up to 2,500 UIDs. UIDs
             that a row does not name receive no miner reward from that mechanism in that epoch.
           </p>
-          <ul>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               The cap applies to direct weights, delegated <code>*_for</code> calls, legacy hash
               reveals, timelocked reveals, and batch calls. The error is{' '}
@@ -272,8 +279,8 @@ await client.submit_call(raw, wallet, signer="hotkey")`} />
             complete guide, with every error, is{' '}
             <DocLink href='/docs/guides/mechanisms'>Run multiple mechanisms</DocLink>.
           </p>
-          <h3>Rules for the owner calls</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>Rules for the owner calls</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               <strong>Rate limits.</strong> The owner can change the mechanism count once per{' '}
               <strong>7,200 blocks</strong> for each subnet. The emission split has its own limit of
@@ -291,7 +298,7 @@ await client.submit_call(raw, wallet, signer="hotkey")`} />
               timelocked commit or a legacy hash commit is pending on any mechanism.
             </li>
           </ul>
-          <h3>Step 1. Read the current state</h3>
+          <h3 className={styles.subtitle_small}>Step 1. Read the current state</h3>
           <Code language='bash' code={`btcli hparams mechanisms count --netuid 1
 btcli hparams mechanisms emissions --netuid 1
 btcli query epoch-status --netuid 1
@@ -299,7 +306,7 @@ btcli query timelocked-weight-commits --netuid 1 --mechid 0`} />
           <Code language='python' code={`count = await client.subnets.mechanism_count(netuid=1)
 split = await client.subnets.mechanism_emission_split(netuid=1)
 limit = await client.query(bt.storage.SubtensorModule.MaxMechanismCount)`} />
-          <h3>Step 2. Root: raise the global limit, if necessary</h3>
+          <h3 className={styles.subtitle_small}>Step 2. Root: raise the global limit, if necessary</h3>
           <p>
             A count above <code>MaxMechanismCount</code> fails with <code>InvalidValue</code>. This
             root call is a separate governance decision.
@@ -310,7 +317,7 @@ limit = await client.query(bt.storage.SubtensorModule.MaxMechanismCount)`} />
     bt.calls.AdminUtils.sudo_set_max_mechanism_count(max_mechanism_count=16)
 )
 await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)`} />
-          <h3>Step 3. Owner: set the mechanism count</h3>
+          <h3 className={styles.subtitle_small}>Step 3. Owner: set the mechanism count</h3>
           <Code language='bash' code={`btcli hparams mechanisms count --netuid 1 --value 4 -w subnet_owner
 
 # The generated command does the same and can show a preview.
@@ -329,7 +336,7 @@ await client.submit_call(
             change again until that work is complete. Each change of the count resets the emission
             split to an equal split.
           </p>
-          <h3>Step 4. Owner: set the emission split</h3>
+          <h3 className={styles.subtitle_small}>Step 4. Owner: set the emission split</h3>
           <p>
             The split is a list of 16-bit shares, one for each mechanism in order. The shares must
             add up to exactly 65,535. The SDK has no intent for this call, so use the raw call,
@@ -350,7 +357,7 @@ await client.submit_call(call, owner_wallet)`} />
             A mechanism receives <code>floor(emission * share / 65535)</code>. Mechanism 0 also
             receives the units that rounding leaves.
           </p>
-          <h3>Step 5. Check the result</h3>
+          <h3 className={styles.subtitle_small}>Step 5. Check the result</h3>
           <Code language='bash' code={`btcli hparams mechanisms count --netuid 1
 btcli query mechanism-emission-split --netuid 1 --json`} />
         </section>
@@ -361,44 +368,46 @@ btcli query mechanism-emission-split --netuid 1 --json`} />
             Each mechanism has its own pipelines. Name the mechanism with <code>--mechid</code>, or{' '}
             <code>mechid</code> in Python. The default is 0.
           </p>
-          <table>
-            <thead>
-              <tr><th>Pipeline</th><th>Command</th><th>Intent</th><th>Chain call</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Direct weights</td>
-                <td><code>btcli misc weights set</code>, when commit-reveal is off</td>
-                <td><code>SetWeights</code></td>
-                <td><code>set_mechanism_weights</code></td>
-              </tr>
-              <tr>
-                <td>Timelocked commit</td>
-                <td><code>btcli misc weights set</code>, when commit-reveal is on, or <code>btcli misc weights commit</code></td>
-                <td><code>SetWeights</code>, <code>CommitWeights</code></td>
-                <td><code>commit_timelocked_mechanism_weights</code></td>
-              </tr>
-              <tr>
-                <td>Legacy hash commit</td>
-                <td><code>btcli misc weights hash</code></td>
-                <td><code>CommitWeightHash</code></td>
-                <td><code>commit_mechanism_weights</code></td>
-              </tr>
-              <tr>
-                <td>Legacy reveal</td>
-                <td><code>btcli misc weights reveal</code></td>
-                <td><code>RevealWeights</code></td>
-                <td><code>reveal_weights</code> on mechanism 0, <code>reveal_mechanism_weights</code> on the others</td>
-              </tr>
-              <tr>
-                <td>Channel commitment (V494)</td>
-                <td><code>btcli commitments commit</code></td>
-                <td><code>SetChannelCommitment</code></td>
-                <td><code>Commitments.set_commitment_to</code></td>
-              </tr>
-            </tbody>
-          </table>
-          <h3>Direct weights and timelocked commits</h3>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Pipeline</th><th>Command</th><th>Intent</th><th>Chain call</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Direct weights</td>
+                  <td><code>btcli misc weights set</code>, when commit-reveal is off</td>
+                  <td><code>SetWeights</code></td>
+                  <td><code>set_mechanism_weights</code></td>
+                </tr>
+                <tr>
+                  <td>Timelocked commit</td>
+                  <td><code>btcli misc weights set</code>, when commit-reveal is on, or <code>btcli misc weights commit</code></td>
+                  <td><code>SetWeights</code>, <code>CommitWeights</code></td>
+                  <td><code>commit_timelocked_mechanism_weights</code></td>
+                </tr>
+                <tr>
+                  <td>Legacy hash commit</td>
+                  <td><code>btcli misc weights hash</code></td>
+                  <td><code>CommitWeightHash</code></td>
+                  <td><code>commit_mechanism_weights</code></td>
+                </tr>
+                <tr>
+                  <td>Legacy reveal</td>
+                  <td><code>btcli misc weights reveal</code></td>
+                  <td><code>RevealWeights</code></td>
+                  <td><code>reveal_weights</code> on mechanism 0, <code>reveal_mechanism_weights</code> on the others</td>
+                </tr>
+                <tr>
+                  <td>Channel commitment (V494)</td>
+                  <td><code>btcli commitments commit</code></td>
+                  <td><code>SetChannelCommitment</code></td>
+                  <td><code>Commitments.set_commitment_to</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 className={styles.subtitle_small}>Direct weights and timelocked commits</h3>
           <p>
             <code>set</code> selects the path that the subnet runs. <code>commit</code> always sends
             a timelocked commit. The chain decrypts a timelocked commit at its drand round. No
@@ -422,7 +431,7 @@ pending = await client.weights.timelocked_weight_commits(netuid=1, mechid=2)`} /
             one queue for each epoch: 64 commits and 64 KiB. A hotkey has one pending row for each
             mechanism, and a new commit replaces it. On a Yuma subnet the limit stays 5,000 bytes.
           </p>
-          <h3>Legacy hash commit and reveal</h3>
+          <h3 className={styles.subtitle_small}>Legacy hash commit and reveal</h3>
           <Code language='bash' code={`btcli misc weights hash --netuid 1 --mechid 2 --hash 0xCOMMIT_HASH \\
   -w my_coldkey -H my_hotkey
 btcli misc weights reveal --netuid 1 --mechid 2 \\
@@ -436,7 +445,7 @@ await client.execute(
     ),
     wallet,
 )`} />
-          <h3>V494: channel commitments with an optional burn</h3>
+          <h3 className={styles.subtitle_small}>V494: channel commitments with an optional burn</h3>
           <p>
             A channel commitment is a payload that a coldkey publishes for a registered hotkey that
             it owns, at one <code>(netuid, mechid, channel)</code>. It is separate from the legacy
@@ -599,23 +608,25 @@ sealed = bt.calls.Call("SubtensorModule", "commit_timelocked_mechanism_weights_f
             permits. Tests run the old path and the new path on the same state and compare the
             complete state. Yuma epochs do not change.
           </p>
-          <table>
-            <thead>
-              <tr><th>Mechanisms</th><th>UIDs</th><th>Epoch time before</th><th>Epoch time after</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>1</td><td>256</td><td>9.3 ms</td><td>9.3 ms</td></tr>
-              <tr><td>16</td><td>100</td><td>35.6 ms</td><td>4.9 ms</td></tr>
-              <tr><td>16</td><td>256</td><td>130.7 ms</td><td>11.4 ms</td></tr>
-              <tr><td>16</td><td>2,500</td><td>1,632.7 ms</td><td>119.5 ms</td></tr>
-            </tbody>
-          </table>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Mechanisms</th><th>UIDs</th><th>Epoch time before</th><th>Epoch time after</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td>256</td><td>9.3 ms</td><td>9.3 ms</td></tr>
+                <tr><td>16</td><td>100</td><td>35.6 ms</td><td>4.9 ms</td></tr>
+                <tr><td>16</td><td>256</td><td>130.7 ms</td><td>11.4 ms</td></tr>
+                <tr><td>16</td><td>2,500</td><td>1,632.7 ms</td><td>119.5 ms</td></tr>
+              </tbody>
+            </table>
+          </div>
           <p>
             These numbers are from one development machine, with a release build. They are not
             reference weights. At 16 mechanisms and 2,500 UIDs the epoch made 603,107 storage reads
             before and 40,330 after.
           </p>
-          <h3>Block weight</h3>
+          <h3 className={styles.subtitle_small}>Block weight</h3>
           <p>
             The block hook had one fixed weight for every block. From V495 it adds a weight for
             each Null epoch that runs in the block. That weight has two inputs: the mechanism count
@@ -641,7 +652,7 @@ sealed = bt.calls.Call("SubtensorModule", "commit_timelocked_mechanism_weights_f
             From V495 a deposit that gamma emission opens has <strong>no cap</strong>. The owner
             hotkey can spend the minted gamma at once.
           </p>
-          <ul>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               An existing deposit keeps its cap. A deposit that is paused today stays paused until
               its coldkey sets or removes the cap.
@@ -762,8 +773,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
 
         <section className={styles.section} id='compatibility'>
           <h2 className={styles.subtitle}>Compatibility and migration notes</h2>
-          <h3>Node operators</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>Node operators</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>Wait for the final tag that governance selects. Build it from a clean checkout.</li>
             <li>
               Neither release runs a storage migration at the upgrade. V494 moves and removes
@@ -775,8 +786,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               anything.
             </li>
           </ul>
-          <h3>Validators</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>Validators</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>Upgrade to <code>bittensor</code> 11.3.6 before you use V494 or V495 features.</li>
             <li>
               On a Null subnet with several mechanisms, keep each new row inside the row cap. A
@@ -788,8 +799,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             </li>
             <li>Grant a weight delegate for each mechanism separately (V494).</li>
           </ul>
-          <h3>Miners</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>Miners</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>No migration is necessary. One UID serves all mechanisms.</li>
             <li>
               With several mechanisms, the reward of a miner is the sum of its rewards in each
@@ -800,8 +811,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               you publish (V494).
             </li>
           </ul>
-          <h3>Subnet owners</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>Subnet owners</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               More than two mechanisms need a root call first. Then use the steps in the guide
               above. The count and the split each have a limit of 7,200 blocks.
@@ -813,8 +824,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             <li>The owner limit for emission weights is 360 blocks by default (V494).</li>
             <li>Channel burns are off until you configure them (V494).</li>
           </ul>
-          <h3>SDK users</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>SDK users</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               Use <code>bittensor</code> 11.3.6 and <code>bittensor-core</code> 0.1.13. Earlier
               versions do not have the V494 intents, reads, and commands.
@@ -833,8 +844,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               a policy needs <code>bt.Policy(allow_raw_calls=True)</code>.
             </li>
           </ul>
-          <h3>Wallets and indexers</h3>
-          <ul>
+          <h3 className={styles.subtitle_small}>Wallets and indexers</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               Regenerate metadata for spec 495. The transaction version stays 2. V495 appends one
               error at index 209 and changes no call, event, or storage type.
@@ -857,7 +868,7 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
 
         <section className={styles.section} id='risks'>
           <h2 className={styles.subtitle}>Accepted risks and open items</h2>
-          <ul>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               <strong>Parent stake reads (accepted).</strong> The Null epoch reads the stake of
               every parent of every UID. A hotkey can have up to 100 parents, and older lists can
@@ -890,8 +901,8 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             The runtime upgrade makes none of these calls. Each call is a separate governance
             decision with its own schedule, in UTC.
           </p>
-          <h3>Proposed in the V494 guide, in this order</h3>
-          <ol>
+          <h3 className={styles.subtitle_small}>Proposed in the V494 guide, in this order</h3>
+          <ol className={`${styles.list} ${layout.ordered}`}>
             <li><code>AdminUtils::sudo_set_basket_trade_max_slippage_bps(500)</code></li>
             <li><code>AdminUtils::sudo_set_basket_trade_price_reference(SpotOnly)</code></li>
             <li><code>AdminUtils::sudo_set_basket_concentration_cap(9830)</code></li>
@@ -900,9 +911,9 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             The third call uses a setter that existed before V494. <code>SpotOnly</code> has the
             risk that the section above describes.
           </p>
-          <h3>Not scheduled</h3>
+          <h3 className={styles.subtitle_small}>Not scheduled</h3>
           <p>V495 proposes no sudo call. These values stay at their defaults until root acts:</p>
-          <ul>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               <strong>Global mechanism limit, 2.</strong> Subnets can run more than two mechanisms
               only after root calls <code>AdminUtils::sudo_set_max_mechanism_count(n)</code>, with{' '}
@@ -917,7 +928,7 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
 
         <section className={styles.section} id='checklist'>
           <h2 className={styles.subtitle}>Upgrade checklist</h2>
-          <ul>
+          <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               <strong>Node operators:</strong> build and run the final v495 tag that governance
               selects. Read the spec version and the transaction version from metadata.
