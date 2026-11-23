@@ -52,9 +52,10 @@ mechanism, 1,250 with two, and 156 with sixteen. This total budget is fixed;
 there is no per-row sudo setting. The cap applies to direct and delegated weight
 submission and to revealed or timelocked weights. Existing rows are retained when
 the mechanism count changes, but new rows must fit the new cap. Null's effective
-minimum non-self row length is `min(MinAllowedWeights, derived_row_cap,
-registered_UID_count)`, so an existing minimum above a reduced cap cannot make
-every valid row impossible. The stored `MinAllowedWeights` setting is not rewritten.
+minimum non-self row length is the smallest of three values: `MinAllowedWeights`,
+the row cap, and the registered UID count. So an existing minimum above a reduced
+cap cannot make every valid row impossible. The stored `MinAllowedWeights` setting
+is not rewritten.
 Yuma rows have no additional cap and retain their existing minimum-row rule.
 
 Returning to Yuma requires the actual registered population to fit the Yuma ceiling.
