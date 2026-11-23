@@ -5,8 +5,9 @@ miner]`` of ``u64 / u64::MAX`` shares. The subnet owner (or root) changes it wit
 ``AdminUtils.sudo_set_subnet_emission_weights_v2``, which replaces the whole
 split (the five slots and the gamma shares).
 The chain enforces the rules spelled out in :mod:`bittensor.emission_weights`
-and rate-limits owners to one change per week per subnet (root is exempt; the
-first change on a subnet is always allowed).
+and rate-limits owners to one change per ``SubnetEmissionWeightsRateLimit``
+blocks per subnet: 360 blocks by default from runtime 494, 50,400 before (root
+is exempt; the first change on a subnet is always allowed).
 
 Read the current vector and its bounds with the ``subnet_emission_weights``
 read.
@@ -23,6 +24,7 @@ from .._generated import calls
 from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..reads.subnets import (
+    emission_weights_rate_limit_blocks,
     emission_weights_rate_limit_key,
     gamma_emission_shares,
     gamma_emission_targets,
@@ -118,7 +120,9 @@ class SetSubnetEmissionWeights(Intent):
     plan shows that share and what alpha validators are left with, and lists
     every rule the chain would reject (including a validator share at or below
     the baseline), so a bad vector is caught before signing. Owners may change
-    the vector once per week per subnet.
+    the vector once per ``SubnetEmissionWeightsRateLimit`` blocks per subnet:
+    360 blocks by default from runtime 494 (one default tempo), where root can
+    change the limit; 50,400 blocks on earlier runtimes.
     """
 
     op = "set_subnet_emission_weights"
@@ -205,7 +209,8 @@ class SetSubnetEmissionWeights(Intent):
         """Everything the preview needs, read once: the current vector and
         root's baseline share, root TAO, alpha issuance, the global TaoWeight,
         the owner's last change block, the subnet's gamma shares now and after
-        this change, the subnets they can name and whether the subnet is leased."""
+        this change, the subnets they can name, whether the subnet is leased and
+        the chain's limit between owner changes."""
         current = await self._current(substrate)
         if current is None:
             return None
@@ -228,6 +233,7 @@ class SetSubnetEmissionWeights(Intent):
             self._gamma_shares(substrate),
             self._gamma_rules(substrate),
         )
+        rate_limit_blocks = await emission_weights_rate_limit_blocks(query)
         return {
             "current": current,
             "before": ew.normalize_weights(current["weights"]),
@@ -236,6 +242,7 @@ class SetSubnetEmissionWeights(Intent):
             "root_tao": root_tao,
             "alpha_issuance": alpha_issuance,
             "last_change_block": int(last_change or 0),
+            "rate_limit_blocks": rate_limit_blocks,
             "block": int(block),
             "owner": None if owner is None else str(owner),
             "gamma_share": sum(gamma_after.values()),
@@ -296,7 +303,9 @@ class SetSubnetEmissionWeights(Intent):
                 f"{owner}); only the owner coldkey, or root through sudo, can change its "
                 "emission weights"
             )
-        rate = ew.rate_limit_status(inputs["last_change_block"], inputs["block"])
+        rate = ew.rate_limit_status(
+            inputs["last_change_block"], inputs["block"], inputs["rate_limit_blocks"]
+        )
         if not rate["owner_can_change_now"]:
             hours = int(rate["blocks_until_allowed"]) * ew.BLOCK_SECONDS / 3600
             blocks.append(

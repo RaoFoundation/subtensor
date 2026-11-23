@@ -1393,3 +1393,75 @@ def test_cli_set_value_submits_the_renormalized_vector(emission_cli):
     assert "validators after root" in result.output
     assert f"-> {(0.30 - BASELINE) * 100:.4f}%" in result.output
     assert "next owner change after this" in result.output
+
+
+# --- the owner rate limit is the chain's, not a constant of the SDK ----------
+
+RATE_LIMIT_ITEM = ("SubtensorModule", "SubnetEmissionWeightsRateLimit")
+
+
+def test_rate_limit_status_takes_the_chain_limit():
+    assert ew.rate_limit_status(900, 1_000, 360) == {
+        "limit_blocks": 360,
+        "last_change_block": 900,
+        "next_allowed_block": 1_260,
+        "blocks_until_allowed": 260,
+        "owner_can_change_now": False,
+    }
+    assert ew.rate_limit_status(900, 1_260, 360)["owner_can_change_now"]
+    # A limit of zero disables the wait.
+    assert ew.rate_limit_status(1_000, 1_000, 0)["owner_can_change_now"]
+
+
+def test_intent_plan_follows_the_chain_rate_limit():
+    client, fake = _client()
+    fake.seed(*RATE_LIMIT_ITEM, [], 360)
+    fake.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], fake.block - 10)
+    intent = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
+    plan = asyncio.run(client.plan(intent, dev_wallet()))
+    assert not plan.ok
+    (block,) = plan.violations
+    assert f"block {fake.block - 10 + 360:,}" in block and "root is exempt" in block
+    assert plan.preview["rate_limit"]["limit_blocks"] == 360
+    assert plan.preview["rate_limit"]["blocks_until_allowed"] == 350
+
+    # One limit after the last change, the owner may change the vector again.
+    fake.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], fake.block - 360)
+    plan = asyncio.run(client.plan(intent, dev_wallet()))
+    assert plan.ok, plan.violations
+
+    # Root set the limit to zero: no wait, even right after a change.
+    fake.seed(*RATE_LIMIT_ITEM, [], 0)
+    fake.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], fake.block)
+    plan = asyncio.run(client.plan(intent, dev_wallet()))
+    assert plan.ok, plan.violations
+
+
+def test_read_reports_the_chain_rate_limit():
+    client, fake = _client()
+    fake.seed(*RATE_LIMIT_ITEM, [], 360)
+    fake.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], fake.block - 10)
+    info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
+    assert info.rate_limit_blocks == 360
+    assert info.rate_limit()["next_allowed_block"] == fake.block - 10 + 360
+
+
+def test_rate_limit_falls_back_on_a_runtime_without_the_storage_item():
+    client, fake = _client()
+    fake.missing_storage.add(RATE_LIMIT_ITEM)
+    fake.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], fake.block - 10)
+    info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
+    assert info.rate_limit_blocks == ew.OWNER_RATE_LIMIT_BLOCKS == 50_400
+    intent = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
+    plan = asyncio.run(client.plan(intent, dev_wallet()))
+    assert plan.preview["rate_limit"]["limit_blocks"] == 50_400
+
+
+def test_cli_show_reports_the_chain_rate_limit(emission_cli):
+    emission_cli.seed(*RATE_LIMIT_ITEM, [], 360)
+    emission_cli.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], 90)
+    record = json.loads(invoke("--json", "subnets", "emission", "show", "--netuid", "1").output)
+    assert record["rate_limit"]["limit_blocks"] == 360
+    assert record["rate_limit"]["next_allowed_block"] == 450
+    human = invoke("subnets", "emission", "show", "--netuid", "1")
+    assert "next owner change  block 450" in human.output

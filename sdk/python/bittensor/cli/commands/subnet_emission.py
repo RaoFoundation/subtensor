@@ -125,7 +125,7 @@ def _hours(blocks: int) -> str:
 def _next_change(rate: dict[str, Any]) -> tuple[str, str]:
     """``(value, note)`` for the "next owner change" row."""
     if rate["owner_can_change_now"]:
-        why = "first change" if not rate["last_change_block"] else "the weekly window has passed"
+        why = "first change" if not rate["last_change_block"] else "the rate limit has passed"
         return "now", f"{why}; owners may change once per {rate['limit_blocks']:,} blocks"
     return (
         f"block {rate['next_allowed_block']:,}",

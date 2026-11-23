@@ -79,9 +79,13 @@ DEFAULT_OWNER = (11796 * ONE) // 65535
 #: it: whatever a subnet sets, root is paid what it would earn at ``V0``.
 DEFAULT_VALIDATOR = (ONE - DEFAULT_OWNER) // 2
 
-#: How often a subnet owner may change the vector (blocks; ~7 days at 12 s).
-#: Root is exempt and a subnet's first change is always allowed. Mirrors the
-#: chain's ``SubnetEmissionWeightsRateLimit``.
+#: Blocks a subnet owner waited between changes of the vector before runtime
+#: 494, when the chain hard-coded the limit (~7 days at 12 s). From runtime 494
+#: the chain stores it in ``SubnetEmissionWeightsRateLimit`` (360 blocks by
+#: default, one default tempo; root can change it and 0 disables it) and the SDK
+#: reads that value. This constant applies only when the chain does not expose
+#: the storage item. Root is exempt and a subnet's first change is always
+#: allowed.
 OWNER_RATE_LIMIT_BLOCKS = 50_400
 BLOCK_SECONDS = 12
 
@@ -627,7 +631,8 @@ def rate_limit_status(
 
     ``last_change_block`` is the chain's ``LastRateLimitedBlock`` entry for the
     subnet (0 when it has never been changed, which the chain treats as "first
-    change is free"). Root is never limited.
+    change is free"). ``limit`` is the chain's ``SubnetEmissionWeightsRateLimit``
+    in blocks; 0 means no limit. Root is never limited.
     """
     next_block = current_block if last_change_block <= 0 else last_change_block + limit
     blocks_left = max(0, next_block - current_block)

@@ -10,9 +10,11 @@ from typing import Optional
 from .._generated import constants
 from .._generated import runtime_apis as api
 from .._generated import storage as st
+from .._transport.errors import StorageFunctionNotFound
 from ..balance import Balance
 from ..emission_weights import (
     DEFAULT_OWNER,
+    OWNER_RATE_LIMIT_BLOCKS,
     SLOT_NAMES,
     Rules,
     min_validator_parts,
@@ -294,6 +296,20 @@ def emission_weights_rate_limit_key(netuid: int) -> dict:
     return {"OwnerHyperparamUpdate": [netuid, "EmissionWeights"]}
 
 
+async def emission_weights_rate_limit_blocks(query) -> int:
+    """Blocks a subnet owner waits between changes of the emission weight vector.
+
+    Runtime 494 stores the limit in ``SubnetEmissionWeightsRateLimit`` (360 by
+    default; root can change it and 0 disables it). Earlier runtimes hard-code
+    50,400 blocks and have no such storage item. ``query(item, keys)`` is an
+    async storage read."""
+    try:
+        limit = await query(st.SubtensorModule.SubnetEmissionWeightsRateLimit, [])
+    except StorageFunctionNotFound:
+        return OWNER_RATE_LIMIT_BLOCKS
+    return OWNER_RATE_LIMIT_BLOCKS if limit is None else int(limit)
+
+
 async def root_preservation_inputs(query, netuid: int) -> tuple[int, int, float]:
     """``(root_tao, alpha_issuance, global_tao_weight)``: the live values root's
     baseline share of a subnet's emission is computed from every block — root
@@ -349,8 +365,9 @@ class SubnetEmissionWeights:
     ``gamma_targets`` are the subnets root whitelisted for gamma emission, each
     with whether gamma is enabled there, and ``leased`` whether the subnet is
     leased. ``last_change_block`` is when
-    the owner last changed the vector (0 = never); :meth:`rate_limit` turns it
-    into when the owner may change it next.
+    the owner last changed the vector (0 = never) and ``rate_limit_blocks`` the
+    chain's limit between owner changes; :meth:`rate_limit` turns them into
+    when the owner may change it next.
     """
 
     netuid: int
@@ -377,6 +394,7 @@ class SubnetEmissionWeights:
     min_validator: int
     block: int
     last_change_block: int
+    rate_limit_blocks: int = OWNER_RATE_LIMIT_BLOCKS
 
     def rules(self) -> Rules:
         return Rules(
@@ -390,7 +408,7 @@ class SubnetEmissionWeights:
 
     def rate_limit(self) -> dict[str, object]:
         """When the subnet owner may next change the vector (root is exempt)."""
-        return rate_limit_status(self.last_change_block, self.block)
+        return rate_limit_status(self.last_change_block, self.block, self.rate_limit_blocks)
 
 
 @read(
@@ -420,12 +438,14 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
     (
         (root_tao, alpha_issuance, global_tao_weight),
         last_change,
+        rate_limit_blocks,
         gamma_shares,
         gamma_targets,
         lease,
     ) = await asyncio.gather(
         root_preservation_inputs(view.query, netuid),
         view.query(st.SubtensorModule.LastRateLimitedBlock, [rate_limit_key]),
+        emission_weights_rate_limit_blocks(view.query),
         gamma_emission_shares(view.query, netuid),
         gamma_emission_targets(view.query_map),
         view.query(st.SubtensorModule.SubnetUidToLeaseId, [netuid]),
@@ -457,6 +477,7 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
         min_validator=min_validator_parts(baseline_parts),
         block=view.block,
         last_change_block=int(last_change or 0),
+        rate_limit_blocks=rate_limit_blocks,
     )
 
 
