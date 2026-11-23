@@ -326,6 +326,7 @@ class SubtensorModule:
     BasketClaimSliceDustTao = Item('SubtensorModule', 'BasketClaimSliceDustTao', 'u64')
     BasketClaimForfeitCapTao = Item('SubtensorModule', 'BasketClaimForfeitCapTao', 'u64')
     BasketTradeBucket = Item('SubtensorModule', 'BasketTradeBucket', '(u64, u64)')
+    BasketRowsOpenedAt = Item('SubtensorModule', 'BasketRowsOpenedAt', '(u64, u32)')
     BasketLiquidityUsed = Item('SubtensorModule', 'BasketLiquidityUsed', '(u64, u64)')
     BasketConcentrationCap = Item('SubtensorModule', 'BasketConcentrationCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')

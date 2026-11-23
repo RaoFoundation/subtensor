@@ -22,7 +22,7 @@ deposit's `hotkey_ss58` and `daily_spend_cap_gamma`, and the
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3158-L3176) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3173-L3191) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("mint_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3160`](/code/pallets/subtensor/src/macros/dispatches.rs#L3158-L3176):
+`SubtensorModule.mint_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3175`](/code/pallets/subtensor/src/macros/dispatches.rs#L3173-L3191):
 
 ```rust
 #[pallet::call_index(166)]

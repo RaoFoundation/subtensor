@@ -26,7 +26,7 @@ unless you specifically need to force one path.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L127-L142), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085), [`SubtensorModule.set_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3291-L3315), [`SubtensorModule.commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3376) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L127-L142), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085), [`SubtensorModule.set_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3306-L3330), [`SubtensorModule.commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3371-L3391) |
 
 ## Parameters
 
@@ -85,7 +85,7 @@ result = sub.execute_tool("set_weights", {...}, wallet)
 | --- | --- |
 | `SubtensorModule.set_mechanism_weights` | [`pallets/subtensor/src/macros/dispatches.rs#L129`](/code/pallets/subtensor/src/macros/dispatches.rs#L127-L142) |
 | `SubtensorModule.commit_timelocked_mechanism_weights` | [`pallets/subtensor/src/macros/dispatches.rs#L2069`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085) |
-| `SubtensorModule.set_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3293`](/code/pallets/subtensor/src/macros/dispatches.rs#L3291-L3315) |
-| `SubtensorModule.commit_timelocked_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3358`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3376) |
+| `SubtensorModule.set_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3308`](/code/pallets/subtensor/src/macros/dispatches.rs#L3306-L3330) |
+| `SubtensorModule.commit_timelocked_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3373`](/code/pallets/subtensor/src/macros/dispatches.rs#L3371-L3391) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

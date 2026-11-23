@@ -25,13 +25,14 @@ remaining holders (event `BasketClaimDustSkipped`). The transaction fee is charg
 actually done: holdings redeemed pay full weight, holdings merely scanned
 (including skipped dust rows) pay a small per-row cost, and a claim that
 is admitted and then fails pays for the work it did rather than the
-declared envelope. The chain
-reserves a fixed 256-unit declared-work envelope
-plus a flat allowance for settling the validator's queued dividend credits
-first (the same allowance every basket call that flushes declares), counts
-only root-relevant hotkeys and their basket rows for admission, and
-separately caps classification of the staking-hotkey vector at 256. It
-refunds the unused part after.
+declared envelope. Since runtime 495 the chain
+reserves weight for this validator's own fund: its stored basket rows and
+its queued dividend credits, up to a fund of 258 claim units (256 subnets,
+the root cash slot and the validator). It refunds the unused part after.
+A larger fund is refused with `RootClaimTooHeavy`. So is a claim that
+follows, in the same transaction (a batch, for example), a `swap_basket`
+buy or a hotkey swap that gave the fund a new row: send that claim in a
+later transaction.
 `plan` and `btcli root claim --dry-run` show reserved versus spent,
 warn when the spent fee exceeds accrued yield, and refuse when free
 TAO cannot cover the reserve.
@@ -39,7 +40,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2205-L2234) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2214-L2249) |
 
 ## Parameters
 
@@ -88,12 +89,12 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2209`](/code/pallets/subtensor/src/macros/dispatches.rs#L2205-L2234):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2218`](/code/pallets/subtensor/src/macros/dispatches.rs#L2214-L2249):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    Pallet::<T>::root_claim_hotkey_declared_weight()
+    Pallet::<T>::root_claim_hotkey_declared_weight_for(&hotkey)
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
@@ -101,6 +102,12 @@ pub fn claim_root_with_hotkey(
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
     // Admission failures keep the declared envelope (see `claim_root`).
+    // The declaration was sized before this transaction ran. It does not cover a
+    // row that a trade or a hotkey swap added to the fund since then.
+    ensure!(
+        !Self::basket_rows_opened_in_current_transaction(&hotkey),
+        Error::<T>::RootClaimTooHeavy
+    );
     ensure!(
         Self::root_claim_hotkey_fits_declared_budget(&hotkey),
         Error::<T>::RootClaimTooHeavy
@@ -123,6 +130,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1275), [`root_claim_admission_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1318), [`root_claim_hotkey_declared_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1179).
+Delegates to [`basket_rows_opened_in_current_transaction`](/code/pallets/subtensor/src/staking/claim_root.rs#L1397), [`root_claim_hotkey_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L1463), [`root_claim_admission_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1503).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
