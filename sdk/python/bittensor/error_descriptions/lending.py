@@ -62,9 +62,11 @@ DESCRIPTIONS: dict[str, str] = {
         "the cap or lower collateral."
     ),
     "DynamicCollateral": (
-        "Collateral is below the dynamic valuation requirement at the current LTV tier. "
-        "Add collateral or reduce principal; re-quote with lending_raise_quote / "
-        "lending_open_quote (or btcli lending show)."
+        "Collateral is below the dynamic valuation requirement at the current LTV tier "
+        "(opens / increases), or escrow + collateral cannot cover buy-back / repay under "
+        "LTV on roll. Add collateral (btcli lending add-collateral / AddLoanCollateral) "
+        "or reduce principal; re-quote with lending_raise_quote / lending_open_quote "
+        "(or btcli lending show)."
     ),
     "TooManyPositions": (
         "The subnet or pallet has reached its bounded position count. Wait for another position "
@@ -141,14 +143,17 @@ DESCRIPTIONS: dict[str, str] = {
         "or the wider 15% directional spot band on interest-exhaustion forfeit pre-checks. The "
         "claim is deferred and retried. After max_settlement_deferral (default 50_400 blocks / "
         "~7 days) the next expiry pass force-settles at market (skips the per-trade band) but "
-        "still respects the per-block ProtocolForcedImpact cap. Increases and rolls stay "
-        "frozen while deferred. Close or repay when realized execution is inside the band "
-        "(wallet repay is unconstrained)."
+        "still respects the per-block ProtocolForcedImpact cap: a single forced buyback that "
+        "would exceed the remaining budget executes a pro-rata partial and requeues for the "
+        "next block (ForcedSettlementRetryDelay). Increases and rolls stay frozen while "
+        "deferred. Close or repay when realized execution is inside the band (wallet repay "
+        "is unconstrained)."
     ),
     "SettlementFrozen": (
-        "This position has an active settlement deferral (BandDeferralSince). Increases and "
-        "rolls are refused until permissionless settle succeeds (inside the realized EMA band, "
-        "or force-at-market after max_settlement_deferral). You may still close or repay."
+        "This position has an active settlement deferral (BandDeferralSince). Increases, "
+        "rolls, and add_collateral are refused until permissionless settle succeeds (inside "
+        "the realized EMA band, or force-at-market after max_settlement_deferral). You may "
+        "still close or repay."
     ),
     "InvalidLiftParams": (
         "Lift parameters are out of range (for example floor/thin_floor above ceiling). Check "
@@ -158,10 +163,10 @@ DESCRIPTIONS: dict[str, str] = {
         "Existing loan side does not match this call. Close first, or use the saved side."
     ),
     "InvalidSourceHotkey": (
-        "Long open / increase / raise requires a source_hotkey (alpha is locked from that "
-        "stake). Short open / top-up is TAO-only and must omit source_hotkey (pass None). "
-        "Close and repay take a per-call hotkey only when alpha moves to or from the "
-        "caller's stake."
+        "Long open / increase / raise / add_collateral requires a source_hotkey (alpha is "
+        "locked from that stake). Short open / add_collateral is TAO-only and must omit "
+        "source_hotkey (pass None). Close and repay take a per-call hotkey only when alpha "
+        "moves to or from the caller's stake."
     ),
     "InvalidQuote": (
         "A required executable-depth quote or repayment swap is unavailable. Check curve "

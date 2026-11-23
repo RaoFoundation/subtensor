@@ -13,7 +13,14 @@ from ..._generated import runtime_apis as api
 from ..._generated.storage import Item as StorageItem
 from ...balance import Balance
 from ...executor import _find_event
-from ...intents import CloseLoan, OpenLoan, RaiseLoan, RepayLoan, RollLoan
+from ...intents import (
+    AddLoanCollateral,
+    CloseLoan,
+    OpenLoan,
+    RaiseLoan,
+    RepayLoan,
+    RollLoan,
+)
 from ...intents._money import alpha_amount, tao_amount
 from ...intents.lending import _available_alpha, _spendable_tao
 from ...result import BittensorError
@@ -47,8 +54,8 @@ app = typer.Typer(
     # Wide terminals: don't ellipsize long option names / help (E2E F15).
     context_settings={"max_content_width": 200, "help_option_names": ["-h", "--help"]},
     help=(
-        "Lift-based escrowed loans: open, close, repay, roll, raise, list, show, "
-        "params.\n\n"
+        "Lift-based escrowed loans: open, close, repay, roll, add-collateral, "
+        "raise, list, show, params.\n\n"
         "Queries: lending_position / lending_close_quote / lending_stats / "
         "LiftParamsStore (SDK reads).\n\n"
         "Docs `see:` links default to RaoFoundation/subtensor@main; set "
@@ -848,6 +855,79 @@ def open_loan(
     )
 
 
+@app.command("add-collateral")
+@with_tx_globals
+def add_loan_collateral(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", min=1, max=65535, help="Subnet of your position."),
+    amount: str = typer.Option(
+        ...,
+        "--amount",
+        help=(
+            "Collateral to add. Shorts: TAO into escrow. Longs: alpha from "
+            "--hotkey. Float/int or Balance string."
+        ),
+    ),
+    hotkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("hotkey_ss58"),
+        help="Source hotkey for long alpha collateral (required for longs; omit for shorts).",
+    ),
+    proxy: Optional[str] = typer.Option(
+        None,
+        "--proxy",
+        help="Proxy coldkey that submits this call (ProxyType::Lending or Any).",
+    ),
+):
+    """Add collateral to an open position without borrowing more.
+
+    Shorts move TAO into escrow; longs lock alpha from ``--hotkey``. Refused
+    while settlement-frozen or dissolving. Use before ``roll`` when price has
+    moved against you (``batch_all`` add-collateral + roll).
+    """
+    context = ctx_of(ctx)
+    owner = context.review_account()
+    if owner is None:
+        _exit_error(context, "select the account that owns this position before adding collateral")
+    position = context.run(
+        lambda client: client.read("lending_position", coldkey_ss58=owner, netuid=netuid)
+    )
+    if position is None:
+        _exit_error(context, f"no lending position on netuid {netuid}")
+    side = position["side"]
+    if str(side).lower() == "long" and not hotkey_ss58:
+        _exit_error(context, "long add-collateral requires --hotkey")
+    if str(side).lower() == "short" and hotkey_ss58:
+        _exit_error(context, "short add-collateral must omit --hotkey")
+    before = position.get("collateral")
+    loan_rows = [
+        ("netuid", str(netuid)),
+        ("side", str(side)),
+        ("amount", amount),
+        (
+            "collateral_before",
+            _fmt_amount(before) if isinstance(before, Balance) else str(before),
+        ),
+    ]
+    intent = AddLoanCollateral(netuid=netuid, amount=amount, hotkey_ss58=hotkey_ss58)
+
+    def _attach_added(result):
+        attrs = _find_event(result.events, "Lending", "CollateralAdded")
+        display = {
+            "amount": str(attrs.get("amount") if attrs else amount),
+            "collateral": str(attrs.get("collateral") if attrs else ""),
+            "side": str(attrs.get("side") if attrs else side),
+        }
+        _result_amounts(result, display=display, raw={})
+
+    context.submit(
+        intent,
+        proxy_for=proxy or "self",
+        card_sections=[("Add collateral", loan_rows)],
+        on_result=_attach_added,
+    )
+
+
 @app.command("roll")
 @with_tx_globals
 def roll_loan(
@@ -856,16 +936,17 @@ def roll_loan(
     proxy: Optional[str] = typer.Option(
         None,
         "--proxy",
-        help="Proxy coldkey that submits this roll (ProxyType::Any only).",
+        help="Proxy coldkey that submits this roll (ProxyType::Lending or Any).",
     ),
 ):
     """Extend a live loan onto a fresh max_loan_duration clock.
 
-    Same open gates (lending enabled, new-subnet, warm reference, EMA band).
-    Charges interest to now, re-checks LTV, and rejects when the side is over
-    the current side cap. Opens-off disables rolls. Does not change principal,
-    collateral, escrow, or lift legs. Proxy: ``Any`` only (not Staking /
-    NonTransfer).
+    Same open gates (lending enabled, new-subnet, warm reference). Charges
+    interest, then checks that escrow + collateral cover buy-back / repay under
+    LTV at the opening valuation (shorts may roll when price is above open if
+    adequately collateralized). Rejects when the side is over the current side
+    cap. Opens-off disables rolls. Does not change principal, collateral,
+    escrow, or lift legs. Top up first with ``add-collateral`` if needed.
     """
     context = ctx_of(ctx)
     owner = context.review_account()

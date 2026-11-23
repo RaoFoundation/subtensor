@@ -115,6 +115,7 @@ async def test_composes_and_plans_offline(
         "raise_loan",
         "close_loan",
         "roll_loan",
+        "add_loan_collateral",
     ):
         substrate.seed(
             "System",

@@ -1765,6 +1765,11 @@ mod tests {
             valid_until: 100,
         });
         let roll = RuntimeCall::Lending(LendingCall::roll { netuid });
+        let add_collateral = RuntimeCall::Lending(LendingCall::add_collateral {
+            netuid,
+            amount: 1,
+            source_hotkey: None,
+        });
         let transfer = RuntimeCall::Balances(BalancesCall::transfer_allow_death {
             dest: cold.clone().into(),
             value: TaoBalance::from(1),
@@ -1783,6 +1788,7 @@ mod tests {
         assert!(proxy_type_filter(&ProxyType::Lending, &close));
         assert!(proxy_type_filter(&ProxyType::Lending, &raise));
         assert!(proxy_type_filter(&ProxyType::Lending, &roll));
+        assert!(proxy_type_filter(&ProxyType::Lending, &add_collateral));
         assert!(proxy_type_filter(&ProxyType::Lending, &batch));
         assert!(!proxy_type_filter(&ProxyType::Lending, &transfer));
         assert!(!proxy_type_filter(&ProxyType::Lending, &add_stake));
@@ -1979,14 +1985,23 @@ mod pow_proxy_tests {
         });
         let warm = RuntimeCall::Lending(LendingCall::warm_reference { netuid });
         let roll = RuntimeCall::Lending(LendingCall::roll { netuid });
+        let add_collateral = RuntimeCall::Lending(LendingCall::add_collateral {
+            netuid,
+            amount: 1,
+            source_hotkey: None,
+        });
 
-        // Any and Lending may open, close, repay, roll, raise, and warm.
+        // Any and Lending may open, close, repay, roll, add_collateral, raise, and warm.
         for proxy in [ProxyType::Any, ProxyType::Lending] {
             assert!(proxy.filter(&open), "{proxy:?} must allow open");
             assert!(proxy.filter(&open_exact), "{proxy:?} must allow open_exact");
             assert!(proxy.filter(&close), "{proxy:?} must allow close");
             assert!(proxy.filter(&repay), "{proxy:?} must allow repay");
             assert!(proxy.filter(&roll), "{proxy:?} must allow roll");
+            assert!(
+                proxy.filter(&add_collateral),
+                "{proxy:?} must allow add_collateral"
+            );
             assert!(proxy.filter(&raise), "{proxy:?} must allow raise");
             assert!(proxy.filter(&warm), "{proxy:?} must allow warm_reference");
         }
@@ -1996,6 +2011,10 @@ mod pow_proxy_tests {
             assert!(!proxy.filter(&open), "{proxy:?} must deny open");
             assert!(!proxy.filter(&close), "{proxy:?} must deny close");
             assert!(!proxy.filter(&roll), "{proxy:?} must deny roll");
+            assert!(
+                !proxy.filter(&add_collateral),
+                "{proxy:?} must deny add_collateral"
+            );
             assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
             assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
         }
@@ -2009,6 +2028,10 @@ mod pow_proxy_tests {
             assert!(!proxy.filter(&open), "{proxy:?} must deny open");
             assert!(!proxy.filter(&close), "{proxy:?} must deny close");
             assert!(!proxy.filter(&roll), "{proxy:?} must deny roll");
+            assert!(
+                !proxy.filter(&add_collateral),
+                "{proxy:?} must deny add_collateral"
+            );
             assert!(!proxy.filter(&raise), "{proxy:?} must deny raise");
             assert!(!proxy.filter(&warm), "{proxy:?} must deny warm_reference");
         }

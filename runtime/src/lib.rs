@@ -282,7 +282,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   the compatible custom types.
     // Above main tip (494 / #3352) so a real upgrade from main never rolls version back.
     // Lending stays at 495 after remmerge of release-494.
-    spec_version: 495,
+    spec_version: 496,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,
@@ -1554,6 +1554,8 @@ parameter_types! {
     pub const LendingExpiryRetryDelay: BlockNumber = 100;
     // Same bound for failed interest collections (Auditor fid:2aff7381).
     pub const LendingInterestRetryDelay: BlockNumber = 100;
+    /// Next-block retry after a partial forced unwind / impact-budget hit.
+    pub const LendingForcedSettlementRetryDelay: BlockNumber = 1;
     /// Hard compile-time cap on expiry settles per `on_initialize` (weight safety).
     /// Live LiftParams.max_expiry_settlements_per_block must be ≤ this.
     pub const LendingMaxExpirySettlementsPerBlock: u32 = 16;
@@ -1569,6 +1571,7 @@ impl pallet_lending::Config for Runtime {
     type MaxTotalPositions = LendingMaxTotalPositions;
     type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type InterestRetryDelay = LendingInterestRetryDelay;
+    type ForcedSettlementRetryDelay = LendingForcedSettlementRetryDelay;
     type MaxExpirySettlementsPerBlock = LendingMaxExpirySettlementsPerBlock;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
@@ -1926,6 +1929,8 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsExpirySlippageMigration<Runtime>,
     // Append thin_blend_tao (default 3000 τ) for continuous thin→full floor/LTV.
     pallet_lending::migrations::LiftParamsThinBlendMigration<Runtime>,
+    // Launch defaults: short APR 20%, LTV 33%, Cap_short ≈ 2× Cap_long.
+    pallet_lending::migrations::LiftParamsLaunchDefaultsMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

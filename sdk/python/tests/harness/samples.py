@@ -317,6 +317,10 @@ INTENT_SAMPLES: dict[str, dict] = {
     "roll_loan": {
         "netuid": 1,
     },
+    "add_loan_collateral": {
+        "netuid": 1,
+        "amount": 1.0,
+    },
 }
 
 

@@ -49,7 +49,14 @@ from .governance import (
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
-from .lending import CloseLoan, OpenLoan, RaiseLoan, RepayLoan, RollLoan
+from .lending import (
+    AddLoanCollateral,
+    CloseLoan,
+    OpenLoan,
+    RaiseLoan,
+    RepayLoan,
+    RollLoan,
+)
 from .limit_orders import (
     AuthorizeOrder,
     CancelOrder,
@@ -123,6 +130,7 @@ __all__ = [
     "REGISTRY",
     "UNBOUNDED",
     "AddCollateral",
+    "AddLoanCollateral",
     "AddProxy",
     "AddStake",
     "AddStakeLimit",

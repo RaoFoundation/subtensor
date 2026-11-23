@@ -31,6 +31,7 @@
     "---EVM---",
     "evm-withdraw",
     "---Lending---",
+    "add-loan-collateral",
     "close-loan",
     "open-loan",
     "raise-loan",

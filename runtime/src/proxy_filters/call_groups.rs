@@ -161,10 +161,10 @@ call_filter_group!(
     ]
 );
 
-// Open / close / repay / roll / warm: ProxyType::Lending or Any (not Staking,
-// not NonTransfer — skeptic fid:3d310144 / d3fefb26). Root setters live in
-// `LendingRootCalls` (AdminAll / RootConfigCalls pattern — inert without
-// `ensure_root`).
+// Open / close / repay / roll / add_collateral / warm: ProxyType::Lending or
+// Any (not Staking, not NonTransfer — skeptic fid:3d310144 / d3fefb26). Root
+// setters live in `LendingRootCalls` (AdminAll / RootConfigCalls pattern —
+// inert without `ensure_root`).
 call_filter_group!(
     LendingCalls,
     [
@@ -173,6 +173,7 @@ call_filter_group!(
         RuntimeCall::Lending(LendingCall::close),
         RuntimeCall::Lending(LendingCall::repay),
         RuntimeCall::Lending(LendingCall::roll),
+        RuntimeCall::Lending(LendingCall::add_collateral),
         RuntimeCall::Lending(LendingCall::warm_reference),
     ]
 );

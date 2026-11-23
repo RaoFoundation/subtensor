@@ -513,7 +513,7 @@ pub struct LiftParams {
     pub move_bps: u16,
     /// Ceiling as fraction of G_ref (default 5000 = 50%).
     pub ceiling_bps: u16,
-    /// Short side share of Cap (default 5000 = 50%).
+    /// Short side share of Cap (default 6667 ≈ 66.67% so Cap_short ≈ 2× Cap_long).
     pub split_short_bps: u16,
     /// Optional rebalance target for split_short (0 = off).
     pub rebalance_target_bps: u16,
@@ -523,15 +523,15 @@ pub struct LiftParams {
     /// thin floor and thin long LTV apply; above it they blend toward the full
     /// values over [`Self::thin_blend_tao`].
     pub thin_tao: u64,
-    /// Short LTV (default 2500 = 25%).
+    /// Short LTV (default 3300 = 33%).
     pub ltv_short_bps: u16,
-    /// Long LTV (default 2500 = 25%).
+    /// Long LTV (default 3300 = 33%).
     pub ltv_long_bps: u16,
     /// Thin long LTV when G_ref ≤ thin_tao (default 1500 = 15%).
     pub thin_ltv_long_bps: u16,
     /// Long APR in bps (default 10000 = 100%). Split from legacy `apr_bps`.
     pub apr_long_bps: u16,
-    /// Short APR in bps (default 10000 = 100%). Split from legacy `apr_bps`.
+    /// Short APR in bps (default 2000 = 20%). Split from legacy `apr_bps`.
     pub apr_short_bps: u16,
     /// Per-block long-interest sell cap as spot move bps (default 1).
     pub slice_bps: u16,
@@ -645,15 +645,15 @@ impl Default for LiftParams {
             ref_tao: 1_000_000_000_000,
             move_bps: 1_000,
             ceiling_bps: 5_000,
-            split_short_bps: 5_000,
+            split_short_bps: 6_667,
             rebalance_target_bps: 0,
             rebalance_rate_bps: 0,
             thin_tao: 3_000_000_000_000,
-            ltv_short_bps: 2_500,
-            ltv_long_bps: 2_500,
+            ltv_short_bps: 3_300,
+            ltv_long_bps: 3_300,
             thin_ltv_long_bps: 1_500,
             apr_long_bps: 10_000,
-            apr_short_bps: 10_000,
+            apr_short_bps: 2_000,
             slice_bps: 1,
             crash_guard_bps: 9_500,
             total_tao_ema_blocks: 7_200,
@@ -1205,6 +1205,11 @@ pub mod pallet {
         /// Surviving loans must not lose `Due` coverage (Auditor fid:2aff7381).
         #[pallet::constant]
         type InterestRetryDelay: Get<BlockNumberFor<Self>>;
+        /// Retry delay after a partial forced unwind or when the per-block
+        /// [`ProtocolForcedImpact`] budget is exhausted. Default 1 so unwind
+        /// progresses every block (not [`Self::ExpiryRetryDelay`]).
+        #[pallet::constant]
+        type ForcedSettlementRetryDelay: Get<BlockNumberFor<Self>>;
         /// Hard compile-time cap on expiry settles per block (weight safety).
         /// Live [`LiftParams::max_expiry_settlements_per_block`] must be ≤ this.
         #[pallet::constant]
@@ -1671,6 +1676,17 @@ pub mod pallet {
             old_expires_at: BlockNumberFor<T>,
             new_expires_at: BlockNumberFor<T>,
         },
+        /// Owner added collateral to a live position (no new principal).
+        /// Short: `amount` is TAO moved into escrow. Long: `amount` is alpha
+        /// locked from `source_hotkey` into escrow custody.
+        CollateralAdded {
+            owner: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            amount: u64,
+            /// New total collateral after the top-up.
+            collateral: u64,
+        },
     }
 
     #[pallet::error]
@@ -1775,6 +1791,7 @@ pub mod pallet {
             assert!(T::BlocksPerYear::get() > 0);
             assert!(T::InterestPeriod::get() > BlockNumberFor::<T>::default());
             assert!(T::ExpiryRetryDelay::get() > BlockNumberFor::<T>::default());
+            assert!(T::ForcedSettlementRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::InterestRetryDelay::get() > BlockNumberFor::<T>::default());
             assert!(T::MaxExpirySettlementsPerBlock::get() > 0);
             assert!(T::MaxPositionsPerSubnet::get() > 0);
@@ -2181,6 +2198,29 @@ pub mod pallet {
             let owner = ensure_signed(origin)?;
             Self::do_roll(owner, netuid)
         }
+
+        /// Add collateral to an open position without borrowing more principal.
+        ///
+        /// Short: moves `amount` TAO from the owner into the position escrow
+        /// (raises loss headroom). Long: locks `amount` alpha from
+        /// `source_hotkey` into escrow custody (symmetric to open). Refused
+        /// while the position is settlement-frozen / in forced deferral, or
+        /// while the subnet is dissolving. Allowed under `ProxyType::Lending`.
+        /// Positions are keyed by `(owner, netuid)` — there is no separate
+        /// `position_id` argument.
+        #[pallet::call_index(9)]
+        // Transfer / lock only (no AMM). Alias repay until reference re-measure.
+        #[pallet::weight(T::WeightInfo::add_collateral())]
+        #[transactional]
+        pub fn add_collateral(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            amount: u64,
+            source_hotkey: Option<T::AccountId>,
+        ) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            Self::do_add_collateral(owner, netuid, amount, source_hotkey)
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -2485,15 +2525,46 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Before starting another protocol-forced expiry settle this block:
-        /// cumulative impact of prior forced trades must still be inside the
-        /// tolerance.
-        fn ensure_block_forced_impact_ok(netuid: NetUid) -> DispatchResult {
+        /// Live per-block forced-impact accumulator for `netuid` (or zeros on
+        /// a fresh block / missing slot). First trade of a block starts at
+        /// `(0, 0)` so it is sized against the band — no uncapped bypass.
+        fn forced_impact_state(netuid: NetUid) -> (u128, u128) {
             let now = frame_system::Pallet::<T>::block_number();
-            let Some((at, cum_diff, cum_fair)) = ProtocolForcedImpact::<T>::get(netuid) else {
-                return Ok(());
-            };
-            if at != now || cum_fair == 0 {
+            match ProtocolForcedImpact::<T>::get(netuid) {
+                Some((at, cum_diff, cum_fair)) if at == now => (cum_diff, cum_fair),
+                _ => (0, 0),
+            }
+        }
+
+        /// Max additional `|realized − fair|` that still keeps the cumulative
+        /// impact ratio ≤ `band` after adding a trade with fair notional `fair`.
+        fn max_diff_for_fair(cum_diff: u128, cum_fair: u128, band: u128, fair: u128) -> u128 {
+            let allowed = band
+                .saturating_mul(cum_fair.saturating_add(fair))
+                .checked_div(10_000u128)
+                .unwrap_or(0);
+            allowed.saturating_sub(cum_diff)
+        }
+
+        /// Whether `(fair, realized)` fits under the remaining impact budget.
+        fn fits_forced_impact(
+            cum_diff: u128,
+            cum_fair: u128,
+            band: u128,
+            fair: u64,
+            realized: u64,
+        ) -> bool {
+            let fair_u = u128::from(fair);
+            let diff = fair_u.abs_diff(u128::from(realized));
+            diff <= Self::max_diff_for_fair(cum_diff, cum_fair, band, fair_u)
+        }
+
+        /// Before starting another protocol-forced expiry settle this block:
+        /// prior cumulative impact must still be inside the tolerance. Empty /
+        /// stale slots are OK (caller sizes the first trade against the band).
+        fn ensure_block_forced_impact_ok(netuid: NetUid) -> DispatchResult {
+            let (cum_diff, cum_fair) = Self::forced_impact_state(netuid);
+            if cum_fair == 0 {
                 return Ok(());
             }
             let band = u128::from(Self::lift_params().expiry_max_slippage_bps);
@@ -2503,6 +2574,82 @@ pub mod pallet {
                 Error::<T>::SettlementPriceOutsideEmaBand
             );
             Ok(())
+        }
+
+        /// Largest buyback α ≤ `principal` that fits the remaining
+        /// [`ProtocolForcedImpact`] room (quoted vs EMA fair).
+        ///
+        /// When the EMA-ratio band admits no size (spot already far outside)
+        /// and `force_market` is set, falls back to a depth-limited progress
+        /// slice (`expiry_max_slippage_bps` of live pool alpha) so unwind
+        /// still advances every block without dumping the whole principal.
+        /// TAO pot limits are applied by the caller via best-effort execution
+        /// and pro-rata escrow/collateral; this helper only sizes the impact
+        /// / depth cap. Returns 0 when nothing can run (caller defers).
+        fn max_forced_buyback_alpha(
+            netuid: NetUid,
+            principal: u64,
+            force_market: bool,
+        ) -> Result<u64, DispatchError> {
+            if principal == 0 {
+                return Ok(0);
+            }
+            let (cum_diff, cum_fair) = Self::forced_impact_state(netuid);
+            let band = u128::from(Self::lift_params().expiry_max_slippage_bps);
+            // Common case: the whole principal fits — one quote, not log2(P).
+            if let Ok(needed) = Self::tao_to_buy_alpha(netuid, principal) {
+                let fair = Self::fair_ema_tao(netuid, principal, true)?.unwrap_or(needed);
+                if Self::fits_forced_impact(cum_diff, cum_fair, band, fair, needed) {
+                    return Ok(principal);
+                }
+            }
+            let mut lo = 0u64;
+            let mut hi = principal.saturating_sub(1);
+            let mut best = 0u64;
+            // Binary search: largest α that quotes and fits the impact budget.
+            while lo <= hi {
+                let mid = lo.saturating_add(hi.saturating_sub(lo) / 2).max(1);
+                if mid == 0 {
+                    break;
+                }
+                let Ok(needed) = Self::tao_to_buy_alpha(netuid, mid) else {
+                    if mid <= 1 {
+                        break;
+                    }
+                    hi = mid.saturating_sub(1);
+                    continue;
+                };
+                let fair = Self::fair_ema_tao(netuid, mid, true)?.unwrap_or(needed);
+                if Self::fits_forced_impact(cum_diff, cum_fair, band, fair, needed) {
+                    best = mid;
+                    if mid == principal {
+                        break;
+                    }
+                    lo = mid.saturating_add(1);
+                } else {
+                    if mid <= 1 {
+                        break;
+                    }
+                    hi = mid.saturating_sub(1);
+                }
+            }
+            if best > 0 {
+                return Ok(best);
+            }
+            // Depth slice only as the block's first forced trade: when prior
+            // trades consumed the budget, wait for the next block instead of
+            // stacking an uncapped slice on top.
+            if !force_market || cum_fair > 0 || cum_diff > 0 {
+                return Ok(0);
+            }
+            // Force-market progress slice: spot is too far from EMA for any
+            // α to satisfy the ratio, but we must still unwind. Cap this
+            // block at `band` of pool alpha so a whale short cannot clear
+            // in one front-runnable block.
+            let depth = T::Pool::pool_alpha(netuid).to_u64();
+            let cap = depth.saturating_mul(u64::from(Self::lift_params().expiry_max_slippage_bps))
+                / 10_000u64;
+            Ok(cap.max(1).min(principal))
         }
 
         /// Record one protocol-forced trade's realized vs EMA-fair notional
@@ -3521,10 +3668,17 @@ pub mod pallet {
         }
 
         /// Extend `expires_at` under open gates without changing booked exposure.
+        ///
+        /// Collateral adequacy (Jacob 2026-11-23): escrow + collateral must
+        /// cover buy-back / repay of principal at the opening valuation with
+        /// the configured LTV margin. Replaces the prior "spot vs open EMA
+        /// band" and collateral-alone LTV gates so a short can roll when
+        /// price is above open price if the pot still covers the debt under
+        /// LTV. Owner may `batch_all(add_collateral, roll)` to qualify.
         #[transactional]
         fn do_roll(owner: T::AccountId, netuid: NetUid) -> DispatchResult {
             let now = frame_system::Pallet::<T>::block_number();
-            // Same gates as open (opens-off disables rolls).
+            // Same gates as open (opens-off disables rolls). Dissolution blocks.
             Self::ensure_lending_live(netuid)?;
             Self::ensure_new_subnet_gate(netuid)?;
             ensure!(
@@ -3540,48 +3694,15 @@ pub mod pallet {
 
             let params = Self::lift_params();
             let side = position.side;
-            // Current spot vs EMA (no trade) — same band helper as open.
-            Self::ensure_open_ema_band(
-                side,
-                T::Pool::current_alpha_price(netuid),
-                reference.price,
-                &params,
-            )?;
 
-            // Accrue through now before LTV / cap checks.
+            // Accrue through now before adequacy / cap checks.
             Self::charge_interest(&owner, netuid, &mut position, now, false, false, false)?;
             if !Positions::<T>::contains_key(&owner, netuid) {
                 // Exhausted and forfeited during charge — nothing left to roll.
                 return Err(Error::<T>::PositionMissing.into());
             }
 
-            // Re-check LTV at current open price as a fresh open of this size
-            // (old_principal = 0). Skip capacity-on-incremental: exposure is
-            // already booked; over-cap is checked separately with ΔL = 0.
-            let ltv = Self::ltv_tier_bps(netuid, side, &params);
-            let ltv_ok = match side {
-                Side::Short => {
-                    let max_debt = Self::mul_bps(position.collateral, ltv)?;
-                    let debt_value = Self::tao_for_alpha(
-                        position.principal,
-                        T::Pool::current_alpha_price(netuid),
-                        true,
-                    )?;
-                    debt_value <= max_debt
-                }
-                Side::Long => {
-                    let v = Self::v_dyn(
-                        netuid,
-                        position.collateral,
-                        position.principal,
-                        &reference,
-                        Some(&owner),
-                    )?;
-                    let max_p = Self::mul_bps(v, ltv)?;
-                    position.principal <= max_p
-                }
-            };
-            ensure!(ltv_ok, Error::<T>::DynamicCollateral);
+            Self::ensure_roll_collateral_adequate(netuid, &owner, &position, &reference, &params)?;
 
             // Cap attrition: reject roll when the live book already exceeds the
             // current side cap (ΔL = 0).
@@ -3610,6 +3731,125 @@ pub mod pallet {
                 side,
                 old_expires_at,
                 new_expires_at,
+            });
+            Ok(())
+        }
+
+        /// Roll gate: escrow + collateral covers principal under LTV at the
+        /// same valuation open uses (short: coupon `min(EMA, spot)`; long:
+        /// `V_dyn` on collateral, plus escrow alpha in the pot).
+        ///
+        /// Short: `debt_value(P) ≤ (proceeds + collateral) · LTV` and the live
+        /// AMM buyback of `P` must fit in the pot (solvent close headroom).
+        /// Long: `P ≤ (V_dyn(C) + fair(escrow_α)) · LTV` and escrow+C must
+        /// raise at least `P` through the pool (mirror of short coverage).
+        fn ensure_roll_collateral_adequate(
+            netuid: NetUid,
+            owner: &T::AccountId,
+            position: &Position<T::AccountId, BlockNumberFor<T>>,
+            reference: &LendingReference<BlockNumberFor<T>>,
+            params: &LiftParams,
+        ) -> DispatchResult {
+            let ltv = Self::ltv_tier_bps(netuid, position.side, params);
+            match position.side {
+                Side::Short => {
+                    let pot = Self::add(position.proceeds, position.collateral)?;
+                    let debt_value = Self::tao_for_alpha(
+                        position.principal,
+                        Self::coupon_price(netuid, reference),
+                        true,
+                    )?;
+                    let max_debt = Self::mul_bps(pot, ltv)?;
+                    ensure!(debt_value <= max_debt, Error::<T>::DynamicCollateral);
+                    // Live AMM buyback must also fit (fees / impact vs coupon).
+                    match Self::tao_to_buy_alpha(netuid, position.principal) {
+                        Ok(cost) => ensure!(cost <= pot, Error::<T>::DynamicCollateral),
+                        Err(_) => return Err(Error::<T>::DynamicCollateral.into()),
+                    }
+                }
+                Side::Long => {
+                    let v_coll = Self::v_dyn(
+                        netuid,
+                        position.collateral,
+                        position.principal,
+                        reference,
+                        Some(owner),
+                    )?;
+                    let v_escrow = Self::fair_ema_tao(netuid, position.escrow_alpha, false)?
+                        .unwrap_or(Self::tao_for_alpha(
+                            position.escrow_alpha,
+                            T::Pool::current_alpha_price(netuid),
+                            false,
+                        )?);
+                    let pot_value = Self::add(v_coll, v_escrow)?;
+                    let max_p = Self::mul_bps(pot_value, ltv)?;
+                    ensure!(position.principal <= max_p, Error::<T>::DynamicCollateral);
+                    let (raised, _) = Self::simulate_long_escrow_raise(
+                        netuid,
+                        &position.custody,
+                        position.escrow_alpha,
+                        position.collateral,
+                        position.principal,
+                    )?;
+                    ensure!(raised >= position.principal, Error::<T>::DynamicCollateral);
+                }
+            }
+            Ok(())
+        }
+
+        /// Top up collateral on a live position (no principal change).
+        #[transactional]
+        fn do_add_collateral(
+            owner: T::AccountId,
+            netuid: NetUid,
+            amount: u64,
+            source_hotkey: Option<T::AccountId>,
+        ) -> DispatchResult {
+            ensure!(amount > 0, Error::<T>::CollateralZero);
+            ensure!(
+                T::Pool::network_alive(netuid) && !Dissolutions::<T>::contains_key(netuid),
+                Error::<T>::AlreadyDissolving
+            );
+            ensure!(
+                T::Pool::owner_allowed(&owner),
+                Error::<T>::SubnetUnavailable
+            );
+            Self::ensure_not_settlement_frozen(&owner, netuid)?;
+            let mut position =
+                Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::PositionMissing)?;
+            let side = position.side;
+            let escrow = position.custody.clone();
+            match side {
+                Side::Short => {
+                    ensure!(source_hotkey.is_none(), Error::<T>::InvalidSourceHotkey);
+                    T::Pool::transfer_tao(&owner, &escrow, amount.into())?;
+                }
+                Side::Long => {
+                    let hotkey = source_hotkey.ok_or(Error::<T>::InvalidSourceHotkey)?;
+                    let custody = Self::custody_hotkey()?;
+                    T::Pool::lock_alpha_collateral(
+                        &owner,
+                        &hotkey,
+                        &escrow,
+                        &custody,
+                        netuid,
+                        amount.into(),
+                    )?;
+                    Lifts::<T>::mutate(netuid, |book| {
+                        book.long_collateral_alpha =
+                            book.long_collateral_alpha.saturating_add(amount);
+                    });
+                }
+            }
+            position.collateral = Self::add(position.collateral, amount)?;
+            let collateral = position.collateral;
+            Positions::<T>::insert(&owner, netuid, &position);
+            Self::deposit_event(Event::CollateralAdded {
+                owner,
+                netuid,
+                side,
+                amount,
+                collateral,
             });
             Ok(())
         }
@@ -5434,28 +5674,38 @@ pub mod pallet {
             }
             position.last_accrued = until;
             position.interest_remainder = remainder;
-            if position.collateral == 0 && due > 0 {
-                // Dissolution already re-added lift legs; never forfeit there.
-                // Live-market path still defaults when collateral is exhausted.
-                if !Dissolutions::<T>::contains_key(netuid) {
-                    if permissionless {
-                        // Wall-clock now for deferral stamping; accrual `until`
-                        // stays for interest math only (audit L4).
-                        Self::ensure_settlement_ema_band(
-                            owner,
-                            netuid,
-                            frame_system::Pallet::<T>::block_number(),
-                        )?;
-                    }
-                    // Permissionless / expiry forfeit uses realized slippage
-                    // unless past max deferral (force at market).
-                    let force_market = Self::past_max_settlement_deferral(owner, netuid);
-                    Self::forfeit(
+            // Interest exhaustion (this tick drained C) or a prior
+            // impact-capped forfeit left C at 0 with principal still open —
+            // continue the forced unwind. Dissolution already re-added lift
+            // legs and must never forfeit.
+            if position.collateral == 0
+                && position.principal > 0
+                && !Dissolutions::<T>::contains_key(netuid)
+            {
+                // Permissionless / expiry forfeit uses realized slippage
+                // unless past max deferral (force at market).
+                let force_market = Self::past_max_settlement_deferral(owner, netuid);
+                if permissionless && !force_market {
+                    // Wall-clock now for deferral stamping; accrual `until`
+                    // stays for interest math only (audit L4).
+                    Self::ensure_settlement_ema_band(
                         owner,
                         netuid,
-                        position,
-                        !force_market && (enforce_realized_slippage || permissionless),
+                        frame_system::Pallet::<T>::block_number(),
                     )?;
+                }
+                let fully_closed = Self::forfeit(
+                    owner,
+                    netuid,
+                    position,
+                    !force_market && (enforce_realized_slippage || permissionless),
+                )?;
+                // Partial unwind: refresh the caller's view so outer
+                // collectors do not overwrite the shrunk storage.
+                if !fully_closed {
+                    if let Some(p) = Positions::<T>::get(owner, netuid) {
+                        *position = p;
+                    }
                 }
             }
             Ok(())
@@ -5467,6 +5717,10 @@ pub mod pallet {
         /// still gets nothing). Uncovered principal records below-baseline
         /// shortfall via [`Self::maybe_burn_invariant_surplus`]. No one-sided
         /// readd.
+        ///
+        /// Returns `Ok(true)` when the position is fully removed, `Ok(false)`
+        /// when only a [`ProtocolForcedImpact`]-capped slice cleared (remainder
+        /// stays open for the next-block retry).
         ///
         /// `enforce_realized_slippage`: when true, every AMM chunk is gated by
         /// cumulative realized TAO vs EMA·α within
@@ -5481,7 +5735,7 @@ pub mod pallet {
             netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
             enforce_realized_slippage: bool,
-        ) -> DispatchResult {
+        ) -> Result<bool, DispatchError> {
             Self::ensure_terms_version(position.terms_version)?;
             // Pace with prior protocol-forced trades this block (force-market
             // forfeits included). Cap already hit → Err → outer transactional
@@ -5492,25 +5746,48 @@ pub mod pallet {
             let escrow = position.custody.clone();
             let side = position.side;
             let principal = position.principal;
+            // Force-market when the per-trade band is off (past max deferral).
+            let force_market = !enforce_realized_slippage;
 
             let (credited_tao, credited_alpha, leftover_collateral, buyback_tao, buyback_alpha) =
                 match side {
                     Side::Short => {
-                        // Buy as much of P as E_S + C can afford; leftover TAO burns.
-                        let pot = position.proceeds.saturating_add(position.collateral);
+                        // Cap this block's buyback to remaining ProtocolForcedImpact
+                        // / depth room (first trade included — no uncapped bypass).
+                        let target =
+                            Self::max_forced_buyback_alpha(netuid, principal, force_market)?;
+                        ensure!(target > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                        // Pro-rata debt / escrow / collateral for this slice.
+                        // Best-effort fill may buy less than target when
+                        // underwater; we still shrink by `target` and let
+                        // invariant shortfall absorb the gap (same as a full
+                        // underwater forfeit on this slice).
+                        let slice_p = target;
+                        let slice_c = Self::scale_part(position.collateral, slice_p, principal);
+                        let slice_e = Self::scale_part(position.proceeds, slice_p, principal);
+                        let slice_lift_tao =
+                            Self::scale_part(position.lift_tao, slice_p, principal);
+                        let slice_pot = slice_e.saturating_add(slice_c);
+                        // Final slice stays terminal even when it cannot buy
+                        // anything (record shortfall + remove); otherwise a
+                        // dust / unfillable remainder retries every block.
+                        let terminal = slice_p == principal;
+                        ensure!(slice_pot > 0 || terminal, Error::<T>::InsufficientEscrow);
                         let (paid, bought) = Self::execute_buyback_best_effort(
                             &escrow,
                             &custody,
                             netuid,
-                            principal,
-                            pot,
+                            slice_p,
+                            slice_pot,
                             enforce_realized_slippage,
                         )?;
-                        let repaid_alpha = bought.min(principal);
-                        let leftover_tao = pot.saturating_sub(paid);
-                        // Sell buyback overshoot alpha into TAO then burn with leftover.
-                        let excess = bought.saturating_sub(principal);
-                        let mut burn_tao = leftover_tao;
+                        let repaid_alpha = bought.min(slice_p);
+                        ensure!(
+                            repaid_alpha > 0 || terminal,
+                            Error::<T>::SettlementPriceOutsideEmaBand
+                        );
+                        let mut burn_tao = slice_pot.saturating_sub(paid);
+                        let excess = bought.saturating_sub(slice_p);
                         if excess > 0 {
                             if let Ok(dust) = T::Pool::sell_alpha(
                                 &escrow,
@@ -5542,32 +5819,68 @@ pub mod pallet {
                             netuid,
                             &reserve,
                             &custody,
-                            position.lift_tao.into(),
+                            slice_lift_tao.into(),
                             repaid_alpha.into(),
                         )?;
                         Self::deposit_event(Event::Readded {
                             netuid,
-                            tao: position.lift_tao,
+                            tao: slice_lift_tao,
                             alpha: repaid_alpha,
                         });
                         Lifts::<T>::mutate(netuid, |book| {
-                            book.l_s = book.l_s.saturating_sub(position.lift_tao);
-                            book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
-                            // Short lift dust (lift_alpha − principal) leaves held_alpha (audit L3).
-                            book.held_alpha = book.held_alpha.saturating_sub(
+                            book.l_s = book.l_s.saturating_sub(slice_lift_tao);
+                            book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
+                            book.held_alpha = book.held_alpha.saturating_sub(Self::scale_part(
                                 position.lift_alpha.saturating_sub(position.principal),
-                            );
-                            book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
-                            book.short_sold_alpha =
-                                book.short_sold_alpha.saturating_sub(position.principal);
+                                slice_p,
+                                principal,
+                            ));
+                            book.escrow_tao = book.escrow_tao.saturating_sub(slice_e);
+                            book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
                         });
-                        (
-                            position.lift_tao,
-                            repaid_alpha,
-                            burn_tao,
-                            paid,
-                            repaid_alpha,
-                        )
+                        // Partial: shrink the live position and stop (caller
+                        // requeues at ForcedSettlementRetryDelay). Full: fall
+                        // through to remove_position below.
+                        if slice_p < principal {
+                            let slice_lift_alpha =
+                                Self::scale_part(position.lift_alpha, slice_p, principal);
+                            Self::maybe_burn_invariant_surplus(
+                                netuid,
+                                slice_lift_tao,
+                                repaid_alpha,
+                                slice_lift_tao,
+                                slice_lift_alpha,
+                                Dissolutions::<T>::contains_key(netuid),
+                            )?;
+                            let fair =
+                                Self::fair_ema_tao(netuid, repaid_alpha, true)?.unwrap_or(paid);
+                            Self::note_protocol_forced_impact(netuid, fair, paid);
+                            // Shrink the caller's `position`, not storage:
+                            // callers charge interest on their local copy
+                            // before forfeiting, and storage has not seen
+                            // that debit (collateral, last_accrued) yet.
+                            let mut shrunk = position.clone();
+                            shrunk.principal = shrunk.principal.saturating_sub(slice_p);
+                            shrunk.collateral = shrunk.collateral.saturating_sub(slice_c);
+                            shrunk.proceeds = shrunk.proceeds.saturating_sub(slice_e);
+                            shrunk.lift_tao = shrunk.lift_tao.saturating_sub(slice_lift_tao);
+                            shrunk.lift_alpha = shrunk.lift_alpha.saturating_sub(slice_lift_alpha);
+                            shrunk.annual_interest = Self::scale_part(
+                                shrunk.annual_interest,
+                                shrunk.principal,
+                                principal,
+                            );
+                            Positions::<T>::insert(owner, netuid, shrunk);
+                            Self::bump_stats(netuid, |s| {
+                                s.forfeit_buyback_tao =
+                                    s.forfeit_buyback_tao.saturating_add(u128::from(paid));
+                                s.forfeit_buyback_alpha = s
+                                    .forfeit_buyback_alpha
+                                    .saturating_add(u128::from(repaid_alpha));
+                            });
+                            return Ok(false);
+                        }
+                        (slice_lift_tao, repaid_alpha, burn_tao, paid, repaid_alpha)
                     }
                     Side::Long => {
                         // Sell A, then as much of C as needed (or all of C), repay
@@ -5715,7 +6028,7 @@ pub mod pallet {
                     }
                 }
             });
-            Ok(())
+            Ok(true)
         }
 
         /// Saturating bump of per-netuid and global lending health counters.
@@ -6357,7 +6670,29 @@ pub mod pallet {
                         return Ok(());
                     }
                     Self::charge_interest(owner, netuid, &mut position, now, false, true, false)?;
+                    // `charge_interest` mutates `position` (collateral,
+                    // last_accrued) and refreshes it after a partial forfeit,
+                    // so the local is authoritative while the loan is open.
                     if Positions::<T>::contains_key(owner, netuid) {
+                        // Zero collateral + open principal = interest-exhaustion
+                        // unwind still in progress (impact-capped slice).
+                        if position.collateral == 0 {
+                            match source {
+                                CollectSource::Scheduled => {
+                                    if Due::<T>::take(at, (owner, netuid)).is_some() {
+                                        Self::note_due_removed(at);
+                                    }
+                                }
+                                CollectSource::Retry => {
+                                    let _ = Self::take_interest_retry(at, owner, netuid);
+                                }
+                            }
+                            let retry_at = now.saturating_add(T::ForcedSettlementRetryDelay::get());
+                            Self::enqueue_interest_retry(owner, netuid, retry_at);
+                            position.due = retry_at;
+                            Positions::<T>::insert(owner, netuid, position);
+                            return Ok(());
+                        }
                         let next = now.saturating_add(position.interest_period);
                         match source {
                             CollectSource::Scheduled => {
@@ -6385,8 +6720,9 @@ pub mod pallet {
                 Ok(()) => {
                     match source {
                         CollectSource::Scheduled => {
-                            // Forfeit / dissolve skips leave the queue row; drop it.
-                            // Successful charge already moved it onto the next period.
+                            // Forfeit / dissolve / partial-unwind skips leave
+                            // the queue row; drop it. Successful charge already
+                            // moved a surviving loan onto the next period.
                             if Due::<T>::contains_key(at, (owner, netuid)) {
                                 Due::<T>::remove(at, (owner, netuid));
                                 Self::note_due_removed(at);
@@ -6394,6 +6730,26 @@ pub mod pallet {
                         }
                         CollectSource::Retry => {
                             let _ = Self::take_interest_retry(at, owner, netuid);
+                        }
+                    }
+                    // Partial forced unwind: keep deferral stamp and emit so
+                    // operators see next-block progress (not a clean accrual).
+                    if let Some(position) = Positions::<T>::get(owner, netuid) {
+                        if position.collateral == 0 {
+                            let reason =
+                                BoundedVec::truncate_from(b"forced_impact_partial".to_vec());
+                            LastDeferral::<T>::insert(
+                                owner,
+                                netuid,
+                                (0u8, position.due, reason.clone()),
+                            );
+                            Self::deposit_event(Event::InterestDeferred {
+                                owner: owner.clone(),
+                                netuid,
+                                retry_at: position.due,
+                                reason,
+                            });
+                            return;
                         }
                     }
                     LastDeferral::<T>::remove(owner, netuid);
@@ -6416,7 +6772,18 @@ pub mod pallet {
                     }
                     Self::note_band_deferral(owner, netuid, now, error);
                     if let Some(mut position) = Positions::<T>::get(owner, netuid) {
-                        let retry_at = now.saturating_add(T::InterestRetryDelay::get());
+                        // Impact-budget hit after max deferral → next block;
+                        // EMA band deferral keeps the longer InterestRetryDelay.
+                        let impact_err: DispatchError =
+                            Error::<T>::SettlementPriceOutsideEmaBand.into();
+                        let delay = if error == impact_err
+                            && Self::past_max_settlement_deferral(owner, netuid)
+                        {
+                            T::ForcedSettlementRetryDelay::get()
+                        } else {
+                            T::InterestRetryDelay::get()
+                        };
+                        let retry_at = now.saturating_add(delay);
                         Self::enqueue_interest_retry(owner, netuid, retry_at);
                         position.due = retry_at;
                         Positions::<T>::insert(owner, netuid, position);
@@ -6483,6 +6850,35 @@ pub mod pallet {
                             let _ = Self::take_expiry_retry(at, owner, netuid);
                         }
                     }
+                    // Partial forced unwind leaves the position open past
+                    // expires_at — requeue for the next block so unwind
+                    // progresses under the per-block impact budget.
+                    // Dissolution settles its own positions; do not spin the
+                    // per-block expiry retry on the early `Ok` skip.
+                    if let Some(mut position) = Positions::<T>::get(owner, netuid)
+                        .filter(|_| !Dissolutions::<T>::contains_key(netuid))
+                    {
+                        if position.expires_at <= now {
+                            let retry_at = now.saturating_add(T::ForcedSettlementRetryDelay::get());
+                            Self::enqueue_expiry_retry(owner, netuid, retry_at);
+                            position.expiry_due = retry_at;
+                            Positions::<T>::insert(owner, netuid, position);
+                            let reason =
+                                BoundedVec::truncate_from(b"forced_impact_partial".to_vec());
+                            LastDeferral::<T>::insert(
+                                owner,
+                                netuid,
+                                (1u8, retry_at, reason.clone()),
+                            );
+                            Self::deposit_event(Event::SettlementDeferred {
+                                owner: owner.clone(),
+                                netuid,
+                                retry_at,
+                                reason,
+                            });
+                            return;
+                        }
+                    }
                     LastDeferral::<T>::remove(owner, netuid);
                 }
                 Err(error) => {
@@ -6506,7 +6902,16 @@ pub mod pallet {
                         .unwrap_or(now);
                     Self::note_band_deferral(owner, netuid, since, error);
                     if let Some(mut position) = Positions::<T>::get(owner, netuid) {
-                        let retry_at = now.saturating_add(T::ExpiryRetryDelay::get());
+                        // Past max deferral: always next-block retry so force
+                        // unwind keeps progressing (impact budget, AMM dust,
+                        // or transient pool errors). Otherwise keep the longer
+                        // ExpiryRetryDelay for EMA-band deferrals.
+                        let delay = if Self::past_max_settlement_deferral(owner, netuid) {
+                            T::ForcedSettlementRetryDelay::get()
+                        } else {
+                            T::ExpiryRetryDelay::get()
+                        };
+                        let retry_at = now.saturating_add(delay);
                         Self::enqueue_expiry_retry(owner, netuid, retry_at);
                         position.expiry_due = retry_at;
                         Positions::<T>::insert(owner, netuid, position);
@@ -7768,8 +8173,12 @@ pub mod pallet {
             if !Self::can_fully_close_from_escrow(netuid, &position)? {
                 // Shorts that cannot buy P back: best-effort forfeit (burn
                 // leftover; record shortfall). Force-market skips the band.
-                Self::forfeit(owner, netuid, &position, realized_guard)?;
-                Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
+                // Partial (impact-capped) leaves the position open; outer
+                // process_one_expiry requeues at ForcedSettlementRetryDelay.
+                let fully_closed = Self::forfeit(owner, netuid, &position, realized_guard)?;
+                if fully_closed {
+                    Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
+                }
                 return Ok(());
             }
 
@@ -7781,20 +8190,59 @@ pub mod pallet {
             let (credited_tao, credited_alpha, paid, to_pool, refund, impact_fair, impact_realized) =
                 match side {
                     Side::Short => {
-                        let pot = Self::add(position.proceeds, position.collateral)?;
-                        let (paid, bought) = Self::execute_buyback(
-                            &escrow,
-                            &custody,
-                            netuid,
-                            position.principal,
-                            pot,
-                            realized_guard,
-                        )?;
+                        let principal = position.principal;
+                        // Size to remaining ProtocolForcedImpact / depth room
+                        // (first trade of the block included). Force-market
+                        // allows a depth-limited progress slice when the EMA
+                        // ratio admits nothing.
+                        let slice_p =
+                            Self::max_forced_buyback_alpha(netuid, principal, force_market)?;
+                        ensure!(slice_p > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                        let slice_c = Self::scale_part(position.collateral, slice_p, principal);
+                        let slice_e = Self::scale_part(position.proceeds, slice_p, principal);
+                        let slice_lift_tao =
+                            Self::scale_part(position.lift_tao, slice_p, principal);
+                        let slice_pot = slice_e.saturating_add(slice_c);
+                        // Solvent path: prefer a full fill. Under force-market,
+                        // fall back to forfeit (best-effort + shortfall) when
+                        // the strict buyback cannot spend the pot (AMM drift
+                        // vs the can_fully_close quote).
+                        // Storage layer: a failed strict buyback has already
+                        // traded; roll those chunks back before the forfeit
+                        // fallback re-sizes from the untouched escrow.
+                        let (paid, bought) =
+                            match frame_support::storage::with_storage_layer(|| {
+                                Self::execute_buyback(
+                                    &escrow,
+                                    &custody,
+                                    netuid,
+                                    slice_p,
+                                    slice_pot,
+                                    realized_guard,
+                                )
+                            }) {
+                                Ok(pair) => pair,
+                                Err(_) if force_market => {
+                                    let fully_closed =
+                                        Self::forfeit(owner, netuid, &position, false)?;
+                                    if fully_closed {
+                                        Self::emit_loan_expired(
+                                            owner,
+                                            netuid,
+                                            side,
+                                            expires_at,
+                                            interest_until,
+                                        );
+                                    }
+                                    return Ok(());
+                                }
+                                Err(e) => return Err(e),
+                            };
                         let impact_fair = Self::fair_ema_tao(netuid, bought, true)?.unwrap_or(paid);
                         let impact_realized = paid;
-                        let repaid_alpha = bought.min(position.principal);
-                        let mut refund = pot.saturating_sub(paid);
-                        let excess = bought.saturating_sub(position.principal);
+                        let repaid_alpha = bought.min(slice_p);
+                        let mut refund = slice_pot.saturating_sub(paid);
+                        let excess = bought.saturating_sub(slice_p);
                         if excess > 0 {
                             if let Ok(dust) = T::Pool::sell_alpha(
                                 &escrow,
@@ -7826,26 +8274,56 @@ pub mod pallet {
                             netuid,
                             &reserve,
                             &custody,
-                            position.lift_tao.into(),
+                            slice_lift_tao.into(),
                             repaid_alpha.into(),
                         )?;
                         Self::deposit_event(Event::Readded {
                             netuid,
-                            tao: position.lift_tao,
+                            tao: slice_lift_tao,
                             alpha: repaid_alpha,
                         });
                         Lifts::<T>::mutate(netuid, |book| {
-                            book.l_s = book.l_s.saturating_sub(position.lift_tao);
-                            book.held_tao = book.held_tao.saturating_sub(position.lift_tao);
-                            book.held_alpha = book.held_alpha.saturating_sub(
+                            book.l_s = book.l_s.saturating_sub(slice_lift_tao);
+                            book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
+                            book.held_alpha = book.held_alpha.saturating_sub(Self::scale_part(
                                 position.lift_alpha.saturating_sub(position.principal),
-                            );
-                            book.escrow_tao = book.escrow_tao.saturating_sub(position.proceeds);
-                            book.short_sold_alpha =
-                                book.short_sold_alpha.saturating_sub(position.principal);
+                                slice_p,
+                                principal,
+                            ));
+                            book.escrow_tao = book.escrow_tao.saturating_sub(slice_e);
+                            book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
                         });
+                        if slice_p < principal {
+                            // Partial forced settle: note impact, shrink, leave
+                            // the remainder for ForcedSettlementRetryDelay.
+                            Self::note_protocol_forced_impact(netuid, impact_fair, impact_realized);
+                            let slice_lift_alpha =
+                                Self::scale_part(position.lift_alpha, slice_p, principal);
+                            Self::maybe_burn_invariant_surplus(
+                                netuid,
+                                slice_lift_tao,
+                                repaid_alpha,
+                                slice_lift_tao,
+                                slice_lift_alpha,
+                                false,
+                            )?;
+                            let rem_principal = position.principal.saturating_sub(slice_p);
+                            position.principal = rem_principal;
+                            position.collateral = position.collateral.saturating_sub(slice_c);
+                            position.proceeds = position.proceeds.saturating_sub(slice_e);
+                            position.lift_tao = position.lift_tao.saturating_sub(slice_lift_tao);
+                            position.lift_alpha =
+                                position.lift_alpha.saturating_sub(slice_lift_alpha);
+                            position.annual_interest = Self::scale_part(
+                                position.annual_interest,
+                                rem_principal,
+                                principal,
+                            );
+                            Positions::<T>::insert(owner, netuid, &position);
+                            return Ok(());
+                        }
                         (
-                            position.lift_tao,
+                            slice_lift_tao,
                             repaid_alpha,
                             paid,
                             paid,

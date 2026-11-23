@@ -49,6 +49,7 @@ pub trait WeightInfo {
 	fn close() -> Weight;
 	fn repay() -> Weight;
 	fn roll() -> Weight;
+	fn add_collateral() -> Weight;
 	fn set_enabled() -> Weight;
 	fn set_lift_params() -> Weight;
 	fn warm_reference() -> Weight;
@@ -937,6 +938,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(158_349_000, 6148)
 			.saturating_add(T::DbWeight::get().reads(26_u64))
 			.saturating_add(T::DbWeight::get().writes(13_u64))
+	}
+	/// Alias `repay` until reference-hardware re-measure (transfer / lock only).
+	fn add_collateral() -> Weight {
+		Self::repay()
 	}
 	/// Storage: `Lending::Enabled` (r:0 w:1)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
@@ -2185,6 +2190,10 @@ impl WeightInfo for () {
 		Weight::from_parts(158_349_000, 6148)
 			.saturating_add(RocksDbWeight::get().reads(26_u64))
 			.saturating_add(RocksDbWeight::get().writes(13_u64))
+	}
+	/// Alias `repay` until reference-hardware re-measure (transfer / lock only).
+	fn add_collateral() -> Weight {
+		Self::repay()
 	}
 	/// Storage: `Lending::Enabled` (r:0 w:1)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)

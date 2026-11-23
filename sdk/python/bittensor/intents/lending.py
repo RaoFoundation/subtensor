@@ -154,18 +154,19 @@ def _contextual_amount(value: Money) -> Money:
 @register
 @dataclass
 class OpenLoan(Intent):
-    """Open or increase a fixed-principal subnet loan at up to 25% LTV.
+    """Open or increase a fixed-principal subnet loan at up to 33% LTV.
 
     A short locks TAO collateral, lifts borrowed alpha, and immediately sells
     that alpha into escrow TAO (`proceeds`) on the position's custody account.
     A long locks existing free alpha stake, lifts TAO, and buys escrow alpha
     with the borrowed TAO (no free TAO payout). Debt stays in the borrowed
-    currency. Interest is 100% annually on opening loan value, charged in fixed
+    currency. Interest defaults to 20% APR on shorts and 100% APR on longs
+    (root-settable ``apr_short_bps`` / ``apr_long_bps``), charged in fixed
     collateral units and collected every ``InterestPeriod`` blocks (runtime
     constant; 50_400 ≈ 7 days at 12 s). There are no price-triggered
     liquidations; exhausted collateral forfeits the position.
 
-    Alpha debt must also fit 25% of collateral at a conservative immediate
+    Alpha debt must also fit 33% of collateral at a conservative immediate
     funded-redemption valuation, including payout rounding. TAO debt requires
     conservative funded collateral backing. New borrowing must preserve each
     other same-side loan's individual coverage after accrued interest. These
@@ -985,10 +986,14 @@ class RepayLoan(Intent):
 class RollLoan(Intent):
     """Extend a live loan onto a fresh max_loan_duration clock without changing exposure.
 
-    Same open gates (lending enabled, new-subnet, warm reference, EMA band).
-    Charges interest to now, re-checks LTV, and rejects when the side book is
-    already over the current side cap. Opens-off disables rolls. Does not move
+    Same open gates (lending enabled, new-subnet, warm reference). Charges
+    interest to now, then checks collateral adequacy: escrow + collateral must
+    cover buy-back / repay of principal at the opening valuation with the
+    configured LTV margin (shorts may roll when price is above open price if
+    the pot still covers). Rejects when the side book is already over the
+    current side cap. Opens-off and dissolution disable rolls. Does not move
     principal, collateral, escrow, lift legs, or ``last_exposure_added_at``.
+    Use ``batch_all(AddLoanCollateral, RollLoan)`` to top up then roll.
     """
 
     op = "roll_loan"
@@ -1013,6 +1018,89 @@ class RollLoan(Intent):
 
     def spend(self) -> Spend:
         return None
+
+
+@register
+@dataclass
+class AddLoanCollateral(Intent):
+    """Add collateral to an open lending position without borrowing more.
+
+    Short: moves TAO from the owner wallet into the position escrow. Long:
+    locks alpha from ``hotkey_ss58`` into escrow custody. Refused while the
+    position is settlement-frozen or the subnet is dissolving. Allowed under
+    ``ProxyType::Lending``. Positions are keyed by ``(owner, netuid)``.
+    """
+
+    op = "add_loan_collateral"
+    signer = "coldkey"
+    wraps = (("Lending", "add_collateral"),)
+    mev_shield_default = True
+
+    netuid: int = field(metadata={"help": "Subnet of the position to top up."})
+    amount: Money = field(
+        metadata={
+            "help": (
+                "Collateral to add. Shorts: TAO into escrow. Longs: alpha from "
+                "the source hotkey. Pass a Balance or float/int amount."
+            )
+        }
+    )
+    hotkey_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Source hotkey for long alpha collateral. Required for longs; "
+                "omit (None) for shorts."
+            )
+        },
+    )
+
+    def __post_init__(self):
+        _check_netuid(self.netuid)
+        if self.hotkey_ss58 is not None:
+            ss58_decode(self.hotkey_ss58)
+
+    async def build(self, substrate, wallet: Any):
+        owner = self.coldkey_address(wallet)
+        position = await substrate.query(*POSITIONS, [owner, self.netuid])
+        if not isinstance(position, dict):
+            raise BittensorError(f"no lending position on netuid {self.netuid}")
+        side = position.get("side")
+        if side == "Short" or side == {"Short": None}:
+            if self.hotkey_ss58 is not None:
+                raise BittensorError("short add_collateral must omit hotkey_ss58")
+            amount = tao_amount(self.amount)
+            source = None
+        elif side == "Long" or side == {"Long": None}:
+            if not self.hotkey_ss58:
+                raise BittensorError("long add_collateral requires hotkey_ss58")
+            amount = alpha_amount(self.amount, self.netuid)
+            source = self.hotkey_ss58
+        else:
+            raise BittensorError(f"unknown lending side on netuid {self.netuid}")
+        return await substrate.compose(
+            Call(
+                "Lending",
+                "add_collateral",
+                {
+                    "netuid": self.netuid,
+                    "amount": amount.rao,
+                    "source_hotkey": source,
+                },
+            )
+        )
+
+    def summary(self) -> str:
+        return f"add collateral to lending position on netuid {self.netuid}"
+
+    def spend(self) -> Spend:
+        # Short spends TAO; long spends alpha (non-TAO → None for fee preview).
+        if isinstance(self.amount, Balance) and self.amount.netuid != 0:
+            return None
+        try:
+            return cast(Balance, tao_amount(self.amount))
+        except Exception:
+            return None
 
 
 def _fmt_outcome_amount(rao: int, netuid: int) -> str:
@@ -1112,6 +1200,22 @@ def lending_outcome_data(events: list, *, op: Optional[str] = None) -> dict[str,
                 "new_expires_at": attrs.get("new_expires_at"),
                 "side": _event_side(attrs),
                 "netuid": attrs.get("netuid"),
+            }
+    if op in (None, "add_loan_collateral"):
+        attrs = _find_lending_event(events, "CollateralAdded")
+        if isinstance(attrs, dict):
+            net = int(attrs.get("netuid") or 0)
+            side = _event_side(attrs)
+            amount_rao = int(attrs.get("amount") or 0)
+            collateral_rao = int(attrs.get("collateral") or 0)
+            unit = 0 if side == "Short" else net
+            return {
+                "amount": _fmt_outcome_amount(amount_rao, unit),
+                "amount_rao": amount_rao,
+                "collateral": _fmt_outcome_amount(collateral_rao, unit),
+                "collateral_rao": collateral_rao,
+                "side": side,
+                "netuid": net,
             }
     if op in (None, "close_loan", "repay_loan"):
         # Partial repay emits Repaid; principal_part == full principal closes and

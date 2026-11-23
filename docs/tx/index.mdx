@@ -59,8 +59,9 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
+| [`add-loan-collateral`](/docs/tx/add-loan-collateral) | coldkey | signed account (pallet role may apply) | Add collateral to an open lending position without borrowing more. |
 | [`close-loan`](/docs/tx/close-loan) | coldkey | signed account (pallet role may apply) | Repay total principal and return remaining collateral on a subnet. |
-| [`open-loan`](/docs/tx/open-loan) | coldkey | signed account (pallet role may apply) | Open or increase a fixed-principal subnet loan at up to 25% LTV. |
+| [`open-loan`](/docs/tx/open-loan) | coldkey | signed account (pallet role may apply) | Open or increase a fixed-principal subnet loan at up to 33% LTV. |
 | [`raise-loan`](/docs/tx/raise-loan) | coldkey | signed account (pallet role may apply) | Atomic raise: escrowed long plus spot sale of unlocked alpha. |
 | [`repay-loan`](/docs/tx/repay-loan) | coldkey | signed account (pallet role may apply) | Partially repay principal on a subnet loan (§4.4). |
 | [`roll-loan`](/docs/tx/roll-loan) | coldkey | signed account (pallet role may apply) | Extend a live loan onto a fresh max_loan_duration clock without changing exposure. |

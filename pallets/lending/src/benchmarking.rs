@@ -291,6 +291,32 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn add_collateral() {
+        // TAO transfer into short escrow (no AMM). Long path locks alpha.
+        let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
+        let netuid = NetUid::from(1u16);
+        open_short_fixture::<T>(&caller, &hotkey, netuid);
+        let before = Positions::<T>::get(&caller, netuid)
+            .expect("fixture position")
+            .collateral;
+        T::Pool::benchmark_mint_tao(&caller, 1_000_000_000_000);
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(caller.clone()),
+            netuid,
+            1_000_000_000u64,
+            None::<T::AccountId>,
+        );
+        let after = Positions::<T>::get(&caller, netuid).expect("add_collateral keeps position");
+        assert_eq!(
+            after.collateral,
+            before.saturating_add(1_000_000_000),
+            "add_collateral must raise position.collateral"
+        );
+    }
+
+    #[benchmark]
     fn set_enabled() {
         #[extrinsic_call]
         _(RawOrigin::Root, true);
