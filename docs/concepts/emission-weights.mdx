@@ -191,13 +191,18 @@ the subnet sells the alpha down to 2% below the higher of its fast moving and
 spot prices, buys the target's alpha with all of the TAO up to 2% above the
 lower of the target's two, and burns it. The gamma, valued as a
 [mint](/docs/guides/gamma#minting) values it, is credited to the subnet owner's
-deposit at the subnet owner hotkey on the target, which opens with a daily
-spend cap of 0 until its coldkey sets one, and `GammaEmissionMinted`
-reports it. Alpha the pools cannot take in one conversion waits for the next
-epoch, and so does all of it while a price is past its bound, the subnet's
-subtoken is disabled, gamma cannot be minted on the target, the TAO/USD price
-is stale, the gamma would be below 0.1 or the subnet owner coldkey does not own
-the owner hotkey.
+deposit at the subnet owner hotkey on the target, and `GammaEmissionMinted`
+reports it. From runtime 495, a deposit that the conversion opens has no daily
+spend cap, so the owner hotkey can spend the gamma at once. An existing deposit
+keeps its cap: one that opened with a cap of 0 before runtime 495, or that its
+coldkey paused, stays paused until the coldkey
+[sets or removes the cap](/docs/tx/set-gamma-deposit-daily-spend-cap).
+
+Alpha the pools cannot take in one conversion waits for the next epoch, and so
+does all of it while a price is past its bound, the subnet's subtoken is
+disabled, gamma cannot be minted on the target, the TAO/USD price is stale, the
+gamma would be below 0.1 or the subnet owner coldkey does not own the owner
+hotkey.
 
 A target that leaves the whitelist or is dissolved is removed from every
 split: its share is added to the miner slot and its unconverted alpha to the
