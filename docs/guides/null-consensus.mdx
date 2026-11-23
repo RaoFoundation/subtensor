@@ -206,11 +206,30 @@ owner rewards increase the pool balance without rewriting ownership shares.
 Shared pools and first deposits keep the ordinary deposit accounting, and
 collateral capture and release still apply. The shared interface still uses ordered account maps, so this does not
 claim that every operation in the surrounding epoch pipeline is strictly linear.
-Delegation processing also scales with incoming parent edges, whose count is
-currently unbounded; a population ceiling alone does not bound that workload.
+Delegation processing also scales with incoming parent edges: up to 100 for
+each UID, and more where a parent list is older than that limit. A population
+ceiling alone does not bound that workload.
 When a Null epoch is due, the scheduler runs it first, as the only epoch in
 that block. Remaining due subnets are deferred; blocks with only Yuma epochs
 retain the configured epoch cap. Payouts settle atomically in the epoch's block.
+
+From runtime 495, a Null epoch reads the state that all mechanisms share once
+for the subnet: hotkeys, registration blocks, stake and the elected validator.
+Each mechanism then adds only its own work: its last-update blocks, the elected
+validator's weight row and its pending commits. Storage, events and
+payouts are the same as when each mechanism ran a complete epoch. In a local
+measurement with 16 mechanisms and 2,500 UIDs, the epoch took about one
+fourteenth of the earlier time.
+
+The block hook adds a weight for each Null epoch that runs, on top of its fixed
+weight. That weight depends on the mechanism count and the UID count. Until it
+is measured on reference hardware, it reserves one more fixed hook envelope for
+each Null epoch.
+
+One risk is known and accepted for runtime 495. The stake pass reads the stake
+of every parent of every UID, and the weight does not grow with the number of
+parents. An epoch on a subnet where each UID has hundreds of parents can take
+longer than its weight states. Such subnets are not expected.
 
 ## Solidity callers
 

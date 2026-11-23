@@ -117,6 +117,10 @@ On subnets running multiple [mechanisms](/docs/guides/subnets#mechanisms), pass
 intent = bt.SetWeights(netuid=1, mechid=1, weights={0: 0.4, 3: 0.6})
 ```
 
+On a Null subnet a weight row holds at most
+`max(1, floor(2500 / mechanism_count))` entries. See
+[Run multiple mechanisms](/docs/guides/mechanisms#set-weights-on-a-mechanism).
+
 On the CLI, the dedicated `btcli weights` group and the generated
 `btcli tx set-weights` submit the same operation — the group just adds
 convenience (comma-separated lists, weight-specific help):

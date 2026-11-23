@@ -136,7 +136,10 @@ the before/after vector, root's share now and after (its baseline), and what
 alpha validators keep — without signing; add `--json` for the same as a
 machine-readable record.
 
-Owners may change the vector **once per week** per subnet (50,400 blocks).
+Owners may change the vector once per `SubnetEmissionWeightsRateLimit` blocks
+per subnet. Since runtime 494 this is a storage value with a default of **360
+blocks** (one default tempo); it was a constant of 50,400 blocks (one week)
+before. Root can change it, and a value of 0 removes the wait.
 The limit is keyed by subnet, not by owner coldkey, so handing the subnet to
 a new owner does not reset it; the first change on a subnet is never
 rate-limited, root is exempt, and dissolving a subnet clears the key so a

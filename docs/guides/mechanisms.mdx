@@ -1,0 +1,349 @@
+---
+title: Run multiple mechanisms
+description: Step-by-step guide to run several mechanisms on one subnet. It covers the limits, the mechanism count, the emission split, weight rows and their cap, the commit pipelines, channels and weight delegates.
+---
+
+A **mechanism** is one scoring track inside a subnet. Each mechanism has its own
+weights and its own share of the subnet's emission. Miners and validators keep
+one UID for all mechanisms; they do not register again.
+
+The chain stores the state of mechanism `mechid` under the index
+`netuid + mechid × 4096`. Mechanism 0 is the default, and for most subnets the
+only one.
+
+This guide uses these words:
+
+- **Owner**: the coldkey that owns the subnet.
+- **Root**: the chain's sudo origin. Root calls are governance actions.
+- **Yuma** and **Null**: the two epoch modes of a subnet. See
+  [Null consensus](/docs/guides/null-consensus).
+- **Weight row**: the list of `(UID, weight)` pairs that one validator sets on
+  one mechanism.
+
+## Limits
+
+| Rule | Yuma | Null |
+| --- | --- | --- |
+| Mechanisms on a subnet | 1 to `MaxMechanismCount` | 1 to `MaxMechanismCount` |
+| `MaxMechanismCount` | 2 by default; root can raise it to 16 | the same value |
+| UID capacity | `max_allowed_uids × mechanism_count ≤ 256` | `max_allowed_uids ≤ 2,500` for any count (runtime 495) |
+| Entries in one weight row | at most the registered UID count | `max(1, floor(2500 / mechanism_count))` (runtime 495) |
+| Size of one timelocked commit | 5,000 bytes | `floor(32 KiB / mechanism_count)` |
+| Change of the count | owner: once per 7,200 blocks per subnet | the same, and no weight commit may be pending |
+| Change of the emission split | owner: once per 7,200 blocks per subnet | the same |
+
+The Null row cap for some counts:
+
+| Mechanisms | Entries in one new Null weight row |
+| ---: | ---: |
+| 1 | 2,500 |
+| 2 | 1,250 |
+| 3 | 833 |
+| 4 | 625 |
+| 8 | 312 |
+| 16 | 156 |
+
+Two more rules apply to the owner calls in this guide:
+
+- **Admin freeze window.** The chain refuses owner changes in the last blocks
+  before the subnet's epoch (`AdminFreezeWindow`, 10 blocks by default), and
+  while an epoch that the owner triggered is pending. The error is
+  `AdminActionProhibitedDuringWeightsWindow`.
+- **Rate limits.** The count and the split each have their own limit of 7,200
+  blocks (about one day at 12 seconds per block). The first change on a subnet
+  is always allowed, and root is exempt. The error is `TxRateLimitExceeded`.
+
+## Step 1. Read the current state
+
+```bash
+btcli hparams mechanisms count --netuid 1
+btcli hparams mechanisms emissions --netuid 1
+btcli hparams get --netuid 1 --name max_allowed_uids
+btcli query epoch-status --netuid 1
+```
+
+`epoch-status` shows how many blocks remain before the next epoch. Send owner
+calls when more blocks remain than the freeze window.
+
+```python
+import bittensor as bt
+
+async with bt.Client(network="finney") as client:
+    count = await client.read("mechanism_count", netuid=1)
+    split = await client.read("mechanism_emission_split", netuid=1)
+    limit = await client.query(bt.storage.SubtensorModule.MaxMechanismCount)
+```
+
+An empty split means that no split is set: the mechanisms share emission
+equally.
+
+## Step 2. Root: raise the global limit, if necessary
+
+`MaxMechanismCount` is 2 unless root changed it. A count above the limit fails
+with `InvalidValue`. Only root can raise the limit, to 16 at most:
+
+```bash
+btcli call AdminUtils.sudo_set_max_mechanism_count \
+  --args '{"max_mechanism_count": 16}' --sudo -w sudo_key
+```
+
+```python
+inner = await client.compose(
+    bt.calls.AdminUtils.sudo_set_max_mechanism_count(max_mechanism_count=16)
+)
+result = await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)
+```
+
+This call is a separate governance decision. A runtime upgrade does not make it.
+
+## Step 3. Owner: prepare the subnet
+
+Check these points before you change the count:
+
+1. **UID capacity.**
+   - Yuma: `max_allowed_uids × new_count` must be at most 256. Lower
+     `max_allowed_uids` first. The registered UIDs must fit the lower value;
+     see [trimming](/docs/guides/subnets).
+   - Null: no change is necessary. The capacity does not depend on the count.
+2. **Pending weight commits (Null only).** The count cannot change while a
+   timelocked commit or a legacy hash commit is pending on any mechanism. List
+   the timelocked commits of a mechanism:
+
+   ```bash
+   btcli query timelocked-weight-commits --netuid 1 --mechid 0
+   ```
+
+   If commits are pending, wait until the chain reveals them or they expire.
+   The owner can stop new commits with
+   `btcli hparams set --netuid 1 --name commit_reveal_weights_enabled --value false`.
+3. **Cleanup of an earlier reduction.** A reduction queues cleanup of
+   [channel commitments](/docs/guides/channel-commitments) and weight delegates
+   of the removed mechanisms. The count cannot change again until that cleanup
+   is complete.
+4. **Row length (Null only).** A higher count lowers the row cap. Stored rows
+   stay as they are, but each new row must fit the new cap.
+
+## Step 4. Owner: set the mechanism count
+
+```bash
+btcli hparams mechanisms count --netuid 1 --value 4 -w subnet_owner
+```
+
+The generated command does the same and can show a preview:
+
+```bash
+btcli tx set-mechanism-count --netuid 1 --mechanism-count 4 --dry-run
+btcli tx set-mechanism-count --netuid 1 --mechanism-count 4 -w subnet_owner
+```
+
+```python
+result = await client.execute(
+    bt.SetMechanismCount(netuid=1, mechanism_count=4), owner_wallet
+)
+```
+
+The raw call is `AdminUtils.sudo_set_mechanism_count(netuid, mechanism_count)`.
+The owner signs it directly; it is not a sudo call.
+
+What the change does:
+
+- **More mechanisms.** The new mechanisms start without weights.
+- **Fewer mechanisms.** The chain deletes the state of the removed mechanisms:
+  weights, incentive, last-update blocks, bonds and pending commits. It then
+  removes their weight delegates and channel commitments in bounded steps. The
+  count cannot change again until that work is complete.
+- **Any change** resets the emission split to an equal split.
+
+## Step 5. Owner: set the emission split
+
+The split is a list of 16-bit shares, one for each mechanism in order. The
+shares must add up to exactly 65,535. The SDK has no intent for this call, so
+use the raw call:
+
+```bash
+# 40%, 30%, 20% and 10% for mechanisms 0 to 3
+btcli call AdminUtils.sudo_set_mechanism_emission_split \
+  --args '{"netuid": 1, "maybe_split": [26214, 19661, 13107, 6553]}' \
+  -w subnet_owner
+
+# back to an equal split
+btcli call AdminUtils.sudo_set_mechanism_emission_split \
+  --args '{"netuid": 1, "maybe_split": null}' -w subnet_owner
+```
+
+```python
+call = bt.calls.AdminUtils.sudo_set_mechanism_emission_split(
+    netuid=1, maybe_split=[26214, 19661, 13107, 6553]
+)
+result = await client.submit_call(call, owner_wallet)
+```
+
+Rules:
+
+- The list has exactly one share for each mechanism. A wrong length or a sum
+  other than 65,535 fails with `InvalidValue`.
+- A mechanism receives `floor(emission × share / 65535)`. With an equal split
+  it receives `floor(emission / mechanism_count)`. Mechanism 0 also receives
+  the units that rounding leaves.
+- A change of the count removes the split. Set the split again after each
+  change of the count.
+
+## Step 6. Check the result
+
+```bash
+btcli hparams mechanisms count --netuid 1
+btcli hparams mechanisms emissions --netuid 1
+btcli query mechanism-emission-split --netuid 1 --json
+```
+
+## Set weights on a mechanism
+
+A validator names the mechanism with `--mechid`, or `mechid=` in Python. The
+default is 0.
+
+```bash
+btcli misc weights set --netuid 1 --mechid 2 \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 -w my_coldkey -H my_hotkey
+```
+
+```python
+intent = bt.SetWeights(netuid=1, mechid=2, weights={0: 0.5, 1: 0.3, 2: 0.2})
+result = await client.execute(intent, wallet)
+```
+
+`btcli weights` is a hidden alias of `btcli misc weights`.
+
+On a Null subnet:
+
+- Only the validator with the permit sets weights. See
+  [Null consensus](/docs/guides/null-consensus#rewards).
+- A row has at most `max(1, floor(2500 / mechanism_count))` entries. The chain
+  refuses a longer row with
+  [`TooManyWeightsForNullMechanism`](/docs/errors/chain/TooManyWeightsForNullMechanism).
+  From `bittensor` 11.3.6 the SDK refuses such a row before it signs or
+  encrypts it.
+- A row that is not a single self-weight has at least
+  `min(MinAllowedWeights, row cap, registered UIDs)` entries.
+- `--raw-u16` keeps exact integer weights, and `--weights-file` reads a JSON
+  object that maps each UID to its weight:
+
+  ```bash
+  btcli misc weights set --netuid 1 --mechid 2 --raw-u16 --weights-file weights.json
+  ```
+
+On a Yuma subnet the rules do not change with the mechanism: each mechanism runs
+Yuma Consensus on its own weights.
+
+## Commit pipelines
+
+Each mechanism has its own pipelines. The table shows the call that reaches the
+chain.
+
+| Pipeline | Command | Intent | Chain call |
+| --- | --- | --- | --- |
+| Direct weights | `btcli misc weights set` when commit-reveal is off | `SetWeights` | `set_mechanism_weights` |
+| Timelocked commit | `btcli misc weights set` when commit-reveal is on, or `btcli misc weights commit` | `SetWeights`, `CommitWeights` | `commit_timelocked_mechanism_weights` |
+| Legacy hash commit | `btcli misc weights hash` | `CommitWeightHash` | `commit_mechanism_weights` |
+| Legacy reveal | `btcli misc weights reveal` | `RevealWeights` | `reveal_weights` on mechanism 0, `reveal_mechanism_weights` on the others |
+| Channel commitment | `btcli commitments commit` | `SetChannelCommitment` | `Commitments.set_commitment_to` |
+
+**Direct weights.** The row applies in the same block.
+
+**Timelocked commit.** The SDK encrypts the row for a future drand round. The
+chain decrypts and applies it at that round. No reveal call is necessary.
+
+```bash
+btcli misc weights commit --netuid 1 --mechid 2 \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 -w my_coldkey -H my_hotkey
+btcli query timelocked-weight-commits --netuid 1 --mechid 2
+```
+
+On a Null subnet, one ciphertext has at most `floor(32 KiB / mechanism_count)`
+bytes. All mechanisms of the subnet share one queue for each epoch: 64 commits
+and 64 KiB. A hotkey has one pending row for each mechanism, and a new commit
+replaces it. The chain cannot read the row length of a ciphertext. It checks the
+length at the reveal and skips a row above the cap.
+
+**Legacy hash commit and reveal.** The validator commits a hash and reveals the
+same UIDs, weights, salt and version key later. The reveal is valid in one
+epoch only.
+
+```bash
+btcli misc weights hash --netuid 1 --mechid 2 --hash 0xCOMMIT_HASH \
+  -w my_coldkey -H my_hotkey
+btcli misc weights reveal --netuid 1 --mechid 2 \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 --salt 1,2,3 -w my_coldkey -H my_hotkey
+```
+
+**Channel commitments.** A channel commitment is not a weight. It is a payload
+that a coldkey publishes for its hotkey at one `(netuid, mechid, channel)`. The
+owner can ask for a burn on each channel. The full guide is
+[Channel commitments](/docs/guides/channel-commitments).
+
+```bash
+btcli commitments price --netuid 1 --mechid 2 --channel 7
+btcli commitments commit --netuid 1 --mechid 2 --channel 7 \
+  --data "model endpoint and metadata" --max-burn 0.25 -w my_coldkey -H my_hotkey
+btcli commitments show --netuid 1 --mechid 2 --channel 7 --hotkey HOTKEY
+```
+
+## Delegate weights on one mechanism
+
+A validator hotkey can let one other account send its weights on one mechanism.
+The grant does not move stake or ownership, and it does not apply to another
+mechanism.
+
+```bash
+btcli misc weights delegate set --netuid 1 --mechid 2 --delegate OPERATOR_HOTKEY \
+  -w validator_coldkey -H validator_hotkey
+btcli misc weights delegate show --netuid 1 --mechid 2 --hotkey VALIDATOR_HOTKEY
+btcli misc weights delegate revoke --netuid 1 --mechid 2 \
+  -w validator_coldkey -H validator_hotkey
+```
+
+The delegate signs with its own key and names the validator with `--for-hotkey`:
+
+```bash
+btcli misc weights set --netuid 1 --mechid 2 --for-hotkey VALIDATOR_HOTKEY \
+  --uids 0,1,2 --weights 0.5,0.3,0.2 -w operator_coldkey -H operator_hotkey
+```
+
+```python
+await client.execute(
+    bt.SetMechWeightDelegate(netuid=1, mechid=2, delegate=operator_hotkey),
+    validator_wallet,
+)
+await client.execute(
+    bt.SetWeights(
+        netuid=1, mechid=2, weights={0: 0.5, 1: 0.3, 2: 0.2},
+        for_hotkey=validator_hotkey,
+    ),
+    operator_wallet,
+)
+```
+
+`--for-hotkey` also works with `commit`, `hash` and `reveal`. The validator's
+registration, stake, permit, rate limit and row rules still apply. The delegate
+pays the transaction fee. More details are in
+[Channel commitments and weight delegates](/docs/guides/channel-commitments#delegate-weights-for-one-mechanism).
+
+## Lower the count or return to Yuma
+
+- A lower count deletes the state of the removed mechanisms (step 4). Tell
+  validators before you do it.
+- A return from Null to Yuma needs a registered population that fits the Yuma
+  limit, `floor(256 / mechanism_count)`. Use the pruning workflow in
+  [Null consensus](/docs/guides/null-consensus#owner-configuration).
+
+## Errors
+
+| Error | Cause | What to do |
+| --- | --- | --- |
+| [`InvalidValue`](/docs/errors/chain/InvalidValue) | Count of 0 or above `MaxMechanismCount`; pending commits on a Null subnet; cleanup of an earlier reduction not complete; split with a wrong length or sum | Read the current state (step 1) and correct the cause |
+| [`TooManyUIDsPerMechanism`](/docs/errors/chain/TooManyUIDsPerMechanism) | The UID capacity does not fit the mode's limit | Yuma: lower `max_allowed_uids` or the count. Null: keep `max_allowed_uids` at 2,500 or below |
+| [`TooManyWeightsForNullMechanism`](/docs/errors/chain/TooManyWeightsForNullMechanism) | A Null weight row is longer than the cap | Send at most `max(1, floor(2500 / mechanism_count))` entries |
+| [`TxRateLimitExceeded`](/docs/errors/chain/TxRateLimitExceeded) | The owner changed the count or the split less than 7,200 blocks ago | Wait, or ask root |
+| [`AdminActionProhibitedDuringWeightsWindow`](/docs/errors/chain/AdminActionProhibitedDuringWeightsWindow) | The call arrived in the admin freeze window | Send it after the epoch |
+| [`MechanismDoesNotExist`](/docs/errors/chain/MechanismDoesNotExist) | The subnet does not exist, or the `mechid` is not below the count | Check the netuid and the count |
+| [`CommitPayloadTooLarge`](/docs/errors/chain/CommitPayloadTooLarge) | A timelocked commit is above 5,000 bytes on Yuma, or above `floor(32 KiB / mechanism_count)` on Null | Send a shorter row |
+| [`CommitQueueFull`](/docs/errors/chain/CommitQueueFull) | The shared Null commit queue of the epoch is full | Wait for the next epoch; the leading validator can still commit |

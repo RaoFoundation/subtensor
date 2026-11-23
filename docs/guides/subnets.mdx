@@ -230,7 +230,9 @@ A subnet can run multiple scoring mechanisms, each with its own weights.
 validators target one via the `mechid` field on
 [`set-weights`](/docs/tx/set-weights). Read the current count and split with
 [`mechanism-count`](/docs/query/mechanism-count) and
-[`mechanism-emission-split`](/docs/query/mechanism-emission-split).
+[`mechanism-emission-split`](/docs/query/mechanism-emission-split). The
+step-by-step procedure, with the emission split, the commit pipelines and weight
+delegates, is in [Run multiple mechanisms](/docs/guides/mechanisms).
 
 - The default global limit is **2** mechanisms. Root may raise it to the hard
   maximum of **16**, then configure a subnet's mechanism count accordingly.
@@ -254,7 +256,9 @@ validators target one via the `mechid` field on
 - The emission split is a vector of u16 weights summing to 65,535 (e.g.
   `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
   mechanism count resets the split to even.
-- Count changes are rate-limited to once per 7,200 blocks (~24 hours).
+- Count changes are rate-limited to once per 7,200 blocks (~24 hours) for the
+  owner. Split changes have their own limit of 7,200 blocks. The chain refuses
+  both in the admin freeze window before an epoch.
 
 ## Deregistration
 

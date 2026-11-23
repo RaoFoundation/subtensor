@@ -36,7 +36,7 @@ btcli subnets emission show --netuid 12
 btcli subnets emission set-value --netuid 12 --slot owner --value 0.10
 ```
 
-Settable by the subnet owner (once per week per subnet) or root through
+Settable by the subnet owner (once per 360 blocks per subnet by default) or root through
 [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); not
 available on the root subnet. `set-value` rescales the validator and miner
 slots proportionally to fill the rest.
