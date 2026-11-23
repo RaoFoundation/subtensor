@@ -870,9 +870,8 @@ fn test_lift_params() -> LiftParams {
     }
 }
 
-/// Serializes tests: `EXPIRY_ATTEMPTS_LEFT` is process-global scratch handed
-/// from `on_initialize` to `on_idle`, so concurrent tests would otherwise
-/// consume each other's published budget.
+/// Serializes tests that drive hooks / expiry drains so concurrent cases do
+/// not share the same externalities lifecycle accidentally.
 static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 struct SerialExt {
@@ -890,7 +889,6 @@ fn new_test_ext() -> SerialExt {
     let serial = TEST_SERIAL
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    EXPIRY_ATTEMPTS_LEFT.store(EXPIRY_ATTEMPTS_UNSET, core::sync::atomic::Ordering::Relaxed);
     SerialExt {
         ext: new_test_ext_inner(),
         _serial: serial,

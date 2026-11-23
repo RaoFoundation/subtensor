@@ -22,16 +22,6 @@ pub mod migrations;
 mod tests;
 pub mod weights;
 
-use core::sync::atomic::{AtomicU32, Ordering};
-
-/// Sentinel: `on_initialize` has not yet published this block's leftover.
-const EXPIRY_ATTEMPTS_UNSET: u32 = u32::MAX;
-
-/// Block-local leftover expiry settle attempts after `on_initialize`.
-/// Handed to `on_idle` so idle cannot exceed the advertised per-block cap
-/// (skeptic fid:da997768). Not consensus storage — scratch within one block.
-static EXPIRY_ATTEMPTS_LEFT: AtomicU32 = AtomicU32::new(EXPIRY_ATTEMPTS_UNSET);
-
 /// Bound on `ActiveNets` walked per block. Matches `GLOBAL_MAX_SUBNET_COUNT` so
 /// every seeded subnet can age its reference / `G_ema` without exceeding the
 /// production block weight budget (`update_reference × 4096` ≪ block limit).
@@ -1712,6 +1702,14 @@ pub mod pallet {
     pub type ExpiryRetryPending<T: Config> = StorageValue<_, u32, ValueQuery>;
     #[pallet::storage]
     pub type ExpiryRetryCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
+    /// Leftover expiry settle attempts after `on_initialize`, consumed by
+    /// `on_idle`. Must be consensus storage: block authoring runs
+    /// `on_initialize` and `on_idle` in separate wasm calls (memory resets),
+    /// while import runs both in one call. A process `static` handoff made
+    /// authors and importers drain different budgets → divergent state roots.
+    /// Cleared in `on_finalize` if idle did not take it.
+    #[pallet::storage]
+    pub type ExpiryAttemptsLeft<T: Config> = StorageValue<_, u32, OptionQuery>;
     /// Last deferral for a position: `(kind, retry_at, reason)` where kind is
     /// `0` = interest charge, `1` = expiry settlement (E2E N13). Cleared when
     /// the retry succeeds or the position closes.
@@ -2180,8 +2178,9 @@ pub mod pallet {
                 retry_share.saturating_add(after_sched),
             );
             let leftover = Self::collect_expiry(now, &mut meter, after_retry);
-            // Hand unused attempt budget to on_idle (never u32::MAX there).
-            EXPIRY_ATTEMPTS_LEFT.store(leftover, Ordering::Relaxed);
+            // Hand unused attempt budget to on_idle via consensus storage
+            // (never a raw u32::MAX drain there — skeptic fid:da997768).
+            ExpiryAttemptsLeft::<T>::put(leftover);
             let n = u64::from(ActiveNetCount::<T>::get()).clamp(1, MAX_ACTIVE_NET_UPDATES);
             meter
                 .consumed()
@@ -2190,6 +2189,8 @@ pub mod pallet {
         }
 
         fn on_finalize(now: BlockNumberFor<T>) {
+            // Drop any unread handoff so it cannot leak into the next block.
+            ExpiryAttemptsLeft::<T>::kill();
             let params = LiftParamsStore::<T>::get();
             // Seeded nets only — registration / migration / warm_reference enroll.
             let mut updated = 0u64;
@@ -2283,12 +2284,8 @@ pub mod pallet {
             // budget is the leftover from on_initialize — never a raw u32::MAX
             // drain (skeptic fid:da997768). If on_initialize did not publish
             // (unit tests that call on_idle alone), fall back to the live cap.
-            let published = EXPIRY_ATTEMPTS_LEFT.swap(EXPIRY_ATTEMPTS_UNSET, Ordering::Relaxed);
-            let left = if published == EXPIRY_ATTEMPTS_UNSET {
-                Self::max_expiry_settlements_per_block()
-            } else {
-                published
-            };
+            let left = ExpiryAttemptsLeft::<T>::take()
+                .unwrap_or_else(Self::max_expiry_settlements_per_block);
             if left > 0 {
                 let retry_share = left.saturating_add(1) / 2;
                 let sched_share = left.saturating_sub(retry_share);

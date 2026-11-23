@@ -281,7 +281,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
     // Above main tip (494 / #3352) so a real upgrade from main never rolls version back.
-    // Lending launch economics + short-book pool-alpha share (post-495 remmerge).
+    // Lending v5.14: util short APR + short/long book pool shares (post-495 remmerge).
     spec_version: 496,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
