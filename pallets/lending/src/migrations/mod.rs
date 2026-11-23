@@ -5,6 +5,7 @@ mod migrate_lift_book_short_sold;
 mod migrate_lift_params_economic;
 mod migrate_lift_params_ema_band;
 mod migrate_lift_params_expiry_slippage;
+mod migrate_lift_params_forced_min_buyback;
 mod migrate_lift_params_launch_defaults;
 mod migrate_lift_params_thin_blend;
 mod migrate_position_max_duration;
@@ -39,6 +40,10 @@ pub use migrate_lift_params_ema_band::{
 #[allow(unused_imports)]
 pub use migrate_lift_params_expiry_slippage::{
     Migration as LiftParamsExpirySlippageMigration, migrate_lift_params_expiry_slippage,
+};
+#[allow(unused_imports)]
+pub use migrate_lift_params_forced_min_buyback::{
+    Migration as LiftParamsForcedMinBuybackMigration, migrate_lift_params_forced_min_buyback,
 };
 #[allow(unused_imports)]
 pub use migrate_lift_params_launch_defaults::{

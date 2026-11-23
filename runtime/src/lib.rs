@@ -1931,6 +1931,8 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsThinBlendMigration<Runtime>,
     // Launch defaults: short APR 20%, LTV 33%, Cap_short ≈ 2× Cap_long.
     pallet_lending::migrations::LiftParamsLaunchDefaultsMigration<Runtime>,
+    // Append forced_min_buyback_bps (default 100 = 1% of remaining principal).
+    pallet_lending::migrations::LiftParamsForcedMinBuybackMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

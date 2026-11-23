@@ -4721,7 +4721,11 @@ fn queue_underwater_short_force_forfeit(owner: &Account, force_at: u64) {
 fn force_forfeit_notes_impact_and_paces_second_underwater_short() {
     new_test_ext().execute_with(|| {
         LiftParamsStore::<Test>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100; // 1% — one pumped forfeit fills it
+            // Spot-relative impact: fair ≈ spot·α, so only AMM curve impact
+            // counts. Tight band + 100% min floor makes the first forfeit's
+            // full buyback fill the budget and pace the second.
+            p.expiry_max_slippage_bps = 1;
+            p.forced_min_buyback_bps = 10_000;
             p.max_expiry_settlements_per_block = 16;
         });
         let owner_a = account(1);
@@ -4732,7 +4736,7 @@ fn force_forfeit_notes_impact_and_paces_second_underwater_short() {
         ExpiryRetryPending::<Test>::put(2);
         NextExpiryRetry::<Test>::put(force_at);
         ExpiryRetryCursor::<Test>::kill();
-        // Pump spot so buyback is far over EMA fair (impact >> 1%).
+        // Thin the pool so a full buyback moves spot hard vs pre-trade fair.
         write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 80 / 100);
 
         System::set_block_number(force_at);
@@ -4782,7 +4786,10 @@ fn force_forfeit_notes_impact_and_paces_second_underwater_short() {
 fn force_forfeit_then_force_settle_paced_by_impact() {
     new_test_ext().execute_with(|| {
         LiftParamsStore::<Test>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100; // 1%
+            // Spot-relative: tight band + full-principal min floor so the
+            // forfeit buyback alone saturates ProtocolForcedImpact.
+            p.expiry_max_slippage_bps = 1;
+            p.forced_min_buyback_bps = 10_000;
             p.max_expiry_settlements_per_block = 16;
         });
         let forfeit_owner = account(1);
@@ -4877,9 +4884,10 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
         );
         LiftParamsStore::<Test>::mutate(|p| {
             // Wide open band so the short can open on a shallow pool; settle
-            // uses a tight expiry_max_slippage_bps for the progress cap.
+            // uses a tight expiry_max_slippage_bps + 1% forced_min floor.
             p.ema_band_bps = 10_000;
-            p.expiry_max_slippage_bps = 100; // 1% of 10k α = 100 α / block
+            p.expiry_max_slippage_bps = 100;
+            p.forced_min_buyback_bps = 100; // 1% of remaining principal / block
             p.max_expiry_settlements_per_block = 16;
             p.minimum_loan_value = 1;
         });
@@ -4902,7 +4910,7 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
             .unwrap_or(0);
         assert!(
             start_principal > 200_000_000_000,
-            "need principal ≫ progress cap (got {start_principal})"
+            "need principal ≫ min progress slice (got {start_principal})"
         );
         Positions::<Test>::mutate(&owner, netuid(), |p| {
             if let Some(p) = p {
@@ -4925,7 +4933,7 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
         ExpiryRetryPending::<Test>::put(1);
         NextExpiryRetry::<Test>::put(force_at);
         ExpiryRetryCursor::<Test>::kill();
-        // Pump spot so the EMA ratio admits no size (force-market progress path).
+        // Pump spot so AMM impact vs spot still paces slices.
         write(&key(b"test/pool_alpha", netuid()), pool_alpha() * 75 / 100);
 
         let mut block = force_at;
@@ -4933,8 +4941,8 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
         let mut saw_forfeited = false;
         let mut last_principal = start_principal;
         let mut blocks_used = 0u32;
-        // Bound: progress every block until cleared.
-        for _ in 0..64 {
+        // Bound: progress every block until cleared (1% floor → ≤ ~100 blocks).
+        for _ in 0..128 {
             System::set_block_number(block);
             // Fresh impact slot each block.
             ProtocolForcedImpact::<Test>::remove(netuid());
@@ -4950,9 +4958,6 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
                 saw_forfeited = true;
             }
 
-            // Force-market progress slices may note impact above the EMA
-            // ratio when spot is already far outside the band; the depth
-            // cap (band × pool alpha) is what bounds the per-block size.
             if let Some((at, _diff, fair)) = ProtocolForcedImpact::<Test>::get(netuid()) {
                 assert_eq!(at, block);
                 assert!(fair > 0, "progress slice must note nonzero fair notional");
@@ -4967,15 +4972,16 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
                         p.principal
                     );
                     assert!(p.principal > 0, "zero principal must remove the position");
-                    // Depth-limited progress: one block cannot clear more than
-                    // band × pool alpha (plus a small rounding allowance).
-                    let depth = pool_alpha();
-                    let max_slice = (depth.saturating_mul(100) / 10_000).max(1);
                     let reduced = last_principal.saturating_sub(p.principal);
-                    assert!(
-                        reduced <= max_slice.saturating_add(max_slice / 50 + 1),
-                        "slice {reduced} exceeds depth cap ~{max_slice}"
-                    );
+                    // Floor: at least forced_min_buyback_bps of prior principal
+                    // (final slices may be smaller when remainder < floor).
+                    let min_floor = (last_principal.saturating_mul(100) / 10_000).max(1);
+                    if p.principal + min_floor <= last_principal {
+                        assert!(
+                            reduced >= min_floor,
+                            "slice {reduced} below forced_min floor ~{min_floor}"
+                        );
+                    }
                     last_principal = p.principal;
                     saw_partial = true;
                     assert!(
@@ -5003,6 +5009,107 @@ fn large_forced_buyback_unwinds_across_blocks_under_impact_cap() {
         assert!(saw_forfeited, "terminal Forfeited must fire on the final slice");
         let book = Lifts::<Test>::get(netuid());
         assert_eq!(book.short_sold_alpha, 0, "short sold alpha must clear");
+    });
+}
+
+/// Spot held well above EMA: EMA-relative impact would freeze every slice.
+/// Spot-relative ProtocolForcedImpact + forced_min_buyback_bps must still
+/// fully unwind within a bounded number of blocks.
+#[test]
+fn forced_buyback_unwinds_when_spot_held_above_ema() {
+    new_test_ext().execute_with(|| {
+        set_pool(10_000_000_000_000, 10_000_000_000_000);
+        // EMA stuck at a low price while spot trades much higher.
+        References::<Test>::insert(
+            netuid(),
+            LendingReference {
+                price: U64F64::from_num(1u64) / U64F64::from_num(10u64), // 0.1
+                last_updated: 1u64,
+                valid_after: 1u64,
+            },
+        );
+        // Spot ≈ 1.0 (tao/alpha) — 10× EMA.
+        assert!(
+            MockPool::price()
+                > References::<Test>::get(netuid()).unwrap().price * U64F64::from_num(5u64)
+        );
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.ema_band_bps = 10_000; // allow open despite EMA gap
+            p.expiry_max_slippage_bps = 200;
+            p.forced_min_buyback_bps = 500; // 5% / block → ≤ 20 blocks
+            p.max_expiry_settlements_per_block = 16;
+            p.minimum_loan_value = 1;
+        });
+        let owner = account(1);
+        let force_at = 10_000u64;
+        mint_tao(&owner, 50_000_000_000_000);
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner.clone()),
+            netuid(),
+            Side::Short,
+            2_000_000_000_000,
+            None,
+            1,
+            1,
+            0,
+            deadline(),
+        ));
+        let start_principal = Positions::<Test>::get(&owner, netuid())
+            .map(|p| p.principal)
+            .unwrap_or(0);
+        assert!(start_principal > 0);
+        Positions::<Test>::mutate(&owner, netuid(), |p| {
+            if let Some(p) = p {
+                p.collateral = 0;
+                p.proceeds = p.principal / 2;
+                p.annual_interest = 0;
+                p.last_accrued = force_at;
+                p.expiry_due = force_at;
+            }
+        });
+        if let Some(pos) = Positions::<Test>::get(&owner, netuid()) {
+            let _ = Expiry::<Test>::take(pos.expires_at, (&owner, netuid()));
+        }
+        BandDeferralSince::<Test>::insert(
+            &owner,
+            netuid(),
+            force_at.saturating_sub(TestMaxSettlementDeferral::get()),
+        );
+        ExpiryRetry::<Test>::insert(force_at, (&owner, netuid()), ());
+        ExpiryRetryPending::<Test>::put(1);
+        NextExpiryRetry::<Test>::put(force_at);
+        ExpiryRetryCursor::<Test>::kill();
+
+        let mut block = force_at;
+        let mut last_principal = start_principal;
+        let mut blocks_used = 0u32;
+        for _ in 0..32 {
+            System::set_block_number(block);
+            ProtocolForcedImpact::<Test>::remove(netuid());
+            let _ = <Lending as Hooks<_>>::on_idle(block, Weight::MAX);
+            blocks_used = blocks_used.saturating_add(1);
+            match Positions::<Test>::get(&owner, netuid()) {
+                None => break,
+                Some(p) => {
+                    assert!(
+                        p.principal < last_principal,
+                        "spot≫EMA must not freeze unwind ({last_principal} → {})",
+                        p.principal
+                    );
+                    last_principal = p.principal;
+                    block = p.expiry_due.max(block.saturating_add(1));
+                }
+            }
+        }
+        assert!(
+            !Positions::<Test>::contains_key(&owner, netuid()),
+            "must fully unwind under spot≫EMA within {blocks_used} blocks; leftover={:?}",
+            Positions::<Test>::get(&owner, netuid()).map(|p| p.principal)
+        );
+        assert!(
+            blocks_used <= 25,
+            "5% min floor should clear within ~20 blocks (used {blocks_used})"
+        );
     });
 }
 

@@ -18,6 +18,7 @@
 * Touched: §0, §2.2, §5.4, §6, §8 parameter table; runtime `spec_version` bump; SDK / CLI docs.
 
 ## Changelog: v5.12 vs v5.11
+* **2026-11-23: forced-buyback progress fix (Jacob).** `ProtocolForcedImpact` fair notional is **pre-trade spot** × α (not EMA). A held gap of spot ≫ EMA must not freeze every slice. Force-market first trade of a block also guarantees `forced_min_buyback_bps` of remaining principal (default 100 = 1%) even when that floor exceeds the remaining impact budget; later claims wait for the next block. Appended to `LiftParams` via migration.
 * **2026-11-23: `add_collateral(netuid, amount, source_hotkey)` (Jacob).** Owner tops up collateral without borrowing more principal.
   * Short: moves `amount` TAO from the owner into the position escrow (raises loss headroom). Long: locks `amount` alpha from `source_hotkey` into escrow custody (symmetric to open — both sides supported).
   * Positions are keyed by `(owner, netuid)` — no separate `position_id`. Emits `CollateralAdded { owner, netuid, side, amount, collateral }`.
@@ -79,7 +80,8 @@
 | `young_short_settlement_window` | 25_200 | > 0 | `set_lift_params` |
 | `minimum_loan_value` | 1e9 rao | > 0 | `set_lift_params` |
 | `max_expiry_settlements_per_block` | 16 | 1..=hard Config cap | `set_lift_params` |
-| `expiry_max_slippage_bps` | 200 (2%) | 1..=10_000 | `set_lift_params` — post-trade spot vs lending EMA on every expiry AMM step; defer + max-deferral force (Greg MEV 2026-11-20) |
+| `expiry_max_slippage_bps` | 200 (2%) | 1..=10_000 | `set_lift_params` — post-trade spot vs lending EMA on every expiry AMM step; defer + max-deferral force (Greg MEV 2026-11-20). Per-block `ProtocolForcedImpact` uses **pre-trade spot** fair (not EMA). |
+| `forced_min_buyback_bps` | 100 (1% of remaining principal) | ≤ 10_000 | `set_lift_params` — force-market first-trade progress floor that may exceed the remaining impact budget |
 | `Enabled` | false (dark launch) | bool | `set_enabled` |
 
 ## Changelog: v5.9 vs v5.8

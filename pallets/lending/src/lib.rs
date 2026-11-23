@@ -489,7 +489,7 @@ pub enum Side {
 pub const MAX_THIN_BLEND_TAO: u64 = 1_000_000_000_000_000;
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("253a88d4340ca840")]
+#[freeze_struct("1c6eb6c415bd5dee")]
 #[derive(
     Encode,
     Decode,
@@ -600,6 +600,13 @@ pub struct LiftParams {
     /// in between (Greg Shorting 102513 / Karl). `0` collapses to a step at
     /// `thin_tao` (≤ thin, > full). Bounded by [`MAX_THIN_BLEND_TAO`].
     pub thin_blend_tao: u64,
+    /// Minimum forced-buyback progress per block as bps of remaining principal
+    /// (default 100 = 1%). When force-market unwind cannot size any α under the
+    /// spot-relative [`ProtocolForcedImpact`] band, this floor still executes
+    /// (even if it exceeds the remaining impact budget) so a stuck EMA gap
+    /// cannot freeze the book. First forced trade of the block only; later
+    /// claims wait for the next block. `0` disables the floor (impact-only).
+    pub forced_min_buyback_bps: u16,
 }
 
 impl LiftParams {
@@ -667,6 +674,7 @@ impl Default for LiftParams {
             max_expiry_settlements_per_block: 16,
             expiry_max_slippage_bps: 200,
             thin_blend_tao: 3_000_000_000_000,
+            forced_min_buyback_bps: 100,
         }
     }
 }
@@ -758,6 +766,7 @@ impl LiftParamsBeforeEconomic {
                 .max_expiry_settlements_per_block,
             expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
             thin_blend_tao: LiftParams::default().thin_blend_tao,
+            forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
         }
     }
 }
@@ -824,6 +833,7 @@ impl LiftParamsBeforeExpirySlippage {
             max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
             expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
             thin_blend_tao: LiftParams::default().thin_blend_tao,
+            forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
         }
     }
 }
@@ -891,6 +901,76 @@ impl LiftParamsBeforeThinBlend {
             max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
             expiry_max_slippage_bps: self.expiry_max_slippage_bps,
             thin_blend_tao: LiftParams::default().thin_blend_tao,
+            forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
+        }
+    }
+}
+
+/// Post-`thin_blend_tao`, pre-`forced_min_buyback_bps` LiftParams layout.
+///
+/// Decoded by [`migrations::migrate_lift_params_forced_min_buyback`].
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LiftParamsBeforeForcedMinBuyback {
+    pub floor_bps: u16,
+    pub thin_floor_bps: u16,
+    pub ref_tao: u64,
+    pub move_bps: u16,
+    pub ceiling_bps: u16,
+    pub split_short_bps: u16,
+    pub rebalance_target_bps: u16,
+    pub rebalance_rate_bps: u16,
+    pub thin_tao: u64,
+    pub ltv_short_bps: u16,
+    pub ltv_long_bps: u16,
+    pub thin_ltv_long_bps: u16,
+    pub apr_long_bps: u16,
+    pub apr_short_bps: u16,
+    pub slice_bps: u16,
+    pub crash_guard_bps: u16,
+    pub total_tao_ema_blocks: u64,
+    pub new_subnet_min_age: u64,
+    pub new_subnet_ramp: u64,
+    pub ema_band_bps: u16,
+    pub max_loan_duration: u64,
+    pub max_settlement_deferral: u64,
+    pub young_short_settlement_window: u64,
+    pub minimum_loan_value: u64,
+    pub max_expiry_settlements_per_block: u32,
+    pub expiry_max_slippage_bps: u16,
+    pub thin_blend_tao: u64,
+}
+
+impl LiftParamsBeforeForcedMinBuyback {
+    pub(crate) fn into_current(self) -> LiftParams {
+        LiftParams {
+            floor_bps: self.floor_bps,
+            thin_floor_bps: self.thin_floor_bps,
+            ref_tao: self.ref_tao,
+            move_bps: self.move_bps,
+            ceiling_bps: self.ceiling_bps,
+            split_short_bps: self.split_short_bps,
+            rebalance_target_bps: self.rebalance_target_bps,
+            rebalance_rate_bps: self.rebalance_rate_bps,
+            thin_tao: self.thin_tao,
+            ltv_short_bps: self.ltv_short_bps,
+            ltv_long_bps: self.ltv_long_bps,
+            thin_ltv_long_bps: self.thin_ltv_long_bps,
+            apr_long_bps: self.apr_long_bps,
+            apr_short_bps: self.apr_short_bps,
+            slice_bps: self.slice_bps,
+            crash_guard_bps: self.crash_guard_bps,
+            total_tao_ema_blocks: self.total_tao_ema_blocks,
+            new_subnet_min_age: self.new_subnet_min_age,
+            new_subnet_ramp: self.new_subnet_ramp,
+            ema_band_bps: self.ema_band_bps,
+            max_loan_duration: self.max_loan_duration,
+            max_settlement_deferral: self.max_settlement_deferral,
+            young_short_settlement_window: self.young_short_settlement_window,
+            minimum_loan_value: self.minimum_loan_value,
+            max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
+            expiry_max_slippage_bps: self.expiry_max_slippage_bps,
+            thin_blend_tao: self.thin_blend_tao,
+            forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
         }
     }
 }
@@ -1407,9 +1487,12 @@ pub mod pallet {
         OptionQuery,
     >;
     /// Per-subnet cumulative protocol-forced AMM impact for the current block:
-    /// `(block, Σ|realized_tao − fair_ema_tao|, Σ fair_ema_tao)`.
-    /// Further expiry settles defer once
-    /// `Σ|diff| / Σfair > expiry_max_slippage_bps`.
+    /// `(block, Σ|realized_tao − fair_spot_tao|, Σ fair_spot_tao)`.
+    /// Fair notional is **pre-trade spot** × α (not EMA) so a held spot≫EMA
+    /// gap cannot freeze unwind. Further expiry settles defer once
+    /// `Σ|diff| / Σfair > expiry_max_slippage_bps`, except the first
+    /// force-market trade may still run `forced_min_buyback_bps` of remaining
+    /// principal even when that floor exceeds the remaining budget.
     #[pallet::storage]
     pub type ProtocolForcedImpact<T: Config> =
         StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u128, u128), OptionQuery>;
@@ -2367,7 +2450,8 @@ pub mod pallet {
                     && p.max_expiry_settlements_per_block <= T::MaxExpirySettlementsPerBlock::get()
                     && p.expiry_max_slippage_bps > 0
                     && p.expiry_max_slippage_bps <= 10_000
-                    && p.thin_blend_tao <= MAX_THIN_BLEND_TAO,
+                    && p.thin_blend_tao <= MAX_THIN_BLEND_TAO
+                    && p.forced_min_buyback_bps <= 10_000,
                 Error::<T>::InvalidLiftParams
             );
             Ok(())
@@ -2466,6 +2550,8 @@ pub mod pallet {
 
         /// Fair EMA TAO for `alpha` (round up = buy / short cost; round down =
         /// sell / long proceeds). Missing reference → `None` (treat as ok).
+        /// Used by the per-trade realized settlement band — not by
+        /// [`ProtocolForcedImpact`] (that uses pre-trade spot).
         fn fair_ema_tao(
             netuid: NetUid,
             alpha: u64,
@@ -2475,6 +2561,25 @@ pub mod pallet {
                 return Ok(None);
             };
             Ok(Some(Self::tao_for_alpha(alpha, reference.price, round_up)?))
+        }
+
+        /// Pre-trade spot TAO for `alpha` (ProtocolForcedImpact fair notional).
+        /// Caller must sample before the AMM mutates the pool.
+        fn fair_spot_tao(netuid: NetUid, alpha: u64, round_up: bool) -> Result<u64, DispatchError> {
+            Self::tao_for_alpha(alpha, T::Pool::current_alpha_price(netuid), round_up)
+        }
+
+        /// Floor α for one force-market progress slice of remaining `principal`.
+        fn forced_min_buyback_alpha(principal: u64) -> u64 {
+            if principal == 0 {
+                return 0;
+            }
+            let bps = Self::lift_params().forced_min_buyback_bps;
+            if bps == 0 {
+                return 0;
+            }
+            let from_bps = (u128::from(principal) * u128::from(bps) / 10_000u128) as u64;
+            from_bps.max(1).min(principal)
         }
 
         /// Short buyback: cumulative TAO spent to recover `alpha_bought` must
@@ -2577,15 +2682,15 @@ pub mod pallet {
         }
 
         /// Largest buyback α ≤ `principal` that fits the remaining
-        /// [`ProtocolForcedImpact`] room (quoted vs EMA fair).
+        /// [`ProtocolForcedImpact`] room (quoted vs **pre-trade spot** fair).
         ///
-        /// When the EMA-ratio band admits no size (spot already far outside)
-        /// and `force_market` is set, falls back to a depth-limited progress
-        /// slice (`expiry_max_slippage_bps` of live pool alpha) so unwind
-        /// still advances every block without dumping the whole principal.
-        /// TAO pot limits are applied by the caller via best-effort execution
-        /// and pro-rata escrow/collateral; this helper only sizes the impact
-        /// / depth cap. Returns 0 when nothing can run (caller defers).
+        /// Spot-relative (not EMA): a held gap of spot ≫ EMA must not make
+        /// every slice exceed the cap. When `force_market` and this is the
+        /// block's first forced trade, also guarantees at least
+        /// [`LiftParams::forced_min_buyback_bps`] of remaining principal even
+        /// if that floor exceeds the impact budget — bounded unwind progress.
+        /// Later claims in the same block still wait when the budget is spent.
+        /// Returns 0 when nothing can run (caller defers).
         fn max_forced_buyback_alpha(
             netuid: NetUid,
             principal: u64,
@@ -2596,9 +2701,10 @@ pub mod pallet {
             }
             let (cum_diff, cum_fair) = Self::forced_impact_state(netuid);
             let band = u128::from(Self::lift_params().expiry_max_slippage_bps);
+            let first_forced = cum_fair == 0 && cum_diff == 0;
             // Common case: the whole principal fits — one quote, not log2(P).
             if let Ok(needed) = Self::tao_to_buy_alpha(netuid, principal) {
-                let fair = Self::fair_ema_tao(netuid, principal, true)?.unwrap_or(needed);
+                let fair = Self::fair_spot_tao(netuid, principal, true)?;
                 if Self::fits_forced_impact(cum_diff, cum_fair, band, fair, needed) {
                     return Ok(principal);
                 }
@@ -2619,7 +2725,7 @@ pub mod pallet {
                     hi = mid.saturating_sub(1);
                     continue;
                 };
-                let fair = Self::fair_ema_tao(netuid, mid, true)?.unwrap_or(needed);
+                let fair = Self::fair_spot_tao(netuid, mid, true)?;
                 if Self::fits_forced_impact(cum_diff, cum_fair, band, fair, needed) {
                     best = mid;
                     if mid == principal {
@@ -2634,26 +2740,26 @@ pub mod pallet {
                 }
             }
             if best > 0 {
+                // First force-market trade: never go below the progress floor.
+                if force_market && first_forced {
+                    let min = Self::forced_min_buyback_alpha(principal);
+                    return Ok(best.max(min).min(principal));
+                }
                 return Ok(best);
             }
-            // Depth slice only as the block's first forced trade: when prior
-            // trades consumed the budget, wait for the next block instead of
-            // stacking an uncapped slice on top.
-            if !force_market || cum_fair > 0 || cum_diff > 0 {
-                return Ok(0);
+            // No impact-fit size. Force-market first trade still advances by
+            // the sudo min fraction (may exceed the remaining impact budget).
+            if force_market && first_forced {
+                let min = Self::forced_min_buyback_alpha(principal);
+                if min > 0 {
+                    return Ok(min);
+                }
             }
-            // Force-market progress slice: spot is too far from EMA for any
-            // α to satisfy the ratio, but we must still unwind. Cap this
-            // block at `band` of pool alpha so a whale short cannot clear
-            // in one front-runnable block.
-            let depth = T::Pool::pool_alpha(netuid).to_u64();
-            let cap = depth.saturating_mul(u64::from(Self::lift_params().expiry_max_slippage_bps))
-                / 10_000u64;
-            Ok(cap.max(1).min(principal))
+            Ok(0)
         }
 
-        /// Record one protocol-forced trade's realized vs EMA-fair notional
-        /// into the per-subnet per-block impact accumulator.
+        /// Record one protocol-forced trade's realized vs **pre-trade spot**
+        /// fair notional into the per-subnet per-block impact accumulator.
         fn note_protocol_forced_impact(netuid: NetUid, fair_tao: u64, realized_tao: u64) {
             if fair_tao == 0 && realized_tao == 0 {
                 return;
@@ -2966,6 +3072,11 @@ pub mod pallet {
 
         /// `(Cap, Cap_short, Cap_long)` at `ramp_bps` (≤ 10_000). `None` uses the
         /// live §2.3 ramp. Pass `Some(10_000)` for the post-ramp full Cap.
+        ///
+        /// **Short-cap switch point:** Cap_short is currently
+        /// `split_short_bps · Cap`. Keep that split as the only place that
+        /// derives Cap_short — Jacob may replace it with a share-of-pool-alpha
+        /// design shortly; do not scatter Cap_short math elsewhere.
         fn side_caps_at(
             netuid: NetUid,
             params: &LiftParams,
@@ -5749,11 +5860,15 @@ pub mod pallet {
             // Force-market when the per-trade band is off (past max deferral).
             let force_market = !enforce_realized_slippage;
 
+            // Pre-trade spot fair stamped for ProtocolForcedImpact on the
+            // full-clear fallthrough (partials note and return above).
+            let mut impact_fair_spot: Option<u64> = None;
             let (credited_tao, credited_alpha, leftover_collateral, buyback_tao, buyback_alpha) =
                 match side {
                     Side::Short => {
                         // Cap this block's buyback to remaining ProtocolForcedImpact
-                        // / depth room (first trade included — no uncapped bypass).
+                        // room (spot-relative; first trade included). Force-market
+                        // guarantees forced_min_buyback_bps when impact admits 0.
                         let target =
                             Self::max_forced_buyback_alpha(netuid, principal, force_market)?;
                         ensure!(target > 0, Error::<T>::SettlementPriceOutsideEmaBand);
@@ -5773,6 +5888,9 @@ pub mod pallet {
                         // dust / unfillable remainder retries every block.
                         let terminal = slice_p == principal;
                         ensure!(slice_pot > 0 || terminal, Error::<T>::InsufficientEscrow);
+                        // Pre-trade spot fair for ProtocolForcedImpact (post-trade
+                        // spot has moved).
+                        let pre_spot = T::Pool::current_alpha_price(netuid);
                         let (paid, bought) = Self::execute_buyback_best_effort(
                             &escrow,
                             &custody,
@@ -5852,8 +5970,11 @@ pub mod pallet {
                                 slice_lift_alpha,
                                 Dissolutions::<T>::contains_key(netuid),
                             )?;
-                            let fair =
-                                Self::fair_ema_tao(netuid, repaid_alpha, true)?.unwrap_or(paid);
+                            let fair = if repaid_alpha > 0 {
+                                Self::tao_for_alpha(repaid_alpha, pre_spot, true)?
+                            } else {
+                                0
+                            };
                             Self::note_protocol_forced_impact(netuid, fair, paid);
                             // Shrink the caller's `position`, not storage:
                             // callers charge interest on their local copy
@@ -5880,6 +6001,11 @@ pub mod pallet {
                             });
                             return Ok(false);
                         }
+                        impact_fair_spot = Some(if repaid_alpha > 0 {
+                            Self::tao_for_alpha(repaid_alpha, pre_spot, true)?
+                        } else {
+                            0
+                        });
                         (slice_lift_tao, repaid_alpha, burn_tao, paid, repaid_alpha)
                     }
                     Side::Long => {
@@ -5994,10 +6120,15 @@ pub mod pallet {
                 Dissolutions::<T>::contains_key(netuid),
             )?;
             // Always record forfeit AMM impact (force-market path included).
-            // Fair notional uses buyback_alpha when present; otherwise fair=0
-            // still notes realized so a pure-TAO-path trade paces later claims.
-            let fair = Self::fair_ema_tao(netuid, buyback_alpha, side == Side::Short)?
-                .unwrap_or(buyback_tao);
+            // Prefer pre-trade spot fair stamped above; fall back to current
+            // spot × α for long sells (impact of sells is secondary).
+            let fair = match impact_fair_spot {
+                Some(f) => f,
+                None if buyback_alpha > 0 => {
+                    Self::fair_spot_tao(netuid, buyback_alpha, side == Side::Short)?
+                }
+                None => 0,
+            };
             Self::note_protocol_forced_impact(netuid, fair, buyback_tao);
             let principal_lost = principal;
             Self::remove_position(owner, netuid, position);
@@ -8191,10 +8322,9 @@ pub mod pallet {
                 match side {
                     Side::Short => {
                         let principal = position.principal;
-                        // Size to remaining ProtocolForcedImpact / depth room
-                        // (first trade of the block included). Force-market
-                        // allows a depth-limited progress slice when the EMA
-                        // ratio admits nothing.
+                        // Size to remaining ProtocolForcedImpact room
+                        // (spot-relative; first trade included). Force-market
+                        // guarantees forced_min_buyback_bps when impact admits 0.
                         let slice_p =
                             Self::max_forced_buyback_alpha(netuid, principal, force_market)?;
                         ensure!(slice_p > 0, Error::<T>::SettlementPriceOutsideEmaBand);
@@ -8210,6 +8340,7 @@ pub mod pallet {
                         // Storage layer: a failed strict buyback has already
                         // traded; roll those chunks back before the forfeit
                         // fallback re-sizes from the untouched escrow.
+                        let pre_spot = T::Pool::current_alpha_price(netuid);
                         let (paid, bought) =
                             match frame_support::storage::with_storage_layer(|| {
                                 Self::execute_buyback(
@@ -8238,7 +8369,11 @@ pub mod pallet {
                                 }
                                 Err(e) => return Err(e),
                             };
-                        let impact_fair = Self::fair_ema_tao(netuid, bought, true)?.unwrap_or(paid);
+                        let impact_fair = if bought > 0 {
+                            Self::tao_for_alpha(bought, pre_spot, true)?
+                        } else {
+                            0
+                        };
                         let impact_realized = paid;
                         let repaid_alpha = bought.min(slice_p);
                         let mut refund = slice_pot.saturating_sub(paid);
@@ -8379,8 +8514,9 @@ pub mod pallet {
                             }
                         }
                         ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
-                        let impact_fair =
-                            Self::fair_ema_tao(netuid, sold_alpha, false)?.unwrap_or(raised);
+                        // Spot-relative ProtocolForcedImpact (sells); EMA still
+                        // gates the per-trade realized band above.
+                        let impact_fair = Self::fair_spot_tao(netuid, sold_alpha, false)?;
                         let impact_realized = raised;
                         let repay = position.principal;
                         let surplus = raised.saturating_sub(repay);
