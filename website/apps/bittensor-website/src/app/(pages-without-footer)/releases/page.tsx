@@ -31,8 +31,9 @@ const releases: Release[] = [
       'when root raises the global limit of two. New Null weight rows share a budget of 2,500 ' +
       'entries across the mechanisms. The Null epoch reads subnet-wide state once, with ' +
       'identical results, and reports its own block weight. Gamma emission deposits open ' +
-      'without a daily spend cap. The guide gives one picture of V494 and V495, with CLI, ' +
-      'Python SDK and raw-call examples.',
+      'without a daily spend cap. A single-validator root claim reserves the block weight of ' +
+      'its own fund and admits funds with rows on 256 subnets. The guide gives one picture of ' +
+      'V494 and V495, with CLI, Python SDK and raw-call examples.',
     href: '/releases/v495-upgrade',
   },
   {

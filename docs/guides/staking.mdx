@@ -207,9 +207,11 @@ btcli stake remove --netuid 0 --hotkey 5F... --amount 40   # principal only; yie
 btcli stake remove --netuid 0 --hotkey 5F... --amount all --claim  # claim all, then unstake
 ```
 
-The claim fee scales with how many ALPHA types are in the basket. The chain
-reserves a 129-unit envelope for a single-validator claim and the full 256-unit
-envelope for a coldkey-wide claim, then refunds the unused part after. Admission
+The claim fee scales with how many ALPHA types are in the basket. Since runtime
+495 a single-validator claim reserves the weight of that validator's own fund
+(its stored basket rows and its queued dividend credits), up to a fund of 258
+claim units. A coldkey-wide claim reserves the full 256-unit envelope. The chain
+refunds the unused part after. Admission
 counts only root-relevant validator hotkeys plus their stored basket rows;
 unrelated subnet stakes are filtered instead of being multiplied by the total
 network count. Classifying the staking-hotkey vector is separately capped at

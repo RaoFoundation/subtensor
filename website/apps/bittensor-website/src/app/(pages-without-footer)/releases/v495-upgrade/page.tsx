@@ -10,7 +10,8 @@ export const metadata: Metadata = {
   title: 'The V495 Upgrade — 16 Null Mechanisms, a Shared Null Epoch, and the V494 Changes',
   description:
     'V495 lets a Null subnet run up to 16 mechanisms with 2,500 UIDs, caps Null weight rows, ' +
-    'shares Null epoch work across mechanisms, and opens gamma emission deposits without a cap. ' +
+    'shares Null epoch work across mechanisms, opens gamma emission deposits without a cap, and ' +
+    'sizes the weight of a single-validator root claim to its fund. ' +
     'This guide also covers V494: channel commitment burns, weight delegation, basket controls, ' +
     'and the Etao owner limit.',
   alternates: {canonical: '/releases/v495-upgrade'},
@@ -30,7 +31,7 @@ export default function Page() {
           <h1 className={styles.paper_title}>The V495 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             16 Null mechanisms · 2,500 UIDs · weight-row cap · shared Null epoch · gamma emission
-            deposits · with the V494 changes · Proposed upgrade
+            deposits · root claim weight · with the V494 changes · Proposed upgrade
           </p>
         </section>
 
@@ -66,8 +67,15 @@ btcli --version`} />
           <h3 className={styles.subtitle_small}>What changes on chain</h3>
           <p>
             V495 adds one SubtensorModule error, <code>TooManyWeightsForNullMechanism</code>, at
-            error index <strong>209</strong>. It adds no call, no event, no storage item, and no
-            migration. Mechanism storage keeps the index <code>netuid + mecid * 4096</code>.
+            error index <strong>209</strong>, and one SubtensorModule storage item,{' '}
+            <code>BasketRowsOpenedAt</code>. It adds no call, no event, and no migration. Mechanism
+            storage keeps the index <code>netuid + mecid * 4096</code>.
+          </p>
+          <p>
+            <code>BasketRowsOpenedAt</code> is a map from a validator hotkey to a block number and
+            an extrinsic index. The{' '}
+            <DocLink href='#root-claims'>root claim section</DocLink> explains it. The error{' '}
+            <code>RootClaimTooHeavy</code> keeps its index and gets one more cause.
           </p>
           <p>V494 added these calls. Regenerate metadata; do not hard-code call indices.</p>
           <div className={layout.table_scroller}>
@@ -127,6 +135,16 @@ btcli --version`} />
                   <td>Deposit that gamma emission opens</td><td>V495</td>
                   <td>Daily spend cap of 0: paused until the owner coldkey sets a cap</td>
                   <td>No cap: the owner hotkey can spend at once</td>
+                </tr>
+                <tr>
+                  <td>Block weight that <code>claim_root_with_hotkey</code> reserves</td><td>V495</td>
+                  <td>The same 2,093 ms for every validator</td>
+                  <td>Sized to the validator&apos;s fund: 446 ms for a fund with 129 rows and no queued credits</td>
+                </tr>
+                <tr>
+                  <td>Largest fund that one <code>claim_root_with_hotkey</code> admits</td><td>V495</td>
+                  <td>130 claim units: rows on 128 subnets</td>
+                  <td>258 claim units: rows on 256 subnets</td>
                 </tr>
                 <tr>
                   <td>Owner limit for subnet emission weights (Etao)</td><td>V494</td>
@@ -702,6 +720,122 @@ await client.submit_call(raw, owner_wallet)`} />
           </p>
         </section>
 
+        <section className={styles.section} id='root-claims'>
+          <h2 className={styles.subtitle}>V495: a root claim reserves the weight of its fund</h2>
+          <p>
+            <code>claim_root_with_hotkey</code> redeems your root dividends from the fund (the
+            basket) of one validator. A fund has one row for each subnet where it holds alpha, and
+            one row for its TAO. Before a transaction runs, it reserves block weight: the compute
+            time that the block keeps for it. After the transaction, the chain returns the part
+            that the transaction did not use.
+          </p>
+          <p>
+            Until V494 this claim reserved the same weight for every validator: about 2,093 ms.
+            A block had room for only one such claim. From V495 the claim reserves the weight of
+            the validator&apos;s own fund. The chain counts two things before the claim runs: the
+            stored rows of the fund, and its queued dividend credits. A queued dividend credit is
+            a dividend that the fund has earned but that the chain has not yet put into the fund.
+            The claim settles these credits first.
+          </p>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Fund of the validator</th><th>Reserved in V494</th><th>Reserved in V495</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Up to 8 rows, no queued credits</td><td>2,093 ms</td><td>34 ms</td></tr>
+                <tr><td>129 rows, no queued credits</td><td>2,093 ms</td><td>446 ms</td></tr>
+                <tr><td>129 rows, 128 queued credits</td><td>2,093 ms</td><td>1,241 ms</td></tr>
+                <tr><td>161 rows, no queued credits</td><td>Claim refused</td><td>554 ms</td></tr>
+                <tr><td>161 rows, 160 queued credits</td><td>Claim refused</td><td>1,537 ms</td></tr>
+                <tr><td>257 rows, no queued credits</td><td>Claim refused</td><td>881 ms</td></tr>
+                <tr><td>257 rows, 256 queued credits</td><td>Claim refused</td><td>2,426 ms</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            These numbers come from the weight formula of the runtime. They are the reserved
+            weight, not a measured time. The chain still returns the unused part after the claim.
+          </p>
+          <h3 className={styles.subtitle_small}>The limit: 258 claim units</h3>
+          <p>
+            One claim admits a fund of at most <strong>258 claim units</strong>. The validator is
+            one unit. Each stored row of the fund is one unit. Each queued credit on a subnet
+            where the fund has no row is one unit, because the claim can open that row. The limit
+            was 130 units: a fund with rows on 128 subnets. 258 units is a fund with rows on 256
+            subnets. The chain refuses a claim on a larger fund with{' '}
+            <code>RootClaimTooHeavy</code>.
+          </p>
+          <p>
+            The largest weight that a claim can reserve is 2,432 ms. That is 93.5% of the largest
+            transaction that a block accepts, 2,599.9 ms. Only a fund with rows on 256 subnets and
+            a queued credit for each row comes near this value.
+          </p>
+          <h3 className={styles.subtitle_small}>One new rule for batches</h3>
+          <p>
+            A batch computes the weight of all its calls before it runs the first call. If an
+            earlier call in the batch gives the fund a new row, the weight of a later claim in
+            the same batch is too small. The chain therefore refuses{' '}
+            <code>claim_root_with_hotkey</code> with <code>RootClaimTooHeavy</code> when one of
+            these calls ran earlier in the same transaction, for the same validator:
+          </p>
+          <ul className={`${styles.list} ${layout.bullets}`}>
+            <li>
+              A <code>swap_basket</code> or <code>swap_basket_many</code> trade that bought alpha
+              on a subnet where the fund had no row.
+            </li>
+            <li>A hotkey swap that moved a fund, or queued credits, to this validator hotkey.</li>
+          </ul>
+          <p>
+            Send the claim in a later transaction. The same block is sufficient. The chain records
+            the block and the transaction index of such a trade or swap in the new storage item{' '}
+            <code>BasketRowsOpenedAt</code>. A trade that buys more of a subnet that the fund
+            already holds, or that sells into TAO, does not stop a claim.
+          </p>
+          <h3 className={styles.subtitle_small}>What does not change</h3>
+          <ul className={`${styles.list} ${layout.bullets}`}>
+            <li>
+              The fee. The chain charges a claim for at most four claim units, for every fund
+              size. A fee quote returns the same fee, and a weight that now depends on the fund.
+            </li>
+            <li>The payout, the claim threshold, and the dust rules.</li>
+            <li>
+              The claim for all validators of a coldkey, <code>claim_root</code>. It keeps its
+              limit of 256 units and its weight.
+            </li>
+            <li>
+              The subnet limit. V495 does not change it. V495 makes a subnet limit of up to 256
+              safe for single-validator claims: a fund with a row on every subnet stays claimable.
+            </li>
+          </ul>
+          <Code language='bash' code={`# Preview the claim: the reserved fee, the fee that will settle, and the 258-unit check.
+btcli root claim --hotkey VALIDATOR_HOTKEY --dry-run -w my_wallet
+
+# Send the claim.
+btcli root claim --hotkey VALIDATOR_HOTKEY -w my_wallet`} />
+          <Code language='python' code={`# The rows of the fund, and its queued dividend credits.
+rows = await client.read("validator_basket", hotkey_ss58=validator_hotkey)
+queued = await client.query_map(
+    bt.storage.SubtensorModule.PendingBasketDeposits, [validator_hotkey],
+)
+
+# The plan stops a claim on a fund above 258 claim units before it signs.
+plan = await client.plan(bt.ClaimRootWithHotkey(hotkey_ss58=validator_hotkey), wallet)
+await client.execute(bt.ClaimRootWithHotkey(hotkey_ss58=validator_hotkey), wallet)
+
+# Raw form, SubtensorModule call index 148.
+raw = bt.calls.SubtensorModule.claim_root_with_hotkey(hotkey=validator_hotkey)
+await client.submit_call(raw, wallet)
+
+# The last trade or hotkey swap that opened a row: (block, transaction index), or None.
+opened = await client.query(
+    bt.storage.SubtensorModule.BasketRowsOpenedAt, [validator_hotkey],
+)`} />
+          <p>
+            See the <DocLink href='/docs/guides/root-reborn'>root guide</DocLink>.
+          </p>
+        </section>
+
         <section className={styles.section} id='etao'>
           <h2 className={styles.subtitle}>V494: Etao owner updates once per 360 blocks</h2>
           <p>
@@ -798,6 +932,11 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               <code>floor(32 KiB / mechanism_count)</code>.
             </li>
             <li>Grant a weight delegate for each mechanism separately (V494).</li>
+            <li>
+              Do not put a <code>swap_basket</code> buy on a new subnet, or a hotkey swap, in one
+              batch with a <code>claim_root_with_hotkey</code> on the same fund. The claim fails
+              with <code>RootClaimTooHeavy</code>. Send it in a later transaction.
+            </li>
           </ul>
           <h3 className={styles.subtitle_small}>Miners</h3>
           <ul className={`${styles.list} ${layout.bullets}`}>
@@ -839,6 +978,11 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               <code>rate_limit_blocks</code>.
             </li>
             <li>
+              The check before <code>ClaimRootWithHotkey</code> uses the limit of 258 claim units
+              and counts queued credits on subnets where the fund has no row. On a runtime before
+              495 the chain still applies its limit of 130 units.
+            </li>
+            <li>
               For a raw call, use <code>client.submit_call(call, wallet)</code>. Add{' '}
               <code>signer=&quot;hotkey&quot;</code> for a call that the hotkey signs. A client with
               a policy needs <code>bt.Policy(allow_raw_calls=True)</code>.
@@ -848,7 +992,12 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
           <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               Regenerate metadata for spec 495. The transaction version stays 2. V495 appends one
-              error at index 209 and changes no call, event, or storage type.
+              error at index 209 and one storage item, <code>BasketRowsOpenedAt</code>. It changes
+              no call, no event, and no type of an existing storage item.
+            </li>
+            <li>
+              The weight in a fee quote for <code>claim_root_with_hotkey</code> now depends on the
+              fund of the validator. The fee does not. Do not use a fixed weight for this call.
             </li>
             <li>
               If you did not update for V494, also add its calls, storage items, events, and
@@ -887,6 +1036,19 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               without a call from the owner coldkey. This is the purpose of the change.
             </li>
             <li>
+              <strong>Largest root claim (accepted).</strong> A single-validator claim on a fund at
+              the limit of 258 claim units, with a queued credit for each row, reserves 2,432 ms.
+              That is 93.5% of the largest transaction. The project accepts this value: it stays
+              below the limit, and a claim on a real fund reserves much less than before.
+            </li>
+            <li>
+              <strong>Trade and deposit weight at 256 subnets (open).</strong>{' '}
+              <code>swap_basket</code>, <code>swap_basket_many</code>, and{' '}
+              <code>stake_into_basket</code> reserve weight for a fund of 256 rows. With 256
+              subnets a fund can have 257 rows: 256 subnets and its TAO. Review these values
+              before the subnet limit goes above 255.
+            </li>
+            <li>
               <strong>Spot-only basket reference (V494).</strong> The reference{' '}
               <code>SpotOnly</code> removes the moving-price anchors. A manipulated spot price
               inside the band can then be traded against. Root selects it deliberately or not at
@@ -923,6 +1085,12 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               <strong>Etao owner limit, 360 blocks.</strong> Root can change it with{' '}
               <code>AdminUtils::sudo_set_subnet_emission_weights_rate_limit(blocks)</code>.
             </li>
+            <li>
+              <strong>Subnet limit.</strong> V495 does not change the subnet limit. A higher limit
+              is a separate root call. From V495 a single-validator root claim admits a fund with
+              rows on 256 subnets, so a limit of up to 256 is safe for claims. Read the open item
+              about trade and deposit weight first.
+            </li>
           </ul>
         </section>
 
@@ -943,6 +1111,10 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             <li>
               <strong>Subnet owners:</strong> decide on the mechanism count and the split, check
               the cap of your gamma emission deposit, and read the Etao limit from the chain.
+            </li>
+            <li>
+              <strong>Root stakers:</strong> no action. A single-validator claim reserves less
+              block weight; the fee and the payout do not change.
             </li>
             <li>
               <strong>SDK and indexer operators:</strong> regenerate calls, storage, errors, and
