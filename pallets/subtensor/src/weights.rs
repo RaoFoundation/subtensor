@@ -108,7 +108,9 @@ pub trait WeightInfo {
 	}
 	/// One Null epoch for `m` mechanisms and `n` UIDs, without settlement. The hook
 	/// adds it for each Null epoch that runs. Until reference measurement, it
-	/// reserves one more legacy hook envelope for any `m` and `n`.
+	/// reserves one more legacy hook envelope for any `m` and `n`. It does not
+	/// bound the stake graph: the benchmark gives each UID five registered
+	/// parents, and a UID can hold many more.
 	fn null_epoch(_m: u32, _n: u32) -> Weight {
 		Self::block_step_yuma()
 	}
