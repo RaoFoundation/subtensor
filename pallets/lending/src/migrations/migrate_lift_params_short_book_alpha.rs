@@ -55,6 +55,15 @@ pub fn migrate_lift_params_short_book_alpha<T: Config>() -> Weight {
         return weight.saturating_add(T::DbWeight::get().writes(1));
     }
 
+    // Post-short-book / pre-util-apr intermediate: expand (+ revert 6667) so a
+    // chain that already appended short_book_max_pool_alpha_bps still leaves
+    // Cap_short at 50/50 even when util-apr is what finishes the layout widen.
+    if let Ok(mid) = LiftParamsBeforeUtilAprLongBook::decode_all(&mut &bytes[..]) {
+        LiftParamsStore::<T>::put(mid.into_current());
+        HasMigrationRun::<T>::insert(&migration_name, true);
+        return weight.saturating_add(T::DbWeight::get().writes(2));
+    }
+
     if let Ok(old) = LiftParamsBeforeShortBookAlpha::decode_all(&mut &bytes[..]) {
         LiftParamsStore::<T>::put(old.into_current());
         HasMigrationRun::<T>::insert(&migration_name, true);

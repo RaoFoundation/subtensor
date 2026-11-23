@@ -38,7 +38,13 @@ pub fn migrate_lift_params_util_apr_long_book<T: Config>() -> Weight {
         return weight.saturating_add(T::DbWeight::get().writes(1));
     };
 
-    if LiftParams::decode_all(&mut &bytes[..]).is_ok() {
+    if let Ok(mut cur) = LiftParams::decode_all(&mut &bytes[..]) {
+        // Already current: still revert a live 2× Cap_short split if present.
+        if cur.split_short_bps == 6_667 {
+            cur.split_short_bps = LiftParams::default().split_short_bps;
+            LiftParamsStore::<T>::put(cur);
+            weight = weight.saturating_add(T::DbWeight::get().writes(1));
+        }
         HasMigrationRun::<T>::insert(&migration_name, true);
         return weight.saturating_add(T::DbWeight::get().writes(1));
     }

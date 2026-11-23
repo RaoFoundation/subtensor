@@ -1193,7 +1193,12 @@ impl LiftParamsBeforeUtilAprLongBook {
             ref_tao: self.ref_tao,
             move_bps: self.move_bps,
             ceiling_bps: self.ceiling_bps,
-            split_short_bps: self.split_short_bps,
+            // Same 2× Cap_short revert as the short-book-alpha expand path.
+            split_short_bps: if self.split_short_bps == 6_667 {
+                LiftParams::default().split_short_bps
+            } else {
+                self.split_short_bps
+            },
             rebalance_target_bps: self.rebalance_target_bps,
             rebalance_rate_bps: self.rebalance_rate_bps,
             thin_tao: self.thin_tao,
