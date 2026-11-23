@@ -24,13 +24,22 @@ This guide uses these words:
 
 | Rule | Yuma | Null |
 | --- | --- | --- |
-| Mechanisms on a subnet | 1 to `MaxMechanismCount` | 1 to `MaxMechanismCount` |
-| `MaxMechanismCount` | 2 by default; root can raise it to 16 | the same value |
-| UID capacity | `max_allowed_uids × mechanism_count ≤ 256` | `max_allowed_uids ≤ 2,500` for any count (runtime 495) |
-| Entries in one weight row | at most the registered UID count | `max(1, floor(2500 / mechanism_count))` (runtime 495) |
-| Size of one timelocked commit | 5,000 bytes | `floor(32 KiB / mechanism_count)` |
-| Change of the count | owner: once per 7,200 blocks per subnet | the same, and no weight commit may be pending |
-| Change of the emission split | owner: once per 7,200 blocks per subnet | the same |
+| Mechanisms on a subnet | 1 to the global limit | 1 to the global limit |
+| Global limit | 2 by default; root can raise it to 16 | the same value |
+| UID capacity | UIDs × mechanisms: at most 256 | at most 2,500 UIDs, for any count |
+| Entries in one weight row | at most the registered UID count | at most 2,500 ÷ mechanisms |
+| Size of one timelocked commit | 5,000 bytes | 32 KiB ÷ mechanisms |
+| Change of the count | owner: once per 7,200 blocks | the same; no weight commit may be pending |
+| Change of the emission split | owner: once per 7,200 blocks | the same |
+
+The exact rules, with the names that the chain uses:
+
+- The global limit is `MaxMechanismCount`.
+- Yuma capacity: `max_allowed_uids × mechanism_count ≤ 256`.
+- Null capacity (runtime 495): `max_allowed_uids ≤ 2,500`.
+- Null row cap (runtime 495): `max(1, floor(2500 / mechanism_count))` entries.
+- Null commit size: `floor(32 KiB / mechanism_count)` bytes.
+- The two rate limits are for each subnet.
 
 The Null row cap for some counts:
 
@@ -114,8 +123,11 @@ Check these points before you change the count:
    ```
 
    If commits are pending, wait until the chain reveals them or they expire.
-   The owner can stop new commits with
-   `btcli hparams set --netuid 1 --name commit_reveal_weights_enabled --value false`.
+   The owner can stop new commits:
+
+   ```bash
+   btcli hparams set --netuid 1 --name commit_reveal_weights_enabled --value false
+   ```
 3. **Cleanup of an earlier reduction.** A reduction queues cleanup of
    [channel commitments](/docs/guides/channel-commitments) and weight delegates
    of the removed mechanisms. The count cannot change again until that cleanup
@@ -142,8 +154,9 @@ result = await client.execute(
 )
 ```
 
-The raw call is `AdminUtils.sudo_set_mechanism_count(netuid, mechanism_count)`.
-The owner signs it directly; it is not a sudo call.
+The raw call is `AdminUtils.sudo_set_mechanism_count`, with the arguments
+`netuid` and `mechanism_count`. The owner signs it directly; it is not a sudo
+call.
 
 What the change does:
 
@@ -222,8 +235,8 @@ On a Null subnet:
   [`TooManyWeightsForNullMechanism`](/docs/errors/chain/TooManyWeightsForNullMechanism).
   From `bittensor` 11.3.6 the SDK refuses such a row before it signs or
   encrypts it.
-- A row that is not a single self-weight has at least
-  `min(MinAllowedWeights, row cap, registered UIDs)` entries.
+- A row that is not a single self-weight has a minimum length: the smallest of
+  `MinAllowedWeights`, the row cap, and the registered UID count.
 - `--raw-u16` keeps exact integer weights, and `--weights-file` reads a JSON
   object that maps each UID to its weight:
 
@@ -236,21 +249,23 @@ Yuma Consensus on its own weights.
 
 ## Commit pipelines
 
-Each mechanism has its own pipelines. The table shows the call that reaches the
-chain.
+Each mechanism has its own pipelines. The text below the table names the call
+that reaches the chain.
 
-| Pipeline | Command | Intent | Chain call |
-| --- | --- | --- | --- |
-| Direct weights | `btcli misc weights set` when commit-reveal is off | `SetWeights` | `set_mechanism_weights` |
-| Timelocked commit | `btcli misc weights set` when commit-reveal is on, or `btcli misc weights commit` | `SetWeights`, `CommitWeights` | `commit_timelocked_mechanism_weights` |
-| Legacy hash commit | `btcli misc weights hash` | `CommitWeightHash` | `commit_mechanism_weights` |
-| Legacy reveal | `btcli misc weights reveal` | `RevealWeights` | `reveal_weights` on mechanism 0, `reveal_mechanism_weights` on the others |
-| Channel commitment | `btcli commitments commit` | `SetChannelCommitment` | `Commitments.set_commitment_to` |
+| Pipeline | Command | Intent |
+| --- | --- | --- |
+| Direct weights | `btcli misc weights set`, when commit-reveal is off | `SetWeights` |
+| Timelocked commit | `btcli misc weights set`, when commit-reveal is on, or `btcli misc weights commit` | `SetWeights`, `CommitWeights` |
+| Legacy hash commit | `btcli misc weights hash` | `CommitWeightHash` |
+| Legacy reveal | `btcli misc weights reveal` | `RevealWeights` |
+| Channel commitment | `btcli commitments commit` | `SetChannelCommitment` |
 
-**Direct weights.** The row applies in the same block.
+**Direct weights.** The row applies in the same block. The chain call is
+`set_mechanism_weights`.
 
 **Timelocked commit.** The SDK encrypts the row for a future drand round. The
-chain decrypts and applies it at that round. No reveal call is necessary.
+chain decrypts and applies it at that round. No reveal call is necessary. The
+chain call is `commit_timelocked_mechanism_weights`.
 
 ```bash
 btcli misc weights commit --netuid 1 --mechid 2 \
@@ -266,7 +281,9 @@ length at the reveal and skips a row above the cap.
 
 **Legacy hash commit and reveal.** The validator commits a hash and reveals the
 same UIDs, weights, salt and version key later. The reveal is valid in one
-epoch only.
+epoch only. The chain call for the commit is `commit_mechanism_weights`. The
+chain call for the reveal is `reveal_weights` on mechanism 0 and
+`reveal_mechanism_weights` on the other mechanisms.
 
 ```bash
 btcli misc weights hash --netuid 1 --mechid 2 --hash 0xCOMMIT_HASH \
@@ -277,7 +294,8 @@ btcli misc weights reveal --netuid 1 --mechid 2 \
 
 **Channel commitments.** A channel commitment is not a weight. It is a payload
 that a coldkey publishes for its hotkey at one `(netuid, mechid, channel)`. The
-owner can ask for a burn on each channel. The full guide is
+owner can ask for a burn on each channel. The chain call is
+`Commitments.set_commitment_to`. The full guide is
 [Channel commitments](/docs/guides/channel-commitments).
 
 ```bash
@@ -337,13 +355,32 @@ pays the transaction fee. More details are in
 
 ## Errors
 
-| Error | Cause | What to do |
-| --- | --- | --- |
-| [`InvalidValue`](/docs/errors/chain/InvalidValue) | Count of 0 or above `MaxMechanismCount`; pending commits on a Null subnet; cleanup of an earlier reduction not complete; split with a wrong length or sum | Read the current state (step 1) and correct the cause |
-| [`TooManyUIDsPerMechanism`](/docs/errors/chain/TooManyUIDsPerMechanism) | The UID capacity does not fit the mode's limit | Yuma: lower `max_allowed_uids` or the count. Null: keep `max_allowed_uids` at 2,500 or below |
-| [`TooManyWeightsForNullMechanism`](/docs/errors/chain/TooManyWeightsForNullMechanism) | A Null weight row is longer than the cap | Send at most `max(1, floor(2500 / mechanism_count))` entries |
-| [`TxRateLimitExceeded`](/docs/errors/chain/TxRateLimitExceeded) | The owner changed the count or the split less than 7,200 blocks ago | Wait, or ask root |
-| [`AdminActionProhibitedDuringWeightsWindow`](/docs/errors/chain/AdminActionProhibitedDuringWeightsWindow) | The call arrived in the admin freeze window | Send it after the epoch |
-| [`MechanismDoesNotExist`](/docs/errors/chain/MechanismDoesNotExist) | The subnet does not exist, or the `mechid` is not below the count | Check the netuid and the count |
-| [`CommitPayloadTooLarge`](/docs/errors/chain/CommitPayloadTooLarge) | A timelocked commit is above 5,000 bytes on Yuma, or above `floor(32 KiB / mechanism_count)` on Null | Send a shorter row |
-| [`CommitQueueFull`](/docs/errors/chain/CommitQueueFull) | The shared Null commit queue of the epoch is full | Wait for the next epoch; the leading validator can still commit |
+Each entry gives the cause and what to do.
+
+- [`InvalidValue`](/docs/errors/chain/InvalidValue). **Cause:** a count of 0 or
+  above `MaxMechanismCount`; pending commits on a Null subnet; cleanup of an
+  earlier reduction that is not complete; a split with a wrong length or sum.
+  **Action:** read the current state (step 1) and correct the cause.
+- [`TooManyUIDsPerMechanism`](/docs/errors/chain/TooManyUIDsPerMechanism).
+  **Cause:** the UID capacity does not fit the limit of the mode. **Action:**
+  on Yuma, lower `max_allowed_uids` or the count. On Null, keep
+  `max_allowed_uids` at 2,500 or below.
+- [`TooManyWeightsForNullMechanism`](/docs/errors/chain/TooManyWeightsForNullMechanism).
+  **Cause:** a Null weight row is longer than the cap. **Action:** send a row
+  that fits the row cap.
+- [`TxRateLimitExceeded`](/docs/errors/chain/TxRateLimitExceeded). **Cause:**
+  the owner changed the count or the split less than 7,200 blocks ago.
+  **Action:** wait, or ask root.
+- [`AdminActionProhibitedDuringWeightsWindow`](/docs/errors/chain/AdminActionProhibitedDuringWeightsWindow).
+  **Cause:** the call arrived in the admin freeze window. **Action:** send it
+  after the epoch.
+- [`MechanismDoesNotExist`](/docs/errors/chain/MechanismDoesNotExist).
+  **Cause:** the subnet does not exist, or the `mechid` is not below the count.
+  **Action:** check the netuid and the count.
+- [`CommitPayloadTooLarge`](/docs/errors/chain/CommitPayloadTooLarge).
+  **Cause:** a timelocked commit is above 5,000 bytes on Yuma, or above
+  `floor(32 KiB / mechanism_count)` bytes on Null. **Action:** send a shorter
+  row.
+- [`CommitQueueFull`](/docs/errors/chain/CommitQueueFull). **Cause:** the shared
+  Null commit queue of the epoch is full. **Action:** wait for the next epoch.
+  The leading validator can still commit.
