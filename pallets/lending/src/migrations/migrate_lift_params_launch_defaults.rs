@@ -1,7 +1,11 @@
 //! Rewrite live [`LiftParamsStore`](crate::LiftParamsStore) launch defaults:
-//! short APR 20%, deep-pool LTV 33%, Cap_short ≈ 2× Cap_long (`split_short_bps`
-//! 6667). Only fields still equal to the prior defaults are rewritten so a
-//! root that already sudo-set a value is left alone.
+//! short APR 20%, deep-pool LTV 33%. Only fields still equal to the prior
+//! defaults are rewritten so a root that already sudo-set a value is left
+//! alone.
+//!
+//! Cap_short stays at the 50/50 `split_short_bps` default; short book size is
+//! additionally bounded by [`LiftParams::short_book_max_pool_alpha_bps`]
+//! (appended by a later migration).
 use core::marker::PhantomData;
 
 #[cfg(feature = "try-runtime")]
@@ -19,7 +23,6 @@ use crate::*;
 /// Prior defaults replaced by this migration.
 const OLD_APR_SHORT_BPS: u16 = 10_000;
 const OLD_LTV_BPS: u16 = 2_500;
-const OLD_SPLIT_SHORT_BPS: u16 = 5_000;
 
 fn migration_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
     BoundedVec::truncate_from(b"migrate_lift_params_launch_defaults_v1".to_vec())
@@ -38,10 +41,6 @@ fn apply_launch_defaults(params: &mut LiftParams) -> bool {
     }
     if params.ltv_long_bps == OLD_LTV_BPS {
         params.ltv_long_bps = fresh.ltv_long_bps;
-        changed = true;
-    }
-    if params.split_short_bps == OLD_SPLIT_SHORT_BPS {
-        params.split_short_bps = fresh.split_short_bps;
         changed = true;
     }
     changed
@@ -112,12 +111,6 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
                 ensure!(
                     after.ltv_long_bps == fresh.ltv_long_bps,
                     "ltv_long_bps must move to the 33% launch default"
-                );
-            }
-            if before.split_short_bps == OLD_SPLIT_SHORT_BPS {
-                ensure!(
-                    after.split_short_bps == fresh.split_short_bps,
-                    "split_short_bps must move to the 2× short-cap launch default"
                 );
             }
         }

@@ -487,9 +487,13 @@ pub enum Side {
 
 /// Inclusive upper bound on [`LiftParams::thin_blend_tao`] (1e6 τ in rao).
 pub const MAX_THIN_BLEND_TAO: u64 = 1_000_000_000_000_000;
+/// Inclusive lower bound on [`LiftParams::short_book_max_pool_alpha_bps`] (1%).
+pub const MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS: u16 = 100;
+/// Inclusive upper bound on [`LiftParams::short_book_max_pool_alpha_bps`] (50%).
+pub const MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS: u16 = 5_000;
 
 /// Root-settable capacity / LTV / interest / pacing parameters (bps where noted).
-#[freeze_struct("1c6eb6c415bd5dee")]
+#[freeze_struct("40bb49294b4d0f86")]
 #[derive(
     Encode,
     Decode,
@@ -513,7 +517,8 @@ pub struct LiftParams {
     pub move_bps: u16,
     /// Ceiling as fraction of G_ref (default 5000 = 50%).
     pub ceiling_bps: u16,
-    /// Short side share of Cap (default 6667 ≈ 66.67% so Cap_short ≈ 2× Cap_long).
+    /// Short side share of Cap (default 5000 = 50% so Cap_short = Cap_long).
+    /// Additional short bound: [`Self::short_book_max_pool_alpha_bps`].
     pub split_short_bps: u16,
     /// Optional rebalance target for split_short (0 = off).
     pub rebalance_target_bps: u16,
@@ -607,6 +612,13 @@ pub struct LiftParams {
     /// cannot freeze the book. First forced trade of the block only; later
     /// claims wait for the next block. `0` disables the floor (impact-only).
     pub forced_min_buyback_bps: u16,
+    /// Max total short-book borrowed alpha as a share of live pool alpha
+    /// (`SubnetAlphaIn` / `pool_alpha`). Default 1500 = 15%. Bounds
+    /// [`MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS`]..=[`MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS`].
+    /// Checked on open/increase only (never force-closes live loans; roll does
+    /// not increase debt so it skips this gate). TAO Cap_short
+    /// (`split_short_bps`) remains an additional bound.
+    pub short_book_max_pool_alpha_bps: u16,
 }
 
 impl LiftParams {
@@ -652,7 +664,7 @@ impl Default for LiftParams {
             ref_tao: 1_000_000_000_000,
             move_bps: 1_000,
             ceiling_bps: 5_000,
-            split_short_bps: 6_667,
+            split_short_bps: 5_000,
             rebalance_target_bps: 0,
             rebalance_rate_bps: 0,
             thin_tao: 3_000_000_000_000,
@@ -675,6 +687,7 @@ impl Default for LiftParams {
             expiry_max_slippage_bps: 200,
             thin_blend_tao: 3_000_000_000_000,
             forced_min_buyback_bps: 100,
+            short_book_max_pool_alpha_bps: 1_500,
         }
     }
 }
@@ -767,6 +780,7 @@ impl LiftParamsBeforeEconomic {
             expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
             thin_blend_tao: LiftParams::default().thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
+            short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
         }
     }
 }
@@ -834,6 +848,7 @@ impl LiftParamsBeforeExpirySlippage {
             expiry_max_slippage_bps: LiftParams::default().expiry_max_slippage_bps,
             thin_blend_tao: LiftParams::default().thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
+            short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
         }
     }
 }
@@ -902,6 +917,7 @@ impl LiftParamsBeforeThinBlend {
             expiry_max_slippage_bps: self.expiry_max_slippage_bps,
             thin_blend_tao: LiftParams::default().thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
+            short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
         }
     }
 }
@@ -971,6 +987,84 @@ impl LiftParamsBeforeForcedMinBuyback {
             expiry_max_slippage_bps: self.expiry_max_slippage_bps,
             thin_blend_tao: self.thin_blend_tao,
             forced_min_buyback_bps: LiftParams::default().forced_min_buyback_bps,
+            short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
+        }
+    }
+}
+
+/// Post-`forced_min_buyback_bps`, pre-`short_book_max_pool_alpha_bps` layout.
+///
+/// Decoded by [`migrations::migrate_lift_params_short_book_alpha`].
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LiftParamsBeforeShortBookAlpha {
+    pub floor_bps: u16,
+    pub thin_floor_bps: u16,
+    pub ref_tao: u64,
+    pub move_bps: u16,
+    pub ceiling_bps: u16,
+    pub split_short_bps: u16,
+    pub rebalance_target_bps: u16,
+    pub rebalance_rate_bps: u16,
+    pub thin_tao: u64,
+    pub ltv_short_bps: u16,
+    pub ltv_long_bps: u16,
+    pub thin_ltv_long_bps: u16,
+    pub apr_long_bps: u16,
+    pub apr_short_bps: u16,
+    pub slice_bps: u16,
+    pub crash_guard_bps: u16,
+    pub total_tao_ema_blocks: u64,
+    pub new_subnet_min_age: u64,
+    pub new_subnet_ramp: u64,
+    pub ema_band_bps: u16,
+    pub max_loan_duration: u64,
+    pub max_settlement_deferral: u64,
+    pub young_short_settlement_window: u64,
+    pub minimum_loan_value: u64,
+    pub max_expiry_settlements_per_block: u32,
+    pub expiry_max_slippage_bps: u16,
+    pub thin_blend_tao: u64,
+    pub forced_min_buyback_bps: u16,
+}
+
+impl LiftParamsBeforeShortBookAlpha {
+    pub(crate) fn into_current(self) -> LiftParams {
+        LiftParams {
+            floor_bps: self.floor_bps,
+            thin_floor_bps: self.thin_floor_bps,
+            ref_tao: self.ref_tao,
+            move_bps: self.move_bps,
+            ceiling_bps: self.ceiling_bps,
+            // Revert accidental 2× short TAO split if still at the prior launch
+            // default; otherwise preserve a root-set value.
+            split_short_bps: if self.split_short_bps == 6_667 {
+                LiftParams::default().split_short_bps
+            } else {
+                self.split_short_bps
+            },
+            rebalance_target_bps: self.rebalance_target_bps,
+            rebalance_rate_bps: self.rebalance_rate_bps,
+            thin_tao: self.thin_tao,
+            ltv_short_bps: self.ltv_short_bps,
+            ltv_long_bps: self.ltv_long_bps,
+            thin_ltv_long_bps: self.thin_ltv_long_bps,
+            apr_long_bps: self.apr_long_bps,
+            apr_short_bps: self.apr_short_bps,
+            slice_bps: self.slice_bps,
+            crash_guard_bps: self.crash_guard_bps,
+            total_tao_ema_blocks: self.total_tao_ema_blocks,
+            new_subnet_min_age: self.new_subnet_min_age,
+            new_subnet_ramp: self.new_subnet_ramp,
+            ema_band_bps: self.ema_band_bps,
+            max_loan_duration: self.max_loan_duration,
+            max_settlement_deferral: self.max_settlement_deferral,
+            young_short_settlement_window: self.young_short_settlement_window,
+            minimum_loan_value: self.minimum_loan_value,
+            max_expiry_settlements_per_block: self.max_expiry_settlements_per_block,
+            expiry_max_slippage_bps: self.expiry_max_slippage_bps,
+            thin_blend_tao: self.thin_blend_tao,
+            forced_min_buyback_bps: self.forced_min_buyback_bps,
+            short_book_max_pool_alpha_bps: LiftParams::default().short_book_max_pool_alpha_bps,
         }
     }
 }
@@ -2451,7 +2545,9 @@ pub mod pallet {
                     && p.expiry_max_slippage_bps > 0
                     && p.expiry_max_slippage_bps <= 10_000
                     && p.thin_blend_tao <= MAX_THIN_BLEND_TAO
-                    && p.forced_min_buyback_bps <= 10_000,
+                    && p.forced_min_buyback_bps <= 10_000
+                    && p.short_book_max_pool_alpha_bps >= MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS
+                    && p.short_book_max_pool_alpha_bps <= MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS,
                 Error::<T>::InvalidLiftParams
             );
             Ok(())
@@ -3073,10 +3169,9 @@ pub mod pallet {
         /// `(Cap, Cap_short, Cap_long)` at `ramp_bps` (≤ 10_000). `None` uses the
         /// live §2.3 ramp. Pass `Some(10_000)` for the post-ramp full Cap.
         ///
-        /// **Short-cap switch point:** Cap_short is currently
-        /// `split_short_bps · Cap`. Keep that split as the only place that
-        /// derives Cap_short — Jacob may replace it with a share-of-pool-alpha
-        /// design shortly; do not scatter Cap_short math elsewhere.
+        /// Cap_short = `split_short_bps · Cap` (TAO bound, default 50/50).
+        /// Shorts also face [`Self::ensure_short_book_pool_alpha`] (share of
+        /// pool alpha). Keep Cap_short derivation here only.
         fn side_caps_at(
             netuid: NetUid,
             params: &LiftParams,
@@ -3211,6 +3306,41 @@ pub mod pallet {
             if used.saturating_add(delta_l) > cap_side {
                 return Err(Self::side_capacity_error(netuid, side, delta_l, &params)?.into());
             }
+            Ok(())
+        }
+
+        /// Max short-book borrowed alpha = `short_book_max_pool_alpha_bps` of
+        /// live pool alpha.
+        fn short_book_alpha_cap(
+            netuid: NetUid,
+            params: &LiftParams,
+        ) -> Result<u64, DispatchError> {
+            Self::mul_bps(
+                T::Pool::pool_alpha(netuid).to_u64(),
+                params.short_book_max_pool_alpha_bps,
+            )
+        }
+
+        /// Outstanding short borrowed alpha (`Lifts.short_sold_alpha`).
+        fn short_book_alpha_used(netuid: NetUid) -> u64 {
+            Lifts::<T>::get(netuid).short_sold_alpha
+        }
+
+        /// Open/increase: `short_sold_alpha + delta_alpha ≤ pool_alpha · share`.
+        ///
+        /// `delta_alpha == 0` (roll / no new borrow) always passes — this cap
+        /// never force-closes live loans and does not block term extension.
+        fn ensure_short_book_pool_alpha(netuid: NetUid, delta_alpha: u64) -> DispatchResult {
+            if delta_alpha == 0 {
+                return Ok(());
+            }
+            let params = Self::lift_params();
+            let max = Self::short_book_alpha_cap(netuid, &params)?;
+            let used = Self::short_book_alpha_used(netuid);
+            ensure!(
+                used.saturating_add(delta_alpha) <= max,
+                Error::<T>::SideCapacity
+            );
             Ok(())
         }
 
@@ -3621,7 +3751,14 @@ pub mod pallet {
                             / u128::from(y);
                         p = p.max(min_lift_p.min(u128::from(u64::MAX)) as u64);
                     }
-                    p.min(x.saturating_sub(1))
+                    // Also bound by remaining short-book pool-alpha share.
+                    let alpha_cap = Self::short_book_alpha_cap(netuid, params)?;
+                    let alpha_used = Self::short_book_alpha_used(netuid);
+                    let alpha_headroom = alpha_cap.saturating_sub(alpha_used);
+                    if alpha_headroom == 0 {
+                        return Err(Self::refuse_capacity(netuid, side, price, params));
+                    }
+                    p.min(x.saturating_sub(1)).min(alpha_headroom)
                 }
                 Side::Long => headroom_tao.min(y.saturating_sub(1)),
             };
@@ -4045,6 +4182,9 @@ pub mod pallet {
                 // reports SideCapacity / SideCapacityRamping (not DynamicCollateral).
                 let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
                 Self::ensure_side_capacity(netuid, side, delta_l)?;
+                if side == Side::Short {
+                    Self::ensure_short_book_pool_alpha(netuid, p)?;
+                }
                 ensure!(
                     Self::principal_feasible(
                         netuid,
@@ -4071,6 +4211,11 @@ pub mod pallet {
                     &params,
                 )?
             };
+            if side == Side::Short && requested_principal.is_none() {
+                // Max-borrow path already clamped add_cap by alpha headroom;
+                // re-check the chosen principal.
+                Self::ensure_short_book_pool_alpha(netuid, principal)?;
+            }
 
             let price = Self::coupon_price(netuid, &reference);
             // Dust / side-capacity before V_dyn and min_borrow so a capacity-bound
@@ -8751,6 +8896,9 @@ pub mod pallet {
                 let ltv = Self::ltv_tier_bps(netuid, side, &params);
                 let delta_l = Self::lift_tao_for_principal(netuid, side, p)?;
                 Self::ensure_side_capacity(netuid, side, delta_l)?;
+                if side == Side::Short {
+                    Self::ensure_short_book_pool_alpha(netuid, p)?;
+                }
                 ensure!(
                     Self::principal_feasible(
                         netuid, side, total_p, total_c, old_p, owner, &reference, ltv, &params,
@@ -8769,6 +8917,9 @@ pub mod pallet {
                     &params,
                 )?
             };
+            if side == Side::Short && requested.is_none() {
+                Self::ensure_short_book_pool_alpha(netuid, principal)?;
+            }
             let price = Self::coupon_price(netuid, &reference);
             // Zero additional principal: map via shared dust/capacity gate before
             // V_dyn / EMA (those require a positive principal).

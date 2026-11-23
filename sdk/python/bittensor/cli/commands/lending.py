@@ -1951,6 +1951,7 @@ def show_params(ctx: typer.Context):
         "thin_floor_bps",
         "ceiling_bps",
         "split_short_bps",
+        "short_book_max_pool_alpha_bps",
         "ltv_short_bps",
         "ltv_long_bps",
         "thin_ltv_long_bps",
@@ -1971,6 +1972,7 @@ def show_params(ctx: typer.Context):
         "total_tao_ema_blocks",
         "crash_guard_bps",
         "expiry_max_slippage_bps",
+        "forced_min_buyback_bps",
     ]
     rows: list[list[str]] = [["Enabled", str(bool(enabled))]]
     seen: set[str] = set()

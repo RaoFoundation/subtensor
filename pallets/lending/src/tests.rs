@@ -1175,14 +1175,14 @@ fn quote_open_matches_dispatch_when_forfeit_frees_side_capacity() {
         let lift = opened.lift_tao;
         assert!(lift > 0);
         // Cap_short = thin_floor · split_short · G_ema.
-        // With split 6667 / thin 1500: Cap_short ≈ 0.10·G_ema → G_ema ≈ lift / 0.10.
+        // With split 5000 / thin 1500: Cap_short = 0.075·G_ema → G_ema = lift / 0.075.
         let split = u64::from(LiftParams::default().split_short_bps);
         let thin = u64::from(LiftParams::default().thin_floor_bps);
         let g_ema =
             lift.saturating_mul(10_000).saturating_mul(10_000) / thin.saturating_mul(split).max(1);
         assert!(
             g_ema < LiftParams::default().thin_tao,
-            "g_ema={g_ema} must stay thin for Cap_short≈10%·G"
+            "g_ema={g_ema} must stay thin for Cap_short=7.5%·G"
         );
         Lifts::<Test>::mutate(netuid(), |book| {
             book.g_ema = g_ema.max(1);
@@ -1418,7 +1418,8 @@ fn capacity_floor_ceiling_and_side_split() {
         assert_eq!(params.floor_bps, 3_300);
         assert_eq!(params.thin_floor_bps, 1_500);
         assert_eq!(params.ceiling_bps, 5_000);
-        assert_eq!(params.split_short_bps, 6_667);
+        assert_eq!(params.split_short_bps, 5_000);
+        assert_eq!(params.short_book_max_pool_alpha_bps, 1_500);
         assert_ok!(Lending::set_lift_params(
             RuntimeOrigin::root(),
             LiftParams {
@@ -3265,7 +3266,10 @@ fn migration_rewrites_launch_defaults_when_still_prior() {
         assert_eq!(after.apr_short_bps, 2_000);
         assert_eq!(after.ltv_short_bps, 3_300);
         assert_eq!(after.ltv_long_bps, 3_300);
-        assert_eq!(after.split_short_bps, 6_667);
+        assert_eq!(
+            after.split_short_bps, 5_000,
+            "Cap_short split stays 50/50; short book uses pool-alpha share"
+        );
         assert_eq!(
             after.apr_long_bps, 8_000,
             "sudo-set APR must not be clobbered"
@@ -3283,15 +3287,207 @@ fn launch_defaults_match_jacob_economics() {
     assert_eq!(p.ltv_short_bps, 3_300, "deep-pool short LTV 33%");
     assert_eq!(p.ltv_long_bps, 3_300, "deep-pool long LTV 33%");
     assert_eq!(p.thin_ltv_long_bps, 1_500, "thin LTV stays 15%");
-    assert_eq!(p.split_short_bps, 6_667, "Cap_short ≈ 2× Cap_long");
+    assert_eq!(p.split_short_bps, 5_000, "Cap_short = Cap_long (1× TAO bound)");
+    assert_eq!(
+        p.short_book_max_pool_alpha_bps, 1_500,
+        "short book ≤ 15% of pool alpha"
+    );
     let cap = 10_000u64;
     let cap_short = cap * u64::from(p.split_short_bps) / 10_000;
     let cap_long = cap.saturating_sub(cap_short);
+    assert_eq!(cap_short, cap_long, "50/50 Cap split ({cap_short} vs {cap_long})");
+}
+
+#[test]
+fn migration_appends_short_book_max_pool_alpha_bps() {
+    new_test_ext().execute_with(|| {
+        let key = BoundedVec::truncate_from(b"migrate_lift_params_short_book_alpha_v1".to_vec());
+        HasMigrationRun::<Test>::remove(&key);
+        let before = LiftParamsBeforeShortBookAlpha {
+            floor_bps: 3_300,
+            thin_floor_bps: 1_500,
+            ref_tao: 1_000_000_000_000,
+            move_bps: 1_000,
+            ceiling_bps: 5_000,
+            split_short_bps: 6_667,
+            rebalance_target_bps: 0,
+            rebalance_rate_bps: 0,
+            thin_tao: 3_000_000_000_000,
+            ltv_short_bps: 3_300,
+            ltv_long_bps: 3_300,
+            thin_ltv_long_bps: 1_500,
+            apr_long_bps: 10_000,
+            apr_short_bps: 2_000,
+            slice_bps: 1,
+            crash_guard_bps: 9_500,
+            total_tao_ema_blocks: 7_200,
+            new_subnet_min_age: 50_400,
+            new_subnet_ramp: 216_000,
+            ema_band_bps: 1_500,
+            max_loan_duration: 216_000,
+            max_settlement_deferral: 50_400,
+            young_short_settlement_window: 25_200,
+            minimum_loan_value: 1_000_000_000,
+            max_expiry_settlements_per_block: 16,
+            expiry_max_slippage_bps: 200,
+            thin_blend_tao: 3_000_000_000_000,
+            forced_min_buyback_bps: 100,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &LiftParamsStore::<Test>::hashed_key(),
+            &before.encode(),
+        );
+        let _ = migrations::migrate_lift_params_short_book_alpha::<Test>();
+        assert!(HasMigrationRun::<Test>::get(&key));
+        let after = LiftParamsStore::<Test>::get();
+        assert_eq!(after.short_book_max_pool_alpha_bps, 1_500);
+        assert_eq!(
+            after.split_short_bps, 5_000,
+            "2× Cap_short experiment must revert to 50/50"
+        );
+        assert_eq!(after.forced_min_buyback_bps, 100);
+        let _ = migrations::migrate_lift_params_short_book_alpha::<Test>();
+        assert_eq!(LiftParamsStore::<Test>::get(), after);
+    });
+}
+
+#[test]
+fn lift_params_current_layout_rejects_prefix_decode_as_pre_short_book() {
+    use codec::DecodeAll;
+    let pre = LiftParamsBeforeShortBookAlpha {
+        floor_bps: 3_300,
+        thin_floor_bps: 1_500,
+        ref_tao: 1_000_000_000_000,
+        move_bps: 1_000,
+        ceiling_bps: 5_000,
+        split_short_bps: 5_000,
+        rebalance_target_bps: 0,
+        rebalance_rate_bps: 0,
+        thin_tao: 3_000_000_000_000,
+        ltv_short_bps: 3_300,
+        ltv_long_bps: 3_300,
+        thin_ltv_long_bps: 1_500,
+        apr_long_bps: 10_000,
+        apr_short_bps: 2_000,
+        slice_bps: 1,
+        crash_guard_bps: 9_500,
+        total_tao_ema_blocks: 7_200,
+        new_subnet_min_age: 50_400,
+        new_subnet_ramp: 216_000,
+        ema_band_bps: 1_500,
+        max_loan_duration: 216_000,
+        max_settlement_deferral: 50_400,
+        young_short_settlement_window: 25_200,
+        minimum_loan_value: 1_000_000_000,
+        max_expiry_settlements_per_block: 16,
+        expiry_max_slippage_bps: 200,
+        thin_blend_tao: 3_000_000_000_000,
+        forced_min_buyback_bps: 100,
+    };
+    let cur = pre.into_current();
+    let bytes = cur.encode();
     assert!(
-        cap_short >= cap_long.saturating_mul(2).saturating_sub(1)
-            && cap_short <= cap_long.saturating_mul(2).saturating_add(1),
-        "split 6667 ⇒ Cap_short≈2×Cap_long ({cap_short} vs {cap_long})"
+        LiftParamsBeforeShortBookAlpha::decode(&mut &bytes[..]).is_ok(),
+        "plain Decode must accept current layout as a pre-short-book prefix"
     );
+    assert!(
+        LiftParamsBeforeShortBookAlpha::decode_all(&mut &bytes[..]).is_err(),
+        "DecodeAll must reject trailing short_book_max_pool_alpha_bps"
+    );
+    assert!(LiftParams::decode_all(&mut &bytes[..]).is_ok());
+}
+
+/// Short opens refuse when `short_sold_alpha + Δα` would exceed
+/// `pool_alpha · short_book_max_pool_alpha_bps`, even with TAO Cap_short left.
+#[test]
+fn short_book_pool_alpha_share_blocks_open_when_full() {
+    new_test_ext().execute_with(|| {
+        // Deep pool; TAO Cap_short is generous. Cap alpha share at 1% so a
+        // modest prior short fills the book.
+        LiftParamsStore::<Test>::mutate(|p| {
+            p.short_book_max_pool_alpha_bps = MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS; // 1%
+        });
+        let pool_alpha = MockPool::pool_alpha(netuid()).to_u64();
+        let alpha_cap = pool_alpha / 100; // 1%
+        assert!(alpha_cap > 10_000_000_000);
+
+        let owner_a = account(1);
+        let owner_b = account(3);
+        mint_tao(&owner_a, 500_000_000_000_000);
+        mint_tao(&owner_b, 500_000_000_000_000);
+
+        // Fill the alpha share almost completely, then refuse a borrow that
+        // needs more than the leftover headroom.
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.short_sold_alpha = alpha_cap.saturating_sub(1_000_000_000);
+        });
+        assert_noop!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner_a.clone()),
+                netuid(),
+                Side::Short,
+                50_000_000_000_000,
+                None,
+                10_000_000_000,
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacity
+        );
+
+        // Clear the synthetic fill and open a real short, then over-fill the
+        // book counter: a second open fails, but roll of the live loan passes
+        // (Δα = 0; the share never force-closes existing positions).
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.short_sold_alpha = 0;
+        });
+        assert_ok!(Lending::open(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+            Side::Short,
+            20_000_000_000_000,
+            None,
+            1,
+            0,
+            0,
+            deadline(),
+        ));
+        let opened = Positions::<Test>::get(&owner_a, netuid()).unwrap();
+        let live_p = opened.principal;
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.short_sold_alpha = alpha_cap; // at cap
+        });
+        assert_noop!(
+            Lending::open_exact(
+                RuntimeOrigin::signed(owner_b.clone()),
+                netuid(),
+                Side::Short,
+                20_000_000_000_000,
+                None,
+                live_p.max(1),
+                0,
+                0,
+                deadline(),
+            ),
+            Error::<Test>::SideCapacity
+        );
+        Lifts::<Test>::mutate(netuid(), |book| {
+            book.short_sold_alpha = alpha_cap.saturating_mul(2); // over cap
+        });
+        // Advance so roll stamps a later expires_at (= now + max_loan_duration).
+        System::set_block_number(System::block_number().saturating_add(10));
+        assert_ok!(Lending::roll(
+            RuntimeOrigin::signed(owner_a.clone()),
+            netuid(),
+        ));
+        let rolled = Positions::<Test>::get(&owner_a, netuid()).unwrap();
+        assert!(
+            rolled.expires_at > opened.expires_at,
+            "roll must extend term even when short book is over the alpha share"
+        );
+        assert_eq!(rolled.principal, opened.principal);
+    });
 }
 
 #[test]
@@ -10346,7 +10542,7 @@ fn sn29_style_short_raises_report_side_capacity_not_amount_too_small() {
                 valid_after: 1u64,
             },
         );
-        // Thin G_ema so Cap = 15%·G and Cap_short ≈ 10%·G (split 6667) ≈ 133 τ.
+        // Thin G_ema so Cap = 15%·G and Cap_short = 7.5%·G (split 5000) ≈ 100 τ.
         // Each 200 τ collateral add wants ~66 τ of lift under 33% LTV.
         let g_ema = 1_333_000_000_000u64;
         Lifts::<Test>::mutate(netuid(), |book| {
@@ -10361,8 +10557,8 @@ fn sn29_style_short_raises_report_side_capacity_not_amount_too_small() {
         let floor = g_ema * u64::from(params.thin_floor_bps) / 10_000;
         let cap_short = floor * u64::from(params.split_short_bps) / 10_000;
         assert!(
-            (120_000_000_000..145_000_000_000).contains(&cap_short),
-            "expected ~133 τ Cap_short under 2× short split, got {cap_short}"
+            (90_000_000_000..110_000_000_000).contains(&cap_short),
+            "expected ~100 τ Cap_short under 50/50 split, got {cap_short}"
         );
 
         let owner = account(1);
@@ -14066,6 +14262,14 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
                 thin_blend_tao: MAX_THIN_BLEND_TAO + 1,
                 ..test_lift_params()
             },
+            LiftParams {
+                short_book_max_pool_alpha_bps: MIN_SHORT_BOOK_MAX_POOL_ALPHA_BPS - 1,
+                ..test_lift_params()
+            },
+            LiftParams {
+                short_book_max_pool_alpha_bps: MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS + 1,
+                ..test_lift_params()
+            },
         ] {
             assert_noop!(
                 Lending::set_lift_params(RuntimeOrigin::root(), bad),
@@ -14078,6 +14282,7 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
             rebalance_target_bps: 10_000,
             rebalance_rate_bps: 10_000,
             new_subnet_min_age: MAX_NEW_SUBNET_MIN_AGE,
+            short_book_max_pool_alpha_bps: MAX_SHORT_BOOK_MAX_POOL_ALPHA_BPS,
             ..test_lift_params()
         };
         assert_ok!(Lending::set_lift_params(RuntimeOrigin::root(), ok));

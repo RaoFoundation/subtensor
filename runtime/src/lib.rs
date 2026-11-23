@@ -281,7 +281,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
     // Above main tip (494 / #3352) so a real upgrade from main never rolls version back.
-    // Lending stays at 495 after remmerge of release-494.
+    // Lending launch economics + short-book pool-alpha share (post-495 remmerge).
     spec_version: 496,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
@@ -1933,6 +1933,8 @@ type Migrations = (
     pallet_lending::migrations::LiftParamsLaunchDefaultsMigration<Runtime>,
     // Append forced_min_buyback_bps (default 100 = 1% of remaining principal).
     pallet_lending::migrations::LiftParamsForcedMinBuybackMigration<Runtime>,
+    // Append short_book_max_pool_alpha_bps (15%) and revert 2× Cap_short split.
+    pallet_lending::migrations::LiftParamsShortBookAlphaMigration<Runtime>,
     pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
     pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
     pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,

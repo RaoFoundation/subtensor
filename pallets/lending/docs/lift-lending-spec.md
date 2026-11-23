@@ -1,14 +1,22 @@
-# Lift-based lending on main's Balancer pools: final spec (v5.11: launch economics + paced forced buyback)
-**Version:** v5.12, 2026-11-23. Encodes Jacob's locked decisions as of 2026-10-20 (EMA band 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09; hard 30-day max_loan_duration / terms v2 2026-11-19; atomic `roll(netuid)` + root-settable economic params 2026-11-19; asymmetric APR + 33% LTV + Cap_short≈2×Cap_long + impact-capped partial forced buyback 2026-11-23; **`add_collateral` + roll collateral-adequacy 2026-11-23**). Supersedes v5.10 (roll + root economic params), v5.9 (hard 30-day term), v5.8 (net-long emission), v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
+# Lift-based lending on main's Balancer pools: final spec (v5.13: short-book pool-alpha share)
+**Version:** v5.13, 2026-11-23. Encodes Jacob's locked decisions as of 2026-10-20 (EMA band 2026-10-28; settlement band + forfeit buyback 2026-11-03; emission-price exclusion 2026-11-05; net-long emission + 1 τ min loan + young-short dereg 2026-11-09; hard 30-day max_loan_duration / terms v2 2026-11-19; atomic `roll(netuid)` + root-settable economic params 2026-11-19; asymmetric APR + 33% LTV + impact-capped partial forced buyback 2026-11-23; `add_collateral` + roll collateral-adequacy 2026-11-23; **short book ≤ share of pool alpha + Cap_short back to 1× 2026-11-23**). Supersedes v5.12 (forced progress + add_collateral + roll adequacy), v5.11 (launch economics), v5.10 (roll + root economic params), v5.9 (hard 30-day term), v5.8 (net-long emission), v5.7 (emission minus the longs), v5.6 (settlement band + forfeit buyback), v5.5 (health accumulators + versioned terms), v5.4 (2026-10-28, kept as `lift-lending-spec.v5.4-backup-20261103.md` when archived), v5.3 (2026-10-20, kept as `lift-lending-spec.v5.3-backup-20261027.md`), v5.2 (2026-10-20, kept as `lift-lending-spec.v5.2-pre-gaps-20261020.md`), v5.1 (2026-10-19, kept as `lift-lending-spec.v5.1-backup-20261020.md`), v5 (2026-10-19, kept as `lift-lending-spec.v5-backup-20261019.md`) and v4 (floor 33%, 2026-10-16, kept as `lift-lending-spec.v4-backup-20261019.md`).
 **Target:** RaoFoundation/subtensor `main` @ 7ba9601d (2026-10-15 15:53 CT). PR #3211 is a parts bin only (§11).
 **Numbers:** live chain state at block 9,298,539 (2026-10-16), with real `Swap.SwapBalancer` weights; P&L uses the same 117-subnet bootstrap paths as before.
 **Files:** scripts `lending-pnl/{final,final2,final3,sim_final2,pnl_final2,plot11}.py`; data `data/final*.{json,csv}` (floor sweep: `data/final3.json`, `data/final3_pnl.csv`), `data/balancer_now.json`; figure `fig11_final.png`. v5 additions: `lift-lending-raise/calc.py` + `res.json` (escrowed-long impacts, raise example); companion implementer notes `lift-lending-raise-cli.md`; v5.1: `lift-lending-dereg/calc.py` + `res.json` (dereg settlement examples); why not zero-loss LTV: `zero-loss-ltv-example.md`; v5.2: `sn29-analysis.md` + `sn29/calc.py` → `res.json` (`r`-pump attack and fix numbers); v5.3: `lending-pnl/sim_final4.py` (escrowed-long books, same seeds and paths as `sim_final2.py`) + `lending-pnl/final4.py` → `data/final4.json`, `data/final4_pnl.csv`, `data/final4_long_default.csv` (thin floor on, tier LTV, escrowed-long P&L); `lift-lending-raise/calc.py` → `res.json` key `v53_raise_table` (raise tables, thin-tier mirrors).
+
+## Changelog: v5.13 vs v5.12
+* **2026-11-23: short book ≤ share of pool alpha (Jacob).** Replace the temporary 2× TAO Cap_short experiment with a hard bound on total outstanding borrowed alpha.
+  * `short_book_max_pool_alpha_bps` (sudo, bounds 100..=5_000 = 1%..=50%, default **1_500 = 15%**): `Lifts.short_sold_alpha + Δα ≤ SubnetAlphaIn · share` on open/increase only.
+  * Roll does **not** increase debt, so it skips this gate (existing positions are never force-closed by the share).
+  * `split_short_bps` reverted to **5_000** (Cap_short = Cap_long = 1× TAO bound). Cap_short remains an additional TAO capacity check; longs unchanged.
+  * Migration `LiftParamsShortBookAlphaMigration`: DecodeAll-append the field; if live `split_short_bps == 6667`, rewrite to 5000 (preserve other root-set values).
+* Touched: §2.2, §8 parameter table; runtime migration; SDK / CLI `show-params`.
 
 ## Changelog: v5.11 vs v5.10
 * **2026-11-23: launch economics (Jacob).**
   * `apr_short_bps` default **2_000** (20%/yr); `apr_long_bps` stays **10_000** (100%/yr). Separate sudo fields (already split in v5.10).
   * Deep-pool LTV defaults **3_300** (33%) for short and long; thin long LTV stays **1_500** (15%).
-  * `split_short_bps` default **6_667** so `Cap_short ≈ 2·Cap_long` (long share ≈ 3_333). Still one shared Cap with a side split (not two independent capacity params).
+  * Cap_short stayed at the 50/50 `split_short_bps` default for TAO capacity; short book size is additionally bounded by pool-alpha share (v5.13). *(A brief 6_667 / 2× Cap_short experiment was reverted.)*
   * Migration `LiftParamsLaunchDefaultsMigration`: rewrites only fields still equal to the prior defaults so a root that already sudo-set a value is left alone.
 * **2026-11-23: impact-capped partial forced buyback (Jacob).**
   * A single forced settle / forfeit buyback may not exceed the remaining per-block `ProtocolForcedImpact` budget (first trade of the block included — no uncapped bypass).
@@ -57,7 +65,8 @@
 | `floor_bps` | 3300 | ≤ `ceiling_bps` | `set_lift_params` |
 | `thin_floor_bps` | 1500 | ≤ `ceiling_bps` | `set_lift_params` |
 | `ceiling_bps` | 5000 | ≤ 10_000 | `set_lift_params` |
-| `split_short_bps` | 6667 (`Cap_short≈2×Cap_long`) | ≤ 10_000 | `set_lift_params` |
+| `split_short_bps` | 5000 (`Cap_short = Cap_long`) | ≤ 10_000 | `set_lift_params` |
+| `short_book_max_pool_alpha_bps` | 1500 (15% of pool α) | 100..=5_000 | `set_lift_params` — total short borrowed α ≤ share of `SubnetAlphaIn`; open/increase only |
 | `ltv_short_bps` | 3300 | ≤ 5000 | `set_lift_params` |
 | `ltv_long_bps` | 3300 | ≤ 5000 | `set_lift_params` |
 | `thin_ltv_long_bps` | 1500 | ≤ 5000 | `set_lift_params` |
@@ -83,6 +92,8 @@
 | `expiry_max_slippage_bps` | 200 (2%) | 1..=10_000 | `set_lift_params` — post-trade spot vs lending EMA on every expiry AMM step; defer + max-deferral force (Greg MEV 2026-11-20). Per-block `ProtocolForcedImpact` uses **pre-trade spot** fair (not EMA). |
 | `forced_min_buyback_bps` | 100 (1% of remaining principal) | ≤ 10_000 | `set_lift_params` — force-market first-trade progress floor that may exceed the remaining impact budget |
 | `Enabled` | false (dark launch) | bool | `set_enabled` |
+
+*(v5.13 also documents `short_book_max_pool_alpha_bps` in the table above.)*
 
 ## Changelog: v5.9 vs v5.8
 * **2026-11-19: hard 30-day maximum loan duration (Jacob).** So the protocol can always fully unwind lending by waiting 30 days.
@@ -261,14 +272,17 @@ Ship with these values; raise the thin-side caps after launch once the book is o
 * **Smoothing:**
   * `G_ema`: 24 h half-life geometric EMA, using #3211's `EMA_WEIGHT_BITS`, updated in `on_finalize` for every subnet.
   * `G_ref = min(G_spot, G_ema)`.
-* **Rule.** Governance parameters: `floor = 33%`; **`thin_floor = 15%`, on by default (locked)**; `thin_tao = 3,000 τ`; **`thin_blend_tao = 3,000 τ`** (continuous linear blend — Greg Shorting 102513 / Karl; replaces the old step cliff); `ref = 1,000 τ`; `move = 10%`; `ceiling = 50%`; **`split_short ≈ 66.67%` (`Cap_short ≈ 2·Cap_long`)**; deep-pool LTV **33%** (thin long LTV 15%). Deep pools use the full floor/LTV; shallow pools use the thin values; depths in between interpolate.
+* **Rule.** Governance parameters: `floor = 33%`; **`thin_floor = 15%`, on by default (locked)**; `thin_tao = 3,000 τ`; **`thin_blend_tao = 3,000 τ`** (continuous linear blend — Greg Shorting 102513 / Karl; replaces the old step cliff); `ref = 1,000 τ`; `move = 10%`; `ceiling = 50%`; **`split_short = 50%` (`Cap_short = Cap_long`)**; **`short_book_max_pool_alpha = 15%` of live pool alpha** (additional short bound on Σ borrowed α; open/increase only); deep-pool LTV **33%** (thin long LTV 15%). Deep pools use the full floor/LTV; shallow pools use the thin values; depths in between interpolate.
 ```
 f         = blend(G_ref; thin_floor, floor, thin_tao, thin_blend_tao)
             // G_ref ≤ thin_tao → thin_floor; G_ref ≥ thin_tao + thin_blend_tao → floor;
             // else linear in between. Same blend drives long LTV (thin_ltv_long → ltv_long).
 Cap       = ramp(age) · max( f·G_ref ,  min( G_ref − y* ,  ceiling·G_ref ) )      // ramp = 1 for every subnet past the new-subnet ramp (§2.3)
 Cap_short = split_short · Cap ,   Cap_long = (1 − split_short) · Cap
-open short iff  L_S + ΔL ≤ Cap_short ;   open long iff  L_L + ΔL ≤ Cap_long
+ShortBookα_max = short_book_max_pool_alpha · SubnetAlphaIn
+open short iff  L_S + ΔL ≤ Cap_short  AND  short_sold_alpha + Δα ≤ ShortBookα_max
+open long  iff  L_L + ΔL ≤ Cap_long
+# roll / close never raise short_sold_alpha, so the α-share gate does not apply there
 always:  y − ΔL ≥ MinimumReserve
 ```
 * In words: capacity = MAX(floor % of pool, the depth above which a 1k τ buy moves price 10%), capped by the 50% ceiling, then split 50/50 between sides.
@@ -523,7 +537,7 @@ Approaching deregistration is **not** a threshold event: shorts and longs stay o
   * `Positions` (add `lift_tao`, `lift_alpha`; `proceeds` = short escrow TAO; new `escrow_alpha` = long escrow `A`; `custody` = the position's custody coldkey, stored rather than re-derived, so a coldkey swap doesn't move funds; **no stored hotkey**, §14), `OpenByNetuid`, `PositionCount`, `TotalPositions`, `EscrowOwner`, `References`, `Due`, `NextDue`, `Expiry`, `NextExpiry`, `PalletHotkey`;
   * new: `Lifts: NetUid → {L_S, L_L, B_L, held_tao, held_alpha, escrow_tao, escrow_alpha, long_collateral_alpha, g_ema, t_ema, last}`, `LongInterestPending`, `LiftParams`, `SettleSnapshot: NetUid → {t_flag, t_ema_flag, moving_price}` (§13.2; `Δ0` and `T_settle` are computed at the start of `LendingSettlement`).
   * `t_ema` (§13.2): EMA of the subnet's pot TAO, updated once per block in `on_finalize` for every **live, non-dissolving** subnet, next to `g_ema`. It is frozen once the dissolving flag is set. The migration initialises it to the current `SubnetTAO` on every subnet; a newly registered subnet starts at its `SubnetTAO` at registration.
-* `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short` [**6,667 bps**, Cap_short≈2×Cap_long], `rebalance_target` (off), `rebalance_rate`, `thin_tao` [3,000 τ], `thin_blend_tao` [3,000 τ], `ltv_short` / `ltv_long` [**3,300 bps**], `thin_ltv_long` [1,500 bps], `apr_short` [**2,000 bps**], `apr_long` [10,000 bps], `slice_bps`, `crash_guard`, `total_tao_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3), `ema_band_bps` [**1,500 bps**, §5.4].
+* `LiftParams` (defaults in brackets): `floor` [3,300 bps], `thin_floor` [**1,500 bps, on**], `ref_tao`, `move_bps`, `ceiling`, `split_short` [**5,000 bps**, Cap_short=Cap_long], `short_book_max_pool_alpha` [**1,500 bps**, 15% of pool α], `rebalance_target` (off), `rebalance_rate`, `thin_tao` [3,000 τ], `thin_blend_tao` [3,000 τ], `ltv_short` / `ltv_long` [**3,300 bps**], `thin_ltv_long` [1,500 bps], `apr_short` [**2,000 bps**], `apr_long` [10,000 bps], `slice_bps`, `crash_guard`, `total_tao_ema_blocks` (root-settable EMA window for `t_ema`, default 7,200 blocks = 24 h; changing it keeps the current `t_ema` value), `new_subnet_min_age` [50,400 blocks], `new_subnet_ramp` [216,000 blocks] (§2.3), `ema_band_bps` [**1,500 bps**, §5.4].
 * Calls:
   * `open`, `open_exact`, `close`; the short path always sells, and **the long path always buys and escrows** (no TAO payout);
   * **new `repay`** (partial repay, §4.4);
