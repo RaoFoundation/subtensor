@@ -263,7 +263,9 @@ root-stakes to.
 - **Claim fee.** The inclusion fee scales with how many ALPHA types the
   basket holds. Since runtime 495 a single-validator claim reserves the weight
   of that validator's own fund: its stored basket rows and its queued dividend
-  credits. One claim admits a fund of up to 258 claim units (the validator,
+  credits. It also reserves a fixed 32 ms for the stake-change corrections of
+  the claimant, which the claim settles first. One claim admits a fund of up to
+  258 claim units (the validator,
   each stored row, and each queued credit on a subnet where the fund has no
   row), which is a fund with rows on 256 subnets. A coldkey-wide claim reserves
   the full 256-unit envelope. The chain refunds the unused part after. Admission

@@ -140,7 +140,7 @@ btcli --version`} />
                 <tr>
                   <td>Block weight that <code>claim_root_with_hotkey</code> reserves</td><td>V495</td>
                   <td>The same 2,093 ms for every validator</td>
-                  <td>Sized to the validator&apos;s fund: 446 ms for a fund with 129 rows and no queued credits</td>
+                  <td>Sized to the validator&apos;s fund: 478 ms for a fund with 129 rows and no queued credits</td>
                 </tr>
                 <tr>
                   <td>Largest fund that one <code>claim_root_with_hotkey</code> admits</td><td>V495</td>
@@ -764,19 +764,28 @@ await client.submit_call(raw, owner_wallet)`} />
                 <tr><th>Fund of the validator</th><th>Reserved in V494</th><th>Reserved in V495</th></tr>
               </thead>
               <tbody>
-                <tr><td>Up to 8 rows, no queued credits</td><td>2,093 ms</td><td>34 ms</td></tr>
-                <tr><td>129 rows, no queued credits</td><td>2,093 ms</td><td>446 ms</td></tr>
-                <tr><td>129 rows, 128 queued credits</td><td>2,093 ms</td><td>1,241 ms</td></tr>
-                <tr><td>161 rows, no queued credits</td><td>Claim refused</td><td>554 ms</td></tr>
-                <tr><td>161 rows, 160 queued credits</td><td>Claim refused</td><td>1,537 ms</td></tr>
-                <tr><td>257 rows, no queued credits</td><td>Claim refused</td><td>881 ms</td></tr>
-                <tr><td>257 rows, 256 queued credits</td><td>Claim refused</td><td>2,426 ms</td></tr>
+                <tr><td>Up to 8 rows, no queued credits</td><td>2,093 ms</td><td>67 ms</td></tr>
+                <tr><td>129 rows, no queued credits</td><td>2,093 ms</td><td>478 ms</td></tr>
+                <tr><td>129 rows, 128 queued credits</td><td>2,093 ms</td><td>1,273 ms</td></tr>
+                <tr><td>161 rows, no queued credits</td><td>Claim refused</td><td>587 ms</td></tr>
+                <tr><td>161 rows, 160 queued credits</td><td>Claim refused</td><td>1,570 ms</td></tr>
+                <tr><td>257 rows, no queued credits</td><td>Claim refused</td><td>913 ms</td></tr>
+                <tr><td>257 rows, 256 queued credits</td><td>Claim refused</td><td>2,459 ms</td></tr>
               </tbody>
             </table>
           </div>
           <p>
             These numbers come from the weight formula of the runtime. They are the reserved
             weight, not a measured time. The chain still returns the unused part after the claim.
+          </p>
+          <p>
+            Each number includes a fixed 32 ms for one more task of the claim. Sometimes a
+            dividend credit must wait before it can go into the fund. If your root stake changes
+            while a credit waits, the chain writes a correction for your account, so that the
+            change does not move dividends between stakers. The correction stays until your next
+            claim, also after the credit is in the fund. The claim settles these corrections
+            first. The chain reserves the weight before it knows your account. Thus it reserves
+            the weight for the most corrections that one account can have on one validator: 256.
           </p>
           <h3 className={styles.subtitle_small}>The limit: 258 claim units</h3>
           <p>
@@ -788,7 +797,7 @@ await client.submit_call(raw, owner_wallet)`} />
             <code>RootClaimTooHeavy</code>.
           </p>
           <p>
-            The largest weight that a claim can reserve is 2,432 ms. That is 93.5% of the largest
+            The largest weight that a claim can reserve is 2,464 ms. That is 94.8% of the largest
             transaction that a block accepts, 2,599.9 ms. Only a fund with rows on 256 subnets and
             a queued credit for each row comes near this value.
           </p>
@@ -825,8 +834,8 @@ await client.submit_call(raw, owner_wallet)`} />
               limit of 256 units and its weight.
             </li>
             <li>
-              The subnet limit. V495 does not change it. V495 makes a subnet limit of up to 256
-              safe for single-validator claims: a fund with a row on every subnet stays claimable.
+              The subnet limit. V495 does not change it. With V495, a fund with a row on each
+              of 256 subnets stays claimable with one single-validator claim.
             </li>
           </ul>
           <Code language='bash' code={`# Preview the claim: the reserved fee, the fee that will settle, and the claim-unit check.
@@ -1091,10 +1100,20 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               without a cap. The <DocLink href='#gamma'>gamma section</DocLink> gives the details.
             </li>
             <li>
-              <strong>Largest root claim (accepted).</strong> A single-validator claim on a fund at
-              the limit of 258 claim units, with a queued credit for each row, reserves 2,432 ms.
-              That is 93.5% of the largest transaction. The project accepts this value: it stays
-              below the limit, and a claim on a real fund reserves much less than before.
+              <strong>Largest root claim (to confirm).</strong> A single-validator claim on a fund
+              at the limit of 258 claim units, with a queued credit for each row, reserves 2,464 ms.
+              That is 94.8% of the largest transaction. It stays below the limit, and a claim on a
+              real fund reserves much less than before. The project accepted 2,432 ms. The fixed
+              32 ms for the corrections of the claimant came after that, from an audit.
+            </li>
+            <li>
+              <strong>Claims with many waiting credits (open).</strong> A queued credit that cannot
+              go into the fund at the current price waits, and a claimant can sell their own part
+              of it in the claim. For each of these sales the chain goes through all waiting
+              credits of the validator again. The reserved weight counts each waiting credit one
+              time. This code is the same as in V494, but V494 reserved a fixed 2,093 ms for
+              every claim, which left more room for this work. This case is not measured on
+              reference hardware. The work grows with the number of subnets.
             </li>
             <li>
               <strong>Trade and deposit weight at 256 subnets (open).</strong>{' '}
