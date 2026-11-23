@@ -585,6 +585,7 @@ class Lending:
     NextExpiryRetry = Item('Lending', 'NextExpiryRetry', 'u32')
     ExpiryRetryPending = Item('Lending', 'ExpiryRetryPending', 'u32')
     ExpiryRetryCursor = Item('Lending', 'ExpiryRetryCursor', '(AccountId32, NetUid)')
+    ExpiryAttemptsLeft = Item('Lending', 'ExpiryAttemptsLeft', 'u32')
     LastDeferral = Item('Lending', 'LastDeferral', '(u8, u32, BoundedVec)')
     BandDeferralSince = Item('Lending', 'BandDeferralSince', 'u32')
     ProtocolForcedImpact = Item('Lending', 'ProtocolForcedImpact', '(u32, u128, u128)')
