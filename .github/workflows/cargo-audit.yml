@@ -91,10 +91,11 @@ jobs:
           #   disabled in both backends. The feature-exclusion check pins the exact
           #   reviewed Hickory versions and feature sets; any addition/removal,
           #   including backend-specific DNSSEC, requires a fresh risk review.
-          # RUSTSEC-2026-0523/0524/0525/0538: quinn-proto / quinn-udp /
-          #   libp2p-quic. QUIC is not enabled in the node build; same
-          #   lockfile-only class as the rustls-webpki 0.101 ignore. The
-          #   feature-exclusion check fails if libp2p's QUIC feature appears.
+          # RUSTSEC-2026-0525: libp2p-quic 0.11.1. QUIC is not enabled in the
+          #   node build; same lockfile-only class as the rustls-webpki 0.101
+          #   ignore. The feature-exclusion check fails if libp2p's QUIC feature
+          #   or a QUIC crate appears. The fix is >=0.13.1, but libp2p 0.54.1
+          #   requires ^0.11.1, so it needs the next SDK networking bump.
           # RUSTSEC-2026-0566/0569/0571: wasmtime 8.0.1 WASI/http / host-export
           #   issues. Same sc-executor pin as the other wasmtime ignores; the
           #   node never exposes WASI filesystem/http to runtime Wasm. The
@@ -143,6 +144,10 @@ jobs:
           #   bumping libz-sys 1.1.22 → 1.1.32 in Cargo.lock (no ignore).
           # RUSTSEC-2026-0544 (libz-sys heap buffer overflow) resolved by
           #   bumping libz-sys 1.1.32 → 1.1.33 in Cargo.lock (no ignore).
+          # RUSTSEC-2026-0523/0524 (quinn-proto) and RUSTSEC-2026-0538
+          #   (quinn-udp) resolved by bumping quinn-proto 0.11.18 → 0.11.19 and
+          #   quinn-udp 0.5.14 → 0.5.16 in Cargo.lock (no ignore). Both crates
+          #   are lockfile-only, like libp2p-quic.
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \
                       --ignore RUSTSEC-2025-0009 \
@@ -190,13 +195,10 @@ jobs:
                       --ignore RUSTSEC-2026-0511 \
                       --ignore RUSTSEC-2026-0512 \
                       --ignore RUSTSEC-2026-0514 \
-                      --ignore RUSTSEC-2026-0523 \
-                      --ignore RUSTSEC-2026-0524 \
                       --ignore RUSTSEC-2026-0525 \
                       --ignore RUSTSEC-2026-0530 \
                       --ignore RUSTSEC-2026-0531 \
                       --ignore RUSTSEC-2026-0532 \
-                      --ignore RUSTSEC-2026-0538 \
                       --ignore RUSTSEC-2026-0549 \
                       --ignore RUSTSEC-2026-0550 \
                       --ignore RUSTSEC-2026-0551 \
