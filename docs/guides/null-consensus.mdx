@@ -238,6 +238,13 @@ weight rows for each mechanism, so a change from 16 mechanisms to 1 can delete
 up to 37,500 rows in one call. Only the elected validator can set a row, so
 rows collect only as the elected validator changes.
 
+A third risk is known and accepted for runtime 495, and it has the same cause.
+A pruning batch (`trim-null-batch`) has a small fixed weight, about 0.34 ms. The
+batch reads the weight rows of every mechanism and deletes the rows of UIDs
+without a validator permit. With 16 mechanisms and 2,500 rows for each, one
+batch can need about 5 seconds by the database weights, which is more than the
+compute time of one block.
+
 ## Solidity callers
 
 The Subnet precompile at `0x0803` adds `setEpochConsensus(uint16,uint8)` (0 is

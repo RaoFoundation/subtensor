@@ -1061,6 +1061,15 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               elected validator changes. The project accepts this risk for V495.
             </li>
             <li>
+              <strong>Null UID trimming (accepted).</strong> The owner of a Null subnet can remove
+              UIDs in batches (<code>sudo_trim_null_uids_batch</code>). The call has a small fixed
+              weight, about 0.34 ms. A batch reads the weight rows of every mechanism and deletes
+              the rows of UIDs without a validator permit. With 16 mechanisms and 2,500 rows for
+              each, one batch can need about 5 seconds by the database weights. That is more than
+              the compute time of one block. Rows collect only as the elected validator changes.
+              The project accepts this risk for V495.
+            </li>
+            <li>
               <strong>Interim weight (open).</strong> The weight of a Null epoch is a placeholder
               until reference hardware measures it. It does not include the payout to hotkeys that
               follows the epoch.
@@ -1068,6 +1077,12 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             <li>
               <strong>Gamma spending (accepted).</strong> The owner hotkey can spend emission gamma
               without a call from the owner coldkey. This is the purpose of the change.
+            </li>
+            <li>
+              <strong>Gamma cap after a removed deposit (accepted).</strong> A cap or a pause does
+              not stay when the chain removes the deposit: after a close, a move of the whole
+              balance, or a hotkey swap. The next emission credit to that hotkey opens a deposit
+              without a cap. The <DocLink href='#gamma'>gamma section</DocLink> gives the details.
             </li>
             <li>
               <strong>Largest root claim (accepted).</strong> A single-validator claim on a fund at
