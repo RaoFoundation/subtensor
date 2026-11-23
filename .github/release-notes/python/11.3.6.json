@@ -1,0 +1,11 @@
+{
+  "kind": "python",
+  "packages": [
+    {"name": "bittensor", "version": "11.3.6"},
+    {"name": "bittensor-core", "version": "0.1.13"}
+  ],
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v494-upgrade/page.tsx",
+  "public_path": "/releases/v494-upgrade",
+  "audiences": ["Python SDK users", "validators", "miners", "subnet owners"],
+  "summary": "This is the Python SDK for runtime 494. SetChannelCommitment and btcli commitments commit publish a commitment on one mechanism and channel, and the coldkey pays the channel's current burn up to max_burn. btcli commitments price and the commit_burn read show the live price, and btcli commitments show and the channel_commitment read return the active record with its revealed history. Subnet owners configure burns with SetCommitBurn or btcli commitments burn-config: set max_burn, then min_burn, then enable it; increase_mult is a decimal from 1 to 3. SetMechWeightDelegate and btcli weights delegate set, revoke, and show let a validator authorize one account to submit its weights on a single mechanism, and the weight commands take --for-hotkey to submit as that delegate. A hotkey swap revokes the grants. Generated calls, storage, errors, and runtime APIs match runtime 494, so install this SDK to use these features once 494 is live."
+}
