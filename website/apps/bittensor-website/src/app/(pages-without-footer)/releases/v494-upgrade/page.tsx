@@ -65,6 +65,12 @@ export default function Page() {
               <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
             </tbody>
           </table>
+          <p>
+            The Python SDK for this runtime is <code>bittensor</code> 11.3.6 with{' '}
+            <code>bittensor-core</code> 0.1.13. It adds the channel commitment, commit-burn, and
+            mechanism weight-delegate intents, reads, and <code>btcli</code> commands described
+            below; earlier SDKs do not include them.
+          </p>
         </section>
 
         <section className={styles.section} id='commit-burns'>
