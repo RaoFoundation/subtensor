@@ -999,6 +999,11 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               <code>rate_limit_blocks</code>.
             </li>
             <li>
+              The <code>channel_commitment</code> read and <code>btcli commitments show</code>{' '}
+              decode a commitment that the node returns as text. In earlier versions the read
+              failed with <code>ValueError</code> in that case.
+            </li>
+            <li>
               The check before <code>ClaimRootWithHotkey</code> uses the limit of 258 claim units
               and counts queued credits on subnets where the fund has no row. On a runtime before
               495 the chain still applies its limit of 130 units.
@@ -1048,17 +1053,17 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               lists. V495 adds no parent cap and no charge for each parent.
             </li>
             <li>
-              <strong>Interim weight (open).</strong> The weight of a Null epoch is a placeholder
-              until reference hardware measures it. It does not include the payout to hotkeys that
-              follows the epoch.
-            </li>
-            <li>
               <strong>Lower mechanism count (accepted).</strong> When an owner lowers the mechanism
               count, the call deletes the weight rows of each removed mechanism at once, and the
               weight of the call is fixed. A Null subnet can now hold up to 2,500 weight rows for
               each mechanism, so a change from 16 mechanisms to 1 can delete up to 37,500 rows in
               one call. Only the elected validator can set a row, so rows collect only as the
               elected validator changes. The project accepts this risk for V495.
+            </li>
+            <li>
+              <strong>Interim weight (open).</strong> The weight of a Null epoch is a placeholder
+              until reference hardware measures it. It does not include the payout to hotkeys that
+              follows the epoch.
             </li>
             <li>
               <strong>Gamma spending (accepted).</strong> The owner hotkey can spend emission gamma
