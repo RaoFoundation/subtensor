@@ -1001,7 +1001,9 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             <li>
               The <code>channel_commitment</code> read and <code>btcli commitments show</code>{' '}
               decode a commitment that the node returns as text. In earlier versions the read
-              failed with <code>ValueError</code> in that case.
+              failed with <code>ValueError</code> in that case. Revealed text that starts with{' '}
+              <code>0x</code> is shown as the node returns it; earlier versions decoded it a second
+              time.
             </li>
             <li>
               The check before <code>ClaimRootWithHotkey</code> uses the limit of 258 claim units
