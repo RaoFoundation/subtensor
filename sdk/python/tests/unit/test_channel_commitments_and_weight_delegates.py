@@ -254,18 +254,20 @@ async def test_channel_commitment_scale_bytes_decode_to_fields(monkeypatch, enco
 
 
 @pytest.mark.asyncio
-async def test_revealed_channel_remains_readable_without_active_row():
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [(b"revealed", "revealed"), ("0xabc", "0xabc"), ("0x6869", "0x6869"), (b"\xff", "0xff")],
+)
+async def test_revealed_channel_remains_readable_without_active_row(data, expected):
     substrate = FakeSubstrate()
     substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_channel_commitment", None)
-    substrate.seed(
-        "Commitments", "ChannelRevealedCommitments", [1, ALICE_HOT, 0], [(b"revealed", 101)]
-    )
+    substrate.seed("Commitments", "ChannelRevealedCommitments", [1, ALICE_HOT, 0], [(data, 101)])
     result = await channel_commitment(
         Client("local", substrate=substrate), netuid=1, hotkey_ss58=ALICE_HOT
     )
     assert result is not None
     assert result.fields == []
-    assert result.revealed == [{"data": "revealed", "block": 101}]
+    assert result.revealed == [{"data": expected, "block": 101}]
 
 
 @pytest.mark.asyncio
