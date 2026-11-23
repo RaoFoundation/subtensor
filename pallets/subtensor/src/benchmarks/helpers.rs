@@ -709,7 +709,7 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
     }
 }
 
-/// Heaviest admissible state for one Null epoch over `mechanisms` and `uid_count`.
+/// A heavy state for one Null epoch over `mechanisms` and `uid_count`.
 ///
 /// Every UID holds a distinct positive stake and belongs to registered
 /// five-child and five-parent rings, so each one earns a dividend. The emission
@@ -717,6 +717,11 @@ fn setup_block_step_benchmark_impl<T: Config>(null_epochs: bool, expensive_pools
 /// every mechanism, the longest row that mechanism index ever admitted. Commit
 /// reveal is enabled, with the Null commit queue filled for the current epoch.
 /// Returns the subnet and the miner, local dividend and root budgets to settle.
+///
+/// The stake graph is not at its limit. A UID can hold `MAX_PARENTS_PER_CHILD`
+/// parents, and a list stored before that limit can be longer. Each parent that
+/// is not registered on the subnet costs two stake reads. The measured weight
+/// does not cover that work.
 pub(super) fn setup_null_epoch_benchmark<T: Config>(
     mechanisms: u32,
     uid_count: u32,
