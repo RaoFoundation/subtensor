@@ -25,15 +25,15 @@ const releases: Release[] = [
   {
     tag: 'v495',
     date: 'Proposed',
-    title: '16 Null Mechanisms, a Shared Null Epoch and Open Gamma Emission Deposits',
+    title: '16 Null Mechanisms, a Shared Null Epoch, Gamma Emission Deposits and Root Claim Weight',
     summary:
       'Null subnets allow 2,500 UIDs for any mechanism count and can run up to 16 mechanisms ' +
       'when root raises the global limit of two. New Null weight rows share a budget of 2,500 ' +
       'entries across the mechanisms. The Null epoch reads subnet-wide state once, with ' +
-      'identical results, and reports its own block weight. Gamma emission deposits open ' +
-      'without a daily spend cap. A single-validator root claim reserves the block weight of ' +
-      'its own fund and admits funds with rows on 256 subnets. The guide gives one picture of ' +
-      'V494 and V495, with CLI, Python SDK and raw-call examples.',
+      'identical results, and reports its own block weight. A deposit that gamma emission ' +
+      'opens for a subnet owner has no daily spend cap. A single-validator root claim reserves ' +
+      'the block weight of its own fund and admits funds with rows on 256 subnets. The guide ' +
+      'gives one picture of V494 and V495, with CLI, Python SDK and raw-call examples.',
     href: '/releases/v495-upgrade',
   },
   {

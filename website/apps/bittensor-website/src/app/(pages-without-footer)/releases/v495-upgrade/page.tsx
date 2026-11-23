@@ -10,8 +10,9 @@ export const metadata: Metadata = {
   title: 'The V495 Upgrade — 16 Null Mechanisms, a Shared Null Epoch, and the V494 Changes',
   description:
     'V495 lets a Null subnet run up to 16 mechanisms with 2,500 UIDs, caps Null weight rows, ' +
-    'shares Null epoch work across mechanisms, opens gamma emission deposits without a cap, and ' +
-    'sizes the weight of a single-validator root claim to its fund. ' +
+    'shares Null epoch work across mechanisms, removes the default pause of the deposit that ' +
+    'gamma emission opens for a subnet owner, and sizes the weight of a single-validator root ' +
+    'claim to its fund. ' +
     'This guide also covers V494: channel commitment burns, weight delegation, basket controls, ' +
     'and the Etao owner limit.',
   alternates: {canonical: '/releases/v495-upgrade'},
@@ -659,7 +660,7 @@ sealed = bt.calls.Call("SubtensorModule", "commit_timelocked_mechanism_weights_f
         </section>
 
         <section className={styles.section} id='gamma'>
-          <h2 className={styles.subtitle}>V495: gamma emission deposits open without a cap</h2>
+          <h2 className={styles.subtitle}>V495: a deposit that gamma emission opens has no cap</h2>
           <p>
             A subnet can pay shares of its emission into the gamma of another subnet. The chain
             credits that gamma to the deposit of the subnet owner, at the subnet owner hotkey, on
@@ -676,6 +677,12 @@ sealed = bt.calls.Call("SubtensorModule", "commit_timelocked_mechanism_weights_f
               its coldkey sets or removes the cap.
             </li>
             <li>No migration changes existing deposits.</li>
+            <li>
+              Only this case changes. A deposit that you open with a mint (
+              <code>btcli gamma mint</code>, <code>mint_gamma</code>,{' '}
+              <code>mint_gamma_with_stake</code>) has the cap that the mint names, or no cap when
+              the mint names none, as before.
+            </li>
             <li>
               The pause after a hotkey swap, the rules for cap values, and the cap call of the
               coldkey do not change.
@@ -714,6 +721,20 @@ raw = bt.calls.SubtensorModule.set_gamma_deposit_daily_spend_cap(
     hotkey=owner_hotkey, netuid=3, daily_spend_cap=20_000_000_000,
 )
 await client.submit_call(raw, owner_wallet)`} />
+          <p>
+            The cap belongs to the deposit, not to the hotkey. The chain removes a deposit when its
+            coldkey closes it, moves its whole balance to another hotkey, or swaps its hotkey while
+            it holds gamma. If gamma emission credits the same hotkey after that, it opens a new
+            deposit without a cap. Before V495 that deposit opened paused. To keep a cap or a pause
+            on the owner hotkey, do not close its deposit and do not move its whole balance out.
+          </p>
+          <p>
+            Gamma emission credits the owner hotkey of the subnet that pays the share. A hotkey
+            swap on the target subnet only moves the deposit to the new hotkey, but the paying
+            subnet keeps the old owner hotkey. Later credits then open a new deposit at the old
+            hotkey, without a cap. To replace an owner hotkey, swap it on the paying subnet too, or
+            on all subnets.
+          </p>
           <p>
             Protect the owner hotkey. Without a cap, a person who controls that hotkey can spend
             all the gamma in its deposit. See the <DocLink href='/docs/guides/gamma'>gamma guide</DocLink>.
