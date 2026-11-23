@@ -20,6 +20,7 @@ AccountId32 = Any
 AdjustmentDirection = Any
 AlphaBalance = Any
 BTreeSet = Any
+BasketTradePriceReference = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
@@ -294,9 +295,19 @@ class SubtensorModule:
         return Call('SubtensorModule', 'commit_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'commit_hash': commit_hash})
 
     @staticmethod
+    def commit_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', commit_hash: 'H256') -> Call:
+        'Commits a weight hash for the validator through its mechanism delegate.'
+        return Call('SubtensorModule', 'commit_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'commit_hash': commit_hash})
+
+    @staticmethod
     def commit_timelocked_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', commit: 'BoundedVec', reveal_round: 'u64', commit_reveal_version: 'u16') -> Call:
         'Used to commit timelock encrypted commit-reveal weight values to later be revealed for a mechanism.  # Arguments * `origin`: The committing hotkey.  * `netuid`: The u16 network identifier.  * `mecid`: The u8 mechanism identifier.  * `commit`: The encrypted compressed commit. The steps for this are: 1. Instantiate [`WeightsTlockPayload`] 2. Serialize it using the `parity_scale_codec::Encode` trait 3. Encrypt it following the steps (here)[https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336] to produce a [`TLECiphertext<TinyBLS381>`] type. 4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.  * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current epoch.  * `commit_reveal_version`: The client (bittensor-drand) version.'
         return Call('SubtensorModule', 'commit_timelocked_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'commit': commit, 'reveal_round': reveal_round, 'commit_reveal_version': commit_reveal_version})
+
+    @staticmethod
+    def commit_timelocked_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', commit: 'BoundedVec', reveal_round: 'u64', commit_reveal_version: 'u16') -> Call:
+        'Commits timelocked weights for a validator through its mechanism delegate.'
+        return Call('SubtensorModule', 'commit_timelocked_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'commit': commit, 'reveal_round': reveal_round, 'commit_reveal_version': commit_reveal_version})
 
     @staticmethod
     def commit_timelocked_weights(netuid: 'NetUid', commit: 'BoundedVec', reveal_round: 'u64', commit_reveal_version: 'u16') -> Call:
@@ -449,6 +460,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'reveal_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
 
     @staticmethod
+    def reveal_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
+        "Reveals a validator's hash commit through its mechanism delegate."
+        return Call('SubtensorModule', 'reveal_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
+
+    @staticmethod
     def reveal_weights(netuid: 'NetUid', uids: 'Any', values: 'Any', salt: 'Any', version_key: 'u64') -> Call:
         'Used to reveal the weights for a previously committed hash.  # Arguments * `origin`: The signature of the revealing hotkey.  * `netuid`: The u16 network identifier.  * `uids`: The uids for the weights being revealed.  * `values`: The values of the weights being revealed.  * `salt`: The salt used to generate the commit hash.  * `version_key`: The network version key.  # Errors * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.  * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.  * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.  * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.  * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.'
         return Call('SubtensorModule', 'reveal_weights', {'netuid': netuid, 'uids': uids, 'values': values, 'salt': salt, 'version_key': version_key})
@@ -519,9 +535,19 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_identity', {'name': name, 'url': url, 'github_repo': github_repo, 'image': image, 'discord': discord, 'description': description, 'additional': additional})
 
     @staticmethod
+    def set_mech_weight_delegate(netuid: 'NetUid', mecid: 'MechId', delegate: 'Any') -> Call:
+        'Authorizes an account to set weights for this registered hotkey on one mechanism.'
+        return Call('SubtensorModule', 'set_mech_weight_delegate', {'netuid': netuid, 'mecid': mecid, 'delegate': delegate})
+
+    @staticmethod
     def set_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism for mechanisms. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `mecid`: The u8 mechnism identifier.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'dests': dests, 'weights': weights, 'version_key': version_key})
+
+    @staticmethod
+    def set_mechanism_weights_for(netuid: 'NetUid', mecid: 'MechId', hotkey: 'AccountId32', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
+        "Sets weights as the validator's authorized delegate on this mechanism only."
+        return Call('SubtensorModule', 'set_mechanism_weights_for', {'netuid': netuid, 'mecid': mecid, 'hotkey': hotkey, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
     def set_min_collateral(netuid: 'NetUid', hotkey: 'AccountId32', min_locked: 'AlphaBalance') -> Call:
@@ -610,7 +636,7 @@ class SubtensorModule:
 
     @staticmethod
     def swap_basket(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', amount: 'AlphaBalance', min_amount_out: 'u64') -> Call:
-        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price; the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the 2% protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within 2% of the moving price. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap."
+        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within the configured `BasketTradeMaxSlippageBps` of its `BasketTradePriceReference` (5% from spot by default; legacy strictest-of-EMAs-and-spot is available); the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over `BasketTradeRefillBlocks`); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `BasketConcentrationCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the configured protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within the configured price band. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `BasketConcentrationCapExceeded`: The destination would exceed the concentration cap."
         return Call('SubtensorModule', 'swap_basket', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'amount': amount, 'min_amount_out': min_amount_out})
 
     @staticmethod
@@ -997,6 +1023,11 @@ class Commitments:
         return Call('Commitments', 'set_commitment', {'netuid': netuid, 'info': info})
 
     @staticmethod
+    def set_commitment_to(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', hotkey: 'AccountId32', info: 'CommitmentInfo', max_burn: 'TaoBalance') -> Call:
+        'Publish a channel commitment, with the coldkey paying the optional burn.'
+        return Call('Commitments', 'set_commitment_to', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'hotkey': hotkey, 'info': info, 'max_burn': max_burn})
+
+    @staticmethod
     def set_max_space(new_limit: 'u32') -> Call:
         'Sudo-set MaxSpace'
         return Call('Commitments', 'set_max_space', {'new_limit': new_limit})
@@ -1057,7 +1088,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_basket_daily_turnover_cap(cap: 'u16') -> Call:
-        "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one capacity can be traded at any instant and about one per day sustained. Root-only."
+        "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over [`pallet_subtensor::BasketTradeRefillBlocks`], so at most one capacity can be traded at any instant. Root-only."
         return Call('AdminUtils', 'sudo_set_basket_daily_turnover_cap', {'cap': cap})
 
     @staticmethod
@@ -1069,6 +1100,21 @@ class AdminUtils:
     def sudo_set_basket_min_trade_tao(min_trade_rao: 'u64') -> Call:
         'Sets the minimum TAO value through each basket trade leg, in rao. Root-only. Zero disables this additional floor; the general staking minimum still applies.'
         return Call('AdminUtils', 'sudo_set_basket_min_trade_tao', {'min_trade_rao': min_trade_rao})
+
+    @staticmethod
+    def sudo_set_basket_trade_max_slippage_bps(bps: 'u16') -> Call:
+        'Sets the maximum deviation of a `swap_basket` leg from its configured price reference, in basis points. Must be greater than zero and at most 10_000 (100%). Defaults to 200 (2%). Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trade_max_slippage_bps', {'bps': bps})
+
+    @staticmethod
+    def sudo_set_basket_trade_price_reference(reference: 'BasketTradePriceReference') -> Call:
+        'Selects the price reference for `swap_basket` leg bounds: the legacy strictest of the slow EMA, fast EMA, and spot (default), or current spot only. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trade_price_reference', {'reference': reference})
+
+    @staticmethod
+    def sudo_set_basket_trade_refill_blocks(blocks: 'u64') -> Call:
+        'Sets the number of blocks over which a `swap_basket` turnover bucket fully refills and destination-pool flow usage decays to zero. Defaults to 7200 blocks; zero is rejected. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trade_refill_blocks', {'blocks': blocks})
 
     @staticmethod
     def sudo_set_basket_trading_enabled(enabled: 'bool') -> Call:
@@ -1129,6 +1175,31 @@ class AdminUtils:
     def sudo_set_collateral_lock_share(netuid: 'NetUid', lock_share: 'u16') -> Call:
         'Sets the miner collateral lock share (p) for a subnet: the share of the registration price that is staked to the registering hotkey and locked as collateral instead of burned. Normalized so `u16::MAX` = 100%; capped at 95% so the burned share stays positive. 0 disables collateral. Callable by root and subnet owner. Applies only to future registrations; standing collateral is never re-priced.'
         return Call('AdminUtils', 'sudo_set_collateral_lock_share', {'netuid': netuid, 'lock_share': lock_share})
+
+    @staticmethod
+    def sudo_set_commit_burn_enabled(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', enabled: 'bool') -> Call:
+        'Enable or disable the optional burn for one commitment channel.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_enabled', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_commit_burn_half_life(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'u16') -> Call:
+        'Set the commitment burn half-life in blocks.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_half_life', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
+
+    @staticmethod
+    def sudo_set_commit_burn_increase_mult(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'FixedU128') -> Call:
+        "Set the commitment burn multiplier, using registration's `[1, 3]` bounds."
+        return Call('AdminUtils', 'sudo_set_commit_burn_increase_mult', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
+
+    @staticmethod
+    def sudo_set_commit_burn_max(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'TaoBalance') -> Call:
+        'Set the commitment burn ceiling.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_max', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
+
+    @staticmethod
+    def sudo_set_commit_burn_min(netuid: 'NetUid', mecid: 'MechId', channel: 'u8', value: 'TaoBalance') -> Call:
+        'Set the commitment burn floor.'
+        return Call('AdminUtils', 'sudo_set_commit_burn_min', {'netuid': netuid, 'mecid': mecid, 'channel': channel, 'value': value})
 
     @staticmethod
     def sudo_set_commit_reveal_version(version: 'u16') -> Call:
@@ -1412,8 +1483,13 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_subnet_emission_weights(netuid: 'NetUid', uids: 'Any', values: 'Any') -> Call:
-        "Sets entries of a subnet's emission weight vector `[burn, recycle, owner, validator, miner]`, each a `u64` share of `u64::MAX`.  `uids` names the slots to write and `values` their new shares; slots that are not named keep their current value (burn and recycle are always zero in v1). The merged vector must satisfy every rule, each of which has its own error: burn = 0, recycle = 0, `0 ≤ owner ≤ 33%` (lease-created subnets `≥ 18%`), `validator ≤ 50%`, `miner ≥ 33%`, and the five slots must sum to exactly `u64::MAX`.  Root is paid its baseline share of the subnet's emission (what root earns with the default validator share and the global `TaoWeight`) off the top of the validator slot every block, capped at the slot; alpha validators get the rest. The call fails if the new validator share is at or below that baseline right now. Callable by the subnet owner (once per week per subnet; the first call is never rate-limited) or root (no rate limit). Both respect the admin freeze window."
+        "Sets entries of a subnet's emission weight vector `[burn, recycle, owner, validator, miner]`, each a `u64` share of `u64::MAX`.  `uids` names the slots to write and `values` their new shares; slots that are not named keep their current value (burn and recycle are always zero in v1). The merged vector must satisfy every rule, each of which has its own error: burn = 0, recycle = 0, `0 ≤ owner ≤ 33%` (lease-created subnets `≥ 18%`), `validator ≤ 50%`, `miner ≥ 33%`, and the five slots must sum to exactly `u64::MAX`.  Root is paid its baseline share of the subnet's emission (what root earns with the default validator share and the global `TaoWeight`) off the top of the validator slot every block, capped at the slot; alpha validators get the rest. The call fails if the new validator share is at or below that baseline right now. Callable by the subnet owner under the configured per-subnet rate limit (the first call is never rate-limited) or root (no rate limit). Both respect the admin freeze window."
         return Call('AdminUtils', 'sudo_set_subnet_emission_weights', {'netuid': netuid, 'uids': uids, 'values': values})
+
+    @staticmethod
+    def sudo_set_subnet_emission_weights_rate_limit(rate_limit: 'u64') -> Call:
+        "Sets the global per-subnet rate limit for owner updates to the emission weight vector, in blocks. Defaults to 360 (one default tempo). Zero disables the limit. Root remains exempt and each subnet's first owner call is always allowed."
+        return Call('AdminUtils', 'sudo_set_subnet_emission_weights_rate_limit', {'rate_limit': rate_limit})
 
     @staticmethod
     def sudo_set_subnet_emission_weights_v2(netuid: 'NetUid', split: 'BoundedVec') -> Call:

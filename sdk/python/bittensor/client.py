@@ -276,6 +276,14 @@ class Client:
         """
         return await self._substrate.decode_scale(type_string, data)
 
+    async def decode_commitment_registration(
+        self, data: Any, *, block: Optional[int] = None
+    ) -> Any:
+        """Decode a channel commitment's registration using runtime metadata."""
+        return await self._substrate.decode_commitment_registration(
+            data, await self._block_hash(block)
+        )
+
     async def read(self, name: str, **params: Any) -> Any:
         """Run a named typed read at the chain head (see ``reads()`` for the catalog).
 

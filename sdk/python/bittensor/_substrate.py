@@ -204,6 +204,12 @@ class Substrate(Protocol):
         """Decode SCALE-encoded bytes against the connected runtime's types."""
         ...
 
+    async def decode_commitment_registration(
+        self, data: Any, block_hash: Optional[str] = None
+    ) -> Any:
+        """Decode a channel commitment using its metadata-declared registration type."""
+        ...
+
     def blocks(self, *, finalized: bool = False) -> AsyncIterator[dict]:
         """Stream decoded block headers as they are produced (or finalized)."""
         ...
@@ -598,6 +604,11 @@ class RpcSubstrate:
         multisig or timelock carries around, as a plain decoded dict.
         """
         return await self._read(lambda raw: raw.decode_scale(type_string, data))
+
+    async def decode_commitment_registration(
+        self, data: Any, block_hash: Optional[str] = None
+    ) -> Any:
+        return await self._read(lambda raw: raw.decode_commitment_registration(data, block_hash))
 
     async def blocks(self, *, finalized: bool = False) -> AsyncIterator[dict]:
         """Stream decoded block headers as they are produced (or finalized).

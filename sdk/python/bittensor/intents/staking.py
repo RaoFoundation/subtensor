@@ -1854,15 +1854,15 @@ class SwapBasket(Intent):
     a ``BasketTrading`` proxy of it (the intended setup for a trader
     multisig).
 
-    Guardrails enforced on chain: each AMM leg must fill fully within 2% of
-    the strictest of the subnet's slow moving price, its fast moving price
-    (a two-hour EMA of spot written each block from the previous block's
-    close, so a price someone just moved cannot be traded at) and its spot
-    price (``SlippageTooHigh`` otherwise); the TAO through the middle is
-    taken from the fund's turnover bucket, which holds
+    Guardrails enforced on chain: each AMM leg must fill fully within
+    ``BasketTradeMaxSlippageBps`` of its configured price reference. The default
+    is 2% against the strictest of the slow EMA, fast EMA, and spot. Governance
+    can change the band and reference (``SlippageTooHigh`` on a breach). The TAO
+    through the middle is taken from the fund's turnover bucket, which holds
     ``BasketDailyTurnoverCap`` of the fund's guarded NAV (each holding at
     the lower of its realizable value and its slow-moving-price value) and
-    refills over 7200 blocks (``BasketTurnoverBudgetExceeded``); the
+    refills over ``BasketTradeRefillBlocks`` (7200 by default;
+    ``BasketTurnoverBudgetExceeded``); the
     destination holding may not end above the ``BasketLiquidityCap`` share
     of the destination pool's alpha reserve (``BasketLiquidityCapExceeded``)
     nor above the ``BasketConcentrationCap`` share of the guarded NAV
@@ -1910,8 +1910,8 @@ class SwapBasket(Intent):
         metadata={
             "help": "Least amount the buy leg must credit, in the destination subnet's "
             "alpha (TAO when the destination is netuid 0), after fees; the trade rolls "
-            "back with `BasketMinOutNotMet` below it. 0 (default) sets no floor. The 2% "
-            "protocol band applies regardless."
+            "back with `BasketMinOutNotMet` below it. 0 (default) sets no floor. The "
+            "configured protocol band applies regardless."
         },
     )
 

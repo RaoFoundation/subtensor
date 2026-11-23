@@ -67,7 +67,7 @@ def _swap_review(
         rows.append(
             (
                 "warning",
-                "no quote available: minimum out is 0, so only the 2% protocol band "
+                "no quote available: minimum out is 0, so only the configured protocol band "
                 "bounds this trade",
                 "yellow",
             )
@@ -87,8 +87,9 @@ def _swap_review(
     rows.append(
         (
             "note",
-            "each leg must fill within 2% of both the subnet's moving and spot price; "
-            "the TAO through the middle counts against the fund's daily turnover budget",
+            "each leg must fill within the configured band of its price reference; "
+            "the TAO through the middle counts against "
+            "the fund's turnover budget",
             "dim",
         )
     )
@@ -122,7 +123,7 @@ def root_swap(
         max=100.0,
         help="Your floor on the fill, in percent of the quoted output: the trade rolls "
         "back (`BasketMinOutNotMet`) if the buy leg credits less than "
-        "`quote × (1 - max_slippage/100)`. This is on top of the chain's 2% per-leg band. "
+        "`quote × (1 - max_slippage/100)`. This is on top of the chain's configured per-leg band. "
         "100 disables the floor.",
     ),
 ):
@@ -132,9 +133,9 @@ def root_swap(
     with it. Stakers' entitlements do not change; only the fund's composition
     moves. Sign with the validator's coldkey, or run as its `BasketTrading`
     proxy with `--proxy-for <coldkey>` (the intended setup for a trader
-    multisig). Each leg must fill within 2% of both the subnet's moving and
-    spot price, the TAO through the middle counts against the fund's daily
-    turnover budget, and the destination may not end above the
+    multisig). Each leg must fill within the configured band of its price
+    reference, the TAO through the middle counts
+    against the fund's turnover budget, and the destination may not end above the
     concentration cap.
 
     btcli quotes the trade first and sets `min_amount_out` to the quoted

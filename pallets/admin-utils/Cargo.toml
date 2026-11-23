@@ -25,6 +25,7 @@ frame-system.workspace = true
 sp-runtime.workspace = true
 log.workspace = true
 pallet-subtensor.workspace = true
+pallet-commitments.workspace = true
 sp-weights.workspace = true
 substrate-fixed.workspace = true
 pallet-evm-chain-id.workspace = true
@@ -63,6 +64,7 @@ std = [
 	"pallet-scheduler/std",
 	"pallet-subtensor-swap/std",
 	"pallet-subtensor/std",
+	"pallet-commitments/std",
 	"pallet-crowdloan/std",
 	"pallet-preimage/std",
 	"scale-info/std",
@@ -87,6 +89,7 @@ runtime-benchmarks = [
 	"pallet-grandpa/runtime-benchmarks",
 	"pallet-scheduler/runtime-benchmarks",
 	"pallet-subtensor/runtime-benchmarks",
+	"pallet-commitments/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-subtensor-swap/runtime-benchmarks",
@@ -103,6 +106,7 @@ try-runtime = [
 	"pallet-grandpa/try-runtime",
 	"pallet-scheduler/try-runtime",
 	"pallet-subtensor/try-runtime",
+	"pallet-commitments/try-runtime",
 	"pallet-crowdloan/try-runtime",
 	"pallet-preimage/try-runtime",
 	"sp-runtime/try-runtime",

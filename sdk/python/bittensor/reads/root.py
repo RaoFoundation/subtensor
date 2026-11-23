@@ -402,7 +402,7 @@ async def basket_trading_status(view, hotkey_ss58: str) -> dict:
     pumped pool cannot enlarge it), `remaining_tao` what a trade right
     now could push through the fund, `used_tao` the difference, and the bucket
     refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
-    a full refill over `refill_blocks` = 7200 blocks).
+    a full refill over the configured `refill_blocks`, 7200 by default).
     """
     row = await view.runtime(_GET_BASKET_TRADING_STATUS, [hotkey_ss58]) or {}
     available_rao = int(row.get("tao_available") or 0)

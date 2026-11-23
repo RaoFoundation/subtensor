@@ -18,7 +18,7 @@ salt-based commits — the timelocked path used by `set_weights` and
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L274-L285), [`SubtensorModule.reveal_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L315-L335), [`SubtensorModule.reveal_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3331-L3353) |
 
 ## Parameters
 
@@ -29,6 +29,8 @@ salt-based commits — the timelocked path used by `set_weights` and
 | `weights` | array of number | yes | Weights exactly as committed, as a list parallel to uids. |
 | `salt` | array of integer | yes | Salt used when the commit was made; must match to reveal. |
 | `version_key` | integer | no | Version key used when the commit was made. |
+| `mechid` | integer | no | Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism. |
+| `for_hotkey` | string | no | Validator hotkey to act for. Requires the hotkey to have authorized the signing hotkey as its weight delegate on this netuid and mechanism; normal transaction fees are paid by the delegate. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -94,6 +96,64 @@ pub fn reveal_weights(
 }
 ```
 
-Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L657).
+Delegates to [`do_reveal_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L774).
+
+`SubtensorModule.reveal_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L317`](/code/pallets/subtensor/src/macros/dispatches.rs#L315-L335):
+
+```rust
+#[pallet::call_index(116)]
+#[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32), DispatchClass::Normal, Pays::No))]
+pub fn reveal_mechanism_weights(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    mecid: MechId,
+    uids: Vec<u16>,
+    values: Vec<u16>,
+    salt: Vec<u16>,
+    version_key: u64,
+) -> DispatchResult {
+    Self::do_reveal_mechanism_weights(
+        origin,
+        netuid,
+        mecid,
+        uids,
+        values,
+        salt,
+        version_key,
+    )
+}
+```
+
+Delegates to [`do_reveal_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L793).
+
+`SubtensorModule.reveal_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3333`](/code/pallets/subtensor/src/macros/dispatches.rs#L3331-L3353):
+
+```rust
+#[pallet::call_index(173)]
+#[pallet::weight((Pallet::<T>::reveal_mechanism_weights_weight(*netuid, uids.len() as u32).saturating_add(T::DbWeight::get().reads(4)), DispatchClass::Normal, Pays::Yes))]
+pub fn reveal_mechanism_weights_for(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    mecid: MechId,
+    hotkey: T::AccountId,
+    uids: Vec<u16>,
+    values: Vec<u16>,
+    salt: Vec<u16>,
+    version_key: u64,
+) -> DispatchResult {
+    Self::do_reveal_mechanism_weights_for(
+        origin,
+        netuid,
+        mecid,
+        hotkey,
+        uids,
+        values,
+        salt,
+        version_key,
+    )
+}
+```
+
+Delegates to [`do_reveal_mechanism_weights_for`](/code/pallets/subtensor/src/subnets/weights.rs#L102).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

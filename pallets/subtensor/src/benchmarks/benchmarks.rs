@@ -2588,7 +2588,7 @@ mod pallet_benchmarks {
         Owner::<T>::insert(&hotkey, &coldkey);
 
         // Every pool is 100,000 τ against 100,000 α (spot 1.0) with its moving price
-        // pinned to spot, so a 100 α leg moves each pool by ~0.1%, well inside the 2%
+        // pinned to spot, so a 100 α leg moves each pool by ~0.1%, well inside the default 2%
         // band. The fund holds 5,000 α on each of the `h` origin-side subnets: 1/20 of a
         // pool, under the 10% liquidity cap, and enough NAV that the turnover budget
         // (10% of NAV) clears the ~100 τ through the middle.
@@ -2661,7 +2661,7 @@ mod pallet_benchmarks {
         Owner::<T>::insert(&hotkey, &coldkey);
 
         // Much deeper pools than the single-leg benchmark keep all 128 repeated legs
-        // inside the 2% price band. One-TAO legs remain above the minimum trade amount.
+        // inside the default 2% price band. One-TAO legs remain above the minimum trade amount.
         let reserve_tao = TaoBalance::from(10_000_000_000_000_000_u64);
         let reserve_alpha = AlphaBalance::from(10_000_000_000_000_000_u64);
         let holding = AlphaBalance::from(5_000_000_000_000_000_u64);
@@ -3318,6 +3318,134 @@ mod pallet_benchmarks {
             RawOrigin::Signed(hotkey.clone()),
             netuid,
             mecid,
+            uids,
+            weight_values,
+            salt,
+            version_key,
+        );
+    }
+
+    #[benchmark]
+    fn set_mech_weight_delegate() {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, _uids, _weight_values, _salt, _version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, 1);
+        let delegate: T::AccountId = account("weight_delegate", 0, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(hotkey), netuid, mecid, Some(delegate));
+    }
+
+    #[benchmark]
+    fn set_mechanism_weights_for(n: Linear<1, 4096>) {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, uids, weight_values, _salt, version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, n);
+        Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, false);
+        let delegate: T::AccountId = account("weight_delegate", 0, 1);
+        MechWeightDelegate::<T>::insert((NetUidStorageIndex::from(netuid), &hotkey), &delegate);
+
+        #[extrinsic_call]
+        set_mechanism_weights_for(
+            RawOrigin::Signed(delegate),
+            netuid,
+            mecid,
+            hotkey,
+            uids,
+            weight_values,
+            version_key,
+        );
+    }
+
+    #[benchmark]
+    fn commit_mechanism_weights_for() {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, uids, weight_values, salt, version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+        let delegate: T::AccountId = account("weight_delegate", 0, 1);
+        let index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        MechWeightDelegate::<T>::insert((index, &hotkey), &delegate);
+        let commit_hash = Subtensor::<T>::get_commit_hash(
+            &hotkey,
+            index,
+            &uids,
+            &weight_values,
+            &salt,
+            version_key,
+        );
+
+        #[extrinsic_call]
+        commit_mechanism_weights_for(
+            RawOrigin::Signed(delegate),
+            netuid,
+            mecid,
+            hotkey,
+            commit_hash,
+        );
+    }
+
+    #[benchmark]
+    fn commit_timelocked_mechanism_weights_for() {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, _uids, _weight_values, _salt, _version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+        let delegate: T::AccountId = account("weight_delegate", 0, 1);
+        MechWeightDelegate::<T>::insert((NetUidStorageIndex::from(netuid), &hotkey), &delegate);
+        let commit: BoundedVec<_, _> = vec![u8::MAX; YUMA_COMMIT_SIZE_BYTES as usize]
+            .try_into()
+            .unwrap();
+        let version = Subtensor::<T>::get_commit_reveal_weights_version();
+
+        #[extrinsic_call]
+        commit_timelocked_mechanism_weights_for(
+            RawOrigin::Signed(delegate),
+            netuid,
+            mecid,
+            hotkey,
+            commit,
+            u64::MAX,
+            version,
+        );
+    }
+
+    #[benchmark]
+    fn reveal_mechanism_weights_for(n: Linear<1, 4096>) {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, uids, weight_values, salt, version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, n);
+        Tempo::<T>::insert(netuid, 0);
+        let delegate: T::AccountId = account("weight_delegate", 0, 1);
+        let index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        MechWeightDelegate::<T>::insert((index, &hotkey), &delegate);
+        let commit_hash = Subtensor::<T>::get_commit_hash(
+            &hotkey,
+            index,
+            &uids,
+            &weight_values,
+            &salt,
+            version_key,
+        );
+        let commit_epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        WeightCommits::<T>::insert(
+            index,
+            &hotkey,
+            VecDeque::from([(commit_hash, commit_epoch, 0, 0)]),
+        );
+        LastEpochBlock::<T>::insert(netuid, 0);
+        BlocksSinceLastStep::<T>::insert(netuid, 0);
+        PendingEpochAt::<T>::insert(netuid, 0);
+        SubnetEpochIndex::<T>::insert(
+            netuid,
+            commit_epoch.saturating_add(Subtensor::<T>::get_reveal_period(netuid)),
+        );
+        assert!(Subtensor::<T>::is_reveal_block_range(netuid, commit_epoch));
+
+        #[extrinsic_call]
+        reveal_mechanism_weights_for(
+            RawOrigin::Signed(delegate),
+            netuid,
+            mecid,
+            hotkey,
             uids,
             weight_values,
             salt,

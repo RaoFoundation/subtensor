@@ -23,15 +23,6 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v494',
-    date: 'Upcoming',
-    title: 'Runtime Release 494',
-    summary:
-      'The next Bittensor runtime release. Final feature, integration, and upgrade notes will be ' +
-      'completed before the upgrade is proposed.',
-    href: '/releases/v494-upgrade',
-  },
-  {
     tag: 'v493',
     date: 'Upcoming',
     title: 'Hotkey Gamma Spends, Yuma Commit Limits and Release Announcements',
