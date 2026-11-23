@@ -228,10 +228,16 @@ async def test_stored_burn_uses_tuple_key():
 
 
 @pytest.mark.asyncio
-async def test_channel_commitment_scale_bytes_decode_to_fields(monkeypatch):
+@pytest.mark.parametrize("encoding", ["bytes", "hex", "utf-8", "utf-8 with 0x prefix"])
+async def test_channel_commitment_scale_bytes_decode_to_fields(monkeypatch, encoding):
     substrate = FakeSubstrate()
-    record = {"deposit": 0, "block": 100, "info": {"fields": [{"Raw5": "0x68656c6c6f"}]}}
+    deposit = int.from_bytes(b"0x", "little") if encoding == "utf-8 with 0x prefix" else 0
+    record = {"deposit": deposit, "block": 100, "info": {"fields": [{"Raw5": "0x636166c3a9"}]}}
     encoded = golden_codec().encode("scale_info::513", record)
+    if encoding == "hex":
+        encoded = "0x" + encoded.hex()
+    elif encoding.startswith("utf-8"):
+        encoded = encoded.decode("utf-8")
     substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_channel_commitment", encoded)
 
     async def decode(data, block_hash=None):
@@ -242,8 +248,9 @@ async def test_channel_commitment_scale_bytes_decode_to_fields(monkeypatch):
     result = await channel_commitment(
         Client("local", substrate=substrate), netuid=1, hotkey_ss58=ALICE_HOT
     )
-    assert result.data == "hello"
+    assert result.data == "café"
     assert result.block == 100
+    assert result.deposit.rao == deposit
 
 
 @pytest.mark.asyncio
