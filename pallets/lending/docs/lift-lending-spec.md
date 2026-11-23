@@ -73,14 +73,14 @@
 | `split_short_bps` | 5000 (`Cap_short = Cap_long`) | ≤ 10_000 | `set_lift_params` |
 | `short_book_max_pool_alpha_bps` | 1500 (15% of pool α) | 100..=5_000 | `set_lift_params` — total short borrowed α ≤ share of `SubnetAlphaIn`; open/increase only |
 | `long_book_max_pool_tao_bps` | 1500 (15% of pool τ) | 100..=5_000 | `set_lift_params` — total long borrowed τ ≤ share of `SubnetTAO`; open/increase only |
-| `apr_short_kink_bps` | 2000 | ≤ `apr_short_max_bps` | `set_lift_params` — short APR at kink utilization |
+| `apr_short_kink_bps` | 2000 | `apr_short_bps` ≤ kink ≤ `apr_short_max_bps` | `set_lift_params` — short APR at kink utilization |
 | `apr_short_kink_utilization_bps` | 5000 | ≤ 10_000 | `set_lift_params` — U where kink APR applies |
 | `apr_short_max_bps` | 10_000 | ≤ 50_000 | `set_lift_params` — short APR at U=1 |
 | `ltv_short_bps` | 3300 | ≤ 5000 | `set_lift_params` |
 | `ltv_long_bps` | 3300 | ≤ 5000 | `set_lift_params` |
 | `thin_ltv_long_bps` | 1500 | ≤ 5000 | `set_lift_params` |
 | `apr_long_bps` | 10_000 | ≤ 10_000 | `set_lift_params` |
-| `apr_short_bps` | 2_000 | ≤ `apr_short_max_bps` | `set_lift_params` — base short APR (U=0); live rate from utilization curve |
+| `apr_short_bps` | 2_000 | `1..=apr_short_kink_bps` | `set_lift_params` — base short APR (U=0); must be > 0 so live/base scaling cannot amplify; live rate from utilization curve |
 | `ema_band_bps` | 1500 | ≤ 10_000 | `set_lift_params` |
 | `ref_tao` | 1000 τ | > 0 | `set_lift_params` |
 | `move_bps` | 1000 | > 0 | `set_lift_params` |

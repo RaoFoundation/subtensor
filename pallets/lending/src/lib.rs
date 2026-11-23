@@ -2685,7 +2685,12 @@ pub mod pallet {
                     && p.ltv_long_bps <= 5_000
                     && p.thin_ltv_long_bps <= 5_000
                     && p.apr_long_bps <= 10_000
-                    && p.apr_short_bps <= p.apr_short_max_bps
+                    // Base short APR must be > 0: `effective_annual_interest`
+                    // scales stored coupons by live/base. A zero base would
+                    // either skip scaling (`.max(1)` → up to 50_000× blow-up)
+                    // or leave the scaler undefined.
+                    && p.apr_short_bps > 0
+                    && p.apr_short_bps <= p.apr_short_kink_bps
                     && p.apr_short_kink_bps <= p.apr_short_max_bps
                     && p.apr_short_max_bps <= MAX_APR_SHORT_CURVE_BPS
                     && p.apr_short_kink_utilization_bps <= 10_000
@@ -3566,6 +3571,11 @@ pub mod pallet {
         /// Effective annual coupon for accrual. Shorts scale the stored
         /// base-APR coupon by live utilization APR / base so the rate tracks
         /// U without rewriting `annual_interest` or scanning the book.
+        ///
+        /// Utilization is the **spot** book U at this accrual checkpoint
+        /// (Jacob: live rate per accrual, O(1)). The live rate is applied to
+        /// the whole unpaid `elapsed` window — that is intentional, not a
+        /// TWAP. Root must keep `apr_short_bps > 0` (validated on set).
         fn effective_annual_interest(
             netuid: NetUid,
             position: &Position<T::AccountId, BlockNumberFor<T>>,
@@ -3574,7 +3584,13 @@ pub mod pallet {
                 Side::Long => Ok(position.annual_interest),
                 Side::Short => {
                     let params = Self::lift_params();
-                    let base = params.apr_short_bps.max(1);
+                    let base = params.apr_short_bps;
+                    // Defensive: zero base is rejected by
+                    // `ensure_valid_lift_params`, but never divide by zero /
+                    // substitute 1 (that would amplify coupons by live).
+                    if base == 0 {
+                        return Ok(position.annual_interest);
+                    }
                     let live = Self::short_apr_bps_now(netuid, &params)?;
                     if live == base {
                         return Ok(position.annual_interest);

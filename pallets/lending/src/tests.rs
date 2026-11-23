@@ -14506,6 +14506,17 @@ fn set_lift_params_rejects_duration_and_expiry_bounds() {
                 ..test_lift_params()
             },
             LiftParams {
+                apr_short_bps: 0,
+                ..test_lift_params()
+            },
+            LiftParams {
+                // Inverted curve: base above kink.
+                apr_short_bps: 5_000,
+                apr_short_kink_bps: 2_000,
+                apr_short_max_bps: 10_000,
+                ..test_lift_params()
+            },
+            LiftParams {
                 apr_short_kink_bps: 10_001,
                 apr_short_max_bps: 10_000,
                 ..test_lift_params()
@@ -14535,7 +14546,10 @@ fn set_lift_params_emits_lift_params_set_and_accepts_valid() {
         System::reset_events();
         let params = LiftParams {
             apr_long_bps: 8_000,
+            // Monotonic utilization curve: base ≤ kink ≤ max.
             apr_short_bps: 9_000,
+            apr_short_kink_bps: 9_500,
+            apr_short_max_bps: 10_000,
             max_loan_duration: 14_400,
             young_short_settlement_window: 12_600,
             ..test_lift_params()
