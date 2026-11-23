@@ -3287,7 +3287,10 @@ fn launch_defaults_match_jacob_economics() {
     assert_eq!(p.ltv_short_bps, 3_300, "deep-pool short LTV 33%");
     assert_eq!(p.ltv_long_bps, 3_300, "deep-pool long LTV 33%");
     assert_eq!(p.thin_ltv_long_bps, 1_500, "thin LTV stays 15%");
-    assert_eq!(p.split_short_bps, 5_000, "Cap_short = Cap_long (1× TAO bound)");
+    assert_eq!(
+        p.split_short_bps, 5_000,
+        "Cap_short = Cap_long (1× TAO bound)"
+    );
     assert_eq!(
         p.short_book_max_pool_alpha_bps, 1_500,
         "short book ≤ 15% of pool alpha"
@@ -3299,11 +3302,7 @@ fn launch_defaults_match_jacob_economics() {
     assert_eq!(p.apr_short_kink_bps, 2_000);
     assert_eq!(p.apr_short_kink_utilization_bps, 5_000);
     assert_eq!(p.apr_short_max_bps, 10_000);
-    assert_eq!(
-        p.short_apr_bps_at_utilization(0),
-        2_000,
-        "U=0 → base 20%"
-    );
+    assert_eq!(p.short_apr_bps_at_utilization(0), 2_000, "U=0 → base 20%");
     assert_eq!(
         p.short_apr_bps_at_utilization(5_000),
         2_000,
@@ -3322,7 +3321,10 @@ fn launch_defaults_match_jacob_economics() {
     let cap = 10_000u64;
     let cap_short = cap * u64::from(p.split_short_bps) / 10_000;
     let cap_long = cap.saturating_sub(cap_short);
-    assert_eq!(cap_short, cap_long, "50/50 Cap split ({cap_short} vs {cap_long})");
+    assert_eq!(
+        cap_short, cap_long,
+        "50/50 Cap split ({cap_short} vs {cap_long})"
+    );
 }
 
 #[test]
@@ -3556,9 +3558,8 @@ fn short_utilization_apr_raises_accrual_above_base() {
 
         // Force full utilization so live APR = 100% (= 5× base).
         let pool_alpha = MockPool::pool_alpha(netuid()).to_u64();
-        let alpha_cap = pool_alpha
-            * u64::from(Lending::lift_params().short_book_max_pool_alpha_bps)
-            / 10_000;
+        let alpha_cap =
+            pool_alpha * u64::from(Lending::lift_params().short_book_max_pool_alpha_bps) / 10_000;
         Lifts::<Test>::mutate(netuid(), |book| {
             book.short_sold_alpha = alpha_cap;
         });

@@ -110,8 +110,9 @@ impl<T: Config> OnRuntimeUpgrade for Migration<T> {
             );
             ensure!(
                 after.long_book_max_pool_tao_bps == fresh.long_book_max_pool_tao_bps
-                    || before
-                        .is_some_and(|b| b.long_book_max_pool_tao_bps == after.long_book_max_pool_tao_bps),
+                    || before.is_some_and(
+                        |b| b.long_book_max_pool_tao_bps == after.long_book_max_pool_tao_bps
+                    ),
                 "long_book_max_pool_tao_bps must default after first expand"
             );
         }

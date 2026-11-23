@@ -3477,10 +3477,7 @@ pub mod pallet {
 
         /// Max short-book borrowed alpha = `short_book_max_pool_alpha_bps` of
         /// live pool alpha.
-        fn short_book_alpha_cap(
-            netuid: NetUid,
-            params: &LiftParams,
-        ) -> Result<u64, DispatchError> {
+        fn short_book_alpha_cap(netuid: NetUid, params: &LiftParams) -> Result<u64, DispatchError> {
             Self::mul_bps(
                 T::Pool::pool_alpha(netuid).to_u64(),
                 params.short_book_max_pool_alpha_bps,
@@ -3543,7 +3540,10 @@ pub mod pallet {
 
         /// Short-book utilization in bps of the alpha share cap (0..=10_000).
         /// O(1): `short_sold_alpha` and `pool_alpha` only — no position scan.
-        fn short_book_utilization_bps(netuid: NetUid, params: &LiftParams) -> Result<u16, DispatchError> {
+        fn short_book_utilization_bps(
+            netuid: NetUid,
+            params: &LiftParams,
+        ) -> Result<u16, DispatchError> {
             let cap = Self::short_book_alpha_cap(netuid, params)?;
             if cap == 0 {
                 return Ok(10_000);
@@ -9292,8 +9292,12 @@ pub mod pallet {
             // borrowing is disabled (`Enabled = false`).
             Self::ensure_subnet_repayable(netuid)?;
             let position = Positions::<T>::get(owner, netuid).ok_or(Error::<T>::PositionMissing)?;
-            let (interest, _) =
-                Self::interest_due(netuid, &position, frame_system::Pallet::<T>::block_number(), true)?;
+            let (interest, _) = Self::interest_due(
+                netuid,
+                &position,
+                frame_system::Pallet::<T>::block_number(),
+                true,
+            )?;
             let remaining = position.collateral.saturating_sub(interest);
             let quoted = match position.side {
                 Side::Short => {
@@ -9389,8 +9393,12 @@ pub mod pallet {
                 principal_part,
                 T::Pool::current_alpha_price(netuid),
             )?;
-            let (interest, _) =
-                Self::interest_due(netuid, &position, frame_system::Pallet::<T>::block_number(), true)?;
+            let (interest, _) = Self::interest_due(
+                netuid,
+                &position,
+                frame_system::Pallet::<T>::block_number(),
+                true,
+            )?;
             let remaining = position.collateral.saturating_sub(interest);
             let p = position.principal;
             let slice_p = principal_part;
