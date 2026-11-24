@@ -2657,13 +2657,27 @@ pub mod pallet {
             Self::expiry_queue_peek_weight()
         }
 
-        /// Worst-case expiry settle under a constrained partial buyback.
-        /// [`WeightInfo::settle`] is measured on that path (≤64 outer search
-        /// steps × nested `Pool::quote_buy` work). Do not add DbWeight reads —
-        /// those do not bound nested AMM execution (skeptic fid:322786f7 /
-        /// dccdc8ec). Charged wherever collectors call settle.
+        /// Worst-case expiry settle under constrained impact search.
+        /// [`WeightInfo::settle`] is measured on the short partial-buyback
+        /// path. Long force-settle also runs sell search (+ post-escrow quote)
+        /// and may exceed that alone, so reserve `2 × settle` until a dedicated
+        /// long settle weight is reference-measured (skeptic fid:13d1d6a8 /
+        /// 322786f7). Do not add bare DbWeight reads — they do not bound AMM
+        /// execution.
         pub(crate) fn settle_with_buyback_search_weight() -> Weight {
-            T::WeightInfo::settle()
+            T::WeightInfo::settle().saturating_mul(2)
+        }
+
+        /// Open one due bucket: cursor read + resume writes for `NextDue` /
+        /// `DueBucketCursor`. Charged before touching those keys so a later
+        /// peek/collect miss can persist resume state within budget
+        /// (skeptic fid:7e2fd27c).
+        pub(crate) fn due_bucket_open_weight() -> Weight {
+            Weight::from_parts(
+                0,
+                Self::EXPIRY_CURSOR_PROOF.saturating_add(Self::EXPIRY_SCALAR_PROOF),
+            )
+            .saturating_add(T::DbWeight::get().reads_writes(1, 2))
         }
 
         /// Empty-book queue-head wipe: ten storage clears. Charged before any
@@ -3142,6 +3156,34 @@ pub mod pallet {
                 }
             }
             Ok(0)
+        }
+
+        /// Enforce actual fill `(fair, realized)` against the pre-trade impact
+        /// room. First force-market progress slice (`sold_alpha ≤` the
+        /// `forced_min_buyback_bps` floor of `alpha_cap`) may overshoot
+        /// (skeptic fid:61f709cb / dc4e3b65).
+        fn ensure_forced_fill_within_impact(
+            netuid: NetUid,
+            force_market: bool,
+            alpha_cap: u64,
+            sold_alpha: u64,
+            fair: u64,
+            realized: u64,
+        ) -> DispatchResult {
+            let (cum_diff, cum_fair) = Self::forced_impact_state(netuid);
+            let first_forced = cum_fair == 0 && cum_diff == 0;
+            if force_market && first_forced {
+                let min = Self::forced_min_buyback_alpha(alpha_cap);
+                if sold_alpha > 0 && sold_alpha <= min {
+                    return Ok(());
+                }
+            }
+            let band = u128::from(Self::lift_params().expiry_max_slippage_bps);
+            ensure!(
+                Self::fits_forced_impact(cum_diff, cum_fair, band, fair, realized),
+                Error::<T>::SettlementPriceOutsideEmaBand
+            );
+            Ok(())
         }
 
         /// Record one protocol-forced trade's realized vs **pre-trade spot**
@@ -6629,10 +6671,15 @@ pub mod pallet {
                     let sold_escrow = position.escrow_alpha.saturating_sub(escrow_left);
                     let sold_coll = position.collateral.saturating_sub(coll_left);
                     let alpha_left = escrow_left.saturating_add(coll_left);
-                    // Impact-capped partial only while unsold α remains.
-                    // Underwater full dump (nothing left to sell) falls
-                    // through to burn + remove.
-                    if repay < principal && alpha_left > 0 {
+                    // Remaining α can still raise TAO → impact-capped
+                    // partial. Unsellable dust (quote rounds to zero) is
+                    // terminal write-off below (skeptic fid:b5aaf680).
+                    let can_progress = alpha_left > 0
+                        && matches!(
+                            T::Pool::quote_sell(netuid, alpha_left.into()),
+                            Ok(r) if r.to_u64() > 0
+                        );
+                    if repay < principal && can_progress {
                         ensure!(repay > 0, Error::<T>::SettlementPriceOutsideEmaBand);
                         let slice_lift_tao = Self::scale_part(position.lift_tao, repay, principal);
                         let slice_lift_alpha =
@@ -6671,6 +6718,14 @@ pub mod pallet {
                         } else {
                             0
                         };
+                        Self::ensure_forced_fill_within_impact(
+                            netuid,
+                            force_market,
+                            available,
+                            sold_alpha,
+                            fair,
+                            raised,
+                        )?;
                         Self::note_protocol_forced_impact(netuid, fair, raised);
                         let mut shrunk = position.clone();
                         shrunk.principal = shrunk.principal.saturating_sub(repay);
@@ -6732,6 +6787,14 @@ pub mod pallet {
                     } else {
                         0
                     };
+                    Self::ensure_forced_fill_within_impact(
+                        netuid,
+                        force_market,
+                        available,
+                        sold_alpha,
+                        fair,
+                        raised,
+                    )?;
                     (
                         repay,
                         position.lift_alpha,
@@ -7292,6 +7355,18 @@ pub mod pallet {
             }
         }
 
+        /// Persist Due resume state after a metered stop. Resume writes were
+        /// prepaid by [`Self::due_bucket_open_weight`] (skeptic fid:7e2fd27c).
+        fn resume_due_collect(due: BlockNumberFor<T>, last_done: Option<(T::AccountId, NetUid)>) {
+            if NextDue::<T>::get() != Some(due) {
+                return;
+            }
+            if let Some(done) = last_done {
+                DueBucketCursor::<T>::put(done);
+            }
+            NextDue::<T>::put(due);
+        }
+
         fn unlink_expiry_bucket(at: BlockNumberFor<T>) {
             let prev = ExpiryPrev::<T>::take(at);
             let next = ExpiryNext::<T>::take(at);
@@ -7724,9 +7799,10 @@ pub mod pallet {
                 return;
             };
             while due <= now {
-                // Charge before touching the bucket. Resume via DueBucketCursor.
-                if meter.try_consume(T::DbWeight::get().reads(1)).is_err() {
-                    NextDue::<T>::put(due);
+                // Cursor + resume writes reserved before any queue touch
+                // (skeptic fid:7e2fd27c). On peek/collect miss, resume uses
+                // this prepaid envelope — no post-hoc writes.
+                if meter.try_consume(Self::due_bucket_open_weight()).is_err() {
                     return;
                 }
                 let mut iter = if let Some(cursor) = DueBucketCursor::<T>::get() {
@@ -7742,10 +7818,7 @@ pub mod pallet {
                 // fid:5012ec2d).
                 loop {
                     if meter.try_consume(Self::due_queue_peek_weight()).is_err() {
-                        if let Some(done) = last_done {
-                            DueBucketCursor::<T>::put(done);
-                        }
-                        NextDue::<T>::put(due);
+                        Self::resume_due_collect(due, last_done);
                         return;
                     }
                     let Some(((owner, netuid), ())) = iter.next() else {
@@ -7753,12 +7826,9 @@ pub mod pallet {
                     };
                     saw_entry = true;
                     if meter.try_consume(T::WeightInfo::collect()).is_err() {
-                        if let Some(done) = last_done {
-                            DueBucketCursor::<T>::put(done);
-                        }
-                        // else: keep the prior exclusive cursor (or none) so the
-                        // unprocessed entry is retried, not skipped.
-                        NextDue::<T>::put(due);
+                        // Row fetched under peek; resume from last_done so this
+                        // key is retried (iter_prefix_from is exclusive).
+                        Self::resume_due_collect(due, last_done);
                         return;
                     }
                     Self::process_one_interest(CollectSource::Scheduled, now, due, &owner, netuid);
@@ -7767,6 +7837,14 @@ pub mod pallet {
                 DueBucketCursor::<T>::kill();
                 if !saw_entry {
                     // Stale NextDue pointing at an empty bucket.
+                    if meter
+                        .try_consume(Self::expiry_empty_bucket_weight())
+                        .is_err()
+                    {
+                        // Open weight already covered a NextDue put.
+                        NextDue::<T>::put(due);
+                        return;
+                    }
                     DueIndex::<T>::remove(due);
                     Self::unlink_due_bucket(due);
                 }
@@ -7776,6 +7854,15 @@ pub mod pallet {
                 };
                 if n == due {
                     // Defensive: still parked on a drained bucket.
+                    if saw_entry {
+                        if meter
+                            .try_consume(Self::expiry_empty_bucket_weight())
+                            .is_err()
+                        {
+                            NextDue::<T>::put(due);
+                            return;
+                        }
+                    }
                     Self::unlink_due_bucket(due);
                     let Some(n) = NextDue::<T>::get() else {
                         break;
@@ -9213,14 +9300,27 @@ pub mod pallet {
                             0
                         };
                         let impact_realized = raised;
-                        // Impact-capped partial while unsold α remains. Solvent
-                        // path already passed can_fully_close; empty leftover
-                        // with raised < P is InsufficientEscrow.
-                        if raised < principal {
-                            ensure!(
-                                escrow_left.saturating_add(coll_left) > 0,
-                                Error::<T>::InsufficientEscrow
+                        // Enforce actual split fills vs the pre-trade room
+                        // (skeptic fid:61f709cb).
+                        Self::ensure_forced_fill_within_impact(
+                            netuid,
+                            force_market,
+                            available,
+                            sold_alpha,
+                            impact_fair,
+                            impact_realized,
+                        )?;
+                        let alpha_left = escrow_left.saturating_add(coll_left);
+                        let can_progress = alpha_left > 0
+                            && matches!(
+                                T::Pool::quote_sell(netuid, alpha_left.into()),
+                                Ok(r) if r.to_u64() > 0
                             );
+                        // Impact-capped partial while leftover α can still
+                        // raise TAO. Unsellable dust → InsufficientEscrow on
+                        // the solvent path (forfeit handles terminal write-off).
+                        if raised < principal {
+                            ensure!(can_progress, Error::<T>::InsufficientEscrow);
                             ensure!(raised > 0, Error::<T>::SettlementPriceOutsideEmaBand);
                             let repay = raised;
                             let slice_lift_tao =

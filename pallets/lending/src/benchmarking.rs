@@ -277,6 +277,9 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
+        // Top up free balance so roll's deposit/ED accounting cannot fail the
+        // extrinsic under production Balances (CI: "Account cannot exist…").
+        T::Pool::benchmark_mint_tao(&caller, 1_000_000_000_000);
         let opened = frame_system::Pallet::<T>::block_number();
         frame_system::Pallet::<T>::set_block_number(opened.saturating_add(1u32.into()));
         #[extrinsic_call]
@@ -435,9 +438,10 @@ mod benchmarks {
         let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a short");
         let principal_before = position.principal;
         let expires_at = position.expires_at;
-        // Shallow pool so AMM realized diverges from pre-trade spot fair;
-        // deep-pool fixtures fit a full close even at the band.
-        T::Pool::benchmark_seed_pool(netuid, 50_000_000_000_000, 50_000_000_000_000);
+        // Pool depth on the order of principal so full buyback exceeds a 1%
+        // band; 50T pools left a full close on the fast path (fid:315b846b).
+        let pool = principal_before.saturating_mul(8).max(1);
+        T::Pool::benchmark_seed_pool(netuid, pool, pool);
         LiftParamsStore::<T>::mutate(|p| {
             p.expiry_max_slippage_bps = 100; // 1%
             p.forced_min_buyback_bps = 500; // 5% floor → residual remains
@@ -448,12 +452,9 @@ mod benchmarks {
         // Seed deferral so force-market mode is active (skips per-trade band).
         BandDeferralSince::<T>::insert(&caller, netuid, expires_at);
         frame_system::Pallet::<T>::set_block_number(force_at);
-        // Prior fill this block at the band (storage: block, Σ|diff|, Σfair)
-        // so the full principal quote fails and the search must find a partial.
-        let band_bps = u128::from(params.expiry_max_slippage_bps.max(1));
-        let prior_fair: u128 = 1_000_000_000_000;
-        let prior_diff = prior_fair.saturating_mul(band_bps) / 10_000;
-        ProtocolForcedImpact::<T>::insert(netuid, (force_at, prior_diff, prior_fair));
+        // No prior impact: first force-market trade. High AMM impact vs spot
+        // makes the full principal fail; the search + 5% floor leave residual.
+        ProtocolForcedImpact::<T>::remove(netuid);
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
@@ -470,8 +471,8 @@ mod benchmarks {
             .map(|(_blk, _diff, fair)| fair)
             .unwrap_or(0);
         assert!(
-            fair_after > prior_fair,
-            "settle must advance ProtocolForcedImpact via buyback search"
+            fair_after > 0,
+            "settle must note ProtocolForcedImpact via buyback search"
         );
     }
 }

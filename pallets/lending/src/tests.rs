@@ -6489,12 +6489,13 @@ fn collect_due_forfeit_consumes_collect_weight_budget() {
             pos.due
         });
         System::set_block_number(due);
-        // TotalPositions header + NextDue header + bucket open + peek +
-        // one collect body (skeptic fid:5012ec2d / d6b74a90).
+        // TotalPositions header + NextDue header + due_bucket_open (cursor +
+        // resume writes) + peek + one collect body (skeptic fid:5012ec2d /
+        // d6b74a90 / 7e2fd27c).
         let header = Weight::from_parts(0, 499).saturating_add(RocksDbWeight::get().reads(1));
         let one = header
             .saturating_add(header) // NextDue live-header
-            .saturating_add(RocksDbWeight::get().reads(1)) // Due bucket open
+            .saturating_add(Lending::due_bucket_open_weight())
             .saturating_add(Lending::due_queue_peek_weight())
             .saturating_add(<() as WeightInfo>::collect());
         let mut meter = WeightMeter::with_limit(one.saturating_add(Weight::from_parts(1, 0)));
@@ -6964,11 +6965,12 @@ fn fixed_term_expiry_is_bounded_by_weight() {
 
         System::set_block_number(expires_at);
         // Drive collect_expiry directly so interest Due work cannot eat the budget.
-        // Header + bucket open + one queue peek, then one settle (skeptic fid:a74169e6).
+        // Header + bucket open + one queue peek, then one settle (skeptic
+        // fid:a74169e6 / 13d1d6a8 — collectors charge settle_with_buyback_search).
         let header = Lending::expiry_collect_header_weight()
             .saturating_add(Lending::expiry_bucket_open_weight())
             .saturating_add(Lending::expiry_queue_peek_weight());
-        let one = header.saturating_add(<() as WeightInfo>::settle());
+        let one = header.saturating_add(Lending::settle_with_buyback_search_weight());
         // Room for exactly one settle; second peek/settle must fail the meter.
         let budget = one.saturating_add(Weight::from_parts(1, 0));
         let mut meter = WeightMeter::with_limit(budget);
@@ -7037,7 +7039,7 @@ fn expiry_weight_stop_preserves_advanced_next_expiry_head() {
         let budget = Lending::expiry_collect_header_weight()
             .saturating_add(Lending::expiry_bucket_open_weight())
             .saturating_add(Lending::expiry_queue_peek_weight())
-            .saturating_add(<() as WeightInfo>::settle());
+            .saturating_add(Lending::settle_with_buyback_search_weight());
         let mut meter = WeightMeter::with_limit(budget);
         Lending::collect_expiry(exp_b, &mut meter, u32::MAX);
 
