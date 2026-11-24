@@ -19,8 +19,8 @@
         "container": "SubtensorModule",
         "name": "AccountFlags",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1828,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1828",
+        "line": 1832,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1832",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -97,8 +97,8 @@
         "container": "SubtensorModule",
         "name": "AssociatedEvmAddress",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3908,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3908",
+        "line": 3913,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3913",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -125,8 +125,8 @@
         "container": "SubtensorModule",
         "name": "AutoStakeDestination",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2178,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2178",
+        "line": 2182,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2182",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -151,8 +151,8 @@
         "container": "SubtensorModule",
         "name": "AutoStakeDestination",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2178,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2178",
+        "line": 2182,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2182",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -279,8 +279,8 @@
         "container": "SubtensorModule",
         "name": "BlocksSinceLastStep",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2821,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2821",
+        "line": 2825,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2825",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -307,8 +307,8 @@
         "container": "SubtensorModule",
         "name": "LastUpdate",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3247,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3247",
+        "line": 3251,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3251",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -362,8 +362,8 @@
         "container": "SubtensorModule",
         "name": "Bonds",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3275,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3275",
+        "line": 3279,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3279",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -388,8 +388,8 @@
         "container": "SubtensorModule",
         "name": "Burn",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2992,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2992",
+        "line": 2996,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2996",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -455,8 +455,8 @@
         "container": "SubtensorModule",
         "name": "ChildkeyThresholdSuspended",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1873,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1873",
+        "line": 1877,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1877",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -483,8 +483,8 @@
         "container": "SubtensorModule",
         "name": "ChildKeys",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1891,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1891",
+        "line": 1895,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1895",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -511,8 +511,8 @@
         "container": "SubtensorModule",
         "name": "Lock",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2327,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2327",
+        "line": 2331,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2331",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -537,8 +537,8 @@
         "container": "SubtensorModule",
         "name": "ColdkeySwapV2PolicySnapshots",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4350,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4350",
+        "line": 4355,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4355",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -546,8 +546,8 @@
         "container": "SubtensorModule",
         "name": "ColdkeySwapAnnouncements",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2213,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2213",
+        "line": 2217,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2217",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -555,8 +555,8 @@
         "container": "SubtensorModule",
         "name": "ColdkeySwapDisputes",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2237,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2237",
+        "line": 2241,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2241",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -615,8 +615,8 @@
         "container": "SubtensorModule",
         "name": "CommitRevealWeightsEnabled",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2987,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2987",
+        "line": 2991,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2991",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -785,8 +785,8 @@
         "container": "SubtensorModule",
         "name": "Delegates",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1847,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1847",
+        "line": 1851,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1851",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -794,8 +794,8 @@
         "container": "SubtensorModule",
         "name": "MinDelegateTake",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1806,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1806",
+        "line": 1810,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1810",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -803,8 +803,8 @@
         "container": "SubtensorModule",
         "name": "MaxDelegateTake",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1802,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1802",
+        "line": 1806,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1806",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -879,8 +879,8 @@
         "container": "SubtensorModule",
         "name": "Difficulty",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2996,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2996",
+        "line": 3000,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3000",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -905,8 +905,8 @@
         "container": "SubtensorModule",
         "name": "Tempo",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2655,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2655",
+        "line": 2659,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2659",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -914,8 +914,8 @@
         "container": "SubtensorModule",
         "name": "LastEpochBlock",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2680,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2680",
+        "line": 2684,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2684",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -923,8 +923,8 @@
         "container": "SubtensorModule",
         "name": "BlocksSinceLastStep",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2821,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2821",
+        "line": 2825,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2825",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -932,8 +932,8 @@
         "container": "SubtensorModule",
         "name": "PendingEpochAt",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2686,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2686",
+        "line": 2690,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2690",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -941,8 +941,8 @@
         "container": "SubtensorModule",
         "name": "SubnetEpochIndex",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2692,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2692",
+        "line": 2696,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2696",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -1059,8 +1059,8 @@
         "container": "SubtensorModule",
         "name": "GammaSpent",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4255,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4255",
+        "line": 4260,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4260",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1114,8 +1114,8 @@
         "container": "SubtensorModule",
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1823,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1823",
+        "line": 1827,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1827",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -1123,8 +1123,8 @@
         "container": "SubtensorModule",
         "name": "IdentitiesV2",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3349,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3349",
+        "line": 3353,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3353",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1149,8 +1149,8 @@
         "container": "SubtensorModule",
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1823,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1823",
+        "line": 1827,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1827",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1175,8 +1175,8 @@
         "container": "SubtensorModule",
         "name": "IdentitiesV2",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3349,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3349",
+        "line": 3353,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3353",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1201,8 +1201,8 @@
         "container": "SubtensorModule",
         "name": "ImmunityPeriod",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2901,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2901",
+        "line": 2905,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2905",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1265,8 +1265,8 @@
         "container": "SubtensorModule",
         "name": "SubnetLeases",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3926,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3926",
+        "line": 3931,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3931",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1287,8 +1287,8 @@
         "container": "SubtensorModule",
         "name": "SubnetLeases",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3926,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3926",
+        "line": 3931,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3931",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1313,8 +1313,8 @@
         "container": "SubtensorModule",
         "name": "Lock",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2327,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2327",
+        "line": 2331,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2331",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1341,8 +1341,8 @@
         "container": "SubtensorModule",
         "name": "LockingColdkeys",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2340,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2340",
+        "line": 2344,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2344",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1367,8 +1367,8 @@
         "container": "SubtensorModule",
         "name": "MaxWeightsLimit",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2917,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2917",
+        "line": 2921,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2921",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1412,8 +1412,8 @@
         "container": "SubtensorModule",
         "name": "MechanismCountCurrent",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4035,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4035",
+        "line": 4040,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4040",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1438,8 +1438,8 @@
         "container": "SubtensorModule",
         "name": "MechanismEmissionSplit",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4040,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4040",
+        "line": 4045,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4045",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1512,8 +1512,8 @@
         "container": "SubtensorModule",
         "name": "MinAllowedWeights",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2927,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2927",
+        "line": 2931,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2931",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1542,8 +1542,8 @@
         "container": "SubtensorModule",
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1823,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1823",
+        "line": 1827,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1827",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1619,8 +1619,8 @@
         "container": "SubtensorModule",
         "name": "IsNetworkMember",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2731,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2731",
+        "line": 2735,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2735",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1711,8 +1711,8 @@
         "container": "SubtensorModule",
         "name": "OwnedHotkeys",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2173,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2173",
+        "line": 2177,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2177",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1739,8 +1739,8 @@
         "container": "SubtensorModule",
         "name": "ParentKeys",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1904,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1904",
+        "line": 1908,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1908",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1767,8 +1767,8 @@
         "container": "SubtensorModule",
         "name": "PendingChildKeys",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1878,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1878",
+        "line": 1882,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1882",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1961,8 +1961,8 @@
         "container": "SubtensorModule",
         "name": "RevealPeriodEpochs",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3462,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3462",
+        "line": 3466,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3466",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2103,8 +2103,8 @@
         "container": "SubtensorModule",
         "name": "BasketRate",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3788,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3788",
+        "line": 3793,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3793",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2150,8 +2150,8 @@
         "container": "SubtensorModule",
         "name": "Services",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3337,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3337",
+        "line": 3341,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3341",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2159,8 +2159,8 @@
         "container": "SubtensorModule",
         "name": "SubnetOwnerHotkey",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2848,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2848",
+        "line": 2852,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2852",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2168,8 +2168,8 @@
         "container": "SubtensorModule",
         "name": "SubnetOwner",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2843,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2843",
+        "line": 2847,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2847",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2177,8 +2177,8 @@
         "container": "SubtensorModule",
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 1823,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1823",
+        "line": 1827,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1827",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2400,8 +2400,8 @@
         "container": "SubtensorModule",
         "name": "StakingHotkeys",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2168,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2168",
+        "line": 2172,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2172",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2426,8 +2426,8 @@
         "container": "SubtensorModule",
         "name": "Tempo",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2655,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2655",
+        "line": 2659,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2659",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2435,8 +2435,8 @@
         "container": "SubtensorModule",
         "name": "Burn",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2992,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2992",
+        "line": 2996,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2996",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2444,8 +2444,8 @@
         "container": "SubtensorModule",
         "name": "SubnetworkN",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2714,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2714",
+        "line": 2718,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2718",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2453,8 +2453,8 @@
         "container": "SubtensorModule",
         "name": "SubnetEmissionEnabled",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2129,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2129",
+        "line": 2133,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2133",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2479,8 +2479,8 @@
         "container": "SubtensorModule",
         "name": "Uids",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3195,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3195",
+        "line": 3199,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3199",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2505,8 +2505,8 @@
         "container": "SubtensorModule",
         "name": "HotkeyLock",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2353,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2353",
+        "line": 2357,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2357",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2514,8 +2514,8 @@
         "container": "SubtensorModule",
         "name": "DecayingHotkeyLock",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2365,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2365",
+        "line": 2369,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2369",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2523,8 +2523,8 @@
         "container": "SubtensorModule",
         "name": "SubnetOwnerHotkey",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2848,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2848",
+        "line": 2852,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2852",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2532,8 +2532,8 @@
         "container": "SubtensorModule",
         "name": "SubnetAlphaOut",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2159,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2159",
+        "line": 2163,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2163",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2541,8 +2541,8 @@
         "container": "SubtensorModule",
         "name": "SubnetProtocolAlpha",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2163,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2163",
+        "line": 2167,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2167",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2555,8 +2555,8 @@
         "container": "SubtensorModule",
         "name": "UnlockRate",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2411,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2411",
+        "line": 2415,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2415",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2564,8 +2564,8 @@
         "container": "SubtensorModule",
         "name": "MaturityRate",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2407,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2407",
+        "line": 2411,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2411",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2573,8 +2573,8 @@
         "container": "SubtensorModule",
         "name": "NetworkRegisteredAt",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2760,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2760",
+        "line": 2764,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2764",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2599,8 +2599,8 @@
         "container": "SubtensorModule",
         "name": "SubnetEmissionEnabled",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2129,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2129",
+        "line": 2133,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2133",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2625,8 +2625,8 @@
         "container": "SubtensorModule",
         "name": "LastRateLimitedBlock",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2633,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2633",
+        "line": 2637,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2637",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2634,8 +2634,8 @@
         "container": "SubtensorModule",
         "name": "SubnetUidToLeaseId",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3942,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3942",
+        "line": 3947,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3947",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2670,8 +2670,8 @@
         "container": "SubtensorModule",
         "name": "SubnetGammaEmissionWhitelisted",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4300,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4300",
+        "line": 4305,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4305",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2723,8 +2723,8 @@
         "container": "SubtensorModule",
         "name": "SubnetIdentitiesV3",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3354,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3354",
+        "line": 3358,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3358",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2745,8 +2745,8 @@
         "container": "SubtensorModule",
         "name": "SubnetIdentitiesV3",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3354,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3354",
+        "line": 3358,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3358",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2794,8 +2794,8 @@
         "container": "SubtensorModule",
         "name": "NetworkRegisteredAt",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2760,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2760",
+        "line": 2764,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2764",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2829,8 +2829,8 @@
         "container": "SubtensorModule",
         "name": "SubnetState",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2726,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2726",
+        "line": 2730,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2730",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2851,8 +2851,8 @@
         "container": "SubtensorModule",
         "name": "SubnetState",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2726,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2726",
+        "line": 2730,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2730",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2860,8 +2860,8 @@
         "container": "SubtensorModule",
         "name": "NetworksAdded",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2718,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2718",
+        "line": 2722,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2722",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2869,8 +2869,8 @@
         "container": "SubtensorModule",
         "name": "DissolveCleanupQueue",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3093,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3093",
+        "line": 3097,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3097",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2878,8 +2878,8 @@
         "container": "SubtensorModule",
         "name": "CurrentDissolveCleanupStatus",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3097,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3097",
+        "line": 3101,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3101",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2900,8 +2900,8 @@
         "container": "SubtensorModule",
         "name": "SubnetEmaTaoFlow",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2430,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2430",
+        "line": 2434,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2434",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2922,8 +2922,8 @@
         "container": "SubtensorModule",
         "name": "Tempo",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2655,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2655",
+        "line": 2659,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2659",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2931,8 +2931,8 @@
         "container": "SubtensorModule",
         "name": "Burn",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2992,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2992",
+        "line": 2996,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2996",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2940,8 +2940,8 @@
         "container": "SubtensorModule",
         "name": "SubnetworkN",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2714,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2714",
+        "line": 2718,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2718",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2949,8 +2949,8 @@
         "container": "SubtensorModule",
         "name": "SubnetEmissionEnabled",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2129,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2129",
+        "line": 2133,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2133",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -2971,8 +2971,8 @@
         "container": "SubtensorModule",
         "name": "TaoUsdPriceOracle",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4305,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4305",
+        "line": 4310,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4310",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -2980,8 +2980,8 @@
         "container": "SubtensorModule",
         "name": "TaoUsdPrice",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 4309,
-        "url": "/code/pallets/subtensor/src/lib.rs#L4309",
+        "line": 4314,
+        "url": "/code/pallets/subtensor/src/lib.rs#L4314",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3008,8 +3008,8 @@
         "container": "SubtensorModule",
         "name": "TimelockedWeightCommits",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3410,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3410",
+        "line": 3414,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3414",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3041,8 +3041,8 @@
         "container": "SubtensorModule",
         "name": "TokenSymbol",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2420,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2420",
+        "line": 2424,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2424",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3067,8 +3067,8 @@
         "container": "SubtensorModule",
         "name": "TotalAlphaStaked",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2255,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2255",
+        "line": 2259,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2259",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3089,8 +3089,8 @@
         "container": "SubtensorModule",
         "name": "TxRateLimit",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3050,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3050",
+        "line": 3054,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3054",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3117,8 +3117,8 @@
         "container": "SubtensorModule",
         "name": "Uids",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3195,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3195",
+        "line": 3199,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3199",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3197,8 +3197,8 @@
         "container": "SubtensorModule",
         "name": "BasketRate",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3788,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3788",
+        "line": 3793,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3793",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
@@ -3235,8 +3235,8 @@
         "container": "SubtensorModule",
         "name": "Weights",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 3262,
-        "url": "/code/pallets/subtensor/src/lib.rs#L3262",
+        "line": 3266,
+        "url": "/code/pallets/subtensor/src/lib.rs#L3266",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -3261,8 +3261,8 @@
         "container": "SubtensorModule",
         "name": "WeightsSetRateLimit",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2957,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2957",
+        "line": 2961,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2961",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
