@@ -424,10 +424,10 @@ mod benchmarks {
 
     #[benchmark]
     fn settle() {
-        // Measure fixed-term expiry under a near-full ProtocolForcedImpact
-        // band so `max_forced_buyback_alpha` binary-searches (skeptic
-        // fid:dccdc8ec). Past max_settlement_deferral forces buyback;
-        // residual principal may remain. Dissolution settle is separate.
+        // Measure force-market expiry where a full buyback fails the impact
+        // check and a partial quote passes, so `max_forced_buyback_alpha`
+        // binary-searches (skeptic fid:dccdc8ec / 9897541a). Assert a reduced,
+        // nonzero principal remains. Dissolution settle is separate.
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
@@ -435,29 +435,39 @@ mod benchmarks {
         let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a short");
         let principal_before = position.principal;
         let expires_at = position.expires_at;
+        // Shallow pool so AMM realized diverges from pre-trade spot fair;
+        // deep-pool fixtures fit a full close even at the band.
+        T::Pool::benchmark_seed_pool(netuid, 50_000_000_000_000, 50_000_000_000_000);
+        LiftParamsStore::<T>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100; // 1%
+            p.forced_min_buyback_bps = 500; // 5% floor → residual remains
+            p.ema_band_bps = 10_000;
+        });
         let params = LiftParamsStore::<T>::get();
         let force_at = expires_at.saturating_add(params.max_settlement_deferral.saturated_into());
+        // Seed deferral so force-market mode is active (skips per-trade band).
+        BandDeferralSince::<T>::insert(&caller, netuid, expires_at);
         frame_system::Pallet::<T>::set_block_number(force_at);
-        // Prior fill this block at the band → only tiny α fits → search runs.
+        // Prior fill this block at the band (storage: block, Σ|diff|, Σfair)
+        // so the full principal quote fails and the search must find a partial.
         let band_bps = u128::from(params.expiry_max_slippage_bps.max(1));
         let prior_fair: u128 = 1_000_000_000_000;
         let prior_diff = prior_fair.saturating_mul(band_bps) / 10_000;
-        ProtocolForcedImpact::<T>::insert(netuid, (force_at, prior_fair, prior_diff));
+        ProtocolForcedImpact::<T>::insert(netuid, (force_at, prior_diff, prior_fair));
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
             Pallet::<T>::collect_expiry(force_at, &mut meter, u32::MAX);
         }
-        let after = Positions::<T>::get(&caller, netuid);
+        let after = Positions::<T>::get(&caller, netuid)
+            .expect("settle must leave a reduced, nonzero principal (partial buyback)");
         assert!(
-            after
-                .as_ref()
-                .map(|p| p.principal < principal_before)
-                .unwrap_or(true),
-            "settle must run impact-capped buyback (principal reduced or cleared)"
+            after.principal > 0 && after.principal < principal_before,
+            "settle must impact-cap buyback: principal {principal_before} → {}",
+            after.principal
         );
         let fair_after = ProtocolForcedImpact::<T>::get(netuid)
-            .map(|(_blk, fair, _diff)| fair)
+            .map(|(_blk, _diff, fair)| fair)
             .unwrap_or(0);
         assert!(
             fair_after > prior_fair,

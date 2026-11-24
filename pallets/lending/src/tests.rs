@@ -6489,12 +6489,12 @@ fn collect_due_forfeit_consumes_collect_weight_budget() {
             pos.due
         });
         System::set_block_number(due);
-        // Header + bucket open + peek-before-next + one collect body
-        // (skeptic fid:5012ec2d meters the peek explicitly).
-        let header = RocksDbWeight::get()
-            .reads_writes(2, 1)
-            .saturating_add(RocksDbWeight::get().reads(1));
+        // TotalPositions header + NextDue header + bucket open + peek +
+        // one collect body (skeptic fid:5012ec2d / d6b74a90).
+        let header = Weight::from_parts(0, 499).saturating_add(RocksDbWeight::get().reads(1));
         let one = header
+            .saturating_add(header) // NextDue live-header
+            .saturating_add(RocksDbWeight::get().reads(1)) // Due bucket open
             .saturating_add(Lending::due_queue_peek_weight())
             .saturating_add(<() as WeightInfo>::collect());
         let mut meter = WeightMeter::with_limit(one.saturating_add(Weight::from_parts(1, 0)));

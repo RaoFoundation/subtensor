@@ -2285,10 +2285,19 @@ pub mod pallet {
                 && meter.remaining().all_gte(overhead.saturating_add(hop))
             {
                 let room = meter.remaining().saturating_sub(overhead);
-                let hops = room
+                // Cap by both weight dimensions so a proof-size-limited room
+                // cannot size a batch that the final try_consume then rejects
+                // entirely (skeptic fid:cc3d1383).
+                let hops_ref = room
                     .ref_time()
                     .checked_div(hop.ref_time().max(1))
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                let hops_proof = room
+                    .proof_size()
+                    .checked_div(hop.proof_size().max(1))
+                    .unwrap_or(0);
+                let hops = hops_ref
+                    .min(hops_proof)
                     .min(u64::from(migrations::MAX_DUE_TAIL_WALK));
                 if let Ok(hops) = u32::try_from(hops) {
                     if hops > 0 {
@@ -2648,11 +2657,13 @@ pub mod pallet {
             Self::expiry_queue_peek_weight()
         }
 
-        /// Worst-case `WeightInfo::settle()` plus the bounded binary-search
-        /// quote loop in [`Self::max_forced_buyback_alpha`] (≤64 AMM quotes).
-        /// Charged wherever collectors call settle (skeptic fid:dccdc8ec).
+        /// Worst-case expiry settle under a constrained partial buyback.
+        /// [`WeightInfo::settle`] is measured on that path (≤64 outer search
+        /// steps × nested `Pool::quote_buy` work). Do not add DbWeight reads —
+        /// those do not bound nested AMM execution (skeptic fid:322786f7 /
+        /// dccdc8ec). Charged wherever collectors call settle.
         pub(crate) fn settle_with_buyback_search_weight() -> Weight {
-            T::WeightInfo::settle().saturating_add(T::DbWeight::get().reads(64))
+            T::WeightInfo::settle()
         }
 
         /// Empty-book queue-head wipe: ten storage clears. Charged before any
@@ -3056,6 +3067,76 @@ pub mod pallet {
             // the sudo min fraction (may exceed the remaining impact budget).
             if force_market && first_forced {
                 let min = Self::forced_min_buyback_alpha(principal);
+                if min > 0 {
+                    return Ok(min);
+                }
+            }
+            Ok(0)
+        }
+
+        /// Largest forced **sell** α ≤ `alpha_cap` that fits the remaining
+        /// [`ProtocolForcedImpact`] room (quoted vs **pre-trade spot** fair).
+        ///
+        /// Mirrors [`Self::max_forced_buyback_alpha`] for long expiry / forfeit
+        /// sells so force-market cannot dump the full escrow+collateral past
+        /// the per-block band (skeptic fid:dc4e3b65). First force-market trade
+        /// still guarantees [`LiftParams::forced_min_buyback_bps`] of
+        /// `alpha_cap` as bounded progress.
+        fn max_forced_sell_alpha(
+            netuid: NetUid,
+            alpha_cap: u64,
+            force_market: bool,
+        ) -> Result<u64, DispatchError> {
+            if alpha_cap == 0 {
+                return Ok(0);
+            }
+            let (cum_diff, cum_fair) = Self::forced_impact_state(netuid);
+            let band = u128::from(Self::lift_params().expiry_max_slippage_bps);
+            let first_forced = cum_fair == 0 && cum_diff == 0;
+            if let Ok(realized) = T::Pool::quote_sell(netuid, alpha_cap.into()) {
+                let fair = Self::fair_spot_tao(netuid, alpha_cap, false)?;
+                if Self::fits_forced_impact(cum_diff, cum_fair, band, fair, realized.to_u64()) {
+                    return Ok(alpha_cap);
+                }
+            }
+            let mut lo = 0u64;
+            let mut hi = alpha_cap.saturating_sub(1);
+            let mut best = 0u64;
+            while lo <= hi {
+                let mid = lo.saturating_add(hi.saturating_sub(lo) / 2).max(1);
+                if mid == 0 {
+                    break;
+                }
+                let Ok(realized) = T::Pool::quote_sell(netuid, mid.into()) else {
+                    if mid <= 1 {
+                        break;
+                    }
+                    hi = mid.saturating_sub(1);
+                    continue;
+                };
+                let fair = Self::fair_spot_tao(netuid, mid, false)?;
+                if Self::fits_forced_impact(cum_diff, cum_fair, band, fair, realized.to_u64()) {
+                    best = mid;
+                    if mid == alpha_cap {
+                        break;
+                    }
+                    lo = mid.saturating_add(1);
+                } else {
+                    if mid <= 1 {
+                        break;
+                    }
+                    hi = mid.saturating_sub(1);
+                }
+            }
+            if best > 0 {
+                if force_market && first_forced {
+                    let min = Self::forced_min_buyback_alpha(alpha_cap);
+                    return Ok(best.max(min).min(alpha_cap));
+                }
+                return Ok(best);
+            }
+            if force_market && first_forced {
+                let min = Self::forced_min_buyback_alpha(alpha_cap);
                 if min > 0 {
                     return Ok(min);
                 }
@@ -6322,253 +6403,345 @@ pub mod pallet {
             // Force-market when the per-trade band is off (past max deferral).
             let force_market = !enforce_realized_slippage;
 
-            // Pre-trade spot fair stamped for ProtocolForcedImpact on the
-            // full-clear fallthrough (partials note and return above).
-            let mut impact_fair_spot: Option<u64> = None;
-            let (credited_tao, credited_alpha, leftover_collateral, buyback_tao, buyback_alpha) =
-                match side {
-                    Side::Short => {
-                        // Cap this block's buyback to remaining ProtocolForcedImpact
-                        // room (spot-relative; first trade included). Force-market
-                        // guarantees forced_min_buyback_bps when impact admits 0.
-                        let target =
-                            Self::max_forced_buyback_alpha(netuid, principal, force_market)?;
-                        ensure!(target > 0, Error::<T>::SettlementPriceOutsideEmaBand);
-                        // Pro-rata debt / escrow / collateral for this slice.
-                        // Best-effort fill may buy less than target when
-                        // underwater; we still shrink by `target` and let
-                        // invariant shortfall absorb the gap (same as a full
-                        // underwater forfeit on this slice).
-                        let slice_p = target;
-                        let slice_c = Self::scale_part(position.collateral, slice_p, principal);
-                        let slice_e = Self::scale_part(position.proceeds, slice_p, principal);
-                        let slice_lift_tao =
-                            Self::scale_part(position.lift_tao, slice_p, principal);
-                        let slice_pot = slice_e.saturating_add(slice_c);
-                        // Final slice stays terminal even when it cannot buy
-                        // anything (record shortfall + remove); otherwise a
-                        // dust / unfillable remainder retries every block.
-                        let terminal = slice_p == principal;
-                        ensure!(slice_pot > 0 || terminal, Error::<T>::InsufficientEscrow);
-                        // Pre-trade spot fair for ProtocolForcedImpact (post-trade
-                        // spot has moved).
-                        let pre_spot = T::Pool::current_alpha_price(netuid);
-                        let (paid, bought) = Self::execute_buyback_best_effort(
+            // Pre-trade spot fair is stamped in each arm for the full-clear
+            // fallthrough (partials note impact and return above).
+            let (
+                credited_tao,
+                credited_alpha,
+                leftover_collateral,
+                buyback_tao,
+                buyback_alpha,
+                impact_fair,
+            ) = match side {
+                Side::Short => {
+                    // Cap this block's buyback to remaining ProtocolForcedImpact
+                    // room (spot-relative; first trade included). Force-market
+                    // guarantees forced_min_buyback_bps when impact admits 0.
+                    let target = Self::max_forced_buyback_alpha(netuid, principal, force_market)?;
+                    ensure!(target > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                    // Pro-rata debt / escrow / collateral for this slice.
+                    // Best-effort fill may buy less than target when
+                    // underwater; we still shrink by `target` and let
+                    // invariant shortfall absorb the gap (same as a full
+                    // underwater forfeit on this slice).
+                    let slice_p = target;
+                    let slice_c = Self::scale_part(position.collateral, slice_p, principal);
+                    let slice_e = Self::scale_part(position.proceeds, slice_p, principal);
+                    let slice_lift_tao = Self::scale_part(position.lift_tao, slice_p, principal);
+                    let slice_pot = slice_e.saturating_add(slice_c);
+                    // Final slice stays terminal even when it cannot buy
+                    // anything (record shortfall + remove); otherwise a
+                    // dust / unfillable remainder retries every block.
+                    let terminal = slice_p == principal;
+                    ensure!(slice_pot > 0 || terminal, Error::<T>::InsufficientEscrow);
+                    // Pre-trade spot fair for ProtocolForcedImpact (post-trade
+                    // spot has moved).
+                    let pre_spot = T::Pool::current_alpha_price(netuid);
+                    let (paid, bought) = Self::execute_buyback_best_effort(
+                        &escrow,
+                        &custody,
+                        netuid,
+                        slice_p,
+                        slice_pot,
+                        enforce_realized_slippage,
+                    )?;
+                    let repaid_alpha = bought.min(slice_p);
+                    ensure!(
+                        repaid_alpha > 0 || terminal,
+                        Error::<T>::SettlementPriceOutsideEmaBand
+                    );
+                    let mut burn_tao = slice_pot.saturating_sub(paid);
+                    let excess = bought.saturating_sub(slice_p);
+                    if excess > 0 {
+                        if let Ok(dust) = T::Pool::sell_alpha(
                             &escrow,
                             &custody,
                             netuid,
-                            slice_p,
-                            slice_pot,
-                            enforce_realized_slippage,
+                            excess.into(),
+                            0u64.into(),
+                            false,
+                        ) {
+                            burn_tao = burn_tao.saturating_add(dust.to_u64());
+                        }
+                    }
+                    if burn_tao > 0 {
+                        T::Pool::burn_interest_tao(&escrow, burn_tao.into())?;
+                    }
+                    if repaid_alpha > 0 {
+                        T::Pool::transfer_staked_alpha(
+                            &escrow,
+                            &custody,
+                            &reserve,
+                            &custody,
+                            netuid,
+                            repaid_alpha.into(),
+                            false,
+                            false,
                         )?;
-                        let repaid_alpha = bought.min(slice_p);
-                        ensure!(
-                            repaid_alpha > 0 || terminal,
-                            Error::<T>::SettlementPriceOutsideEmaBand
-                        );
-                        let mut burn_tao = slice_pot.saturating_sub(paid);
-                        let excess = bought.saturating_sub(slice_p);
-                        if excess > 0 {
-                            if let Ok(dust) = T::Pool::sell_alpha(
+                    }
+                    T::Pool::readd_and_credit(
+                        netuid,
+                        &reserve,
+                        &custody,
+                        slice_lift_tao.into(),
+                        repaid_alpha.into(),
+                    )?;
+                    Self::deposit_event(Event::Readded {
+                        netuid,
+                        tao: slice_lift_tao,
+                        alpha: repaid_alpha,
+                    });
+                    Lifts::<T>::mutate(netuid, |book| {
+                        book.l_s = book.l_s.saturating_sub(slice_lift_tao);
+                        book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
+                        book.held_alpha = book.held_alpha.saturating_sub(Self::scale_part(
+                            position.lift_alpha.saturating_sub(position.principal),
+                            slice_p,
+                            principal,
+                        ));
+                        book.escrow_tao = book.escrow_tao.saturating_sub(slice_e);
+                        book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
+                    });
+                    // Partial: shrink the live position and stop (caller
+                    // requeues at ForcedSettlementRetryDelay). Full: fall
+                    // through to remove_position below.
+                    if slice_p < principal {
+                        let slice_lift_alpha =
+                            Self::scale_part(position.lift_alpha, slice_p, principal);
+                        Self::maybe_burn_invariant_surplus(
+                            netuid,
+                            slice_lift_tao,
+                            repaid_alpha,
+                            slice_lift_tao,
+                            slice_lift_alpha,
+                            Dissolutions::<T>::contains_key(netuid),
+                        )?;
+                        let fair = if repaid_alpha > 0 {
+                            Self::tao_for_alpha(repaid_alpha, pre_spot, true)?
+                        } else {
+                            0
+                        };
+                        Self::note_protocol_forced_impact(netuid, fair, paid);
+                        // Shrink the caller's `position`, not storage:
+                        // callers charge interest on their local copy
+                        // before forfeiting, and storage has not seen
+                        // that debit (collateral, last_accrued) yet.
+                        let mut shrunk = position.clone();
+                        shrunk.principal = shrunk.principal.saturating_sub(slice_p);
+                        shrunk.collateral = shrunk.collateral.saturating_sub(slice_c);
+                        shrunk.proceeds = shrunk.proceeds.saturating_sub(slice_e);
+                        shrunk.lift_tao = shrunk.lift_tao.saturating_sub(slice_lift_tao);
+                        shrunk.lift_alpha = shrunk.lift_alpha.saturating_sub(slice_lift_alpha);
+                        shrunk.annual_interest =
+                            Self::scale_part(shrunk.annual_interest, shrunk.principal, principal);
+                        Positions::<T>::insert(owner, netuid, shrunk);
+                        Self::bump_stats(netuid, |s| {
+                            s.forfeit_buyback_tao =
+                                s.forfeit_buyback_tao.saturating_add(u128::from(paid));
+                            s.forfeit_buyback_alpha = s
+                                .forfeit_buyback_alpha
+                                .saturating_add(u128::from(repaid_alpha));
+                        });
+                        return Ok(false);
+                    }
+                    let fair = if repaid_alpha > 0 {
+                        Self::tao_for_alpha(repaid_alpha, pre_spot, true)?
+                    } else {
+                        0
+                    };
+                    (
+                        slice_lift_tao,
+                        repaid_alpha,
+                        burn_tao,
+                        paid,
+                        repaid_alpha,
+                        fair,
+                    )
+                }
+                Side::Long => {
+                    // Sell A, then C, capped by ProtocolForcedImpact room
+                    // (skeptic fid:dc4e3b65). Repay min(raised, P); burn
+                    // leftover TAO / alpha only on a full clear.
+                    let mut raised = 0u64;
+                    let mut sold_alpha = 0u64;
+                    let skip_flow = Self::skip_long_tao_flow(netuid);
+                    let pre_spot = T::Pool::current_alpha_price(netuid);
+                    let available = position.escrow_alpha.saturating_add(position.collateral);
+                    let sell_cap = Self::max_forced_sell_alpha(netuid, available, force_market)?;
+                    ensure!(sell_cap > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                    let mut remaining_cap = sell_cap;
+                    let mut escrow_left = position.escrow_alpha;
+                    let mut coll_left = position.collateral;
+                    if remaining_cap > 0 && escrow_left > 0 {
+                        let sell = remaining_cap.min(escrow_left);
+                        let out = T::Pool::forced_sell_into_escrow(
+                            &escrow,
+                            &custody,
+                            &escrow,
+                            netuid,
+                            sell.into(),
+                            0u64.into(),
+                            skip_flow,
+                        )?;
+                        raised = Self::add(raised, out.to_u64())?;
+                        sold_alpha = Self::add(sold_alpha, sell)?;
+                        escrow_left = escrow_left.saturating_sub(sell);
+                        remaining_cap = remaining_cap.saturating_sub(sell);
+                        if enforce_realized_slippage {
+                            Self::ensure_realized_sell_within_slippage(netuid, raised, sold_alpha)?;
+                        }
+                    }
+                    if raised < principal && remaining_cap > 0 && coll_left > 0 {
+                        let need = principal.saturating_sub(raised);
+                        let sell = match Self::alpha_to_raise_tao(netuid, need) {
+                            Ok(needed_alpha) => needed_alpha.min(coll_left).min(remaining_cap),
+                            Err(_) => coll_left.min(remaining_cap),
+                        };
+                        if sell > 0 {
+                            match T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
+                                &escrow,
                                 netuid,
-                                excess.into(),
+                                sell.into(),
                                 0u64.into(),
-                                false,
+                                skip_flow,
                             ) {
-                                burn_tao = burn_tao.saturating_add(dust.to_u64());
+                                Ok(out) => {
+                                    raised = Self::add(raised, out.to_u64())?;
+                                    sold_alpha = Self::add(sold_alpha, sell)?;
+                                    coll_left = coll_left.saturating_sub(sell);
+                                    if enforce_realized_slippage {
+                                        Self::ensure_realized_sell_within_slippage(
+                                            netuid, raised, sold_alpha,
+                                        )?;
+                                    }
+                                }
+                                Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
+                                    // Dust C cannot raise TAO — burn below
+                                    // only on full clear.
+                                }
+                                Err(e) => return Err(e),
                             }
                         }
-                        if burn_tao > 0 {
-                            T::Pool::burn_interest_tao(&escrow, burn_tao.into())?;
-                        }
-                        if repaid_alpha > 0 {
-                            T::Pool::transfer_staked_alpha(
-                                &escrow,
-                                &custody,
-                                &reserve,
-                                &custody,
-                                netuid,
-                                repaid_alpha.into(),
-                                false,
-                                false,
-                            )?;
-                        }
+                    }
+                    let repay = raised.min(principal);
+                    let sold_escrow = position.escrow_alpha.saturating_sub(escrow_left);
+                    let sold_coll = position.collateral.saturating_sub(coll_left);
+                    let alpha_left = escrow_left.saturating_add(coll_left);
+                    // Impact-capped partial only while unsold α remains.
+                    // Underwater full dump (nothing left to sell) falls
+                    // through to burn + remove.
+                    if repay < principal && alpha_left > 0 {
+                        ensure!(repay > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                        let slice_lift_tao = Self::scale_part(position.lift_tao, repay, principal);
+                        let slice_lift_alpha =
+                            Self::scale_part(position.lift_alpha, repay, principal);
+                        T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
                         T::Pool::readd_and_credit(
                             netuid,
                             &reserve,
                             &custody,
                             slice_lift_tao.into(),
-                            repaid_alpha.into(),
+                            slice_lift_alpha.into(),
                         )?;
                         Self::deposit_event(Event::Readded {
                             netuid,
                             tao: slice_lift_tao,
-                            alpha: repaid_alpha,
+                            alpha: slice_lift_alpha,
                         });
                         Lifts::<T>::mutate(netuid, |book| {
-                            book.l_s = book.l_s.saturating_sub(slice_lift_tao);
-                            book.held_tao = book.held_tao.saturating_sub(slice_lift_tao);
-                            book.held_alpha = book.held_alpha.saturating_sub(Self::scale_part(
-                                position.lift_alpha.saturating_sub(position.principal),
-                                slice_p,
-                                principal,
-                            ));
-                            book.escrow_tao = book.escrow_tao.saturating_sub(slice_e);
-                            book.short_sold_alpha = book.short_sold_alpha.saturating_sub(slice_p);
+                            book.l_l = book.l_l.saturating_sub(repay);
+                            book.b_l = book.b_l.saturating_sub(repay);
+                            book.held_alpha = book.held_alpha.saturating_sub(slice_lift_alpha);
+                            book.escrow_alpha = book.escrow_alpha.saturating_sub(sold_escrow);
+                            book.long_collateral_alpha =
+                                book.long_collateral_alpha.saturating_sub(sold_coll);
                         });
-                        // Partial: shrink the live position and stop (caller
-                        // requeues at ForcedSettlementRetryDelay). Full: fall
-                        // through to remove_position below.
-                        if slice_p < principal {
-                            let slice_lift_alpha =
-                                Self::scale_part(position.lift_alpha, slice_p, principal);
-                            Self::maybe_burn_invariant_surplus(
-                                netuid,
-                                slice_lift_tao,
-                                repaid_alpha,
-                                slice_lift_tao,
-                                slice_lift_alpha,
-                                Dissolutions::<T>::contains_key(netuid),
-                            )?;
-                            let fair = if repaid_alpha > 0 {
-                                Self::tao_for_alpha(repaid_alpha, pre_spot, true)?
-                            } else {
-                                0
-                            };
-                            Self::note_protocol_forced_impact(netuid, fair, paid);
-                            // Shrink the caller's `position`, not storage:
-                            // callers charge interest on their local copy
-                            // before forfeiting, and storage has not seen
-                            // that debit (collateral, last_accrued) yet.
-                            let mut shrunk = position.clone();
-                            shrunk.principal = shrunk.principal.saturating_sub(slice_p);
-                            shrunk.collateral = shrunk.collateral.saturating_sub(slice_c);
-                            shrunk.proceeds = shrunk.proceeds.saturating_sub(slice_e);
-                            shrunk.lift_tao = shrunk.lift_tao.saturating_sub(slice_lift_tao);
-                            shrunk.lift_alpha = shrunk.lift_alpha.saturating_sub(slice_lift_alpha);
-                            shrunk.annual_interest = Self::scale_part(
-                                shrunk.annual_interest,
-                                shrunk.principal,
-                                principal,
-                            );
-                            Positions::<T>::insert(owner, netuid, shrunk);
-                            Self::bump_stats(netuid, |s| {
-                                s.forfeit_buyback_tao =
-                                    s.forfeit_buyback_tao.saturating_add(u128::from(paid));
-                                s.forfeit_buyback_alpha = s
-                                    .forfeit_buyback_alpha
-                                    .saturating_add(u128::from(repaid_alpha));
-                            });
-                            return Ok(false);
-                        }
-                        impact_fair_spot = Some(if repaid_alpha > 0 {
-                            Self::tao_for_alpha(repaid_alpha, pre_spot, true)?
+                        Self::maybe_burn_invariant_surplus(
+                            netuid,
+                            slice_lift_tao,
+                            slice_lift_alpha,
+                            slice_lift_tao,
+                            slice_lift_alpha,
+                            Dissolutions::<T>::contains_key(netuid),
+                        )?;
+                        let fair = if sold_alpha > 0 {
+                            Self::tao_for_alpha(sold_alpha, pre_spot, false)?
                         } else {
                             0
+                        };
+                        Self::note_protocol_forced_impact(netuid, fair, raised);
+                        let mut shrunk = position.clone();
+                        shrunk.principal = shrunk.principal.saturating_sub(repay);
+                        shrunk.escrow_alpha = escrow_left;
+                        shrunk.collateral = coll_left;
+                        shrunk.lift_tao = shrunk.lift_tao.saturating_sub(slice_lift_tao);
+                        shrunk.lift_alpha = shrunk.lift_alpha.saturating_sub(slice_lift_alpha);
+                        shrunk.annual_interest =
+                            Self::scale_part(shrunk.annual_interest, shrunk.principal, principal);
+                        Positions::<T>::insert(owner, netuid, shrunk);
+                        Self::bump_stats(netuid, |s| {
+                            s.forfeit_buyback_tao =
+                                s.forfeit_buyback_tao.saturating_add(u128::from(raised));
+                            s.forfeit_buyback_alpha = s
+                                .forfeit_buyback_alpha
+                                .saturating_add(u128::from(sold_alpha));
                         });
-                        (slice_lift_tao, repaid_alpha, burn_tao, paid, repaid_alpha)
+                        return Ok(false);
                     }
-                    Side::Long => {
-                        // Sell A, then as much of C as needed (or all of C), repay
-                        // min(raised, P); burn leftover TAO and leftover alpha C.
-                        let mut raised = 0u64;
-                        let mut sold_alpha = 0u64;
-                        let skip_flow = Self::skip_long_tao_flow(netuid);
-                        if position.escrow_alpha > 0 {
-                            let out = T::Pool::forced_sell_into_escrow(
-                                &escrow,
-                                &custody,
-                                &escrow,
-                                netuid,
-                                position.escrow_alpha.into(),
-                                0u64.into(),
-                                skip_flow,
-                            )?;
-                            raised = Self::add(raised, out.to_u64())?;
-                            sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
-                            if enforce_realized_slippage {
-                                Self::ensure_realized_sell_within_slippage(
-                                    netuid, raised, sold_alpha,
-                                )?;
-                            }
-                        }
-                        let mut coll_left = position.collateral;
-                        if raised < principal && coll_left > 0 {
-                            let need = principal.saturating_sub(raised);
-                            let sell = match Self::alpha_to_raise_tao(netuid, need) {
-                                Ok(needed_alpha) => needed_alpha.min(coll_left),
-                                Err(_) => coll_left,
-                            };
-                            if sell > 0 {
-                                match T::Pool::forced_sell_into_escrow(
-                                    &escrow,
-                                    &custody,
-                                    &escrow,
-                                    netuid,
-                                    sell.into(),
-                                    0u64.into(),
-                                    skip_flow,
-                                ) {
-                                    Ok(out) => {
-                                        raised = Self::add(raised, out.to_u64())?;
-                                        sold_alpha = Self::add(sold_alpha, sell)?;
-                                        coll_left = coll_left.saturating_sub(sell);
-                                        if enforce_realized_slippage {
-                                            Self::ensure_realized_sell_within_slippage(
-                                                netuid, raised, sold_alpha,
-                                            )?;
-                                        }
-                                    }
-                                    Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
-                                        // Dust C cannot raise TAO — burn it below.
-                                    }
-                                    Err(e) => return Err(e),
-                                }
-                            }
-                        }
-                        let repay = raised.min(principal);
-                        let surplus_tao = raised.saturating_sub(repay);
-                        if repay > 0 {
-                            T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
-                        }
-                        if surplus_tao > 0 {
-                            T::Pool::burn_interest_tao(&escrow, surplus_tao.into())?;
-                        }
-                        if coll_left > 0 {
-                            T::Pool::destroy_custody_alpha(
-                                &escrow,
-                                &custody,
-                                netuid,
-                                coll_left.into(),
-                            )?;
-                        }
-                        T::Pool::readd_and_credit(
-                            netuid,
-                            &reserve,
+                    let surplus_tao = raised.saturating_sub(repay);
+                    if repay > 0 {
+                        T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
+                    }
+                    if surplus_tao > 0 {
+                        T::Pool::burn_interest_tao(&escrow, surplus_tao.into())?;
+                    }
+                    let burn_alpha = coll_left.saturating_add(escrow_left);
+                    if burn_alpha > 0 {
+                        T::Pool::destroy_custody_alpha(
+                            &escrow,
                             &custody,
-                            repay.into(),
-                            position.lift_alpha.into(),
-                        )?;
-                        Self::deposit_event(Event::Readded {
                             netuid,
-                            tao: repay,
-                            alpha: position.lift_alpha,
-                        });
-                        Lifts::<T>::mutate(netuid, |book| {
-                            book.l_l = book.l_l.saturating_sub(position.principal);
-                            book.b_l = book.b_l.saturating_sub(position.principal);
-                            book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
-                            book.escrow_alpha =
-                                book.escrow_alpha.saturating_sub(position.escrow_alpha);
-                            book.long_collateral_alpha = book
-                                .long_collateral_alpha
-                                .saturating_sub(position.collateral);
-                        });
-                        (repay, position.lift_alpha, coll_left, repay, sold_alpha)
+                            burn_alpha.into(),
+                        )?;
                     }
-                };
+                    T::Pool::readd_and_credit(
+                        netuid,
+                        &reserve,
+                        &custody,
+                        repay.into(),
+                        position.lift_alpha.into(),
+                    )?;
+                    Self::deposit_event(Event::Readded {
+                        netuid,
+                        tao: repay,
+                        alpha: position.lift_alpha,
+                    });
+                    Lifts::<T>::mutate(netuid, |book| {
+                        book.l_l = book.l_l.saturating_sub(position.principal);
+                        book.b_l = book.b_l.saturating_sub(position.principal);
+                        book.held_alpha = book.held_alpha.saturating_sub(position.lift_alpha);
+                        book.escrow_alpha = book.escrow_alpha.saturating_sub(position.escrow_alpha);
+                        book.long_collateral_alpha = book
+                            .long_collateral_alpha
+                            .saturating_sub(position.collateral);
+                    });
+                    let fair = if sold_alpha > 0 {
+                        Self::tao_for_alpha(sold_alpha, pre_spot, false)?
+                    } else {
+                        0
+                    };
+                    (
+                        repay,
+                        position.lift_alpha,
+                        burn_alpha,
+                        repay,
+                        sold_alpha,
+                        fair,
+                    )
+                }
+            };
 
             // N31: target = L(pre) + L(position.lift_*). Credited may be a
             // partial buyback (repaid_alpha < principal); burning against that
@@ -6582,16 +6755,7 @@ pub mod pallet {
                 Dissolutions::<T>::contains_key(netuid),
             )?;
             // Always record forfeit AMM impact (force-market path included).
-            // Prefer pre-trade spot fair stamped above; fall back to current
-            // spot × α for long sells (impact of sells is secondary).
-            let fair = match impact_fair_spot {
-                Some(f) => f,
-                None if buyback_alpha > 0 => {
-                    Self::fair_spot_tao(netuid, buyback_alpha, side == Side::Short)?
-                }
-                None => 0,
-            };
-            Self::note_protocol_forced_impact(netuid, fair, buyback_tao);
+            Self::note_protocol_forced_impact(netuid, impact_fair, buyback_tao);
             let principal_lost = principal;
             Self::remove_position(owner, netuid, position);
             Self::deposit_event(Event::Forfeited {
@@ -7525,15 +7689,19 @@ pub mod pallet {
         /// [`Self::collect_interest_retries`]: linked-list unlink + TotalPositions
         /// wipe of all queue heads (intentional; not a shared Source param).
         pub(crate) fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
-            // Empty book: reserve the full ten-key wipe before any kill so a
-            // near-empty meter cannot under-pay cleanup (skeptic
-            // fid:a9fb69a7). Live books keep the prior header budget so a
-            // single collect-weight forfeit still fits.
+            // Reserve the TotalPositions header read before testing the empty
+            // book (skeptic fid:d6b74a90). Empty-book wipe and live NextDue
+            // each charge their remaining cost on the matching branch.
+            let header = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF)
+                .saturating_add(T::DbWeight::get().reads(1));
+            if meter.try_consume(header).is_err() {
+                return;
+            }
             if TotalPositions::<T>::get() == 0 {
-                if meter
-                    .try_consume(Self::empty_book_cleanup_weight())
-                    .is_err()
-                {
+                // Ten-key wipe minus the header read already paid
+                // (skeptic fid:a9fb69a7 / d6b74a90).
+                let rest = Self::empty_book_cleanup_weight().saturating_sub(header);
+                if !rest.is_zero() && meter.try_consume(rest).is_err() {
                     return;
                 }
                 NextDue::<T>::kill();
@@ -7546,6 +7714,10 @@ pub mod pallet {
                 NextExpiryRetry::<T>::kill();
                 ExpiryRetryPending::<T>::kill();
                 ExpiryRetryCursor::<T>::kill();
+                return;
+            }
+            // Live book: charge NextDue before the get.
+            if meter.try_consume(header).is_err() {
                 return;
             }
             let Some(mut due) = NextDue::<T>::get() else {
@@ -8968,6 +9140,7 @@ pub mod pallet {
                         )
                     }
                     Side::Long => {
+                        let principal = position.principal;
                         let mut raised = 0u64;
                         let mut sold_alpha = 0u64;
                         // Pre-trade spot for ProtocolForcedImpact fair notional
@@ -8975,30 +9148,19 @@ pub mod pallet {
                         // adverse impact after forced sells move the pool.
                         let pre_spot = T::Pool::current_alpha_price(netuid);
                         let skip_flow = Self::skip_long_tao_flow(netuid);
-                        if position.escrow_alpha > 0 {
-                            let out = T::Pool::forced_sell_into_escrow(
-                                &escrow,
-                                &custody,
-                                &escrow,
-                                netuid,
-                                position.escrow_alpha.into(),
-                                0u64.into(),
-                                skip_flow,
-                            )?;
-                            raised = Self::add(raised, out.to_u64())?;
-                            sold_alpha = Self::add(sold_alpha, position.escrow_alpha)?;
-                            if realized_guard {
-                                Self::ensure_realized_sell_within_slippage(
-                                    netuid, raised, sold_alpha,
-                                )?;
-                            }
-                        }
+                        // Size the sale against remaining impact room before
+                        // committing (skeptic fid:dc4e3b65). Force-market
+                        // first trade still gets forced_min_buyback_bps of
+                        // available α as bounded progress.
+                        let available = position.escrow_alpha.saturating_add(position.collateral);
+                        let sell_cap =
+                            Self::max_forced_sell_alpha(netuid, available, force_market)?;
+                        ensure!(sell_cap > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                        let mut remaining_cap = sell_cap;
+                        let mut escrow_left = position.escrow_alpha;
                         let mut coll_left = position.collateral;
-                        if raised < position.principal && coll_left > 0 {
-                            let need = position.principal.saturating_sub(raised);
-                            let needed_alpha = Self::alpha_to_raise_tao(netuid, need)?;
-                            let sell = needed_alpha.min(coll_left);
-                            ensure!(sell > 0, Error::<T>::InsufficientEscrow);
+                        if remaining_cap > 0 && escrow_left > 0 {
+                            let sell = remaining_cap.min(escrow_left);
                             let out = T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
@@ -9010,24 +9172,109 @@ pub mod pallet {
                             )?;
                             raised = Self::add(raised, out.to_u64())?;
                             sold_alpha = Self::add(sold_alpha, sell)?;
-                            coll_left = coll_left.saturating_sub(sell);
+                            escrow_left = escrow_left.saturating_sub(sell);
+                            remaining_cap = remaining_cap.saturating_sub(sell);
                             if realized_guard {
                                 Self::ensure_realized_sell_within_slippage(
                                     netuid, raised, sold_alpha,
                                 )?;
                             }
                         }
-                        ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
-                        // Spot-relative ProtocolForcedImpact (sells); EMA still
-                        // gates the per-trade realized band above. Fair uses
-                        // pre-trade spot (fid:36b86c33).
+                        if raised < principal && remaining_cap > 0 && coll_left > 0 {
+                            let need = principal.saturating_sub(raised);
+                            let needed_alpha = match Self::alpha_to_raise_tao(netuid, need) {
+                                Ok(a) => a,
+                                Err(_) => coll_left,
+                            };
+                            let sell = needed_alpha.min(coll_left).min(remaining_cap);
+                            if sell > 0 {
+                                let out = T::Pool::forced_sell_into_escrow(
+                                    &escrow,
+                                    &custody,
+                                    &escrow,
+                                    netuid,
+                                    sell.into(),
+                                    0u64.into(),
+                                    skip_flow,
+                                )?;
+                                raised = Self::add(raised, out.to_u64())?;
+                                sold_alpha = Self::add(sold_alpha, sell)?;
+                                coll_left = coll_left.saturating_sub(sell);
+                                if realized_guard {
+                                    Self::ensure_realized_sell_within_slippage(
+                                        netuid, raised, sold_alpha,
+                                    )?;
+                                }
+                            }
+                        }
                         let impact_fair = if sold_alpha > 0 {
                             Self::tao_for_alpha(sold_alpha, pre_spot, false)?
                         } else {
                             0
                         };
                         let impact_realized = raised;
-                        let repay = position.principal;
+                        // Impact-capped partial while unsold α remains. Solvent
+                        // path already passed can_fully_close; empty leftover
+                        // with raised < P is InsufficientEscrow.
+                        if raised < principal {
+                            ensure!(
+                                escrow_left.saturating_add(coll_left) > 0,
+                                Error::<T>::InsufficientEscrow
+                            );
+                            ensure!(raised > 0, Error::<T>::SettlementPriceOutsideEmaBand);
+                            let repay = raised;
+                            let slice_lift_tao =
+                                Self::scale_part(position.lift_tao, repay, principal);
+                            let slice_lift_alpha =
+                                Self::scale_part(position.lift_alpha, repay, principal);
+                            T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
+                            T::Pool::readd_and_credit(
+                                netuid,
+                                &reserve,
+                                &custody,
+                                slice_lift_tao.into(),
+                                slice_lift_alpha.into(),
+                            )?;
+                            Self::deposit_event(Event::Readded {
+                                netuid,
+                                tao: slice_lift_tao,
+                                alpha: slice_lift_alpha,
+                            });
+                            let sold_escrow = position.escrow_alpha.saturating_sub(escrow_left);
+                            let sold_coll = position.collateral.saturating_sub(coll_left);
+                            Lifts::<T>::mutate(netuid, |book| {
+                                book.l_l = book.l_l.saturating_sub(repay);
+                                book.b_l = book.b_l.saturating_sub(repay);
+                                book.held_alpha = book.held_alpha.saturating_sub(slice_lift_alpha);
+                                book.escrow_alpha = book.escrow_alpha.saturating_sub(sold_escrow);
+                                book.long_collateral_alpha =
+                                    book.long_collateral_alpha.saturating_sub(sold_coll);
+                            });
+                            Self::note_protocol_forced_impact(netuid, impact_fair, impact_realized);
+                            Self::maybe_burn_invariant_surplus(
+                                netuid,
+                                slice_lift_tao,
+                                slice_lift_alpha,
+                                slice_lift_tao,
+                                slice_lift_alpha,
+                                false,
+                            )?;
+                            let rem_principal = principal.saturating_sub(repay);
+                            position.principal = rem_principal;
+                            position.escrow_alpha = escrow_left;
+                            position.collateral = coll_left;
+                            position.lift_tao = position.lift_tao.saturating_sub(slice_lift_tao);
+                            position.lift_alpha =
+                                position.lift_alpha.saturating_sub(slice_lift_alpha);
+                            position.annual_interest = Self::scale_part(
+                                position.annual_interest,
+                                rem_principal,
+                                principal,
+                            );
+                            Positions::<T>::insert(owner, netuid, &position);
+                            return Ok(());
+                        }
+                        let repay = principal;
                         let surplus = raised.saturating_sub(repay);
                         T::Pool::transfer_tao(&escrow, &reserve, repay.into())?;
                         if surplus > 0 {
@@ -9045,6 +9292,8 @@ pub mod pallet {
                             tao: repay,
                             alpha: position.lift_alpha,
                         });
+                        // Full clear: drop the whole position from the book.
+                        // Unsold escrow/C return to the owner below.
                         Lifts::<T>::mutate(netuid, |book| {
                             book.l_l = book.l_l.saturating_sub(position.principal);
                             book.b_l = book.b_l.saturating_sub(position.principal);
@@ -9055,7 +9304,7 @@ pub mod pallet {
                                 .long_collateral_alpha
                                 .saturating_sub(position.collateral);
                         });
-                        leftover_collateral = coll_left;
+                        leftover_collateral = coll_left.saturating_add(escrow_left);
                         (
                             repay,
                             position.lift_alpha,
