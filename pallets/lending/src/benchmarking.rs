@@ -1,650 +1,218 @@
-//! Benchmarks for lift-based lending.
+//! Benchmarks for synthetic-mint shorts.
 //!
-//! Extrinsic bodies are invoked so the frame-benchmarking CLI can measure them.
-//! Committed `SubstrateWeight` values in `weights.rs` come from that CLI run.
+//! Fixtures need [`LendingPoolInterface::benchmark_seed_pool`] to leave a deep,
+//! trading pool with a non-zero moving price and matching alpha issuance.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
 use frame_benchmarking::v2::*;
-use frame_support::{assert_ok, traits::Hooks};
+use frame_support::assert_ok;
 use frame_system::RawOrigin;
-use sp_runtime::traits::{SaturatedConversion, Zero};
+
+const POOL: u64 = 1_000_000_000_000_000;
+const MINT: u64 = 100_000_000_000;
+const COLLATERAL: u64 = 1_000_000_000_000;
 
 #[benchmarks]
 mod benchmarks {
     use super::*;
 
-    /// Fund accounts, deep-pool the subnet, init custody, and seed a reference
-    /// that is already past `valid_after` so measured opens succeed.
-    fn seed_lending_ready<T: Config>(netuid: NetUid, caller: &T::AccountId, hotkey: &T::AccountId) {
+    fn netuid() -> NetUid {
+        NetUid::from(1u16)
+    }
+
+    fn seed<T: Config>(caller: &T::AccountId) {
         Enabled::<T>::put(true);
-        // Full Cap immediately: `capacity_ramp` is 0 while `age <= min_age`, so
-        // with `min_age = 0` we still need `age >= 1` (and a finished ramp).
-        LiftParamsStore::<T>::put(LiftParams {
-            new_subnet_min_age: 0,
-            new_subnet_ramp: 1,
-            ..LiftParams::default()
-        });
-        T::Pool::benchmark_seed_pool(netuid, 1_000_000_000_000_000, 1_000_000_000_000_000);
-        // Past registration (0) + finished 1-block ramp → 100% Cap.
+        SynthParamsStore::<T>::put(SynthParams::default());
+        T::Pool::benchmark_seed_pool(netuid(), POOL, POOL);
         frame_system::Pallet::<T>::set_block_number(10_000u32.into());
-        T::Pool::benchmark_mint_tao(caller, 50_000_000_000_000);
-        T::Pool::benchmark_mint_alpha(caller, hotkey, netuid, 50_000_000_000_000);
+        T::Pool::benchmark_mint_tao(caller, COLLATERAL.saturating_mul(10));
         assert_ok!(Pallet::<T>::initialize_custody());
-        assert!(
-            Pallet::<T>::try_seed_reference(netuid),
-            "benchmark fixture must seed a lending reference"
-        );
-        // try_seed_reference sets valid_after into the future; open requires now.
-        References::<T>::mutate(netuid, |r| {
-            if let Some(r) = r {
-                r.valid_after = Zero::zero();
-                r.last_updated = Zero::zero();
-            }
-        });
-        assert!(
-            References::<T>::contains_key(netuid),
-            "benchmark fixture must seed a lending reference"
-        );
-        ActiveNets::<T>::insert(netuid, ());
-        if ActiveNetCount::<T>::get() == 0 {
-            ActiveNetCount::<T>::put(1);
-        }
-        Lifts::<T>::mutate(netuid, |book| {
-            book.g_ema = T::Pool::pool_tao(netuid).to_u64();
-            // Gate also requires G_ema aged one settle window past registration.
-            book.last = LiftParams::default().total_tao_ema_blocks.max(1);
-        });
     }
 
-    fn open_short_fixture<T: Config>(caller: &T::AccountId, hotkey: &T::AccountId, netuid: NetUid) {
-        seed_lending_ready::<T>(netuid, caller, hotkey);
-        let now = frame_system::Pallet::<T>::block_number();
-        assert_ok!(Pallet::<T>::open(
+    fn open_fixture<T: Config>(caller: &T::AccountId) {
+        seed::<T>(caller);
+        assert_ok!(Pallet::<T>::open_short(
             RawOrigin::Signed(caller.clone()).into(),
-            netuid,
-            Side::Short,
-            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
-            None,
-            1u64,
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
+            netuid(),
+            MINT,
+            COLLATERAL,
+            0,
         ));
-        assert!(
-            Positions::<T>::contains_key(caller, netuid),
-            "benchmark fixture must open a short position"
-        );
+        assert!(Positions::<T>::contains_key(caller, netuid()));
     }
 
-    #[benchmark]
-    fn open() {
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
+    fn advance<T: Config>(blocks: u32) {
         let now = frame_system::Pallet::<T>::block_number();
-        #[extrinsic_call]
-        _(
-            RawOrigin::Signed(caller),
-            netuid,
-            Side::Short,
-            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
-            None,
-            1u64,
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
-        );
-    }
-
-    /// Long auto-size path for `open`: up to 64 `v_dyn` / Balancer probes plus
-    /// staked-collateral locks. Charged as `open().max(open_long())`
-    /// (Skeptic fid:75297abf).
-    #[benchmark]
-    fn open_long() {
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        // Seed peer longs so `a_ahead` walks OpenByNetuid / Positions (not an
-        // empty book). Bounded so the fixture stays within benchmark time.
-        for i in 1u32..=8 {
-            let peer: T::AccountId = account("peer", i, 0);
-            let peer_hk: T::AccountId = account("peer_hk", i, 0);
-            T::Pool::benchmark_mint_alpha(&peer, &peer_hk, netuid, 5_000_000_000_000);
-            let now = frame_system::Pallet::<T>::block_number();
-            assert_ok!(Pallet::<T>::open(
-                RawOrigin::Signed(peer).into(),
-                netuid,
-                Side::Long,
-                10_000_000_000u64,
-                Some(peer_hk),
-                1u64,
-                0u64,
-                0u64,
-                now.saturating_add(100u32.into()),
-            ));
-        }
-        let now = frame_system::Pallet::<T>::block_number();
-        #[extrinsic_call]
-        open(
-            RawOrigin::Signed(caller),
-            netuid,
-            Side::Long,
-            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
-            Some(hotkey),
-            1u64,
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
-        );
+        frame_system::Pallet::<T>::set_block_number(now.saturating_add(blocks.into()));
     }
 
     #[benchmark]
-    fn open_exact() {
+    fn open_short() {
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        let now = frame_system::Pallet::<T>::block_number();
-        #[extrinsic_call]
-        _(
-            RawOrigin::Signed(caller),
-            netuid,
-            Side::Long,
-            10_000_000_000u64, // ≥4× minimum_loan_value at 25% LTV
-            Some(hotkey),
-            1_000_000_000u64, // exactly minimum_loan_value (1 τ principal)
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
-        );
-    }
-
-    /// Fixed-collateral raise path (no amount-mode bisection).
-    /// Collateral / sell sizes must clear [`LiftParams::minimum_loan_value`]
-    /// (1 τ default) — CI failed these with `AmountTooSmall` when sized at
-    /// 1e9 alpha / 1e6 sell (run 44635077849).
-    #[benchmark]
-    fn open_long_and_sell() {
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        let now = frame_system::Pallet::<T>::block_number();
-        #[extrinsic_call]
-        _(
-            RawOrigin::Signed(caller),
-            netuid,
-            hotkey,
-            Some(10_000_000_000u64), // ≥4× minimum_loan_value at 25% LTV
-            None,
-            10_000_000_000u64,
-            1u64,
-            // Sell a slice of free alpha; None would sell the full escrow delta.
-            Some(1_000_000_000u64),
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
-        );
-    }
-
-    /// Amount-mode raise: up to 64 `principal_feasible` / `v_dyn` probes under a
-    /// large `max_collateral_alpha`, then the escrowed long + sell. Charged as
-    /// `open_long_and_sell().max(open_long_and_sell_by_amount())`
-    /// (Skeptic fid:98e6778c).
-    #[benchmark]
-    fn open_long_and_sell_by_amount() {
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        let now = frame_system::Pallet::<T>::block_number();
-        #[extrinsic_call]
-        open_long_and_sell(
-            RawOrigin::Signed(caller),
-            netuid,
-            hotkey,
-            None,
-            // Must be ≥ minimum_loan_value (1 τ); 1e6 rao made CI fail AmountTooSmall.
-            Some(1_000_000_000u64),
-            // Wide ceiling so the bisection walks the full BISECTION_STEPS budget.
-            u64::MAX / 4,
-            1u64,
-            None,
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
-        );
-    }
-
-    #[benchmark]
-    fn close() {
-        // Interest-exhaustion forfeit with impact-capped buyback search, then
-        // stop on the residual (skeptic fid:d3ef3feb). Declared weight also
-        // saturating-adds settle search until reference re-measure.
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let year: u64 = T::BlocksPerYear::get();
-        let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
-        let (due, principal_before) = Positions::<T>::mutate(&caller, netuid, |maybe| {
-            let position = maybe.as_mut().expect("fixture opened a short");
-            let pot = position.collateral.saturating_add(position.proceeds);
-            position.annual_interest = pot
-                .saturating_mul(year)
-                .saturating_div(period)
-                .saturating_add(1)
-                .max(1);
-            position.interest_remainder = 0;
-            (position.due, position.principal)
-        });
-        let pool = principal_before.saturating_mul(8).max(1);
-        T::Pool::benchmark_seed_pool(netuid, pool, pool);
-        LiftParamsStore::<T>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100;
-            p.forced_min_buyback_bps = 500;
-            p.ema_band_bps = 10_000;
-        });
-        let params = LiftParamsStore::<T>::get();
-        let since = due.saturating_sub(params.max_settlement_deferral.saturated_into());
-        BandDeferralSince::<T>::insert(&caller, netuid, since);
-        ProtocolForcedImpact::<T>::remove(netuid);
-        frame_system::Pallet::<T>::set_block_number(due);
+        seed::<T>(&caller);
         #[extrinsic_call]
         _(
             RawOrigin::Signed(caller.clone()),
-            netuid,
-            hotkey,
-            false,
-            u64::MAX,
-            0u64,
-            due.saturating_add(100u32.into()),
+            netuid(),
+            MINT,
+            COLLATERAL,
+            0,
         );
-        let after = Positions::<T>::get(&caller, netuid)
-            .expect("close interest-forfeit must leave a reduced residual");
-        assert!(
-            after.principal > 0 && after.principal < principal_before,
-            "close must impact-cap interest forfeit: {principal_before} → {}",
-            after.principal
-        );
+        assert!(Positions::<T>::contains_key(&caller, netuid()));
     }
 
     #[benchmark]
-    fn repay() {
-        // Escrow partial buyback (not wallet repay) so reference measurements
-        // cover the expensive settlement branch (Auditor fid:59fefdd6).
-        // Full-principal repay delegates to close; the extrinsic weight takes
-        // `close().max(repay())` so that path is not undercharged (fid:424daaa1).
+    fn increase_short() {
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let half = Positions::<T>::get(&caller, netuid)
-            .expect("fixture opened a short")
-            .principal
-            / 2;
-        let now = frame_system::Pallet::<T>::block_number();
+        open_fixture::<T>(&caller);
+        advance::<T>(1);
         #[extrinsic_call]
         _(
-            RawOrigin::Signed(caller),
-            netuid,
-            hotkey,
-            half.max(1),
-            false,
-            u64::MAX,
-            0u64,
-            now.saturating_add(100u32.into()),
+            RawOrigin::Signed(caller.clone()),
+            netuid(),
+            MINT,
+            COLLATERAL,
+            0,
         );
-    }
-
-    #[benchmark]
-    fn roll() {
-        // Interest-exhaustion forfeit with impact-capped buyback search; roll
-        // commits that slice and stops (skeptic fid:d283c021). Declared weight
-        // also saturating-adds settle search until reference re-measure.
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let year: u64 = T::BlocksPerYear::get();
-        let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
-        let (due, principal_before) = Positions::<T>::mutate(&caller, netuid, |maybe| {
-            let position = maybe.as_mut().expect("fixture opened a short");
-            let pot = position.collateral.saturating_add(position.proceeds);
-            position.annual_interest = pot
-                .saturating_mul(year)
-                .saturating_div(period)
-                .saturating_add(1)
-                .max(1);
-            position.interest_remainder = 0;
-            (position.due, position.principal)
-        });
-        let pool = principal_before.saturating_mul(8).max(1);
-        T::Pool::benchmark_seed_pool(netuid, pool, pool);
-        LiftParamsStore::<T>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100;
-            p.forced_min_buyback_bps = 500;
-            p.ema_band_bps = 10_000;
-        });
-        let params = LiftParamsStore::<T>::get();
-        let since = due.saturating_sub(params.max_settlement_deferral.saturated_into());
-        BandDeferralSince::<T>::insert(&caller, netuid, since);
-        ProtocolForcedImpact::<T>::remove(netuid);
-        frame_system::Pallet::<T>::set_block_number(due);
-        #[extrinsic_call]
-        _(RawOrigin::Signed(caller.clone()), netuid);
-        let after = Positions::<T>::get(&caller, netuid)
-            .expect("roll interest-forfeit must leave a reduced residual");
-        assert!(
-            after.principal > 0 && after.principal < principal_before,
-            "roll must impact-cap interest forfeit: {principal_before} → {}",
-            after.principal
+        assert_eq!(
+            Positions::<T>::get(&caller, netuid()).map(|p| p.minted),
+            Some(MINT * 2)
         );
     }
 
     #[benchmark]
     fn add_collateral() {
-        // TAO transfer into short escrow (no AMM). Long path locks alpha.
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let before = Positions::<T>::get(&caller, netuid)
-            .expect("fixture position")
-            .collateral;
-        T::Pool::benchmark_mint_tao(&caller, 1_000_000_000_000);
+        open_fixture::<T>(&caller);
         #[extrinsic_call]
-        _(
-            RawOrigin::Signed(caller.clone()),
-            netuid,
-            1_000_000_000u64,
-            None::<T::AccountId>,
-        );
-        let after = Positions::<T>::get(&caller, netuid).expect("add_collateral keeps position");
-        assert_eq!(
-            after.collateral,
-            before.saturating_add(1_000_000_000),
-            "add_collateral must raise position.collateral"
-        );
+        _(RawOrigin::Signed(caller), netuid(), 1_000_000_000);
+    }
+
+    #[benchmark]
+    fn withdraw_collateral() {
+        let caller: T::AccountId = whitelisted_caller();
+        open_fixture::<T>(&caller);
+        advance::<T>(1);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), netuid(), 1_000_000_000);
+    }
+
+    #[benchmark]
+    fn close_short() {
+        let caller: T::AccountId = whitelisted_caller();
+        open_fixture::<T>(&caller);
+        advance::<T>(1);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller.clone()), netuid(), MINT, u64::MAX);
+        assert!(!Positions::<T>::contains_key(&caller, netuid()));
+    }
+
+    #[benchmark]
+    fn poke() {
+        let caller: T::AccountId = whitelisted_caller();
+        open_fixture::<T>(&caller);
+        advance::<T>(1);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller.clone()), caller.clone(), netuid());
     }
 
     #[benchmark]
     fn set_enabled() {
         #[extrinsic_call]
         _(RawOrigin::Root, true);
+        assert!(Enabled::<T>::get());
     }
 
     #[benchmark]
-    fn set_lift_params() {
-        let params = LiftParams::default();
+    fn set_synth_params() {
+        let params = SynthParams::default();
         #[extrinsic_call]
         _(RawOrigin::Root, params);
     }
 
     #[benchmark]
-    fn warm_reference() {
+    fn charge_interest() {
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        References::<T>::remove(netuid);
-        ActiveNets::<T>::remove(netuid);
-        #[extrinsic_call]
-        _(RawOrigin::Signed(caller), netuid);
-    }
-
-    #[benchmark]
-    fn collect() {
-        // Measure interest-triggered forfeit under an impact-capped buyback
-        // search (skeptic fid:80e5fc65 / f2eb3d14). Crank the coupon above the
-        // pot so charge_interest defaults the loan, then size the pool like
-        // `settle` so `max_forced_buyback_alpha` binary-searches instead of
-        // closing in one shot. Collectors reserve
-        // `collect_with_forfeit_search_weight` = collect.max(settle/settle_long).
-        let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let year: u64 = T::BlocksPerYear::get();
-        let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
-        let (due, principal_before) = Positions::<T>::mutate(&caller, netuid, |maybe| {
-            let position = maybe.as_mut().expect("fixture opened a short");
-            // Short interest burns TAO from collateral + escrowed proceeds. Size
-            // the coupon so one InterestPeriod exhausts the whole pot and
-            // forfeits (otherwise collect just reschedules).
-            let pot = position.collateral.saturating_add(position.proceeds);
-            position.annual_interest = pot
-                .saturating_mul(year)
-                .saturating_div(period)
-                .saturating_add(1)
-                .max(1);
-            position.interest_remainder = 0;
-            (position.due, position.principal)
-        });
-        // Pool depth on the order of principal so full buyback exceeds a 1%
-        // band; the search + 5% floor leave a residual (same shape as settle).
-        let pool = principal_before.saturating_mul(8).max(1);
-        T::Pool::benchmark_seed_pool(netuid, pool, pool);
-        LiftParamsStore::<T>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100; // 1%
-            p.forced_min_buyback_bps = 500; // 5% floor → residual remains
-            p.ema_band_bps = 10_000;
-        });
-        // Seed deferral so `past_max_settlement_deferral` is true at `due`:
-        // permissionless interest forfeit then force-markets (skips EMA gate,
-        // applies forced_min_buyback floor) — same search as expiry settle.
-        let params = LiftParamsStore::<T>::get();
-        let since = due.saturating_sub(params.max_settlement_deferral.saturated_into());
-        BandDeferralSince::<T>::insert(&caller, netuid, since);
-        ProtocolForcedImpact::<T>::remove(netuid);
+        open_fixture::<T>(&caller);
+        let due = Positions::<T>::get(&caller, netuid())
+            .map(|p| p.due)
+            .unwrap();
         frame_system::Pallet::<T>::set_block_number(due);
         #[block]
         {
-            let _ = <Pallet<T> as Hooks<BlockNumberFor<T>>>::on_idle(
-                due,
-                Weight::from_parts(u64::MAX, u64::MAX),
-            );
+            let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+            Pallet::<T>::collect_due(due, &mut meter);
         }
-        let after = Positions::<T>::get(&caller, netuid)
-            .expect("collect must leave a reduced residual after impact-capped forfeit");
-        assert!(
-            after.principal > 0 && after.principal < principal_before,
-            "collect must impact-cap forfeit buyback: principal {principal_before} → {}",
-            after.principal
-        );
-        assert!(
-            ProtocolForcedImpact::<T>::get(netuid).is_some(),
-            "collect forfeit must note ProtocolForcedImpact via buyback search"
-        );
+        assert!(Positions::<T>::get(&caller, netuid()).is_some_and(|p| p.due > due));
     }
 
     #[benchmark]
-    fn update_reference() {
+    fn deleverage_step() {
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
-        // seed_lending_ready ages G_ema to total_tao_ema_blocks; advance past that
-        // and clear last_updated so on_finalize runs the full path (TAO EMA +
-        // G EMA fixed-point update + price reference), not the early returns.
-        let g_seeded = Lifts::<T>::get(netuid).last;
-        let now: BlockNumberFor<T> = g_seeded.saturating_add(1).saturated_into();
-        frame_system::Pallet::<T>::set_block_number(now);
-        References::<T>::mutate(netuid, |r| {
-            if let Some(r) = r {
-                r.last_updated = Zero::zero();
+        open_fixture::<T>(&caller);
+        Positions::<T>::mutate(&caller, netuid(), |p| {
+            if let Some(p) = p {
+                p.state = ShortState::Deleveraging {
+                    since: frame_system::Pallet::<T>::block_number(),
+                };
             }
         });
+        DeleverageQueue::<T>::insert((caller.clone(), netuid()), ());
+        advance::<T>(1);
+        let params = SynthParamsStore::<T>::get();
         #[block]
         {
-            <Pallet<T> as Hooks<BlockNumberFor<T>>>::on_finalize(now);
+            Pallet::<T>::deleverage_step(&caller, netuid(), &params);
         }
-        let reference = References::<T>::get(netuid).expect("reference must remain seeded");
-        assert!(
-            reference.last_updated >= now,
-            "on_finalize must refresh the price reference"
-        );
-        let g_after = Lifts::<T>::get(netuid).last;
-        assert!(
-            g_after > g_seeded,
-            "on_finalize must age G_ema past the seeded timestamp"
-        );
-        assert_eq!(
-            g_after,
-            now.saturated_into::<u64>(),
-            "G_ema last must advance to the measured block"
-        );
-        assert!(
-            TaoEma::<T>::contains_key(netuid),
-            "on_finalize must maintain TaoEma"
-        );
+        assert!(Positions::<T>::get(&caller, netuid()).is_none_or(|p| p.minted < MINT));
     }
 
     #[benchmark]
-    fn settle() {
-        // Measure force-market expiry where a full buyback fails the impact
-        // check and a partial quote passes, so `max_forced_buyback_alpha`
-        // binary-searches (skeptic fid:dccdc8ec / 9897541a). Assert a reduced,
-        // nonzero principal remains. Dissolution settle is separate.
+    fn retire_residual() {
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a short");
-        let principal_before = position.principal;
-        let expires_at = position.expires_at;
-        // Pool depth on the order of principal so full buyback exceeds a 1%
-        // band; 50T pools left a full close on the fast path (fid:315b846b).
-        let pool = principal_before.saturating_mul(8).max(1);
-        T::Pool::benchmark_seed_pool(netuid, pool, pool);
-        LiftParamsStore::<T>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100; // 1%
-            p.forced_min_buyback_bps = 500; // 5% floor → residual remains
-            p.ema_band_bps = 10_000;
-        });
-        let params = LiftParamsStore::<T>::get();
-        let force_at = expires_at.saturating_add(params.max_settlement_deferral.saturated_into());
-        // Seed deferral so force-market mode is active (skips per-trade band).
-        BandDeferralSince::<T>::insert(&caller, netuid, expires_at);
-        frame_system::Pallet::<T>::set_block_number(force_at);
-        // No prior impact: first force-market trade. High AMM impact vs spot
-        // makes the full principal fail; the search + 5% floor leave residual.
-        ProtocolForcedImpact::<T>::remove(netuid);
+        seed::<T>(&caller);
+        let reserve = Pallet::<T>::reserve_account(netuid());
+        T::Pool::benchmark_mint_tao(&reserve, COLLATERAL);
+        ResidualReserve::<T>::insert(netuid(), COLLATERAL);
+        ResidualAlpha::<T>::insert(netuid(), MINT);
+        let params = SynthParamsStore::<T>::get();
         #[block]
         {
-            let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-            Pallet::<T>::collect_expiry(force_at, &mut meter, u32::MAX);
+            Pallet::<T>::retire_residual(netuid(), MINT, &params);
         }
-        let after = Positions::<T>::get(&caller, netuid)
-            .expect("settle must leave a reduced, nonzero principal (partial buyback)");
-        assert!(
-            after.principal > 0 && after.principal < principal_before,
-            "settle must impact-cap buyback: principal {principal_before} → {}",
-            after.principal
-        );
-        let fair_after = ProtocolForcedImpact::<T>::get(netuid)
-            .map(|(_blk, _diff, fair)| fair)
-            .unwrap_or(0);
-        assert!(
-            fair_after > 0,
-            "settle must note ProtocolForcedImpact via buyback search"
-        );
+        assert!(ResidualAlpha::<T>::get(netuid()) < MINT);
     }
 
-    /// Force-market long expiry that **must** hit the combined residual sale:
-    /// both A and C split attempts round to zero TAO, then one sale of the
-    /// reused pre-split impact cap progresses (skeptic fid:2d40f9ac / ced7b9db).
-    /// Collectors charge `settle().max(settle_long())`.
     #[benchmark]
-    fn settle_long() {
+    fn twap_sample() {
         let caller: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("hk", 0, 0);
-        let netuid = NetUid::from(1u16);
-        seed_lending_ready::<T>(netuid, &caller, &hotkey);
+        seed::<T>(&caller);
+        let params = SynthParamsStore::<T>::get();
+        for _ in 0..params.twap_samples {
+            Pallet::<T>::sample_twap(netuid(), Zero::zero(), &params);
+        }
         let now = frame_system::Pallet::<T>::block_number();
-        assert_ok!(Pallet::<T>::open(
-            RawOrigin::Signed(caller.clone()).into(),
-            netuid,
-            Side::Long,
-            10_000_000_000u64,
-            Some(hotkey),
-            1u64,
-            0u64,
-            0u64,
-            now.saturating_add(100u32.into()),
-        ));
-        let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a long");
-        let principal_before = position.principal;
-        let expires_at = position.expires_at;
-        // Two dust-sized legs: quote(1) → 0 TAO, quote(2) → >0 against a
-        // scaled x=100·10^9 / y=51·10^9 pool. Reserves (and the subnet
-        // free balance seeded with them) stay well above the runtime ED
-        // of 500 so the real unstake can pay out (skeptic fid:aa20fa99).
-        // Zero the coupon so advancing to force_at does not burn the sole
-        // unit of collateral as final interest before the combined sale
-        // (skeptic fid:39f778c6). Dust legs must survive until settle.
-        Positions::<T>::mutate(&caller, netuid, |maybe| {
-            if let Some(p) = maybe {
-                p.escrow_alpha = 1;
-                p.collateral = 1;
-                p.annual_interest = 0;
-                p.interest_remainder = 0;
-            }
-        });
-        const POOL_X: u64 = 100_000_000_000;
-        const POOL_Y: u64 = 51_000_000_000;
-        T::Pool::benchmark_seed_pool(netuid, POOL_Y, POOL_X);
-        assert!(
-            matches!(
-                T::Pool::quote_sell(netuid, 1u64.into()),
-                Ok(r) if r.to_u64() == 0
-            ) || matches!(
-                T::Pool::quote_sell(netuid, 1u64.into()),
-                Err(e) if T::Pool::quote_may_round_to_zero(&e)
-            ),
-            "settle_long fixture: single-α split must round to zero"
-        );
-        assert!(
-            matches!(
-                T::Pool::quote_sell(netuid, 2u64.into()),
-                Ok(r) if r.to_u64() > 0
-            ),
-            "settle_long fixture: combined 2α must quote positive TAO"
-        );
-        LiftParamsStore::<T>::mutate(|p| {
-            p.expiry_max_slippage_bps = 10_000;
-            p.forced_min_buyback_bps = 10_000;
-            p.ema_band_bps = 10_000;
-        });
-        let params = LiftParamsStore::<T>::get();
-        let force_at = expires_at.saturating_add(params.max_settlement_deferral.saturated_into());
-        BandDeferralSince::<T>::insert(&caller, netuid, expires_at);
-        frame_system::Pallet::<T>::set_block_number(force_at);
-        ProtocolForcedImpact::<T>::remove(netuid);
-        BenchCombinedResidualSale::<T>::kill();
+        #[block]
+        {
+            Pallet::<T>::sample_twap(netuid(), now, &params);
+        }
+        assert_eq!(TwapRing::<T>::get(netuid()).last_sample, now);
+    }
+
+    #[benchmark]
+    fn settle_dissolution() {
+        let caller: T::AccountId = whitelisted_caller();
+        open_fixture::<T>(&caller);
+        assert_ok!(Pallet::<T>::start_dissolution(netuid()));
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-            Pallet::<T>::collect_expiry(force_at, &mut meter, u32::MAX);
+            assert!(Pallet::<T>::settle_positions_on_dissolution(
+                netuid(),
+                &mut meter
+            ));
         }
-        assert!(
-            BenchCombinedResidualSale::<T>::get() > 0,
-            "settle_long must execute the combined residual sale (not an ordinary split fill)"
-        );
-        let after = Positions::<T>::get(&caller, netuid);
-        assert!(
-            after
-                .as_ref()
-                .map(|p| p.principal < principal_before)
-                .unwrap_or(true),
-            "settle_long combined residual must reduce or clear principal"
-        );
-        assert!(
-            ProtocolForcedImpact::<T>::get(netuid).is_some(),
-            "settle_long must note ProtocolForcedImpact"
-        );
+        assert!(!Positions::<T>::contains_key(&caller, netuid()));
     }
 }

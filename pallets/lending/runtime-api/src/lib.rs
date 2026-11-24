@@ -1,58 +1,23 @@
-//! Read-only loan quotes use exactly the arithmetic of the dispatchables.
+//! Read-only short quotes use exactly the arithmetic of the dispatchables.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::Codec;
-use pallet_lending::{ClosingQuote, LendingStats, OpeningQuote, RaiseQuote, Side};
+use pallet_lending::{ShortCloseQuote, ShortHealth, ShortOpenQuote};
 use sp_runtime::DispatchError;
 
 sp_api::decl_runtime_apis! {
-    #[api_version(8)]
+    #[api_version(9)]
     pub trait LendingRuntimeApi<AccountId> where AccountId: Codec {
-        /// Full opening principal and fixed collateral interest, including swap fees.
-        fn quote_open(netuid: u16, side: Side, collateral: u64) -> Result<OpeningQuote, DispatchError>;
+        /// Proceeds, required collateral, notional, and interest for minting
+        /// and selling `mint` alpha on `netuid`.
+        fn quote_open_short(netuid: u16, mint: u64) -> Result<ShortOpenQuote, DispatchError>;
 
-        /// Additional principal and coupon after checking the owner's combined position.
-        /// `source_hotkey` is required for Long and must be `None` for Short.
-        fn quote_open_for(owner: AccountId, netuid: u16, side: Side, collateral: u64, source_hotkey: Option<AccountId>) -> Result<OpeningQuote, DispatchError>;
+        /// Buy-back cost and refund for closing `alpha` of `owner`'s short.
+        fn quote_close_short(owner: AccountId, netuid: u16, alpha: u64) -> Result<ShortCloseQuote, DispatchError>;
 
-        /// Exactly the requested additional debt, with its actual fixed coupon.
-        /// `source_hotkey` is required for Long and must be `None` for Short.
-        #[allow(clippy::too_many_arguments)]
-        fn quote_open_exact_for(owner: AccountId, netuid: u16, side: Side, collateral: u64, source_hotkey: Option<AccountId>, principal: u64) -> Result<OpeningQuote, DispatchError>;
-
-        /// Full close payment and collateral refund after interest accrued to this block.
-        /// `hotkey` may be `None` to skip the hotkey-existence check (escrow TAO
-        /// paths never need it; alpha repay/refund paths still should pass one).
-        fn quote_close(owner: AccountId, netuid: u16, hotkey: Option<AccountId>, repay_from_wallet: bool) -> Result<ClosingQuote, DispatchError>;
-
-        /// Partial-repay payment and refund for `principal_part` (§4.4), same
-        /// `ClosingQuote` fields as [`Self::quote_close`]. Full repay
-        /// (`principal_part == principal`) matches `quote_close`.
-        fn quote_repay(
-            owner: AccountId,
-            netuid: u16,
-            hotkey: Option<AccountId>,
-            principal_part: u64,
-            repay_from_wallet: bool,
-        ) -> Result<ClosingQuote, DispatchError>;
-
-        /// Atomic raise quote: escrowed long sizing plus optional unlocked-alpha sale.
-        #[allow(clippy::too_many_arguments)]
-        fn quote_raise(
-            owner: AccountId,
-            netuid: u16,
-            hotkey: AccountId,
-            amount: Option<u64>,
-            collateral: Option<u64>,
-            sell: Option<u64>,
-        ) -> Result<RaiseQuote, DispatchError>;
-
-        /// Cumulative lending health counters for one subnet.
-        fn lending_stats(netuid: u16) -> LendingStats;
-
-        /// Chain-wide cumulative lending health counters.
-        fn lending_stats_global() -> LendingStats;
+        /// Coverage, equity, and accrued interest of `owner`'s short on `netuid`.
+        fn short_health(owner: AccountId, netuid: u16) -> Option<ShortHealth>;
 
         /// Terms version assigned to newly opened positions.
         fn current_terms_version() -> u16;
