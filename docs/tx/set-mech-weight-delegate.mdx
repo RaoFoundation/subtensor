@@ -15,7 +15,7 @@ registration, permit, stake, rate-limit, and weight rules.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mech_weight_delegate`](/code/pallets/subtensor/src/macros/dispatches.rs#L3300-L3309) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mech_weight_delegate`](/code/pallets/subtensor/src/macros/dispatches.rs#L3307-L3316) |
 
 ## Verify
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("set_mech_weight_delegate", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_mech_weight_delegate` — [`pallets/subtensor/src/macros/dispatches.rs#L3302`](/code/pallets/subtensor/src/macros/dispatches.rs#L3300-L3309):
+`SubtensorModule.set_mech_weight_delegate` — [`pallets/subtensor/src/macros/dispatches.rs#L3309`](/code/pallets/subtensor/src/macros/dispatches.rs#L3307-L3316):
 
 ```rust
 #[pallet::call_index(170)]

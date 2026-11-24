@@ -14,7 +14,7 @@ announcement may still exist; reservations also expire after
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.release_own_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/macros/dispatches.rs#L2831-L2841) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.release_own_coldkey_swap_destination_reservation`](/code/pallets/subtensor/src/macros/dispatches.rs#L2838-L2848) |
 
 ## Parameters
 
@@ -59,7 +59,7 @@ result = sub.execute_tool("release_own_coldkey_swap_destination_reservation", {.
 
 ## On-chain implementation
 
-`SubtensorModule.release_own_coldkey_swap_destination_reservation` — [`pallets/subtensor/src/macros/dispatches.rs#L2835`](/code/pallets/subtensor/src/macros/dispatches.rs#L2831-L2841):
+`SubtensorModule.release_own_coldkey_swap_destination_reservation` — [`pallets/subtensor/src/macros/dispatches.rs#L2842`](/code/pallets/subtensor/src/macros/dispatches.rs#L2838-L2848):
 
 ```rust
 #[pallet::call_index(154)]
