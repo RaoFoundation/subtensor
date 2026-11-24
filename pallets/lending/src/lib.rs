@@ -302,6 +302,10 @@ pub const MAX_STRESS_BPS: u32 = 50_000;
 pub const MAX_STRESS_SLOPE_BPS: u32 = 100_000;
 /// Deleverage steps attempted per block across all subnets.
 pub const DELEVERAGE_STEPS_PER_BLOCK: u32 = 8;
+/// Upper bound on paced buy-backs per block while exhausting pace room (MEDIUM 5).
+pub const MAX_DELEVERAGE_STEPS_PER_BLOCK: u32 = 64;
+/// Interest charges attempted in `on_initialize` each block (MEDIUM 7).
+pub const MAX_DUE_CHARGES_PER_BLOCK: u32 = 32;
 /// Subnets whose residual alpha the reserve may retire per block.
 pub const RESIDUAL_RETIRES_PER_BLOCK: u32 = 4;
 /// Empty `Due` buckets skipped per idle pass before yielding.
@@ -877,8 +881,7 @@ pub mod pallet {
             assert!(T::BlocksPerYear::get() >= 365);
             assert!(T::InterestPeriod::get() > Zero::zero());
             assert!(T::InterestRetryDelay::get() > Zero::zero());
-            assert!(T::MaxPositionsPerSubnet::get() > 0);
-            assert!(T::MaxPositionsPerSubnet::get() <= T::MaxTotalPositions::get());
+            assert!(T::MaxTotalPositions::get() > 0);
             assert!(SynthParams::default().is_valid());
         }
 
@@ -900,11 +903,23 @@ pub mod pallet {
                     T::WeightInfo::twap_sample().saturating_mul(subnets.len() as u64),
                 );
             }
-            let steps = Self::process_deleverage_queue(DELEVERAGE_STEPS_PER_BLOCK, &params);
+            let steps = Self::exhaust_deleverage_queue(&params);
             let retires = Self::retire_residuals(RESIDUAL_RETIRES_PER_BLOCK, &params);
+            let mut due_weight = Weight::zero();
+            {
+                let due_budget = T::WeightInfo::charge_interest()
+                    .saturating_mul(u64::from(MAX_DUE_CHARGES_PER_BLOCK))
+                    .saturating_add(
+                        T::DbWeight::get().reads_writes(u64::from(MAX_EMPTY_DUE_BUMPS), 0),
+                    );
+                let mut due_meter = WeightMeter::with_limit(due_budget);
+                Self::collect_due(now, &mut due_meter);
+                due_weight = due_meter.consumed();
+            }
             weight
                 .saturating_add(T::WeightInfo::deleverage_step().saturating_mul(u64::from(steps)))
                 .saturating_add(T::WeightInfo::retire_residual().saturating_mul(u64::from(retires)))
+                .saturating_add(due_weight)
         }
 
         fn on_finalize(_now: BlockNumberFor<T>) {
@@ -1253,8 +1268,7 @@ pub mod pallet {
             );
             ensure!(mint > 0, Error::<T>::ZeroAmount);
             ensure!(
-                PositionCount::<T>::get(netuid) < T::MaxPositionsPerSubnet::get()
-                    && TotalPositions::<T>::get() < T::MaxTotalPositions::get(),
+                TotalPositions::<T>::get() < T::MaxTotalPositions::get(),
                 Error::<T>::TooManyPositions
             );
             Self::ensure_min_notional(netuid, mint, &params)?;
@@ -1621,16 +1635,22 @@ pub mod pallet {
         /// Closes the position when the minted alpha is gone and defaults it
         /// when its funds are. Repeated `poke`s in the same block cannot spend
         /// more than that locked share.
-        pub(crate) fn deleverage_step(owner: &T::AccountId, netuid: NetUid, params: &SynthParams) {
+        /// Returns whether the queue entry made state progress (buy-back,
+        /// default, close, or cleanup).
+        pub(crate) fn deleverage_step(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            params: &SynthParams,
+        ) -> bool {
             let Some(mut pos) = Positions::<T>::get(owner, netuid) else {
                 DeleverageQueue::<T>::remove(netuid, owner);
-                return;
+                return true;
             };
             if Dissolutions::<T>::contains_key(netuid)
                 || !T::Pool::subnet_exists(netuid)
                 || Self::buybacks_paused(netuid, params)
             {
-                return;
+                return false;
             }
             let funds = pos.funds();
             let (budget, book) = Self::deleverage_budget(netuid, params);
@@ -1666,8 +1686,9 @@ pub mod pallet {
                     || T::Pool::quote_buy(netuid, funds.into()).is_ok_and(|a| a.to_u64() == 0);
                 if dust {
                     Self::default_position(owner, netuid, &pos);
+                    return true;
                 }
-                return;
+                return false;
             }
             let bought =
                 with_transaction(
@@ -1677,7 +1698,7 @@ pub mod pallet {
                     },
                 );
             let Ok(spent) = bought else {
-                return;
+                return false;
             };
             DeleverageFilled::<T>::insert(
                 netuid,
@@ -1693,10 +1714,10 @@ pub mod pallet {
                 tao_spent: spent,
             });
             if pos.minted == 0 {
-                let refund = Self::finish_position(owner, netuid, &pos).unwrap_or_else(|_| {
-                    Self::remove_position(owner, netuid, &pos);
-                    0
-                });
+                let Ok(refund) = Self::finish_position(owner, netuid, &pos) else {
+                    Positions::<T>::insert(owner, netuid, &pos);
+                    return true;
+                };
                 Self::deposit_event(Event::ShortClosed {
                     who: owner.clone(),
                     netuid,
@@ -1709,28 +1730,30 @@ pub mod pallet {
             } else {
                 Positions::<T>::insert(owner, netuid, &pos);
             }
+            true
         }
 
         /// Unbought alpha becomes residual (holder dilution). Leftover dust
         /// funds go to the reserve that retires it; the deposit burns (P19).
         pub(crate) fn default_position(owner: &T::AccountId, netuid: NetUid, pos: &PositionOf<T>) {
             let residual = pos.minted;
-            SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(residual));
-            ResidualAlpha::<T>::mutate(netuid, |r| *r = r.saturating_add(residual));
             let dust = pos.funds();
             if dust > 0 {
                 let reserve = Self::reserve_account(netuid);
-                if let Ok(credited) =
-                    T::Pool::collect_interest_tao(&pos.custody, &reserve, dust.into())
-                {
-                    ResidualReserve::<T>::mutate(netuid, |r| {
-                        *r = r.saturating_add(credited.to_u64())
-                    });
-                }
+                let credited =
+                    match T::Pool::collect_interest_tao(&pos.custody, &reserve, dust.into()) {
+                        Ok(credited) => credited.to_u64(),
+                        Err(_) => return,
+                    };
+                ResidualReserve::<T>::mutate(netuid, |r| *r = r.saturating_add(credited));
             }
-            if pos.deposit > 0 {
-                let _ = T::Pool::burn_interest_tao(&pos.custody, pos.deposit.into());
+            if pos.deposit > 0
+                && T::Pool::burn_interest_tao(&pos.custody, pos.deposit.into()).is_err()
+            {
+                return;
             }
+            SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(residual));
+            ResidualAlpha::<T>::mutate(netuid, |r| *r = r.saturating_add(residual));
             Self::remove_position(owner, netuid, pos);
             Self::refresh_breaker(netuid, &SynthParamsStore::<T>::get());
             Self::deposit_event(Event::ShortDefaulted {
@@ -1740,9 +1763,24 @@ pub mod pallet {
             });
         }
 
+        /// Run paced buy-backs until a queue pass makes no progress or the block
+        /// cap is hit, so per-block pace room is not left idle (MEDIUM 5).
+        pub(crate) fn exhaust_deleverage_queue(params: &SynthParams) -> u32 {
+            let mut total = 0u32;
+            while total < MAX_DELEVERAGE_STEPS_PER_BLOCK {
+                let batch = MAX_DELEVERAGE_STEPS_PER_BLOCK.saturating_sub(total);
+                let (attempted, progressed) = Self::process_deleverage_queue(batch, params);
+                total = total.saturating_add(attempted);
+                if progressed == 0 {
+                    break;
+                }
+            }
+            total
+        }
+
         /// Serve up to `max` deleveraging positions, resuming after the cursor.
-        /// Returns the number of steps taken.
-        pub(crate) fn process_deleverage_queue(max: u32, params: &SynthParams) -> u32 {
+        /// Returns `(attempts, progressed)` for weight vs. pacing control.
+        pub(crate) fn process_deleverage_queue(max: u32, params: &SynthParams) -> (u32, u32) {
             let keys: alloc::vec::Vec<(NetUid, T::AccountId)> = match DeleverageCursor::<T>::get() {
                 Some((netuid, owner)) => DeleverageQueue::<T>::iter_keys_from(
                     DeleverageQueue::<T>::hashed_key_for(netuid, &owner),
@@ -1758,10 +1796,13 @@ pub mod pallet {
             } else if let Some(last) = keys.last() {
                 DeleverageCursor::<T>::put(last.clone());
             }
+            let mut progressed = 0u32;
             for (netuid, owner) in keys.iter() {
-                Self::deleverage_step(owner, *netuid, params);
+                if Self::deleverage_step(owner, *netuid, params) {
+                    progressed = progressed.saturating_add(1);
+                }
             }
-            keys.len() as u32
+            (keys.len() as u32, progressed)
         }
 
         /// The reserve buys back and burns residual alpha under the pace limit
@@ -2388,13 +2429,13 @@ pub mod pallet {
             if meter.try_consume(settle).is_err() {
                 return false;
             }
-            let reserve_tao = ResidualReserve::<T>::take(netuid);
+            let reserve_tao = ResidualReserve::<T>::get(netuid);
             if reserve_tao > 0 {
-                let _ = T::Pool::pay_into_pot(
-                    &Self::reserve_account(netuid),
-                    netuid,
-                    reserve_tao.into(),
-                );
+                let reserve = Self::reserve_account(netuid);
+                if T::Pool::pay_into_pot(&reserve, netuid, reserve_tao.into()).is_err() {
+                    return false;
+                }
+                ResidualReserve::<T>::remove(netuid);
             }
             ResidualAlpha::<T>::remove(netuid);
             SyntheticOutstanding::<T>::remove(netuid);
@@ -2418,19 +2459,13 @@ pub mod pallet {
                 None => (owner.clone(), 0),
             };
             let refund = pos.funds().saturating_sub(due).saturating_add(pos.deposit);
-            let paid = match T::Pool::terminal_split_tao(
-                &pos.custody,
-                &pot,
-                owner,
-                due.into(),
-                refund.into(),
-            ) {
-                Ok((recovered, _)) => {
-                    T::Pool::credit_pot_reserve(netuid, recovered);
-                    recovered.to_u64()
-                }
-                Err(_) => 0,
+            let Ok((recovered, _)) =
+                T::Pool::terminal_split_tao(&pos.custody, &pot, owner, due.into(), refund.into())
+            else {
+                return;
             };
+            T::Pool::credit_pot_reserve(netuid, recovered);
+            let paid = recovered.to_u64();
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(pos.minted));
             Self::remove_position(owner, netuid, &pos);
             Self::deposit_event(Event::ShortSettledOnDissolution {

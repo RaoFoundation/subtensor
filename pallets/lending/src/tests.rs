@@ -1019,6 +1019,30 @@ fn pump_and_deleverage() {
 }
 
 #[test]
+fn repeated_poke_in_one_block_cannot_exceed_locked_share() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let (y, x) = pool();
+        set_pool(y * 5, x);
+        seed_twap_samples(netuid(), MIN_HEALTH_TWAP_SAMPLES, spot());
+        force_deleverage(1);
+        let owner = account(1);
+        let n = netuid();
+        for _ in 0..8 {
+            assert_ok!(Lending::poke(
+                RuntimeOrigin::signed(account(9)),
+                owner.clone(),
+                n,
+            ));
+        }
+        let (at, alloc, spent) =
+            DeleverageFilled::<Test>::get(n, &owner).expect("deleverage fill map");
+        assert_eq!(at, System::block_number());
+        assert!(spent <= alloc, "spent {spent} exceeds locked share {alloc}");
+    });
+}
+
+#[test]
 fn deleverage_respects_pace_and_defaults_with_residual_burning_deposit() {
     run(|| {
         pump_and_deleverage();

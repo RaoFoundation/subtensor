@@ -1544,7 +1544,8 @@ parameter_types! {
     // SPEC P15: accrue per block, charge every 360 blocks (~72 min).
     pub const LendingInterestPeriod: BlockNumber = 360;
     pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
-    pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
+    /// Deprecated: subnet position cap removed; kept for metadata compatibility.
+    pub const LendingMaxPositionsPerSubnet: u32 = 1_000_000;
     pub const LendingMaxTotalPositions: u32 = 1_000_000;
     // ~20 min at 12 s blocks for failed interest collections (Auditor fid:2aff7381).
     pub const LendingInterestRetryDelay: BlockNumber = 100;
