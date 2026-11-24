@@ -221,11 +221,6 @@ pub trait LendingInterface<AccountId> {
     /// Freeze the subnet's shorts and snapshot the settlement rate `r` (P12).
     /// Call before the pool is touched.
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
-    /// Retired with lifts; kept so dissolution callers stay unchanged.
-    fn readd_lifts_for_dissolution(netuid: NetUid) -> DispatchResult {
-        let _ = netuid;
-        Ok(())
-    }
     /// Settle every short at `r` (zone alpha at its proceeds) into the staker
     /// pot and add the residual reserve. Runs after the dissolution alpha
     /// count and before stakers are paid. Returns `true` when done.
@@ -250,11 +245,6 @@ pub trait LendingInterface<AccountId> {
     fn dereg_moving_price(netuid: NetUid) -> Option<U64F64> {
         let _ = netuid;
         None
-    }
-    /// Retired long add-back. Shorts never add back, so emission uses spot.
-    fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64, u64) {
-        let _ = netuid;
-        (0, 0, 0, 0, 0)
     }
     /// `(synthetic_outstanding, residual_alpha)` on `netuid`. Both are excluded
     /// from the issuance that drives the halving schedule and root proportion.
@@ -299,6 +289,8 @@ const WEIGHT_ACCURACY: u128 = 1_000_000_000_000_000_000;
 const FIXED_ONE: u128 = 1 << 64;
 /// Ring capacity for [`TwapState`]; bounds [`SynthParams::twap_samples`].
 pub const MAX_TWAP_SAMPLES: u32 = 168;
+/// Minimum health-TWAP samples before `open_short` / `increase_short` (P6).
+pub const MIN_HEALTH_TWAP_SAMPLES: u32 = 37;
 /// Ring capacity for [`dereg::RankState`]; bounds [`SynthParams::rank_days`].
 pub const MAX_RANK_DAYS: u32 = 90;
 /// Upper bound on [`SynthParams::apr_bps`] (100%).
@@ -536,6 +528,10 @@ pub struct TwapState<BlockNumber> {
     /// Slot the next sample overwrites once the ring is full.
     pub cursor: u32,
     pub last_sample: BlockNumber,
+    /// Spot prices summed over the open TWAP interval (P6).
+    pub interval_sum: U64F64,
+    /// Blocks counted into `interval_sum` for the open interval.
+    pub interval_blocks: u32,
 }
 
 #[freeze_struct("8dab4693cc022346")]
@@ -710,6 +706,19 @@ pub mod pallet {
     #[pallet::storage]
     pub type DeleverageBudget<T: Config> =
         StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u64, u64), OptionQuery>;
+    /// Per-position deleverage fill this block: locked pro-rata allocation and
+    /// TAO already spent against it. Stops repeated `poke`s from taking more
+    /// than the position's share of the block's pace budget.
+    #[pallet::storage]
+    pub type DeleverageFilled<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        (BlockNumberFor<T>, u64, u64),
+        OptionQuery,
+    >;
     /// Last queue key served; the next pass resumes after it.
     #[pallet::storage]
     pub type DeleverageCursor<T: Config> = StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
@@ -829,6 +838,8 @@ pub mod pallet {
     pub enum Error<T> {
         Disabled,
         SubnetNotEligible,
+        /// Health TWAP has fewer than [`MIN_HEALTH_TWAP_SAMPLES`] (P6).
+        YoungSubnet,
         BelowMinNotional,
         /// Funds miss the position's whole-book share, or the pumped pool
         /// cannot supply the book.
@@ -876,13 +887,15 @@ pub mod pallet {
             let db = T::DbWeight::get();
             // The params read plus `on_finalize`'s clear of `BlockNetMinted`.
             let mut weight = db.reads_writes(2, 1);
-            if Self::block_u64(now).checked_rem(u64::from(params.twap_interval_blocks.max(1)))
-                == Some(0)
-            {
-                let subnets = T::Pool::live_subnets();
-                for netuid in subnets.iter() {
-                    Self::sample_twap(*netuid, now, &params);
-                }
+            let interval = params.twap_interval_blocks.max(1);
+            let close_interval = Self::block_u64(now)
+                .checked_rem(u64::from(interval))
+                .is_some_and(|r| r == 0);
+            let subnets = T::Pool::live_subnets();
+            for netuid in subnets.iter() {
+                Self::twap_tick(*netuid, now, &params, close_interval);
+            }
+            if close_interval {
                 weight = weight.saturating_add(
                     T::WeightInfo::twap_sample().saturating_mul(subnets.len() as u64),
                 );
@@ -998,7 +1011,14 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::set_enabled())]
         pub fn set_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;
+            let was = Enabled::<T>::get();
             Enabled::<T>::put(enabled);
+            if enabled && !was {
+                let params = SynthParamsStore::<T>::get();
+                for netuid in T::Pool::live_subnets() {
+                    Self::seed_rank_from_moving(*netuid, &params, true);
+                }
+            }
             Self::deposit_event(Event::EnabledSet { enabled });
             Ok(())
         }
@@ -1089,6 +1109,10 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
             Self::ensure_tradeable(netuid)?;
+            ensure!(
+                TwapRing::<T>::get(netuid).samples.len() as u32 >= MIN_HEALTH_TWAP_SAMPLES,
+                Error::<T>::YoungSubnet
+            );
             ensure!(T::Pool::owner_allowed(owner), Error::<T>::OwnerNotAllowed);
             ensure!(
                 T::Pool::pool_tao(netuid).to_u64() >= params.min_pool_depth,
@@ -1561,6 +1585,7 @@ pub mod pallet {
                 DeleverageQueue::<T>::remove(netuid, owner);
                 DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_sub(pos.minted));
             }
+            DeleverageFilled::<T>::remove(netuid, owner);
             PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_sub(1));
             TotalPositions::<T>::mutate(|n| *n = n.saturating_sub(1));
         }
@@ -1594,7 +1619,8 @@ pub mod pallet {
         /// One paced buy-back for a deleveraging position: its pro-rata share
         /// of the block's pace budget, skipped while buy-backs are paused.
         /// Closes the position when the minted alpha is gone and defaults it
-        /// when its funds are.
+        /// when its funds are. Repeated `poke`s in the same block cannot spend
+        /// more than that locked share.
         pub(crate) fn deleverage_step(owner: &T::AccountId, netuid: NetUid, params: &SynthParams) {
             let Some(mut pos) = Positions::<T>::get(owner, netuid) else {
                 DeleverageQueue::<T>::remove(netuid, owner);
@@ -1620,7 +1646,13 @@ pub mod pallet {
                 .and_then(|v| u64::try_from(v).ok())
                 .unwrap_or(budget)
             };
-            let spend = share.min(funds).min(Self::pace_room(netuid, params));
+            let now = frame_system::Pallet::<T>::block_number();
+            let (allocation, filled) = match DeleverageFilled::<T>::get(netuid, owner) {
+                Some((at, alloc, spent)) if at == now => (alloc, spent),
+                _ => (share, 0),
+            };
+            let remaining = allocation.saturating_sub(filled);
+            let spend = remaining.min(funds).min(Self::pace_room(netuid, params));
             let alpha = if spend == 0 {
                 0
             } else {
@@ -1647,6 +1679,11 @@ pub mod pallet {
             let Ok(spent) = bought else {
                 return;
             };
+            DeleverageFilled::<T>::insert(
+                netuid,
+                owner,
+                (now, allocation, filled.saturating_add(spent)),
+            );
             pos.debit(spent);
             Self::burn_from_position(netuid, &mut pos, alpha);
             Self::deposit_event(Event::DeleverageStep {
@@ -1966,28 +2003,84 @@ pub mod pallet {
 
         // ---- TWAP -------------------------------------------------------------
 
-        pub fn sample_twap(netuid: NetUid, now: BlockNumberFor<T>, params: &SynthParams) {
+        /// Mean spot over the open interval; spot alone when no blocks accumulated.
+        fn twap_interval_mean(ring: &TwapState<BlockNumberFor<T>>, spot: U64F64) -> U64F64 {
+            if ring.interval_blocks == 0 {
+                return spot;
+            }
+            ring.interval_sum
+                .checked_div(U64F64::saturating_from_num(ring.interval_blocks))
+                .unwrap_or(spot)
+        }
+
+        fn push_twap_sample(
+            ring: &mut TwapState<BlockNumberFor<T>>,
+            sample: U64F64,
+            now: BlockNumberFor<T>,
+            cap: usize,
+        ) {
+            if ring.samples.len() > cap {
+                ring.samples.truncate(cap);
+                ring.cursor = 0;
+            }
+            if ring.samples.len() < cap {
+                let _ = ring.samples.try_push(sample);
+            } else if let Some(slot) = ring.samples.get_mut(ring.cursor as usize) {
+                *slot = sample;
+                ring.cursor = ring
+                    .cursor
+                    .saturating_add(1)
+                    .checked_rem(cap as u32)
+                    .unwrap_or(0);
+            }
+            ring.last_sample = now;
+        }
+
+        /// Accumulate this block's spot; close the interval on boundary blocks.
+        fn twap_tick(
+            netuid: NetUid,
+            now: BlockNumberFor<T>,
+            params: &SynthParams,
+            close_interval: bool,
+        ) {
             let spot = T::Pool::current_alpha_price(netuid);
             let cap = params.twap_samples.clamp(1, MAX_TWAP_SAMPLES) as usize;
             TwapRing::<T>::mutate(netuid, |ring| {
-                if ring.samples.len() > cap {
-                    ring.samples.truncate(cap);
-                    ring.cursor = 0;
+                ring.interval_sum = ring.interval_sum.saturating_add(spot);
+                ring.interval_blocks = ring.interval_blocks.saturating_add(1);
+                if close_interval {
+                    let sample = Self::twap_interval_mean(ring, spot);
+                    ring.interval_sum = U64F64::from_num(0);
+                    ring.interval_blocks = 0;
+                    Self::push_twap_sample(ring, sample, now, cap);
                 }
-                if ring.samples.len() < cap {
-                    let _ = ring.samples.try_push(spot);
-                } else {
-                    if let Some(slot) = ring.samples.get_mut(ring.cursor as usize) {
-                        *slot = spot;
-                    }
-                    ring.cursor = ring
-                        .cursor
-                        .saturating_add(1)
-                        .checked_rem(cap as u32)
-                        .unwrap_or(0);
-                }
-                ring.last_sample = now;
             });
+        }
+
+        /// Benchmark helper: push one interval mean as if every block had `spot`.
+        pub fn sample_twap(netuid: NetUid, now: BlockNumberFor<T>, params: &SynthParams) {
+            let spot = T::Pool::current_alpha_price(netuid);
+            let cap = params.twap_samples.clamp(1, MAX_TWAP_SAMPLES) as usize;
+            let interval = params.twap_interval_blocks.max(1);
+            TwapRing::<T>::mutate(netuid, |ring| {
+                ring.interval_sum = spot.saturating_mul(U64F64::saturating_from_num(interval));
+                ring.interval_blocks = interval;
+                let sample = Self::twap_interval_mean(ring, spot);
+                ring.interval_sum = U64F64::from_num(0);
+                ring.interval_blocks = 0;
+                Self::push_twap_sample(ring, sample, now, cap);
+            });
+        }
+
+        /// Seed [`RankRing`] from [`LendingPoolInterface::moving_alpha_price`].
+        fn seed_rank_from_moving(netuid: NetUid, params: &SynthParams, publish_price: bool) {
+            let price = T::Pool::moving_alpha_price(netuid);
+            let mut state = RankRing::<T>::get(netuid).unwrap_or_default();
+            dereg::seed_rank_ring(&mut state, price, params.rank_days);
+            RankRing::<T>::insert(netuid, state);
+            if publish_price {
+                RankPrice::<T>::insert(netuid, price);
+            }
         }
 
         /// Median of the ring (P6); spot before the first sample. An even
@@ -2307,6 +2400,7 @@ pub mod pallet {
             SyntheticOutstanding::<T>::remove(netuid);
             DeleveragingMinted::<T>::remove(netuid);
             DeleverageBudget::<T>::remove(netuid);
+            let _ = DeleverageFilled::<T>::clear_prefix(netuid, u32::MAX, None);
             BreakerTripped::<T>::remove(netuid);
             TwapRing::<T>::remove(netuid);
             PaceAnchor::<T>::remove(netuid);
@@ -2645,6 +2739,9 @@ pub mod pallet {
             RankRing::<T>::remove(netuid);
             RankPrice::<T>::remove(netuid);
             PoolTaoEma::<T>::remove(netuid);
+            if Enabled::<T>::get() {
+                Self::seed_rank_from_moving(netuid, &SynthParamsStore::<T>::get(), true);
+            }
         }
         fn update_dereg_moving_price(netuid: NetUid) {
             Self::update_dereg_moving_price(netuid)

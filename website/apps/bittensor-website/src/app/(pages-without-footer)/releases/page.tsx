@@ -23,14 +23,22 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v496',
+    date: 'Upcoming',
+    title: 'Synth Short Lending — Book Caps and Stress APR',
+    summary:
+      'Runtime spec 496: short-only synthetic lending (dark launch), pool share caps, stress-based ' +
+      'short APR, TWAP deleverage, and dissolution/dereg hooks. Builds on the V495 lending pallet.',
+    href: '/releases/v496-upgrade',
+  },
+  {
     tag: 'v495',
     date: 'Upcoming',
-    title: 'Lift Lending (Dark Launch)',
+    title: 'Synthetic Short Lending (Dark Launch)',
     summary:
-      'Adds the Lift lending pallet as a dark launch (Enabled defaults false): escrowed ' +
-      'short/long loans, root-settable LiftParams, 30-day max duration and roll, continuous ' +
-      'thin-depth blend, and realized expiry AMM slippage bounds with fair retry budgeting. ' +
-      'Spec 495 sits above the release-494 candidate so the ships do not collide.',
+      'Adds the Lending pallet as a dark launch (Enabled defaults false): synthetic shorts only, ' +
+      'root-settable SynthParams, custody accounts, and ProxyType::Lending. Spec 495 sits above the ' +
+      'release-494 candidate so the ships do not collide.',
     href: '/releases/v495-upgrade',
   },
   {

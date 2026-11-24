@@ -71,7 +71,7 @@ fn set_enabled_envelope(db: RuntimeDbWeight) -> Weight {
 	Weight::from_parts(5_771_000, 0).saturating_add(db.writes(1_u64))
 }
 
-/// Old `set_lift_params`.
+/// Old `set_synth_params`.
 fn set_params_envelope(db: RuntimeDbWeight) -> Weight {
 	Weight::from_parts(6_652_000, 0).saturating_add(db.writes(1_u64))
 }

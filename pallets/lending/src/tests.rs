@@ -141,6 +141,21 @@ fn set_other_rank(price: f64) {
     RankPrice::<Test>::insert(other(), U64F64::from_num(price));
 }
 
+fn seed_twap_samples(netuid: NetUid, samples: u32, price: f64) {
+    let mut ring = TwapState::<u64>::default();
+    for _ in 0..samples {
+        let _ = ring.samples.try_push(U64F64::from_num(price));
+    }
+    TwapRing::<Test>::insert(netuid, ring);
+}
+
+fn seed_rank_from_ema(netuid: NetUid, price: f64) {
+    let params = params();
+    let mut state = dereg::RankState::default();
+    dereg::seed_rank_ring(&mut state, U64F64::from_num(price), params.rank_days);
+    RankRing::<Test>::insert(netuid, state);
+}
+
 pub struct MockPool;
 
 impl MockPool {
@@ -323,8 +338,11 @@ fn new_test_ext() -> sp_io::TestExternalities {
         set_pool(POOL, POOL);
         set_issuance(ISSUANCE);
         set_ema(1.0);
+        seed_twap_samples(netuid(), MIN_HEALTH_TWAP_SAMPLES, 1.0);
+        seed_rank_from_ema(netuid(), 1.0);
         // Far below netuid 64, so 64 sits outside the prune zone by default.
         set_other_rank(0.1);
+        seed_rank_from_ema(other(), 0.1);
     });
     ext
 }
@@ -935,10 +953,27 @@ fn one_block_145x_spike_leaves_the_median_unchanged() {
         fill_twap(72);
         let before = Lending::twap(netuid());
         assert_eq!(before.to_num::<f64>(), 1.0);
+        // One block at 145× spot mid-interval must not move the interval mean enough to flip the median.
         set_pool(POOL * 145, POOL);
+        step_block();
+        set_pool(POOL, POOL);
         let next = (System::block_number() / 10 + 1) * 10;
         run_to(next);
+        assert_eq!(Lending::twap(netuid()), before);
+    });
+}
+
+#[test]
+fn interval_mean_softens_a_spike_on_the_sample_boundary() {
+    run(|| {
+        fill_twap(72);
+        let before = Lending::twap(netuid());
+        SynthParamsStore::<Test>::mutate(|p| p.twap_interval_blocks = 10);
+        set_pool(POOL * 145, POOL);
+        let boundary = (System::block_number() / 10 + 1) * 10;
+        run_to(boundary - 1);
         set_pool(POOL, POOL);
+        step_block();
         assert_eq!(Lending::twap(netuid()), before);
     });
 }
@@ -1479,10 +1514,6 @@ fn interface_reports_synthetic_and_residual() {
         assert_ok!(open(1, MINT, COLLATERAL));
         let (s, r) = <Lending as LendingInterface<Account>>::synthetic_and_residual(netuid());
         assert_eq!((s, r), (MINT, 0));
-        assert_eq!(
-            <Lending as LendingInterface<Account>>::emission_reserve_offsets(netuid()),
-            (0, 0, 0, 0, 0)
-        );
         let (_, hot) = <Lending as LendingInterface<Account>>::custody_accounts(netuid()).unwrap();
         assert!(<Lending as LendingInterface<Account>>::is_lending_custody(
             &hot,
@@ -1549,7 +1580,7 @@ fn migration_clears_retired_storage_and_installs_defaults() {
 }
 
 #[test]
-fn rank_sma_seeds_at_spot_moves_per_day_and_resets_on_registration() {
+fn rank_stays_dark_until_enabled_and_seeds_from_moving_price() {
     run(|| {
         SynthParamsStore::<Test>::mutate(|p| {
             p.rank_days = 3;
@@ -1558,32 +1589,61 @@ fn rank_sma_seeds_at_spot_moves_per_day_and_resets_on_registration() {
         });
         let update = || <Lending as LendingInterface<_>>::update_dereg_moving_price(netuid());
         let rank = || <Lending as LendingInterface<_>>::dereg_moving_price(netuid());
-        assert_eq!(rank(), None);
-        assert_eq!(Lending::rank_price(netuid()), U64F64::from_num(1.0));
+        RankRing::<Test>::remove(netuid());
+        RankPrice::<Test>::remove(netuid());
+        Enabled::<Test>::put(false);
         update();
-        assert_eq!(rank(), Some(U64F64::from_num(1.0)));
-        assert_eq!(PoolTaoEma::<Test>::get(netuid()), Some(POOL));
-
-        // Raw spot halves (no add-back of minted alpha); one day moves the SMA a third.
-        set_pool(POOL / 2, POOL);
-        update();
-        assert_eq!(rank(), Some(U64F64::from_num(1.0)), "mid-day: unchanged");
-        update();
-        let sma = rank().unwrap().to_num::<f64>();
-        assert!((sma - 2.5 / 3.0).abs() < 1e-12, "{sma}");
-        // T_ema steps a quarter of the gap each block.
+        assert_eq!(rank(), None, "ranking must stay dark while disabled");
         assert_eq!(
             PoolTaoEma::<Test>::get(netuid()),
-            Some(dereg::ema_step(Some(POOL - POOL / 8), POOL / 2, 4))
+            Some(dereg::ema_step(None, POOL, 4)),
+            "T_ema still tracks when disabled"
         );
-        // r uses min(T, T_ema).
-        let r = Lending::dissolution_rate(netuid()).to_num::<f64>();
-        assert!((r - (POOL / 2) as f64 / ISSUANCE as f64).abs() < 1e-12);
+
+        set_ema(0.42);
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
+        let ring = RankRing::<Test>::get(netuid()).expect("seeded at enable");
+        assert!(ring.days.iter().all(|d| *d == U64F64::from_num(0.42)));
+        assert_eq!(rank(), Some(U64F64::from_num(0.42)));
+
+        // Raw spot halves; one day moves the SMA a third.
+        set_pool(POOL / 2, POOL);
+        update();
+        assert_eq!(rank(), Some(U64F64::from_num(0.42)), "mid-day: unchanged");
+        update();
+        let sma = rank().unwrap().to_num::<f64>();
+        assert!((sma - (2.0 * 0.42 + 0.5) / 3.0).abs() < 1e-9, "{sma}");
 
         <Lending as LendingInterface<_>>::on_subnet_registered(netuid());
         assert_eq!(rank(), None);
-        assert_eq!(RankRing::<Test>::get(netuid()), None);
-        assert_eq!(PoolTaoEma::<Test>::get(netuid()), None);
+        assert_eq!(RankRing::<Test>::get(netuid()).is_some(), true);
         set_pool(POOL, POOL);
+    });
+}
+
+#[test]
+fn young_subnet_blocks_opens_until_health_twap_warms() {
+    run(|| {
+        TwapRing::<Test>::remove(netuid());
+        assert_err!(open(1, MINT, COLLATERAL), Error::<Test>::YoungSubnet);
+        seed_twap_samples(netuid(), MIN_HEALTH_TWAP_SAMPLES - 1, 1.0);
+        assert_err!(open(1, MINT, COLLATERAL), Error::<Test>::YoungSubnet);
+        seed_twap_samples(netuid(), MIN_HEALTH_TWAP_SAMPLES, 1.0);
+        assert_ok!(open(1, MINT, COLLATERAL));
+    });
+}
+
+#[test]
+fn migration_seeds_rank_ring_from_moving_price() {
+    run(|| {
+        set_ema(0.77);
+        RankRing::<Test>::remove(netuid());
+        Enabled::<Test>::put(true);
+        Enabled::<Test>::put(false);
+        crate::migrations::migrate_to_synth_shorts_v1::<Test>();
+        assert!(!Enabled::<Test>::get());
+        assert_eq!(<Lending as LendingInterface<_>>::dereg_moving_price(netuid()), None);
+        let ring = RankRing::<Test>::get(netuid()).expect("migration prepares rank ring");
+        assert!(ring.days.iter().all(|d| *d == U64F64::from_num(0.77)));
     });
 }

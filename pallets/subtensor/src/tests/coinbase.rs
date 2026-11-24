@@ -718,55 +718,6 @@ fn test_emission_price_identical_with_no_loans() {
     });
 }
 
-/// Long forced trades set [`LendingSkipTaoFlow`] so dormant flow ignores them;
-/// ordinary stake still records.
-#[test]
-fn test_lending_skip_tao_flow_flag() {
-    new_test_ext(1).execute_with(|| {
-        let netuid = NetUid::from(1);
-        let coldkey = U256::from(1);
-        let hotkey = U256::from(2);
-        add_network(netuid, 1, 0);
-        register_ok_neuron(netuid, hotkey, coldkey, 0);
-        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
-        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
-        SubnetMechanism::<Test>::insert(netuid, 1);
-        SubtokenEnabled::<Test>::insert(netuid, true);
-
-        SubnetTaoFlow::<Test>::insert(netuid, 0i64);
-        add_balance_to_coldkey_account(&coldkey, 10_000_000_000u64.into());
-
-        LendingSkipTaoFlow::<Test>::set(true);
-        assert_ok!(SubtensorModule::stake_into_subnet(
-            &hotkey,
-            &coldkey,
-            netuid,
-            1_000_000_000u64.into(),
-            u64::MAX.into(),
-            false,
-        ));
-        assert_eq!(
-            SubnetTaoFlow::<Test>::get(netuid),
-            0,
-            "skip flag must suppress inflow"
-        );
-        LendingSkipTaoFlow::<Test>::kill();
-
-        assert_ok!(SubtensorModule::stake_into_subnet(
-            &hotkey,
-            &coldkey,
-            netuid,
-            1_000_000_000u64.into(),
-            u64::MAX.into(),
-            false,
-        ));
-        assert!(
-            SubnetTaoFlow::<Test>::get(netuid) > 0,
-            "cleared flag must record inflow"
-        );
-    });
-}
-
 // Test basic alpha issuance in coinbase mechanism.
 // This test verifies that:
 // - Alpha issuance is initialized to 0 for new subnets

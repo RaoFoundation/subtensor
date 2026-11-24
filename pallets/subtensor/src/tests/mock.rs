@@ -642,9 +642,6 @@ impl pallet_lending::LendingInterface<U256> for MockLending {
     fn start_dissolution(_: NetUid) -> DispatchResult {
         Ok(())
     }
-    fn readd_lifts_for_dissolution(_: NetUid) -> DispatchResult {
-        Ok(())
-    }
     fn settle_positions_on_dissolution(_: NetUid, _: &mut WeightMeter) -> bool {
         true
     }

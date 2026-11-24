@@ -187,11 +187,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NetworkDissolveAlreadyQueued
         );
 
-        // §13: flag dissolving (blocks new opens) and re-add outstanding lift
-        // legs into reserves so the pot includes lent liquidity before TotalStake
-        // is debited by SubnetTAO.
+        // §13: flag dissolving (blocks new opens) before TotalStake is debited
+        // by SubnetTAO.
         T::Lending::start_dissolution(netuid)?;
-        T::Lending::readd_lifts_for_dissolution(netuid)?;
 
         // Basket holdings are converted to each fund's root slot in the metered
         // `SubnetBasketHoldingsToRoot` cleanup phase (before stake / AMM teardown).

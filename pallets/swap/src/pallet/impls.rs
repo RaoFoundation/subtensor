@@ -185,78 +185,6 @@ impl<T: Config> Pallet<T> {
         (TaoBalance::ZERO, AlphaBalance::ZERO)
     }
 
-    /// Proportionally lift `g = g_numer/g_denom` of both reserves out of the pool.
-    /// Weights are left unchanged (proportional remove preserves price). Caller must
-    /// decrease `SubnetTAO` / `SubnetAlphaIn` / `TotalStake` by the returned amounts.
-    pub(super) fn lift_protocol_liquidity(
-        netuid: NetUid,
-        g_numer: u64,
-        g_denom: u64,
-    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
-        ensure!(g_denom > 0, Error::<T>::InvalidLiquidityValue);
-        ensure!(
-            g_numer > 0 && g_numer < g_denom,
-            Error::<T>::InvalidLiquidityValue
-        );
-
-        let alpha_reserve = u64::from(T::AlphaReserve::reserve(netuid.into()));
-        let tao_reserve = u64::from(T::TaoReserve::reserve(netuid.into()));
-        let min_reserve = T::MinimumReserve::get().get();
-
-        let lift_tao = mul_div_floor(tao_reserve, g_numer, g_denom);
-        let lift_alpha = mul_div_floor(alpha_reserve, g_numer, g_denom);
-
-        ensure!(lift_tao <= tao_reserve, Error::<T>::InsufficientLiquidity);
-        ensure!(
-            lift_alpha <= alpha_reserve,
-            Error::<T>::InsufficientLiquidity
-        );
-
-        let remaining_tao = tao_reserve.saturating_sub(lift_tao);
-        let remaining_alpha = alpha_reserve.saturating_sub(lift_alpha);
-        ensure!(remaining_tao >= min_reserve, Error::<T>::ReservesTooLow);
-        ensure!(remaining_alpha >= min_reserve, Error::<T>::ReservesTooLow);
-        // Non-zero lift required so lending never opens a zero-principal position
-        // through a rounding-to-zero proportional remove.
-        ensure!(
-            lift_tao > 0 && lift_alpha > 0,
-            Error::<T>::InsufficientLiquidity
-        );
-
-        Ok((AlphaBalance::from(lift_alpha), TaoBalance::from(lift_tao)))
-    }
-
-    /// Re-add lifted liquidity after repay / default.
-    ///
-    /// **Does not abandon Balancer.** Ordinary stake/unstake swaps still run
-    /// on the weighted pool with the stored `(w1, w2)`. Emissions still call
-    /// [`Self::adjust_protocol_liquidity`] (which may
-    /// `update_weights_for_added_liquidity`). **Only** this lending readd
-    /// bypasses the weight update: it credits the exact lift deltas into
-    /// reserves and leaves weights alone — the Balancer inverse of
-    /// [`Self::lift_protocol_liquidity`] (design (a) in `no-arbitrage.tex`).
-    ///
-    /// Routing readd through `adjust_protocol_liquidity` after intervening
-    /// swaps was the SN29 drain: it rewrote `w1`/`w2` at the post-pump mark
-    /// and inflated `L`, so a later unstake extracted more TAO than deposited.
-    pub(super) fn readd_protocol_liquidity(
-        netuid: NetUid,
-        tao: TaoBalance,
-        alpha: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
-        Self::credit_protocol_liquidity(netuid, tao, alpha)
-    }
-
-    /// Credit lift legs without touching Balancer weights or reservoirs.
-    /// Same semantics as [`Self::readd_protocol_liquidity`].
-    pub(super) fn credit_protocol_liquidity(
-        _netuid: NetUid,
-        tao: TaoBalance,
-        alpha: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
-        (tao, alpha)
-    }
-
     fn update_tao_reservoir(netuid: NetUid, current: Option<TaoBalance>, new: TaoBalance) {
         if new.is_zero() {
             if current.is_some() {
@@ -633,30 +561,6 @@ impl<T: Config> SwapHandler for Pallet<T> {
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
-    }
-
-    fn lift_protocol_liquidity(
-        netuid: NetUid,
-        g_numer: u64,
-        g_denom: u64,
-    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
-        Self::lift_protocol_liquidity(netuid, g_numer, g_denom)
-    }
-
-    fn readd_protocol_liquidity(
-        netuid: NetUid,
-        tao: TaoBalance,
-        alpha: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
-        Self::readd_protocol_liquidity(netuid, tao, alpha)
-    }
-
-    fn credit_protocol_liquidity(
-        netuid: NetUid,
-        tao: TaoBalance,
-        alpha: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
-        Self::credit_protocol_liquidity(netuid, tao, alpha)
     }
 
     fn buy_depth_threshold(netuid: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance {

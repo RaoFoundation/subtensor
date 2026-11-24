@@ -1300,18 +1300,13 @@ impl<T: Config> Pallet<T> {
 
         Self::maybe_remove_staking_hotkey(hotkey, coldkey);
 
-        // Record TAO outflow for flow-based shares (dormant today). Long-side
-        // lending sells set [`LendingSkipTaoFlow`] only on lone-long books
-        // (`short_sold_alpha == 0`); hedged long exits leave it clear so they
-        // cancel matching opens. Short opens / buybacks always record.
-        if !LendingSkipTaoFlow::<T>::get() {
-            Self::record_tao_outflow(
-                netuid,
-                swap_result
-                    .amount_paid_out
-                    .saturating_add(fee_outflow.into()),
-            );
-        }
+        // Record TAO outflow for flow-based shares (dormant today).
+        Self::record_tao_outflow(
+            netuid,
+            swap_result
+                .amount_paid_out
+                .saturating_add(fee_outflow.into()),
+        );
 
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
@@ -1414,12 +1409,8 @@ impl<T: Config> Pallet<T> {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
         }
 
-        // Record TAO inflow for flow-based shares (dormant today). Long opens
-        // set [`LendingSkipTaoFlow`] only while `short_sold_alpha == 0`; short
-        // buybacks leave the flag clear.
-        if !LendingSkipTaoFlow::<T>::get() {
-            Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
-        }
+        // Record TAO inflow for flow-based shares (dormant today).
+        Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
 
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
