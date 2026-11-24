@@ -70,7 +70,24 @@ function fakeApi() {
         });
       },
     }),
-    registry: { createType: (_type, raw) => ({ toHex: () => "0x" + Buffer.from(raw).toString("hex") }) },
+    registry: {
+      createType: (_type, raw) => ({
+        toHex: () => "0x" + Buffer.from(raw).toString("hex"),
+        toHuman: () => {
+          const { target, args } = JSON.parse(Buffer.from(raw).toString());
+          const [section, method] = target.split(".");
+          const snakeKeys = (value) => {
+            if (value?.method) return snakeKeys(value.method);
+            if (Array.isArray(value)) return value.map(snakeKeys);
+            if (value && typeof value === "object") {
+              return Object.fromEntries(Object.entries(value).map(([key, item]) => [snakeCase(key), snakeKeys(item)]));
+            }
+            return String(value);
+          };
+          return { section, method, args: snakeKeys(args) };
+        },
+      }),
+    },
   };
 }
 

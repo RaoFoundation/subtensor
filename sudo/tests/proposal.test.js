@@ -24,7 +24,7 @@ function changedDiff() {
     tx: {
       adminUtils: {
         sudoSetSubnetLimit: Object.assign(
-          ({ maxSubnets }) => call("AdminUtils.sudo_set_subnet_limit", { maxSubnets }),
+          ({ maxSubnets }) => call("AdminUtils.sudoSetSubnetLimit", { maxSubnets }),
           {
             meta: {
               args: [{ name: { toString: () => "maxSubnets" } }],
@@ -33,11 +33,30 @@ function changedDiff() {
           },
         ),
       },
-      utility: { batchAll: (calls) => call("Utility.batch_all", { calls }) },
+      utility: { batchAll: (calls) => call("Utility.batchAll", { calls }) },
       sudo: { sudo: (inner) => call("Sudo.sudo", { call: inner }) },
     },
     registry: {
-      createType: (_type, bytes) => ({ toHex: () => `0x${Buffer.from(bytes).toString("hex")}` }),
+      createType: (_type, bytes) => ({
+        toHex: () => `0x${Buffer.from(bytes).toString("hex")}`,
+        toHuman: () => {
+          const { target, args } = JSON.parse(Buffer.from(bytes).toString());
+          const lowerFirst = (value) => value.charAt(0).toLowerCase() + value.slice(1);
+          const readableArgs = (value) => {
+            if (value?.target && value?.args) {
+              const [section, method] = value.target.split(".");
+              return { section: lowerFirst(section), method, args: readableArgs(value.args) };
+            }
+            if (Array.isArray(value)) return value.map(readableArgs);
+            if (value && typeof value === "object") {
+              return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`), readableArgs(item)]));
+            }
+            return String(value);
+          };
+          const [section, method] = target.split(".");
+          return { section: lowerFirst(section), method, args: readableArgs(args) };
+        },
+      }),
     },
   };
   const diff = compare({ ...liveValues, subnet_limit: "161" }, liveValues, liveValues);
@@ -79,7 +98,28 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   assert.match(markdown, /Reviewed baseline commit: `def`/);
   assert.match(markdown, /Source SHA-256: `123`/);
   assert.match(markdown, /Baseline SHA-256: `456`/);
-  assert.match(markdown, /SUDO_WALLET=<WALLET> python3 sudo\/countersign.py \/path\/to\/downloaded\/mainnet-proposal.json \/path\/to\/independently-reproduced\/mainnet-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>/);
+  const expectedArgs = JSON.stringify(proposal.btcli_args);
+  const command = `btcli call Sudo.sudo --args '${expectedArgs}' --multisig-account-mode legacy --multisig-threshold 2 --signatories ${proposal.signers.signatories.join(",")} -w <WALLET> --network finney`;
+  assert.equal(proposal.countersign_command, command);
+  assert.equal((markdown.match(/```bash\nbtcli call Sudo\.sudo /g) || []).length, 1);
+  assert.match(markdown, /```text\nsubnet_limit: "160" -> "161"\n```/);
+  assert.match(markdown, new RegExp(`Decoded call:\\n\\n\`\`\`json\\n${JSON.stringify(proposal.decoded_call, null, 2).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n\`\`\``));
+  assert.match(markdown, new RegExp(`Call data: \`${proposal.call_data}\``));
+  assert.match(markdown, new RegExp(`Call hash \\(BLAKE2-256\\): \`${proposal.call_hash}\``));
+  const review = markdown.slice(markdown.indexOf("### Review this exact call, then paste and run"));
+  const commandIndex = review.indexOf(command);
+  assert.ok(commandIndex > 0);
+  for (const text of ['subnet_limit: "160" -> "161"', "Decoded call:", `Call data: \`${proposal.call_data}\``, `Call hash (BLAKE2-256): \`${proposal.call_hash}\``]) {
+    assert.ok(review.indexOf(text) >= 0 && review.indexOf(text) < commandIndex, text);
+  }
+  assert.equal(proposal.decoded_call.section, "sudo");
+  assert.equal(proposal.decoded_call.method, "sudo");
+  assert.deepEqual(proposal.decoded_call.args.call.args.calls, [{ section: "adminUtils", method: "sudoSetSubnetLimit", args: { max_subnets: "161" } }]);
+  assert.match(markdown, /"max_subnets": "161"/);
+  assert.deepEqual([...command.matchAll(/<[^>]+>/g)].map((match) => match[0]), ["<WALLET>"]);
+  assert.doesNotMatch(command, /INDEPENDENTLY|REPRODUCED|expected-call-hash|args-file/);
+  assert.match(expectedArgs, /^\{"call":\{"Utility":\{"batch_all":\{"calls":\[\{"AdminUtils":\{"sudo_set_subnet_limit":\{"max_subnets":161\}\}\}\]\}\}\}\}$/);
+  assert.doesNotMatch(markdown, /SUDO_WALLET=<WALLET>|required independent|independently reproduced.*--expected-call-hash|Individual command templates/);
   assert.match(markdown, /old-value checks are not atomic with execution/);
   assert.match(markdown, /last signer must rerun this verifier immediately before the final, executing approval and confirm no drift/);
   assert.equal(fs.existsSync(path.join(output, "mainnet-countersign.py")), false);
@@ -213,15 +253,19 @@ test("an omitted grouped artifact member is rejected against the independent pro
   assert.notEqual(wrongMapping.status, 0);
   assert.match(wrongMapping.stderr.toString(), /Affected storage differs from the reviewed setter mapping/);
 });
-test("non-mainnet proposals skip countersigning and explain the disabled apply TODO", (t) => {
+test("non-mainnet proposals contain the decoded diff and call without apply instructions", (t) => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-devnet-test-"));
   t.after(() => fs.rmSync(output, { recursive: true, force: true }));
   const { diff, encoded } = changedDiff();
-  writeProposal(diff, encoded, "devnet", context, output, { file: "devnet.toml" });
+  const proposal = writeProposal(diff, encoded, "devnet", context, output, { file: "devnet.toml" });
   const markdown = fs.readFileSync(path.join(output, "devnet-proposal.md"), "utf8");
-  assert.match(markdown, /TODO: devnet\/testnet parameter application is not configured/);
-  assert.match(markdown, /Keep application disabled by default/);
-  assert.equal(fs.existsSync(path.join(output, "devnet-countersign.py")), false);
+  assert.match(markdown, /## Encoded call\n\n```text\nsubnet_limit: "160" -> "161"\n```/);
+  assert.match(markdown, /Decoded call:/);
+  assert.match(markdown, new RegExp(`Call data: \`${proposal.call_data}\``));
+  assert.match(markdown, new RegExp(`Call hash \\(BLAKE2-256\\): \`${proposal.call_hash}\``));
+  assert.doesNotMatch(markdown, /TODO|Apply status|apply job|secret-gat|deployment credential|protected network environment|countersign/i);
+  assert.equal(proposal.countersign_command, null);
+  assert.equal(fs.readdirSync(output).some((name) => name.endsWith(".py") || name.endsWith(".sh")), false);
 });
 
 test("Markdown lists every affected group member and its live value", (t) => {

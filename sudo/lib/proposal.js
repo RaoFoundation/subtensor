@@ -43,8 +43,22 @@ function signerConfiguration() {
   return { signatories: sortAddresses(signatories), threshold };
 }
 
-function signerCommand(network) {
-  return `SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/downloaded/${network}-proposal.json /path/to/independently-reproduced/${network}-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>`;
+function signerCommand(proposal) {
+  const { threshold, signatories } = proposal.signers;
+  const args = JSON.stringify(proposal.btcli_args).replaceAll("'", "'\"'\"'");
+  return `btcli call Sudo.sudo --args '${args}' --multisig-account-mode legacy --multisig-threshold ${threshold} --signatories ${signatories.join(",")} -w <WALLET> --network finney`;
+}
+
+function reviewBlock(proposal) {
+  return [
+    "```text",
+    ...proposal.diff.proposed.map((affected) => `${affected.key}: ${display(affected.live)} -> ${display(affected.proposed)}`),
+    "```", "",
+    "Decoded call:", "",
+    "```json", JSON.stringify(proposal.decoded_call, null, 2), "```", "",
+    `Call data: \`${proposal.call_data}\``, "",
+    `Call hash (BLAKE2-256): \`${proposal.call_hash}\``,
+  ].join("\n");
 }
 
 function renderMarkdown(proposal, file, network) {
@@ -67,43 +81,26 @@ function renderMarkdown(proposal, file, network) {
     lines.push("No call data was produced because there are no proposed changes or no reviewed baseline. Mismatches without a baseline are reported as unclassified live drift.");
     return lines.join("\n");
   }
-  lines.push(
-    "## Encoded call", "",
-    `Call hash (BLAKE2-256): \`${proposal.encoded.callHash}\``, "",
-    "```text", proposal.encoded.callData, "```", "",
-    "Each setter was encoded and round-tripped against live runtime metadata.", "",
-    "The `decoded_call` and `setter_calls` JSON fields list every batch member and its decoded arguments.", "",
-    "The proposal snapshot is not a substitute for a fresh live-state check.", "",
-  );
   if (network !== "mainnet") {
     lines.push(
-      "## Apply status", "",
-      "**TODO: devnet/testnet parameter application is not configured.**",
-      "This artifact is proposal-only. A separate reviewed workflow may use the existing protected network environment and deployment credential, but no such apply job is enabled here.", "",
-      "Do not paste a seed into a workflow or artifact. Keep application disabled by default until that separate authorization and review are complete.",
+      "## Encoded call", "",
+      ...reviewBlock(proposal).split("\n"), "",
+      "Each setter was encoded and round-tripped against live runtime metadata.", "",
+      "The proposal snapshot is not a substitute for a fresh live-state check.",
     );
     return lines.join("\n");
   }
   lines.push(
-    "## Independent verification", "",
-    "Re-run the diff from the same reviewed PR commit and exact reviewed baseline. Independently confirm the decoded calls and hash before signing. Never use call data from an unreviewed checkout or artifact.", "",
-    "```bash",
-    "node sudo/diff.js mainnet --file /path/to/reviewed-source/mainnet.toml --base-file /path/to/reviewed-base/mainnet.toml --output-dir /tmp/sudo-proposal \\",
-    "  --source-commit <RECORDED_SOURCE_COMMIT> --base-commit <RECORDED_BASELINE_COMMIT>",
-    "```", "",
     "## Triumvirate countersigning", "",
-    `The checked-in verifier derives the ${proposal.signers.threshold}-of-${proposal.signers.signatories.length} legacy multisig and verifies it against live \`Sudo.Key\`.`,
-    "It recomposes the call from the independently reproduced data-only proposal, maps the authenticated batch through the checked-in setter/storage allowlist, verifies every affected old value against live state, and uses the repository's standard `btcli` multisig approval path.", "",
+    `Inspect the decoded changes, decoded call, call data, and call hash immediately below. Confirm that the command is exactly the change you reviewed before allowing it to use your wallet. It uses the existing ${proposal.signers.threshold}-of-${proposal.signers.signatories.length} legacy multisig.`, "",
+    "On your own trusted signer machine, install the repository SDK and paste this one command. Replace only `<WALLET>` with your own local member wallet name. The first approval creates the pending operation; the CLI discovers its timepoint for subsequent approvals, and the final required approval executes it.", "",
     "**Known limitation:** old-value checks are not atomic with execution. An out-of-band update can finalize after verification but before the final multisig approval executes. **The last signer must rerun this verifier immediately before the final, executing approval and confirm no drift.** If any value changed, stop, regenerate, and restart review.", "",
-    "Run the checked-in script from a separately reviewed repository checkout on your own trusted signer machine. Do not execute any script downloaded from an artifact. Supply both the downloaded artifact and the independently reproduced proposal as separate files. Replace `<WALLET>` with your own local member wallet and `<INDEPENDENTLY_VERIFIED_HASH>` with the freshly reproduced hash. No key is included here.", "",
-    "```bash", signerCommand(network), "```", "",
-    "The verifier checks the independently supplied hash against both proposals and the recomposed call. It derives the complete affected storage set from the authenticated calls, rejects omitted grouped members, and takes expected old values only from the independently reproduced proposal before checking them on chain. After the first approval, the CLI discovers the pending timepoint. The final approval executes the batch.", "",
-    "**Do not reuse this artifact after a runtime upgrade or out-of-band change without regenerating it.**", "",
-    "### Individual command templates", "",
+    "### Review this exact call, then paste and run", "",
+    ...reviewBlock(proposal).split("\n"), "",
+    "```bash", signerCommand(proposal), "```", "",
+    "For optional extra verification, run the checked-in `sudo/countersign.py` from a separately reviewed checkout instead of the command above; see `sudo/README.md` for its independent two-proposal interface. Never execute a verifier downloaded from an artifact.", "",
+    "**Do not reuse this artifact after a runtime upgrade or out-of-band change without regenerating it.**",
   );
-  for (const signer of proposal.signers.signatories) {
-    lines.push(`Signer: \`${signer}\``, "", "```bash", signerCommand(network), "```", "");
-  }
   return lines.join("\n");
 }
 
@@ -125,8 +122,10 @@ function writeProposal(diff, encoded, network, context, outputDir, options = {})
     call_hash: encoded?.callHash || null,
     decoded_call: encoded?.decoded || null,
     btcli_args: encoded?.btcliArgs || null,
+    countersign_command: null,
     setter_calls: encoded?.setters || [],
   };
+  if (network === "mainnet" && encoded) proposal.countersign_command = signerCommand(proposal);
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(path.join(outputDir, `${network}-proposal.json`), JSON.stringify(proposal, null, 2) + "\n");
   const markdown = renderMarkdown({ ...proposal, encoded, context }, options.file, network);

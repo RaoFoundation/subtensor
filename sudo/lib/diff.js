@@ -220,12 +220,12 @@ function encodeProposal(diff, api) {
   if (!calls.length) return null;
   const batch = api.tx.utility.batchAll(calls.map(({ call }) => call));
   const outer = api.tx.sudo.sudo(batch);
-  const decoded = outer.toJSON();
   // Round-trip the outer call and every nested call against live metadata.
   const roundTrip = api.registry.createType("Call", outer.method.toU8a());
   if (roundTrip.toHex() !== outer.method.toHex()) {
     throw new Error("Outer call round-trip failed against live runtime metadata");
   }
+  const decoded = roundTrip.toHuman();
   for (const { call } of calls) {
     if (api.registry.createType("Call", call.method.toU8a()).toHex() !== call.method.toHex()) {
       throw new Error("Setter call round-trip failed against live runtime metadata");

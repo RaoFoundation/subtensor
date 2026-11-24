@@ -94,12 +94,4 @@ jobs:
       - name: Mainnet is proposal-only
         if: matrix.network == 'mainnet'
         run: |
-          echo "No mainnet apply job exists. Review the artifacts and use the existing triumvirate process. The final signer must rerun the verifier immediately before executing approval and confirm no drift." >> "$GITHUB_STEP_SUMMARY"
-      - name: Devnet/testnet apply remains disabled
-        if: matrix.network != 'mainnet'
-        run: |
-          {
-            echo "TODO: automatic parameter application is not configured."
-            echo "A separate reviewed change may introduce a secret-gated job using the existing protected network environment and deployment credential."
-            echo "This workflow has no secrets and never signs or submits an extrinsic; the apply TODO is skipped by default."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "CI has not signed or submitted anything. Review the call and use the countersign command in the proposal above." >> "$GITHUB_STEP_SUMMARY"

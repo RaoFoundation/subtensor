@@ -70,21 +70,27 @@ Values already equal to live state are skipped. A value edited from its base is 
 
 Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapped in `Sudo.sudo`. The tool resolves calls and argument types from live metadata and SCALE round-trips each setter and the complete outer call before writing call data.
 
-## CI and application
+## CI proposals
 
 `.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch must name a reviewed baseline ref to distinguish unrelated drift. It runs offline tests, then performs read-only comparisons for all three networks. JSON and Markdown artifacts include the finalized-block context, source/baseline provenance, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
 
-**Mainnet is proposal-only. CI never signs or submits an extrinsic.**
-
-**TODO — devnet/testnet apply is disabled by default.** This workflow does not reference a secret or contain an apply job. A future, separately reviewed change may add an explicitly secret-gated job using the existing protected `devnet` or `testnet` environment and its existing deployment credential. Runtime-release credentials are not silently repurposed here. Until then, devnet/testnet artifacts are also proposals only.
+Devnet and testnet CI simply produce the decoded diff, decoded call, call data, and call hash for review. There is no additional apply-status section. CI never signs or submits an extrinsic.
 
 ## Mainnet triumvirate review
 
-A changed mainnet proposal contains data-only JSON/Markdown artifacts, decoded call and old-to-new fields, and a ready-to-copy countersign command. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
+A changed mainnet proposal contains data-only JSON/Markdown artifacts and one ready-to-copy countersign command in both the Markdown artifact and workflow step summary. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
+
+On a trusted signer machine, install the repository SDK. Read the `parameter: old -> new` changes, decoded call, call data, and BLAKE2-256 call hash printed immediately above the command. Confirm that its inline JSON is exactly the change you reviewed. Paste the command as-is except for replacing `<WALLET>` with your own local member wallet name, then run it. Each member uses the same command with their own wallet. The first approval creates the pending multisig operation; `btcli` discovers the pending timepoint on subsequent runs, and the final required approval executes the batch.
+
+The normal flow is deliberately read, paste, and run. It does not require reproducing the proposal or supplying a second file or expected-hash argument. Do not reuse a proposal after a runtime upgrade or out-of-band change; regenerate and review it instead.
 
 **Known limitation:** the old-value checks are not atomic with the later multisig execution. An emergency update can finalize after verification but before the final approval, as with today's manual multisig process. **The last signer must rerun the verifier immediately before the final, executing approval and confirm no drift.** If any value changed, stop, regenerate the proposal, and restart review. This is a procedural mitigation, not a runtime-enforced compare-and-set.
 
-On a trusted signer machine, install the repository SDK and inspect the JSON and Markdown artifacts. In a **separately reviewed repository checkout**, rerun the diff from the exact recorded source and baseline commits and independently confirm the call hash. Then run the checked-in verifier against the downloaded data-only artifact:
+### Optional independent verifier
+
+The checked-in `sudo/countersign.py` remains an optional alternative to the inline command. It independently recomposes a reviewed call and rechecks affected storage before handing off to the same standard `btcli` multisig process. It is not a prerequisite for the normal read/paste/run flow above.
+
+From a separately reviewed repository checkout, independently reproduce the proposal using the artifact's exact source and baseline commits and hashes. Then run it against the two separate JSON files:
 
 ```bash
 SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/downloaded/mainnet-proposal.json \
@@ -92,9 +98,9 @@ SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/downloaded/mainnet-pro
   --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>
 ```
 
-Never execute a verifier downloaded from an artifact. Supply the downloaded artifact and the independently reproduced proposal as separate files. The checked-in script requires their calls, decoded call, call data, hash, signers, and exact source/baseline provenance to agree. It recomposes the independently reproduced call with the SDK against live metadata and maps the authenticated batch through `verify-proposal.js`, which uses the checked-in setter/storage allowlist. Omitted or extra grouped members, substituted storage entries, and unknown setters are rejected. Expected old values come only from the independently reproduced proposal and are rechecked against live state before the standard `btcli call Sudo.sudo --args-file ... --multisig-account-mode legacy` approval flow. It contains no keys and does not accept seed material. Each signer independently reviews the decoded calls and hash before allowing `btcli` to use their own local wallet. The first approval creates the pending multisig operation; the final required approval executes it.
+Never execute a verifier downloaded from an artifact. The checked-in script requires both proposals' calls, decoded call, call data, hash, signers, sudo key, and exact source/baseline provenance to agree. It maps the authenticated batch through `verify-proposal.js`, rejects omitted or extra grouped members and unknown setters, and rechecks old values against live state before invoking `btcli`. It contains no keys and does not accept seed material.
 
-The runtime-upgrade `SudoUncheckedSetCode` proxy cannot apply arbitrary parameter calls. Do not reuse a proposal after a runtime upgrade or out-of-band change; regenerate and review it instead.
+The runtime-upgrade `SudoUncheckedSetCode` proxy cannot apply arbitrary parameter calls.
 
 ## Emergency drift recovery
 
