@@ -1369,10 +1369,12 @@ impl<T: Config> Pallet<T> {
     /// reads it and the same-transaction guard
     /// ([`Self::basket_rows_opened_in_current_transaction`]). Only the first read of the
     /// kept count and the read of the guard go to the database. Each later read finds the
-    /// value that this transaction wrote, in the storage overlay of the block. The weight
-    /// has [`crate::ROOT_CLAIM_HOTKEY_COUNT_READS`] database reads for all of them. That
-    /// is one for each read of a claim inside three wrapper calls. A deeper nest reads
-    /// only the overlay more often.
+    /// value that this transaction wrote, in the storage overlay of the block. Each of
+    /// these lookups also reads which transaction runs now
+    /// ([`Self::current_transaction`]): three values of the system pallet that the block
+    /// wrote itself, so they are in the overlay too. The weight has
+    /// [`crate::ROOT_CLAIM_HOTKEY_COUNT_READS`] database reads for these five storage
+    /// keys, however often a transaction reads them.
     ///
     /// A hotkey without a fund has no kept count (see [`Self::root_claim_hotkey_work`]).
     /// Each computation of its weight looks for a kept count and probes the end of each

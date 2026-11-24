@@ -134,7 +134,9 @@ pub const ROOT_CLAIM_HOTKEY_COUNTS: u32 = 2;
 /// one read of the kept count. The claim reads the kept count and the guard one time
 /// each. A claim in a batch in a proxy makes nine of these reads. Only two of them go to
 /// the database: the first read of the kept count, and the read of the guard. The others
-/// find the kept count in the storage overlay of the block, also in a deeper nest.
+/// find the kept count in the storage overlay of the block, also in a deeper nest. Each
+/// lookup also reads three values of the system pallet (the inherents flag, the extrinsic
+/// index and the block number); the block wrote them, so they are in the overlay too.
 ///
 /// A hotkey without a fund has no kept count. Each computation of its weight then reads
 /// that there is no kept count and probes the end of each map of the fund. Its weight has
