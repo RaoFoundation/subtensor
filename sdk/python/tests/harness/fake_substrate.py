@@ -247,7 +247,7 @@ class FakeSubstrate:
         # Same derivation as production: the chain's Aura.SlotDuration constant.
         return int(await self.constant("Aura", "SlotDuration")) / 1000.0
 
-    async def spec_version(self) -> int:
+    async def spec_version(self, block_hash: Optional[str] = None) -> int:
         return self.runtime_spec_version
 
     async def get_block(

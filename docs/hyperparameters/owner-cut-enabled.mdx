@@ -39,7 +39,7 @@ btcli subnets emission set-value --netuid 12 --slot owner --value 0.18   # resto
 The former `sudo_set_owner_cut_enabled` and `sudo_set_subnet_owner_cut`
 calls are deprecated and always fail with `Deprecated`; set the owner slot
 through [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights)
-instead (subnet owner, once per week per subnet, or root). Not permitted on
+instead (subnet owner, once per 360 blocks per subnet by default, or root). Not permitted on
 the root subnet.
 
 ## Related

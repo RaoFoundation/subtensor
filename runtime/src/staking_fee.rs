@@ -23,9 +23,16 @@ use subtensor_runtime_common::Token;
 pub const STAKING_HOTKEYS_FEE_ALLOWANCE: u32 = 4;
 
 /// Fee allowance for root claims, in claim units (hotkeys plus basket holding rows), the
-/// same count the admission envelope uses. Admission and execution keep the full 256-unit
-/// (coldkey-wide) or 130-unit (single hotkey) envelope plus the flat flush allowance.
+/// same count the admission envelope uses. A coldkey-wide claim keeps its full 256-unit
+/// envelope plus the flat flush allowance for admission and execution. A single-hotkey
+/// claim declares the weight of the validator's fund, and never less than this allowance
+/// (`pallet_subtensor::MIN_ROOT_CLAIM_HOTKEY_WORK`), so its quoted fee is the same for
+/// every fund.
 pub const ROOT_CLAIM_FEE_ALLOWANCE: u32 = STAKING_HOTKEYS_FEE_ALLOWANCE;
+
+// The smallest single-hotkey declaration is sized in the pallet. It must cover the weight
+// billed here, or a small fund would be quoted less than a large one.
+const _: () = assert!(ROOT_CLAIM_FEE_ALLOWANCE == pallet_subtensor::MIN_ROOT_CLAIM_HOTKEY_WORK);
 
 /// Weight a claim is charged for: `units` claim units plus the flush work one hotkey with
 /// `units` queued credits and `units` holdings can do (`4Q + 2H` quotes, `Q` rows; see
@@ -184,10 +191,10 @@ fn claim_discount(call: &RuntimeCall) -> Weight {
         RuntimeCall::SubtensorModule(SubtensorCall::claim_root { .. }) => {
             root_claim_discount(pallet_subtensor::Pallet::<Runtime>::root_claim_declared_work())
         }
-        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { .. }) => {
-            root_claim_discount(
-                pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_declared_work(),
-            )
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { hotkey }) => {
+            // The declaration is sized from this validator's fund; bill the allowance.
+            pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_declared_weight_for(hotkey)
+                .saturating_sub(root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE))
         }
         _ => Weight::zero(),
     }
@@ -291,7 +298,10 @@ impl FeeWeightDiscount<RuntimeCall> for Runtime {
     fn fee_discount_overhead(call: &RuntimeCall) -> Weight {
         // One TotalNetworks read in validation and another in preparation. The
         // declaration already prices the scan itself at the full execution cap.
-        // Claim discounts and 459 caps are pure arithmetic on the declared weights.
+        // The discount of a coldkey-wide claim and the 459 caps are pure arithmetic on
+        // the declared weights. The discount of a single-hotkey claim reads the count of
+        // the fund that the transaction keeps (`BasketRowsCountedAt`); the declared weight
+        // of that claim includes these reads.
         if leaves(call).into_iter().any(is_bulk_unstake) {
             <Runtime as frame_system::Config>::DbWeight::get().reads(2)
         } else {
@@ -432,14 +442,15 @@ mod tests {
         <Runtime as pallet_subtensor::Config>::WeightInfo::check_coldkey_swap_extension()
     }
 
-    /// Each claim call with the envelope its dispatch declares.
+    /// Each claim call with the envelope its dispatch declares. The single-hotkey claim
+    /// declares the weight of its validator's fund.
     fn claim_cases() -> [(RuntimeCall, Weight); 2] {
         [
             (
                 claim_root_with_hotkey(),
-                SubtensorModule::root_claim_declared_weight_for(
-                    SubtensorModule::root_claim_hotkey_declared_work(),
-                ),
+                SubtensorModule::root_claim_hotkey_declared_weight_for(&AccountId::from(
+                    [2_u8; 32],
+                )),
             ),
             (
                 claim_root(),
@@ -565,9 +576,12 @@ mod tests {
         new_test_ext().execute_with(|| {
             let fee_weight = root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE);
             assert_eq!(SubtensorModule::root_claim_declared_work(), 256);
-            assert_eq!(SubtensorModule::root_claim_hotkey_declared_work(), 130);
+            assert_eq!(SubtensorModule::root_claim_hotkey_declared_work(), 258);
             for (call, declared) in claim_cases() {
-                assert!(fee_weight.all_lt(declared));
+                // The smallest single-hotkey declaration has the proof size of the billed
+                // weight, so only its ref_time is strictly above it.
+                assert!(fee_weight.all_lte(declared));
+                assert!(fee_weight.ref_time() < declared.ref_time());
                 let info = call.get_dispatch_info();
                 assert_eq!(info.call_weight, declared.saturating_add(extension()));
 
@@ -590,6 +604,130 @@ mod tests {
                     quote.partial_fee < TransactionPayment::compute_fee(100, &info, Balance::ZERO)
                 );
             }
+        });
+    }
+
+    /// The fee quoted for a single-hotkey claim is the allowance for every fund: the
+    /// declaration grows with the fund, and the discount grows with it.
+    #[test]
+    fn single_hotkey_claim_quote_does_not_depend_on_the_fund_size() {
+        new_test_ext().execute_with(|| {
+            let fee_weight = root_claim_fee_weight(ROOT_CLAIM_FEE_ALLOWANCE);
+            // The smallest declaration covers the billed weight in both dimensions.
+            assert!(SubtensorModule::root_claim_hotkey_min_declared_weight().all_gte(fee_weight));
+
+            let call = claim_root_with_hotkey();
+            let hotkey = AccountId::from([2_u8; 32]);
+            let empty_info = call.get_dispatch_info();
+            let empty_quote = query_info(&call, &empty_info, 100, false);
+            assert_eq!(
+                empty_info.call_weight,
+                SubtensorModule::root_claim_hotkey_min_declared_weight()
+                    .saturating_add(extension())
+            );
+
+            // A fund with 200 queued dividend credits declares much more.
+            for netuid in 1..=200u16 {
+                pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(
+                    &hotkey,
+                    NetUid::from(netuid),
+                    AlphaBalance::new(1),
+                );
+            }
+            let large_info = call.get_dispatch_info();
+            assert!(large_info.call_weight.ref_time() > empty_info.call_weight.ref_time() * 20);
+            assert!(large_info.call_weight.all_lte(
+                SubtensorModule::root_claim_hotkey_declared_weight().saturating_add(extension())
+            ));
+            let large_quote = query_info(&call, &large_info, 100, false);
+            assert_eq!(large_quote.weight, large_info.total_weight());
+            assert_eq!(large_quote.partial_fee, empty_quote.partial_fee);
+            assert_eq!(
+                discount(&call),
+                large_info
+                    .call_weight
+                    .saturating_sub(extension())
+                    .saturating_sub(fee_weight)
+            );
+        });
+    }
+
+    /// In a transaction the chain counts the fund of a single-hotkey claim one time and
+    /// keeps the count. The fee logic computes the claim discount in validation and again
+    /// in preparation, and a batch computes the weight of the claim once more. All of
+    /// them read the kept count: they do not count the fund again.
+    #[test]
+    fn claim_discount_reads_the_kept_count_of_the_fund() {
+        new_test_ext().execute_with(|| {
+            let call = claim_root_with_hotkey();
+            let hotkey = AccountId::from([2_u8; 32]);
+            let batch = RuntimeCall::Utility(UtilityCall::batch_all {
+                calls: vec![call.clone(), call.clone()],
+            });
+            let queue_credits = |netuids: core::ops::RangeInclusive<u16>| {
+                for netuid in netuids {
+                    pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(
+                        &hotkey,
+                        NetUid::from(netuid),
+                        AlphaBalance::new(1),
+                    );
+                }
+            };
+            queue_credits(1..=20);
+
+            // Outside a transaction (the transaction pool, a fee quote) nothing is kept.
+            let quoted = call.get_dispatch_info();
+            assert_eq!(
+                pallet_subtensor::BasketRowsCountedAt::<Runtime>::get(&hotkey),
+                None
+            );
+
+            // Transaction 3 of the block. The weight of the call is computed first.
+            System::note_inherents_applied();
+            System::set_extrinsic_index(3);
+            let info = call.get_dispatch_info();
+            assert_eq!(info.call_weight, quoted.call_weight);
+            let kept = |hotkey: &AccountId| {
+                pallet_subtensor::BasketRowsCountedAt::<Runtime>::get(hotkey).map(
+                    |(block, index, count)| {
+                        (block, index, count.map(|count| (count.rows, count.queued)))
+                    },
+                )
+            };
+            let block = SubtensorModule::get_current_block_as_u64();
+            assert_eq!(kept(&hotkey), Some((block, 3, Some((0, 20)))));
+            // One count of this fund reads the 20 queued credits and the end of each of
+            // the two maps that the chain walks. The weight has two counts, ten reads of
+            // the kept count and of the guard, and the write of the kept count.
+            assert_eq!(
+                SubtensorModule::root_claim_hotkey_sizing_weight(0, 20),
+                <Runtime as frame_system::Config>::DbWeight::get().reads_writes(2 * 22 + 10, 1)
+            );
+            // A hotkey without a fund has no kept count: ten times one read and the two
+            // ends, and no write.
+            assert_eq!(
+                SubtensorModule::root_claim_hotkey_sizing_weight(0, 0),
+                <Runtime as frame_system::Config>::DbWeight::get().reads(10 * 3)
+            );
+            let first = Runtime::fee_weight_discount(&call, &info);
+
+            // Put 20 more credits in the queue behind the kept count. No transaction can
+            // do this (a new row or a moved queue refuses the claim), so this is storage
+            // written by the test. A new count would give a larger weight.
+            queue_credits(21..=40);
+            // Validation and preparation of the fee.
+            assert_eq!(Runtime::fee_weight_discount(&call, &info), first);
+            assert_eq!(Runtime::fee_weight_discount(&call, &info), first);
+            // A batch, at dispatch and in the fee logic.
+            assert_eq!(call.get_dispatch_info().call_weight, info.call_weight);
+            assert_eq!(discount(&batch), first.saturating_add(first));
+
+            // The next transaction counts the fund again.
+            System::set_extrinsic_index(4);
+            let next = call.get_dispatch_info();
+            assert!(next.call_weight.ref_time() > info.call_weight.ref_time());
+            assert!(discount(&call).ref_time() > first.ref_time());
+            assert_eq!(kept(&hotkey), Some((block, 4, Some((0, 40)))));
         });
     }
 

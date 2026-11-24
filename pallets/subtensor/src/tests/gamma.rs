@@ -2199,12 +2199,213 @@ fn gamma_emission_accrues_each_block_and_mints_at_the_epoch() {
         let deposit = deposit(target, SOURCE_OWNER_HOTKEY);
         assert_eq!(deposit.coldkey, U256::from(SOURCE_OWNER_COLDKEY));
         assert_eq!(deposit.balance, gamma);
-        assert_eq!(
-            SubtensorModule::gamma_cap(&deposit),
-            Some(GammaBalance::ZERO)
-        );
+        assert_eq!(SubtensorModule::gamma_cap(&deposit), None);
         // About one alpha at a price of one TAO and 400 dollars per TAO, less slippage and fees.
         assert!(gamma.to_u64() > 390 * GAMMA && gamma.to_u64() < 400 * GAMMA);
+        assert_gamma_invariants(target);
+    });
+}
+
+/// A source that gives `target` the largest gamma share, with both fast moving prices at spot.
+fn gamma_emission_source() -> (NetUid, NetUid) {
+    let (source, target) = gamma_emission_subnets();
+    assert_ok!(set_split(
+        source,
+        split_with_gamma(target, MAX_GAMMA_EMISSION)
+    ));
+    (source, target)
+}
+
+/// Converts `alpha` of pending gamma emission of `source` and returns the gamma it minted.
+fn convert_gamma_emission(source: NetUid, alpha: u64) -> GammaBalance {
+    for netuid in [source, gamma_emission_target(source)] {
+        let spot = <Test as Config>::SwapInterface::current_alpha_price(netuid);
+        SubnetFastMovingPrice::<Test>::insert(netuid, spot);
+    }
+    PendingGammaEmission::<Test>::insert(source, AlphaBalance::from(alpha));
+    System::reset_events();
+    SubtensorModule::mint_gamma_emission(source);
+    let (alpha_sold, gamma) = gamma_emission_minted().unwrap();
+    assert_eq!(alpha_sold, AlphaBalance::from(alpha));
+    gamma
+}
+
+/// The one target of the gamma shares of `source`.
+fn gamma_emission_target(source: NetUid) -> NetUid {
+    let shares = SubnetGammaEmission::<Test>::get(source);
+    let &[(target, _)] = shares.as_slice() else {
+        panic!("one gamma share");
+    };
+    target
+}
+
+/// What the hotkey of the source owner can spend on `target` now.
+fn owner_spendable(target: NetUid) -> u64 {
+    SubtensorModule::get_gamma_deposit(target, U256::from(SOURCE_OWNER_HOTKEY))
+        .unwrap()
+        .spendable
+        .to_u64()
+}
+
+fn set_owner_cap(target: NetUid, cap: Option<u64>) -> DispatchResult {
+    SubtensorModule::set_gamma_deposit_daily_spend_cap(
+        RuntimeOrigin::signed(U256::from(SOURCE_OWNER_COLDKEY)),
+        U256::from(SOURCE_OWNER_HOTKEY),
+        target,
+        cap.map(GammaBalance::from),
+    )
+}
+
+#[test]
+fn gamma_emission_opens_a_deposit_that_its_hotkey_spends_at_once() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_source();
+        let hotkey = U256::from(SOURCE_OWNER_HOTKEY);
+        assert!(GammaDeposits::<Test>::get(target, hotkey).is_none());
+
+        let gamma = convert_gamma_emission(source, TAO);
+
+        // The new deposit has no daily spend cap, and the mint reports none.
+        assert_eq!(
+            deposit(target, SOURCE_OWNER_HOTKEY),
+            GammaDeposit {
+                coldkey: U256::from(SOURCE_OWNER_COLDKEY),
+                balance: gamma,
+                daily_spend_cap: None,
+            }
+        );
+        assert!(gamma_events().is_empty());
+        assert_eq!(owner_spendable(target), gamma.to_u64());
+
+        // The owner hotkey spends in the same block, without a call from the owner coldkey:
+        // a part first, and then all of the rest.
+        assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, GAMMA));
+        assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, gamma.to_u64() - GAMMA));
+        assert_eq!(
+            deposit(target, SOURCE_OWNER_HOTKEY).balance,
+            GammaBalance::ZERO
+        );
+        assert_eq!(
+            GammaSpent::<Test>::get((target, U256::from(SERVICE), hotkey)),
+            gamma
+        );
+        assert_gamma_invariants(target);
+    });
+}
+
+#[test]
+fn gamma_emission_keeps_the_cap_of_an_existing_deposit() {
+    // The cap that the owner coldkey set before the mint: a pause, a cap and no cap.
+    for cap in [Some(0), Some(5 * GAMMA), None] {
+        new_test_ext(1).execute_with(|| {
+            let (source, target) = gamma_emission_source();
+            // The owner's deposit at the owner hotkey exists before the mint. A capped
+            // deposit has spent a part of what its cap allows.
+            mint(target, SOURCE_OWNER_COLDKEY, SOURCE_OWNER_HOTKEY, TAO);
+            assert_ok!(set_owner_cap(target, cap));
+            if cap.is_some_and(|cap| cap > 0) {
+                assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, 2 * GAMMA));
+            }
+            let before = deposit(target, SOURCE_OWNER_HOTKEY);
+            let spendable = owner_spendable(target);
+
+            let gamma = convert_gamma_emission(source, TAO);
+
+            // The mint adds to the balance. The cap and what it allows now stay as they were.
+            let after = deposit(target, SOURCE_OWNER_HOTKEY);
+            assert_eq!(after.coldkey, before.coldkey);
+            assert_eq!(after.balance, before.balance + gamma);
+            assert_eq!(after.daily_spend_cap, before.daily_spend_cap);
+            assert!(gamma_events().is_empty());
+            match cap {
+                // A paused deposit stays paused.
+                Some(0) => {
+                    assert_eq!(owner_spendable(target), 0);
+                    assert_noop!(
+                        spend(target, SOURCE_OWNER_HOTKEY, GAMMA),
+                        Error::<Test>::GammaDepositDailySpendCapExceeded
+                    );
+                }
+                // A capped deposit allows what was left of its cap, and no more.
+                Some(cap) => {
+                    assert_eq!(spendable, cap - 2 * GAMMA);
+                    assert_eq!(owner_spendable(target), spendable);
+                    assert_noop!(
+                        spend(target, SOURCE_OWNER_HOTKEY, spendable + 1),
+                        Error::<Test>::GammaDepositDailySpendCapExceeded
+                    );
+                    assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, spendable));
+                }
+                // An uncapped deposit spends its whole balance.
+                None => {
+                    assert_eq!(owner_spendable(target), after.balance.to_u64());
+                    assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, after.balance.to_u64()));
+                }
+            }
+            assert_gamma_invariants(target);
+        });
+    }
+}
+
+#[test]
+fn the_owner_coldkey_caps_or_pauses_an_emission_deposit_later() {
+    new_test_ext(1).execute_with(|| {
+        let (source, target) = gamma_emission_source();
+        let (coldkey, hotkey) = (
+            U256::from(SOURCE_OWNER_COLDKEY),
+            U256::from(SOURCE_OWNER_HOTKEY),
+        );
+        let gamma = convert_gamma_emission(source, TAO).to_u64();
+        assert_eq!(owner_spendable(target), gamma);
+
+        // The hotkey that spends the deposit cannot set its cap.
+        assert_noop!(
+            SubtensorModule::set_gamma_deposit_daily_spend_cap(
+                RuntimeOrigin::signed(hotkey),
+                hotkey,
+                target,
+                Some((2 * GAMMA).into()),
+            ),
+            Error::<Test>::NonAssociatedColdKey
+        );
+
+        // A cap that the owner coldkey sets later limits the hotkey from then on.
+        assert_ok!(set_owner_cap(target, Some(2 * GAMMA)));
+        System::assert_last_event(
+            Event::GammaDepositDailySpendCapSet {
+                netuid: target,
+                coldkey,
+                hotkey,
+                daily_spend_cap: Some((2 * GAMMA).into()),
+            }
+            .into(),
+        );
+        assert_eq!(owner_spendable(target), 2 * GAMMA);
+        assert_noop!(
+            spend(target, SOURCE_OWNER_HOTKEY, 2 * GAMMA + 1),
+            Error::<Test>::GammaDepositDailySpendCapExceeded
+        );
+        assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, 2 * GAMMA));
+
+        // A cap of zero pauses the deposit, and the next mint keeps the pause.
+        assert_ok!(set_owner_cap(target, Some(0)));
+        let balance = gamma - 2 * GAMMA + convert_gamma_emission(source, TAO).to_u64();
+        let paused = deposit(target, SOURCE_OWNER_HOTKEY);
+        assert_eq!(paused.balance.to_u64(), balance);
+        assert_eq!(
+            SubtensorModule::gamma_cap(&paused),
+            Some(GammaBalance::ZERO)
+        );
+        assert_eq!(owner_spendable(target), 0);
+        assert_noop!(
+            spend(target, SOURCE_OWNER_HOTKEY, GAMMA),
+            Error::<Test>::GammaDepositDailySpendCapExceeded
+        );
+
+        // Without a cap again, the hotkey spends the whole balance.
+        assert_ok!(set_owner_cap(target, None));
+        assert_eq!(owner_spendable(target), balance);
+        assert_ok!(spend(target, SOURCE_OWNER_HOTKEY, balance));
         assert_gamma_invariants(target);
     });
 }

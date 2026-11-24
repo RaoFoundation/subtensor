@@ -277,7 +277,14 @@ async def channel_commitment(
     if encoded is None and not reveals:
         return None
     if isinstance(encoded, str):
-        encoded = bytes.fromhex(encoded.removeprefix("0x"))
+        # The transport renders byte vectors as UTF-8 when possible, or as 0x-prefixed hex.
+        if encoded.startswith("0x"):
+            try:
+                encoded = bytes.fromhex(encoded[2:])
+            except ValueError:
+                encoded = encoded.encode("utf-8")
+        else:
+            encoded = encoded.encode("utf-8")
     record = (
         encoded
         if isinstance(encoded, dict) or encoded is None
@@ -289,7 +296,11 @@ async def channel_commitment(
         active.deposit,
         active.data,
         active.fields,
-        [{"data": utf8_text(data), "block": int(block)} for data, block in reveals or []],
+        [
+            # Transport strings are already rendered as plaintext or hex.
+            {"data": data if isinstance(data, str) else utf8_text(data), "block": int(block)}
+            for data, block in reveals or []
+        ],
     )
 
 

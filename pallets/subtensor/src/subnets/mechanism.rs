@@ -31,8 +31,11 @@ pub const GLOBAL_MAX_SUBNET_COUNT: u16 = 4096;
 // GLOBAL_MAX_SUBNET_COUNT * MAX_MECHANISM_COUNT_PER_SUBNET should be 0x10000
 pub const MAX_MECHANISM_COUNT_PER_SUBNET: u8 = 16;
 
-/// Shared UID capacity across all emission mechanisms in Null consensus.
+/// UID capacity for each Null mechanism.
 pub const NULL_UID_BUDGET: u16 = 2_500;
+/// Total row capacity shared across a Null subnet's mechanisms. A single
+/// mechanism retains the full existing Null row limit.
+pub const TOTAL_NULL_WEIGHT_BUDGET: u16 = NULL_UID_BUDGET;
 
 impl<T: Config> Pallet<T> {
     /// Queue a grant move with fixed-size storage writes. The old grant is
@@ -513,11 +516,16 @@ impl<T: Config> Pallet<T> {
         max_uids: u16,
         mechanism_count: MechId,
     ) -> DispatchResult {
-        let max_uids_over_all_mechanisms =
-            u32::from(max_uids).saturating_mul(u32::from(u8::from(mechanism_count)));
+        let mode = Self::get_epoch_consensus(netuid);
+        let budget = Self::epoch_uid_budget(mode);
+        let required_uids = match mode {
+            EpochConsensus::Null => u32::from(max_uids),
+            EpochConsensus::Yuma => {
+                u32::from(max_uids).saturating_mul(u32::from(u8::from(mechanism_count)))
+            }
+        };
         ensure!(
-            max_uids_over_all_mechanisms
-                <= u32::from(Self::epoch_uid_budget(Self::get_epoch_consensus(netuid))),
+            required_uids <= u32::from(budget),
             Error::<T>::TooManyUIDsPerMechanism
         );
         Ok(())
@@ -548,10 +556,14 @@ impl<T: Config> Pallet<T> {
                 );
             }
         }
-        let count = u16::from(u8::from(Self::get_current_mechanism_count(netuid)));
-        let ceiling = Self::epoch_uid_budget(mode)
-            .checked_div(count)
-            .ok_or(Error::<T>::InvalidValue)?;
+        let ceiling = match mode {
+            EpochConsensus::Null => NULL_UID_BUDGET,
+            EpochConsensus::Yuma => Self::epoch_uid_budget(mode)
+                .checked_div(u16::from(u8::from(Self::get_current_mechanism_count(
+                    netuid,
+                ))))
+                .ok_or(Error::<T>::InvalidValue)?,
+        };
         ensure!(
             Self::get_subnetwork_n(netuid) <= ceiling,
             Error::<T>::TooManyUIDsPerMechanism
@@ -786,7 +798,7 @@ impl<T: Config> Pallet<T> {
         result
     }
 
-    fn weighted_acc_u16(existing: u16, added: u16, weight: U64F64) -> u16 {
+    pub(crate) fn weighted_acc_u16(existing: u16, added: u16, weight: U64F64) -> u16 {
         U64F64::saturating_from_num(existing)
             .saturating_add(U64F64::saturating_from_num(added).saturating_mul(weight))
             .saturating_to_num::<u16>()
@@ -823,6 +835,32 @@ impl<T: Config> Pallet<T> {
 
     /// Split funded pools before rounding individual mechanisms' payouts.
     pub(crate) fn epoch_with_mechanism_budgets(
+        netuid: NetUid,
+        miner_budget: AlphaBalance,
+        local_dividend_budget: AlphaBalance,
+        root_budget: AlphaBalance,
+    ) -> Vec<(T::AccountId, AlphaBalance, AlphaBalance)> {
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            // Same storage, events and emissions as the per-mechanism path,
+            // without repeating subnet-wide work for every mechanism.
+            return Self::null_epoch_with_mechanism_budgets(
+                netuid,
+                miner_budget,
+                local_dividend_budget,
+                root_budget,
+            );
+        }
+        Self::epoch_per_mechanism_with_budgets(
+            netuid,
+            miner_budget,
+            local_dividend_budget,
+            root_budget,
+        )
+    }
+
+    /// Runs one complete epoch per mechanism and folds the results. This is the
+    /// Yuma path, and the reference that the shared Null path must match.
+    pub(crate) fn epoch_per_mechanism_with_budgets(
         netuid: NetUid,
         miner_budget: AlphaBalance,
         local_dividend_budget: AlphaBalance,

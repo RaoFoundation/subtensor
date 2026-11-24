@@ -414,6 +414,7 @@
     "TooManyTopics",
     "TooManyUIDsPerMechanism",
     "TooManyUnrevealedCommits",
+    "TooManyWeightsForNullMechanism",
     "TooSoon",
     "TransactionMustComeFromEOA",
     "TransactorAccountShouldBeHotKey",

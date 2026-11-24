@@ -2,8 +2,10 @@ use super::basket_flush::{BasketFlushWork, MAX_BASKET_ROWS};
 use super::*;
 use crate::migrations::migrate_alpha_v2::retired::Alpha;
 use crate::weights::WeightInfo;
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};
+use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::{AccountIdConversion, Zero};
@@ -42,6 +44,41 @@ impl RootClaimOutcome {
         self.realized = self.realized.saturating_add(other.realized);
         self.swept = self.swept.saturating_add(other.swept);
         self.flush = self.flush.saturating_add(other.flush);
+    }
+}
+
+/// What sizes one single-hotkey claim: the fund's stored rows and its queued dividend
+/// credits, as [`Pallet::root_claim_hotkey_work`] counts them.
+#[crate::freeze_struct("739bb67f671c1c30")]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub struct RootClaimHotkeyWork {
+    /// Escrow rows the fund holds (raw storage rows, so a row that reads as zero counts).
+    pub rows: u32,
+    /// Queued dividend credits.
+    pub queued: u32,
+    /// Queued credits on a subnet where the fund holds no row. Each one can open a row
+    /// while the claim settles the queue.
+    pub new_rows: u32,
+}
+
+impl RootClaimHotkeyWork {
+    /// Claim units: one for the validator, and one for each row the fund has now or can
+    /// get from its queue. The validator unit also covers the root cash slot, which a
+    /// claim or a deposit can open once.
+    pub fn units(&self) -> u32 {
+        1u32.saturating_add(self.rows).saturating_add(self.new_rows)
     }
 }
 
@@ -1175,7 +1212,8 @@ impl<T: Config> Pallet<T> {
         crate::MAX_ROOT_CLAIM_WORK
     }
 
-    /// Fixed admission budget for [`Pallet::claim_root_with_hotkey`].
+    /// Admission ceiling for [`Pallet::claim_root_with_hotkey`], in claim units. A claim
+    /// declares the weight of its own fund; this is the largest fund one claim admits.
     pub fn root_claim_hotkey_declared_work() -> u32 {
         // A network's subnet capacity does not increase its per-extrinsic weight limit.
         // Reserving 1,025 units on testnet makes even empty claims fail CheckWeight.
@@ -1209,9 +1247,297 @@ impl<T: Config> Pallet<T> {
         Self::root_claim_declared_weight_for(Self::root_claim_declared_work())
     }
 
-    /// Single-hotkey declared weight for the 130-unit holdings envelope plus pending settlement.
-    pub(crate) fn root_claim_hotkey_declared_weight() -> Weight {
-        Self::root_claim_declared_weight_for(Self::root_claim_hotkey_declared_work())
+    /// What sizes a single-hotkey claim on `hotkey`'s fund: its stored escrow rows and its
+    /// queued dividend credits. `None` when the fund is above
+    /// [`crate::MAX_ROOT_CLAIM_HOTKEY_WORK`] claim units.
+    ///
+    /// In a user transaction the chain counts the fund one time and keeps the count
+    /// ([`BasketRowsCountedAt`]). The weight of [`Pallet::claim_root_with_hotkey`] is
+    /// computed several times in one transaction, and the claim checks the size once
+    /// more. Each of them gets the kept count with one read. The kept count stays a
+    /// bound for the whole transaction: the fund's rows and queued credits cannot grow in
+    /// a transaction, except through a `swap_basket` buy, a hotkey swap or a coldkey swap
+    /// into the escrow account, and a claim after one of those is refused
+    /// ([`Self::basket_rows_opened_in_current_transaction`]).
+    ///
+    /// A hotkey without a fund gets no kept count. A claim can name any account, and a
+    /// record for each named account would let a caller grow the state. The count of an
+    /// empty fund is only the probe of each map, so each computation makes it again
+    /// ([`Self::root_claim_hotkey_sizing_weight`] has those reads).
+    ///
+    /// Outside a user transaction each call counts the fund, and nothing is written: in
+    /// the transaction pool, for a fee quote, and in block hooks. The block executive
+    /// also computes the weight of the first transaction of a block there, before it
+    /// marks the inherents as applied. That transaction counts the fund once more
+    /// ([`crate::ROOT_CLAIM_HOTKEY_COUNTS`]).
+    pub fn root_claim_hotkey_work(hotkey: &T::AccountId) -> Option<RootClaimHotkeyWork> {
+        let Some((block, index)) = Self::current_transaction() else {
+            return Self::count_root_claim_hotkey_work(hotkey);
+        };
+        if let Some((counted_block, counted_index, work)) = BasketRowsCountedAt::<T>::get(hotkey)
+            && (counted_block, counted_index) == (block, index)
+        {
+            return work;
+        }
+        let work = Self::count_root_claim_hotkey_work(hotkey);
+        if work != Some(RootClaimHotkeyWork::default()) {
+            BasketRowsCountedAt::<T>::insert(hotkey, (block, index, work));
+        }
+        work
+    }
+
+    /// Counts the stored escrow rows of `hotkey`'s fund and its queued dividend credits.
+    /// `None` when the fund is above [`crate::MAX_ROOT_CLAIM_HOTKEY_WORK`] claim units.
+    ///
+    /// Raw storage rows are counted, so a row that reads as zero is charged
+    /// conservatively. The count stops at the first unit above the ceiling, so it reads at
+    /// most the ceiling plus one keys of each map.
+    fn count_root_claim_hotkey_work(hotkey: &T::AccountId) -> Option<RootClaimHotkeyWork> {
+        #[cfg(test)]
+        crate::tests::mock::inc_root_claim_fund_counts();
+        let ceiling = Self::root_claim_hotkey_declared_work();
+        let escrow = Self::get_beta_escrow_account_id();
+        let mut work = RootClaimHotkeyWork::default();
+        let mut held: BTreeSet<NetUid> = BTreeSet::new();
+        if T::LegacyAlphaCompatibility::get() {
+            for netuid in Alpha::<T>::iter_key_prefix((hotkey, &escrow)) {
+                held.insert(netuid);
+                work.rows = work.rows.saturating_add(1);
+                if work.units() > ceiling {
+                    return None;
+                }
+            }
+        }
+        for netuid in AlphaV2::<T>::iter_key_prefix((hotkey, &escrow)) {
+            held.insert(netuid);
+            work.rows = work.rows.saturating_add(1);
+            if work.units() > ceiling {
+                return None;
+            }
+        }
+        for netuid in PendingBasketDeposits::<T>::iter_key_prefix(hotkey) {
+            work.queued = work.queued.saturating_add(1);
+            if !held.contains(&netuid) {
+                work.new_rows = work.new_rows.saturating_add(1);
+                if work.units() > ceiling {
+                    return None;
+                }
+            }
+        }
+        Some(work)
+    }
+
+    /// Weight bound of a single-hotkey claim over `units` claim units (see
+    /// [`RootClaimHotkeyWork::units`]) with `queued` queued dividend credits.
+    ///
+    /// The post-dispatch weight ([`Self::root_claim_actual_weight`]) has three parts, and
+    /// each one is bounded here:
+    /// * Rows redeemed or swept, plus the rows the claim values without a sale. Each is a
+    ///   fund row, and the fund holds at most `units` rows while the claim runs (`units`
+    ///   includes one unit for the root cash slot that a sweep can open).
+    /// * Queued credits. The flush charges each credit it attempts as one row, also when
+    ///   a shared failure rolls the deposit back. The claimant can then sell its own
+    ///   deferred part of each credit that is still queued, and each sale is one more row:
+    ///   `2 × queued` rows.
+    /// * Quotes of the flush: one for each queued credit scanned, the pre-deposit NAV
+    ///   sweep, two for each credit deposited, and the baseline sweep. That is at most
+    ///   `4 × queued + 2 × units`, and zero when nothing is queued.
+    pub fn root_claim_hotkey_weight_for_work(units: u32, queued: u32) -> Weight {
+        let queued = u64::from(queued);
+        let quotes = if queued == 0 {
+            0
+        } else {
+            queued
+                .saturating_mul(4)
+                .saturating_add(u64::from(units).saturating_mul(2))
+        };
+        Self::root_claim_weight_for_work(
+            units,
+            BasketFlushWork::new(quotes, queued.saturating_mul(2)),
+        )
+    }
+
+    /// Storage work that sizes a single-hotkey claim: the counts of the fund, and the
+    /// reads that find the kept count again.
+    ///
+    /// One count ([`Self::count_root_claim_hotkey_work`]) reads each fund row and each
+    /// queued credit, and probes the end of each map that it walks: the stake map and the
+    /// queue, and the legacy stake map where the runtime still reads it. A transaction
+    /// makes at most [`crate::ROOT_CLAIM_HOTKEY_COUNTS`] counts and writes the kept count
+    /// one time.
+    ///
+    /// Each later computation of the weight reads the kept count again, and the claim
+    /// reads it and the same-transaction guard
+    /// ([`Self::basket_rows_opened_in_current_transaction`]). Only the first read of the
+    /// kept count and the read of the guard go to the database. Each later read finds the
+    /// value that this transaction wrote, in the storage overlay of the block. Each of
+    /// these lookups also reads which transaction runs now
+    /// ([`Self::current_transaction`]): three values of the system pallet that the block
+    /// wrote itself, so they are in the overlay too. The weight has
+    /// [`crate::ROOT_CLAIM_HOTKEY_COUNT_READS`] database reads for these five storage
+    /// keys, however often a transaction reads them.
+    ///
+    /// A hotkey without a fund has no kept count (see [`Self::root_claim_hotkey_work`]).
+    /// Each computation of its weight looks for a kept count and probes the end of each
+    /// map. The weight has these reads [`crate::ROOT_CLAIM_HOTKEY_COUNT_READS`] times,
+    /// and no write.
+    ///
+    /// The claim declares this weight, and it reports it after dispatch
+    /// ([`Pallet::claim_root_with_hotkey`]).
+    pub fn root_claim_hotkey_sizing_weight(rows: u32, queued: u32) -> Weight {
+        let probes: u64 = if T::LegacyAlphaCompatibility::get() {
+            3
+        } else {
+            2
+        };
+        if rows == 0 && queued == 0 {
+            return T::DbWeight::get().reads(
+                u64::from(crate::ROOT_CLAIM_HOTKEY_COUNT_READS)
+                    .saturating_mul(probes.saturating_add(1)),
+            );
+        }
+        let count = u64::from(rows)
+            .saturating_add(u64::from(queued))
+            .saturating_add(probes);
+        T::DbWeight::get().reads_writes(
+            count
+                .saturating_mul(u64::from(crate::ROOT_CLAIM_HOTKEY_COUNTS))
+                .saturating_add(u64::from(crate::ROOT_CLAIM_HOTKEY_COUNT_READS)),
+            1,
+        )
+    }
+
+    /// Deferred-dividend debts that `coldkey` holds on `hotkey`'s fund
+    /// ([`DeferredBasketDebts`]): at most [`crate::MAX_ROOT_CLAIM_WORK`], the bound of
+    /// that map.
+    pub fn root_claim_debts(hotkey: &T::AccountId, coldkey: &T::AccountId) -> u32 {
+        DeferredBasketDebts::<T>::decode_len(hotkey, coldkey)
+            .map_or(0, |debts| u32::try_from(debts).unwrap_or(u32::MAX))
+    }
+
+    /// Weight of the debt settlement that starts a claim, for a claimant who holds `debts`
+    /// deferred-dividend debts on the validator.
+    ///
+    /// A debt is the stake-change correction of one deferred dividend credit. It can
+    /// outlive that credit: when the credit converts, the debt stays, with a conversion
+    /// record ([`DeferredBasketConversions`]), until the next operation of its account.
+    /// Thus the fund's rows and queued credits do not bound the debts of a claimant, and
+    /// the claimant of the claim benchmark has no debt when the claim starts. The claim
+    /// looks up the conversion record of each debt (one read) and settles each debt that
+    /// has one (one write). This weight is one read and one write for every debt, and one
+    /// read and one write each for the debt map, the share watermark and the cash
+    /// watermark.
+    pub fn root_claim_debt_settlement_weight(debts: u32) -> Weight {
+        if debts == 0 {
+            return Weight::zero();
+        }
+        let accesses = u64::from(debts).saturating_add(3);
+        T::DbWeight::get().reads_writes(accesses, accesses)
+    }
+
+    /// Debt settlement that every single-hotkey claim declares. The declaration is made
+    /// before the claimant is known, so it is the weight for the most debts that one
+    /// claimant can hold on one validator.
+    pub fn root_claim_debt_settlement_weight_bound() -> Weight {
+        Self::root_claim_debt_settlement_weight(crate::MAX_ROOT_CLAIM_WORK)
+    }
+
+    /// Smallest weight a single-hotkey claim declares: [`crate::MIN_ROOT_CLAIM_HOTKEY_WORK`]
+    /// claim units with as many holdings and queued credits to flush, and the debt
+    /// settlement bound. The runtime bills a claim for at most the claim-unit shape, so a
+    /// smaller declaration would only change the fee quoted before dispatch.
+    pub fn root_claim_hotkey_min_declared_weight() -> Weight {
+        let units = crate::MIN_ROOT_CLAIM_HOTKEY_WORK;
+        let rows = u64::from(units);
+        Self::root_claim_weight_for_work(units, BasketFlushWork::new(rows.saturating_mul(6), rows))
+            .saturating_add(Self::root_claim_hotkey_sizing_weight(units, units))
+            .saturating_add(Self::root_claim_debt_settlement_weight_bound())
+    }
+
+    /// Largest weight a single-hotkey claim declares: a fund at the admission ceiling
+    /// ([`crate::MAX_ROOT_CLAIM_HOTKEY_WORK`] claim units) with a queued credit for each
+    /// of its rows, and the debt settlement bound. A fund above the ceiling also declares
+    /// this, and is refused at dispatch after the bounded count.
+    pub fn root_claim_hotkey_declared_weight() -> Weight {
+        let units = Self::root_claim_hotkey_declared_work();
+        let rows = units.saturating_sub(1);
+        Self::root_claim_hotkey_weight_for_work(units, rows)
+            .saturating_add(Self::root_claim_hotkey_sizing_weight(rows, rows))
+            .saturating_add(Self::root_claim_debt_settlement_weight_bound())
+    }
+
+    /// Declared weight of [`Pallet::claim_root_with_hotkey`] for `hotkey`: the bound for
+    /// the fund's stored rows and queued credits, the reads that count them, and the debt
+    /// settlement bound ([`Self::root_claim_debt_settlement_weight_bound`]). Never below
+    /// [`Self::root_claim_hotkey_min_declared_weight`] and never above
+    /// [`Self::root_claim_hotkey_declared_weight`].
+    ///
+    /// A wrapper call (batch, proxy) computes this before it runs any inner call. The
+    /// value stays a bound for a claim later in the same transaction: the fund's rows and
+    /// queued credits cannot grow in a transaction, except through a `swap_basket` buy, a
+    /// hotkey swap or a coldkey swap into the escrow account, and a claim after one of
+    /// those is refused ([`Self::basket_rows_opened_in_current_transaction`]).
+    pub fn root_claim_hotkey_declared_weight_for(hotkey: &T::AccountId) -> Weight {
+        match Self::root_claim_hotkey_work(hotkey) {
+            Some(work) => Self::root_claim_hotkey_weight_for_work(work.units(), work.queued)
+                .saturating_add(Self::root_claim_hotkey_sizing_weight(
+                    work.rows,
+                    work.queued,
+                ))
+                .saturating_add(Self::root_claim_debt_settlement_weight_bound())
+                .max(Self::root_claim_hotkey_min_declared_weight()),
+            None => Self::root_claim_hotkey_declared_weight(),
+        }
+    }
+
+    /// The user transaction that runs now, as `(block, extrinsic index)`. `None` in block
+    /// hooks and inherents. There the guard that uses this is off: no user can run a
+    /// wrapper call (a batch that declares the weight of its inner calls ahead) in a hook.
+    /// Only a call that Root scheduled runs there, and the MEV shield hook has no
+    /// decryptor in this runtime. A hook that starts to run user calls must extend the
+    /// guard first.
+    pub(crate) fn current_transaction() -> Option<(u64, u32)> {
+        if !frame_system::Pallet::<T>::inherents_applied() {
+            return None;
+        }
+        frame_system::Pallet::<T>::extrinsic_index()
+            .map(|index| (Self::get_current_block_as_u64(), index))
+    }
+
+    /// Records that `hotkey`'s fund got a row in the current transaction that its
+    /// single-hotkey claim weight had not counted. Returns whether a record was written
+    /// (one read and one write); nothing is written outside a user transaction.
+    pub(crate) fn note_basket_rows_opened(hotkey: &T::AccountId) -> bool {
+        match Self::current_transaction() {
+            Some(transaction) => {
+                BasketRowsOpenedAt::<T>::insert(hotkey, transaction);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Weight of one [`Self::note_basket_rows_opened`] record.
+    pub fn basket_rows_opened_weight() -> Weight {
+        T::DbWeight::get().reads_writes(1, 1)
+    }
+
+    /// True when the fund of `hotkey` has a stored row on `netuid`: the raw storage key
+    /// that [`Self::count_root_claim_hotkey_work`] counts.
+    pub(crate) fn basket_row_stored(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        let escrow = Self::get_beta_escrow_account_id();
+        AlphaV2::<T>::contains_key((hotkey, &escrow, netuid))
+            || (T::LegacyAlphaCompatibility::get()
+                && Alpha::<T>::contains_key((hotkey, &escrow, netuid)))
+    }
+
+    /// True when `hotkey`'s fund got a new row earlier in the current transaction: by a
+    /// `swap_basket` buy, a hotkey swap, or a coldkey swap into the escrow account. The
+    /// weight that [`Pallet::claim_root_with_hotkey`] declared for this transaction was
+    /// sized before that row existed, so the claim must not run.
+    pub(crate) fn basket_rows_opened_in_current_transaction(hotkey: &T::AccountId) -> bool {
+        Self::current_transaction()
+            .is_some_and(|transaction| BasketRowsOpenedAt::<T>::get(hotkey) == Some(transaction))
     }
 
     /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
@@ -1272,11 +1598,13 @@ impl<T: Config> Pallet<T> {
         Self::root_claim_fits_budget(hotkeys, Self::root_claim_declared_work())
     }
 
+    /// True when one claim can walk `hotkey`'s fund: the validator, its stored rows, and
+    /// the rows its queued credits can open are at most
+    /// [`crate::MAX_ROOT_CLAIM_HOTKEY_WORK`] claim units. The call uses
+    /// [`Self::root_claim_hotkey_work`] directly; this form stays for the tests.
+    #[cfg(test)]
     pub(crate) fn root_claim_hotkey_fits_declared_budget(hotkey: &T::AccountId) -> bool {
-        Self::root_claim_fits_budget(
-            core::slice::from_ref(hotkey),
-            Self::root_claim_hotkey_declared_work(),
-        )
+        Self::root_claim_hotkey_work(hotkey).is_some()
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for relationships
@@ -1420,9 +1748,20 @@ impl<T: Config> Pallet<T> {
         stake_delta: i128,
     ) -> DispatchResult {
         Self::rebase_deferred_dividends(hotkey, coldkey, stake_delta)?;
+        Self::rebase_basket_claimed_watermark(hotkey, coldkey, stake_delta);
+        Ok(())
+    }
+
+    /// The share part of a stake change of `stake_delta`: move the claimed watermark by
+    /// `rate * stake_delta`. The caller rebases the deferred dividends first.
+    pub(super) fn rebase_basket_claimed_watermark(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        stake_delta: i128,
+    ) {
         let rate = BasketRate::<T>::get(hotkey);
         if rate == I96F32::saturating_from_num(0) {
-            return Ok(());
+            return;
         }
         BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
             *claimed = claimed.saturating_add(
@@ -1430,7 +1769,6 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<i128>(),
             );
         });
-        Ok(())
     }
 
     /// Grant `shares` fund shares to a staker unconditionally by decrementing their signed
@@ -1602,6 +1940,7 @@ impl<T: Config> Pallet<T> {
         let pending: Vec<(NetUid, AlphaBalance)> =
             PendingBasketDeposits::<T>::drain_prefix(old_hotkey).collect();
         moved_rows = moved_rows.saturating_add(pending.len() as u32);
+        let mut fund_grew = !pending.is_empty();
         for (netuid, alpha) in pending {
             PendingBasketDeposits::<T>::mutate(new_hotkey, netuid, |p| {
                 *p = p.saturating_add(alpha);
@@ -1619,6 +1958,20 @@ impl<T: Config> Pallet<T> {
                 netuid,
                 alpha_moved,
             );
+            fund_grew = true;
+        }
+
+        // The new hotkey's fund now has rows and queued credits that a single-hotkey claim
+        // declared earlier in this transaction did not count. The old hotkey's record is
+        // obsolete: its fund is empty. Charged as one more moved row.
+        BasketRowsOpenedAt::<T>::remove(old_hotkey);
+        if fund_grew && Self::note_basket_rows_opened(new_hotkey) {
+            moved_rows = moved_rows.saturating_add(1);
+        }
+        // The kept count of the old hotkey is obsolete too. Without this, each hotkey that
+        // a fund leaves would keep a record. Charged as one more moved row.
+        if BasketRowsCountedAt::<T>::take(old_hotkey).is_some() {
+            moved_rows = moved_rows.saturating_add(1);
         }
 
         // Trading guardrails follow the fund so a hotkey swap can neither escape a

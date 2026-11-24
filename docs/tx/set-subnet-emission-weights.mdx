@@ -17,7 +17,9 @@ the validator slot every block, whatever the subnet sets — the pre-sign
 plan shows that share and what alpha validators are left with, and lists
 every rule the chain would reject (including a validator share at or below
 the baseline), so a bad vector is caught before signing. Owners may change
-the vector once per week per subnet.
+the vector once per `SubnetEmissionWeightsRateLimit` blocks per subnet:
+360 blocks by default from runtime 494 (one default tempo), where root can
+change the limit; 50,400 blocks on earlier runtimes.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |

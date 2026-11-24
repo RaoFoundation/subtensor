@@ -4,6 +4,7 @@ import {Link} from '@raofoundation/ui';
 import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
+import layout from '../v487-upgrade/page.module.css';
 
 export const metadata: Metadata = {
   title: 'The V494 Upgrade — Commit Burns, Weight Delegation, Basket Controls, and Etao',
@@ -49,22 +50,24 @@ export default function Page() {
             setters use 123–127, basket controls 128–130, and the Etao interval setter 131.
             Regenerate metadata rather than hard-coding call indices in an integration.
           </p>
-          <table>
-            <thead>
-              <tr><th>Pallet</th><th>Call</th><th>Index</th><th>Signer</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Commitments</td><td><code>set_commitment_to</code></td><td>3</td><td>Coldkey</td></tr>
-              <tr><td>SubtensorModule</td><td><code>set_mech_weight_delegate</code></td><td>170</td><td>Validator hotkey</td></tr>
-              <tr><td>SubtensorModule</td><td><code>set_mechanism_weights_for</code></td><td>171</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>commit_mechanism_weights_for</code></td><td>172</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>reveal_mechanism_weights_for</code></td><td>173</td><td>Delegate</td></tr>
-              <tr><td>SubtensorModule</td><td><code>commit_timelocked_mechanism_weights_for</code></td><td>174</td><td>Delegate</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_commit_burn_enabled</code>, <code>_min</code>, <code>_max</code>, <code>_half_life</code>, <code>_increase_mult</code></td><td>123–127</td><td>Root, or subnet owner under its existing rules</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_basket_trade_max_slippage_bps</code>, <code>_refill_blocks</code>, <code>_price_reference</code></td><td>128–130</td><td>Root</td></tr>
-              <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
-            </tbody>
-          </table>
+          <div className={layout.table_scroller}>
+            <table className={styles.metrics_table}>
+              <thead>
+                <tr><th>Pallet</th><th>Call</th><th>Index</th><th>Signer</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Commitments</td><td><code>set_commitment_to</code></td><td>3</td><td>Coldkey</td></tr>
+                <tr><td>SubtensorModule</td><td><code>set_mech_weight_delegate</code></td><td>170</td><td>Validator hotkey</td></tr>
+                <tr><td>SubtensorModule</td><td><code>set_mechanism_weights_for</code></td><td>171</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>commit_mechanism_weights_for</code></td><td>172</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>reveal_mechanism_weights_for</code></td><td>173</td><td>Delegate</td></tr>
+                <tr><td>SubtensorModule</td><td><code>commit_timelocked_mechanism_weights_for</code></td><td>174</td><td>Delegate</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_commit_burn_enabled</code>, <code>_min</code>, <code>_max</code>, <code>_half_life</code>, <code>_increase_mult</code></td><td>123–127</td><td>Root, or subnet owner under its existing rules</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_basket_trade_max_slippage_bps</code>, <code>_refill_blocks</code>, <code>_price_reference</code></td><td>128–130</td><td>Root</td></tr>
+                <tr><td>AdminUtils</td><td><code>sudo_set_subnet_emission_weights_rate_limit</code></td><td>131</td><td>Root</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className={styles.section} id='commit-burns'>
@@ -132,16 +135,15 @@ async with bt.Client(network="finney") as client:
         "max_burn": 250_000_000,
     })
     # Call index 3; info uses the runtime's length-tagged Data variants.
-    result = await client.submit_call(raw, wallet, allow_raw_calls=True)
+    # A client with a policy needs bt.Policy(allow_raw_calls=True) for raw calls.
+    result = await client.submit_call(raw, wallet)
 
     # Root configuration: wrap AdminUtils 123 in Sudo.sudo.
     inner = await client.compose(bt.calls.Call(
         "AdminUtils", "sudo_set_commit_burn_enabled",
         {"netuid": 1, "mecid": 1, "channel": 7, "enabled": True},
     ))
-    result = await client.submit_call(
-        bt.calls.Sudo.sudo(call=inner), sudo_wallet, allow_raw_calls=True,
-    )`} />
+    result = await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)`} />
           <p>
             For timelocked payloads, use <code>--reveal-round</code> or the intent&apos;s{' '}
             <code>reveal_round</code>; the chain reveals at the supplied future drand round. Raw
@@ -214,13 +216,13 @@ raw = bt.calls.Call("SubtensorModule", "set_mechanism_weights_for", {
     "weights": [65_535, 39_321, 26_214],
     "version_key": 0,
 })
-await client.submit_call(raw, operator_wallet, signer="hotkey", allow_raw_calls=True)
+await client.submit_call(raw, operator_wallet, signer="hotkey")
 
 # Raw delegate grant, index 170. Pass None for delegate to revoke.
 raw = bt.calls.Call("SubtensorModule", "set_mech_weight_delegate", {
     "netuid": 1, "mecid": 1, "delegate": operator_hotkey,
 })
-await client.submit_call(raw, validator_wallet, signer="hotkey", allow_raw_calls=True)
+await client.submit_call(raw, validator_wallet, signer="hotkey")
 
 # Legacy delegated commit/reveal: indices 172 and 173.
 commit = bt.calls.Call("SubtensorModule", "commit_mechanism_weights_for", {
@@ -271,23 +273,19 @@ btcli call AdminUtils.sudo_set_basket_trade_price_reference \\
 inner = await client.compose(bt.calls.Call(
     "AdminUtils", "sudo_set_basket_trade_max_slippage_bps", {"bps": 500},
 ))
-await client.submit_call(
-    bt.calls.Sudo.sudo(call=inner), sudo_wallet, allow_raw_calls=True,
-)
+await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)
 
 # Index 130: choose the reference explicitly; StrictestEmaAndSpot is the default.
 inner = await client.compose(bt.calls.Call(
     "AdminUtils", "sudo_set_basket_trade_price_reference",
     {"reference": "SpotOnly"},
 ))
-await client.submit_call(
-    bt.calls.Sudo.sudo(call=inner), sudo_wallet, allow_raw_calls=True,
-)
+await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)
 
 # Read the new storage through current generated metadata.
-band = await client.query("SubtensorModule", "BasketTradeMaxSlippageBps")
-reference = await client.query("SubtensorModule", "BasketTradePriceReferenceMode")
-refill = await client.query("SubtensorModule", "BasketTradeRefillBlocks")`} />
+band = await client.query(bt.storage.SubtensorModule.BasketTradeMaxSlippageBps)
+reference = await client.query(bt.storage.SubtensorModule.BasketTradePriceReferenceMode)
+refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`} />
           <h3>Planned post-merge sudo calls</h3>
           <p>
             These are proposed governance actions, not defaults and not actions performed by the
@@ -329,13 +327,9 @@ inner = await client.compose(bt.calls.Call(
     "AdminUtils", "sudo_set_subnet_emission_weights_rate_limit",
     {"rate_limit": 360},
 ))
-await client.submit_call(
-    bt.calls.Sudo.sudo(call=inner), sudo_wallet, allow_raw_calls=True,
-)
+await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)
 
-interval = await client.query(
-    "SubtensorModule", "SubnetEmissionWeightsRateLimit",
-)
+interval = await client.query(bt.storage.SubtensorModule.SubnetEmissionWeightsRateLimit)
 assert interval == 360`} />
           <p>
             Subnet owners should update owner tooling to read the configured interval rather than

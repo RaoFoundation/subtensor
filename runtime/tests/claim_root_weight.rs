@@ -118,12 +118,35 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
 #[test]
 fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     new_test_ext().execute_with(|| {
+        let extension =
+            pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension();
         let hotkey = AccountId::new([1u8; 32]);
-        let call =
-            RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey { hotkey });
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey {
+            hotkey: hotkey.clone(),
+        });
+        // The declaration is sized from the validator's fund. This validator has no fund,
+        // so the call declares the smallest envelope.
         assert_eq!(
             call.get_dispatch_info().call_weight,
-            expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_HOTKEY_WORK)
+            pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_min_declared_weight()
+                .saturating_add(extension)
+        );
+        assert_call_fits_normal_limit(call.clone());
+
+        // The worst case must fit too. A fund above the admission ceiling
+        // (`MAX_ROOT_CLAIM_HOTKEY_WORK` claim units) declares the largest envelope: here
+        // one queued dividend credit for each claim unit, on subnets the fund does not hold.
+        for netuid in 1..=pallet_subtensor::MAX_ROOT_CLAIM_HOTKEY_WORK as u16 {
+            pallet_subtensor::PendingBasketDeposits::<Runtime>::insert(
+                &hotkey,
+                NetUid::from(netuid),
+                subtensor_runtime_common::AlphaBalance::from(1),
+            );
+        }
+        assert_eq!(
+            call.get_dispatch_info().call_weight,
+            pallet_subtensor::Pallet::<Runtime>::root_claim_hotkey_declared_weight()
+                .saturating_add(extension)
         );
         assert_call_fits_normal_limit(call);
     });

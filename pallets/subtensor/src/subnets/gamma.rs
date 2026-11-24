@@ -274,7 +274,9 @@ impl<T: Config> Pallet<T> {
     /// Sells the alpha allotted to the subnet's share of `target`, within the sale floor, the
     /// swap input limit and as much as the target's pool takes within the purchase ceiling, buys
     /// and burns the target's alpha with all of the TAO and credits the gamma to the subnet
-    /// owner's deposit at the subnet owner hotkey on the target, which opens with a cap of 0.
+    /// owner's deposit at the subnet owner hotkey on the target. A deposit that this opens has
+    /// no daily spend cap, so the hotkey can spend the gamma at once. An existing deposit keeps
+    /// its cap, a pause included.
     pub(crate) fn mint_gamma_emission_share(netuid: NetUid, target: NetUid) -> DispatchResult {
         let unconverted = UnconvertedGammaEmission::<T>::get(netuid, target);
         if unconverted.is_zero() {
@@ -302,11 +304,8 @@ impl<T: Config> Pallet<T> {
         let (tao, alpha) = Self::buy_and_burn_alpha(target, &account, sale.amount_paid_out)?;
         ensure!(tao == sale.amount_paid_out, Error::<T>::SlippageTooHigh);
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
-        // Opens paused: the hotkey spends only once the owner coldkey sets a cap.
-        let cap = GammaDeposits::<T>::get(target, &hotkey)
-            .as_ref()
-            .map_or(Some(GammaBalance::ZERO), Self::gamma_cap);
-        Self::credit_gamma(target, &coldkey, &hotkey, gamma, cap)?;
+        // Names no cap: a new deposit opens without one, and an existing deposit keeps its own.
+        Self::credit_gamma(target, &coldkey, &hotkey, gamma, None)?;
         let rest = unconverted.saturating_sub(alpha_sold);
         if rest.is_zero() {
             UnconvertedGammaEmission::<T>::remove(netuid, target);

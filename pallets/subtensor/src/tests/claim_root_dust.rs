@@ -727,7 +727,9 @@ fn small_claimant_on_a_wide_fund_sells_only_the_rows_that_carry_value() {
 }
 
 /// (5) The declared weight is the same envelope as before: the floors change what a claim
-/// does, not what it reserves. Both calls declare their fixed envelopes regardless of state.
+/// does, not what it reserves. The coldkey-wide call declares its fixed envelope. The
+/// single-hotkey call declares the weight of the validator's fund, and never less than its
+/// smallest declaration.
 #[test]
 fn declared_weight_is_the_unchanged_envelope() {
     new_test_ext(1).execute_with(|| {
@@ -741,14 +743,15 @@ fn declared_weight_is_the_unchanged_envelope() {
         let extension = <Test as crate::Config>::WeightInfo::check_coldkey_swap_extension();
         assert_eq!(
             single,
-            SubtensorModule::root_claim_hotkey_declared_weight().saturating_add(extension)
+            SubtensorModule::root_claim_hotkey_declared_weight_for(&hotkey)
+                .saturating_add(extension)
         );
         assert_eq!(
             wide,
             SubtensorModule::root_claim_declared_weight().saturating_add(extension)
         );
 
-        // Neither a fund's state nor the floors move the declaration.
+        // A two-row fund is below the smallest declaration, and the floors do not move it.
         let fund = setup_fund(&[5 * TAO, TAO / 2], &[1, 1]);
         assert_eq!(
             claim_call(fund.hotkey).get_dispatch_info().call_weight,

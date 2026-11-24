@@ -16,8 +16,9 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
 
         // --- 3. Reveal matured weights.
         Self::reveal_crv3_commits();
-        // --- 4. Run emission through network.
-        Self::run_coinbase(block_emission);
+        // --- 4. Run emission through network. A Null epoch reports its own weight,
+        // which depends on the subnet's mechanism and UID counts.
+        let null_epoch_weight = Self::run_coinbase_weighing_null_epochs(block_emission);
         // --- 4b. Flush queued root-dividend basket deposits: one hotkey per block,
         // round-robin. Runs right after coinbase (and before the price EMA update) so a
         // flush lands where the epoch-inline deposits used to happen.
@@ -37,8 +38,8 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             Self::populate_root_coldkey_staking_maps_v2();
         }
 
-        // Return ok.
-        Ok(basket_flush_weight)
+        // Return the weight that the fixed block-step envelope does not include.
+        Ok(basket_flush_weight.saturating_add(null_epoch_weight))
     }
 
     fn try_set_pending_children(block_number: u64) {

@@ -166,12 +166,17 @@ class SetMechanismCount(Intent):
 
     Mechanisms are independent incentive sub-markets within one subnet, each
     running its own weights and consensus; this owner-only call sets how many
-    the subnet runs. The count must be greater than zero, and the chain caps
-    how many mechanisms a subnet may have. Increasing the count opens new
+    the subnet runs. The count must be greater than zero and at most the
+    chain's ``MaxMechanismCount``, which defaults to 2; root can raise it to
+    the hard maximum of 16. On a Yuma subnet, ``max_allowed_uids`` times the
+    count must stay at most 256. On a Null subnet the UID capacity (up to
+    2500) does not depend on the count, but each weight row is then capped at
+    ``max(1, 2500 // count)`` entries, and the count cannot change while
+    weight commits are pending. Increasing the count opens new
     mechanisms; decreasing it removes the highest-numbered ones and the
     miner state in them. Any change to the count clears the emission split
-    back to an even division. Rate-limited and blocked during the
-    end-of-epoch admin freeze window.
+    back to an even division. Rate-limited to one owner change per 7200
+    blocks and blocked during the end-of-epoch admin freeze window.
     """
 
     op = "set_mechanism_count"

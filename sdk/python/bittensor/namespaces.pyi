@@ -11,7 +11,7 @@ from typing import Any, Optional
 from .balance import Balance
 from .metagraph import Metagraph, NeuronCommitment
 from .reads.delegation import DelegateInfo, DelegatedStake
-from .reads.identity import Commitment
+from .reads.identity import ChannelCommitment, Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
@@ -255,7 +255,9 @@ class Gamma(_ReadNamespace):
     async def gamma_spent(self, netuid: int, service_hotkey_ss58: str, hotkey_ss58: str, *, block: Optional[int] = None) -> str:
         """The gamma a hotkey has spent at a service on a subnet, as an exact decimal string.
 
-        It only grows, until the subnet is dissolved, which clears it.
+        It only grows, until the subnet is dissolved, which clears it. A service crediting spends
+        reads it at a finalized block:
+        `(await client.at(await client.finalized_block())).gamma.gamma_spent(...)`.
         """
 
     async def quote_mint_gamma(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> dict:
@@ -311,12 +313,13 @@ class Hyperparameters(_ReadNamespace):
 class Identity(_ReadNamespace):
     """On-chain identities and commitments."""
 
-    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[Commitment]:
+    async def channel_commitment(self, netuid: int, mechid: int = 0, channel: int = 0, hotkey_ss58: Optional[str] = None, *, block: Optional[int] = None) -> Optional[ChannelCommitment]:
         """One hotkey's independent channel commitment, or None when absent.
 
         Reads the v2 runtime API and decodes the returned SCALE registration. On a
         node without v2, reads the equivalent channel storage instead; both paths
-        distinguish this target from the legacy `commitment` read.
+        distinguish this target from the legacy `commitment` read. The `revealed`
+        list reports plaintext and reveal blocks even after the active record is removed.
         """
 
     async def commit_burn(self, netuid: int, mechid: int = 0, channel: int = 0, *, block: Optional[int] = None) -> Optional[dict]:

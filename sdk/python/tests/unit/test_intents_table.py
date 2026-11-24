@@ -1034,6 +1034,39 @@ class TestRootClaimOnUnstake:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("intent", _claiming_unstake_intents())
+    async def test_embedded_claim_uses_the_admission_limit_of_runtime_495(
+        self, substrate: FakeSubstrate, wallet, intent
+    ):
+        substrate.runtime_spec_version = 495
+        substrate.seed("System", "Account", [ALICE], {"data": {"free": 10**12}})
+        substrate.seed_map("SubtensorModule", "NetworksAdded", [(0, True)])
+        substrate.seed_runtime("BetaBasketRuntimeApi", "get_basket_payout", 1_000_000)
+        # 257 basket holdings and the validator are 258 claim units: the limit of runtime
+        # 495 admits them. The limit of runtime 494 (130 units) does not.
+        substrate.seed_runtime(
+            "BetaBasketRuntimeApi",
+            "get_validator_basket",
+            [(netuid, 1) for netuid in range(257)],
+        )
+
+        client = Client("local", substrate=substrate)
+        plan = await client.plan(intent, wallet)
+        assert not any("admission limit" in block for block in plan.violations)
+
+        substrate.seed_runtime(
+            "BetaBasketRuntimeApi",
+            "get_validator_basket",
+            [(netuid, 1) for netuid in range(258)],
+        )
+        plan = await client.plan(intent, wallet)
+        assert any("258 basket holdings" in block for block in plan.violations)
+
+        with pytest.raises(PolicyError, match="258-unit admission limit"):
+            await client.submit_shielded(intent, wallet)
+        assert not substrate.submissions
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("intent", _claiming_unstake_intents())
     async def test_claim_then_unstake_refuses_active_root_hold(
         self, substrate: FakeSubstrate, wallet, intent
     ):

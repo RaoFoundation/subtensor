@@ -144,6 +144,31 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Row capacity for a Null mechanism, sharing the existing full-row budget
+    /// across the current mechanism count. At one mechanism this is exactly
+    /// `TOTAL_NULL_WEIGHT_BUDGET`, so the existing UID-count check is unchanged.
+    pub fn max_null_weights_per_row(netuid: NetUid) -> u16 {
+        crate::subnets::mechanism::TOTAL_NULL_WEIGHT_BUDGET
+            .checked_div(u16::from(u8::from(Self::get_current_mechanism_count(
+                netuid,
+            ))))
+            .unwrap_or(0)
+            .max(1)
+    }
+
+    pub(crate) fn ensure_null_weight_row_limit(
+        netuid: NetUid,
+        row_len: usize,
+    ) -> Result<(), Error<T>> {
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            ensure!(
+                row_len <= usize::from(Self::max_null_weights_per_row(netuid)),
+                Error::<T>::TooManyWeightsForNullMechanism
+            );
+        }
+        Ok(())
+    }
+
     /// Keep the released Yuma cost path, reserving a separate envelope for Null.
     pub fn timelock_weight_for_mode(netuid: NetUid, yuma: Weight, null: Weight) -> Weight {
         let weight = if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
@@ -1133,7 +1158,11 @@ impl<T: Config> Pallet<T> {
             Error::<T>::UidsLengthExceedUidsInSubNet
         );
 
-        // --- 5. Check to see if the hotkey is registered to the passed network.
+        // --- 5. Null mechanisms share the existing full-row budget. Keep this
+        // before all per-entry validation so oversized reveals fail cleanly.
+        Self::ensure_null_weight_row_limit(netuid, uids.len())?;
+
+        // --- 6. Check to see if the hotkey is registered to the passed network.
         ensure!(
             Self::is_hotkey_registered_on_network(netuid, &hotkey),
             Error::<T>::HotKeyNotRegisteredInSubNet
@@ -1512,7 +1541,12 @@ impl<T: Config> Pallet<T> {
     /// Returns True if the uids and weights are have a valid length for uid on network.
     pub fn check_length(netuid: NetUid, uid: u16, uids: &[u16], weights: &[u16]) -> bool {
         let subnet_n: usize = Self::get_subnetwork_n(netuid) as usize;
-        let min_allowed_length: usize = Self::get_min_allowed_weights(netuid) as usize;
+        let mut min_allowed_length: usize = Self::get_min_allowed_weights(netuid) as usize;
+        // Preserve a feasible minimum when a Null mechanism-count change reduces the row cap.
+        if Self::get_epoch_consensus(netuid) == EpochConsensus::Null {
+            min_allowed_length =
+                min_allowed_length.min(usize::from(Self::max_null_weights_per_row(netuid)));
+        }
         let min_allowed: usize = {
             if subnet_n < min_allowed_length {
                 subnet_n

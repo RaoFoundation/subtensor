@@ -13,7 +13,6 @@ from ._money import UNBOUNDED, Spend
 from ._root_claim_fee import (
     quote_root_claim_fee,
     root_claim_admission,
-    root_claim_declared_work,
     root_claim_reserve,
 )
 from .base import Intent, IntentPreflight
@@ -329,7 +328,6 @@ class _RootClaimIntent(Intent):
         call: Any = None,
     ) -> IntentPreflight:
         hotkeys = self._claim_hotkeys()
-        declared_work = root_claim_declared_work(hotkeys)
         try:
             admission = await root_claim_admission(
                 substrate,
@@ -363,7 +361,7 @@ class _RootClaimIntent(Intent):
                 fee_payer,
                 compose=compose,
                 call=call,
-                declared_work=declared_work,
+                declared_work=admission.limit,
             )
         except Exception as error:
             return IntentPreflight(
@@ -504,13 +502,16 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     actually done: holdings redeemed pay full weight, holdings merely scanned
     (including skipped dust rows) pay a small per-row cost, and a claim that
     is admitted and then fails pays for the work it did rather than the
-    declared envelope. The chain
-    reserves a fixed 256-unit declared-work envelope
-    plus a flat allowance for settling the validator's queued dividend credits
-    first (the same allowance every basket call that flushes declares), counts
-    only root-relevant hotkeys and their basket rows for admission, and
-    separately caps classification of the staking-hotkey vector at 256. It
-    refunds the unused part after.
+    declared envelope. Since runtime 495 the chain
+    reserves weight for this validator's own fund: its stored basket rows and
+    its queued dividend credits, up to a fund of 258 claim units (256 subnets,
+    the root cash slot and the validator). It refunds the unused part after.
+    A runtime before 495 admits a fund of 130 claim units; the check before
+    signing uses the limit of the connected runtime.
+    A larger fund is refused with ``RootClaimTooHeavy``. So is a claim that
+    follows, in the same transaction (a batch, for example), a ``swap_basket``
+    buy or a hotkey swap that gave the fund a new row: send that claim in a
+    later transaction.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,
     warn when the spent fee exceeds accrued yield, and refuse when free
     TAO cannot cover the reserve.

@@ -47,6 +47,15 @@ jobs:
           python3 .github/scripts/test_audit_feature_exclusions.py
           python3 .github/scripts/check-audit-feature-exclusions.py
 
+      - name: Test bounded DNS decoder allocation
+        # Compile the unchanged vendored regression sources through tiny workspace
+        # harnesses. All dependencies and executable build scripts/proc macros are
+        # pinned by the root Cargo.lock and covered by the cargo audit step below;
+        # do not resolve separate standalone dependency graphs for these tests.
+        run: |
+          cargo test --locked -p hickory-0244-allocation --test allocation_limit
+          cargo test --locked -p hickory-0252-allocation --test allocation_limit
+
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
         # polkadot-sdk since most originate in the patched fork's tree.
@@ -55,7 +64,61 @@ jobs:
           #   the polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
           # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
           #   libp2p networking stack.
-          # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
+          # RUSTSEC-2026-0118: DNSSEC-only NSEC3 loop. The all-feature/all-target
+          #   graph check rejects every `dnssec*` feature, including backend-specific
+          #   ring/aws-lc-rs features; neither networking backend validates DNSSEC.
+          # RUSTSEC-2026-0119: accepted residual CPU-DoS risk in DNS message encoding
+          #   for both litep2p (default) and opt-in libp2p. This is not unreachable:
+          #   hostname resolution and message construction use Hickory. The default
+          #   litep2p backend and Noise-authenticated libp2p peers reduce network
+          #   exposure but do not protect DNS codec operations; keep host resource
+          #   limits and use trusted DNS infrastructure. No compatible fixed release
+          #   exists below 0.26.1; updating requires the pinned SDK networking stack.
+          # hickory-proto 0.24.4 and 0.25.2 are vendored under vendor/hickory-dns
+          #   and resolved as path dependencies through [patch.crates-io].
+          #   cargo audit matches only crates.io packages, so it CANNOT SEE them:
+          #   it reports no hickory-proto advisory, known or future. Track new
+          #   advisories for these two versions by hand until the SDK networking
+          #   stack moves to Hickory >=0.26.2. hickory-resolver 0.24.4/0.25.2
+          #   still come from crates.io and stay visible (see 0514 below).
+          #   The RUSTSEC-2026-0118/0119 flags match nothing for the same reason;
+          #   the two notes above still describe the vendored code.
+          #   Reviewed for the vendored copies; no flag, because none can match:
+          #   - RUSTSEC-2026-0487/0489/0490: zone-file/text parsing panics. The
+          #     parser is behind the `text-parsing` feature, which is off; wire
+          #     decoding does not use it.
+          #   - RUSTSEC-2026-0491: fixed in both vendored copies with upstream
+          #     280c0e5c, bounding initial capacity to eight entries per DNS
+          #     message section. The allocation_limit.rs test exercises forged
+          #     u16::MAX counts through the real decoder for both versions in
+          #     this workflow. The support/hickory-*-allocation harnesses
+          #     compile these sources using only dependencies in this audited
+          #     root lockfile. This is a backport, not a claim that DNS decoding
+          #     was unreachable.
+          #   - RUSTSEC-2026-0504/0505/0511/0512/0530/0531/0532/0549/0550/0551:
+          #     DNSSEC validation issues, not compiled with every `dnssec*`
+          #     feature disabled in both backends.
+          #   The feature-exclusion check pins the exact reviewed Hickory
+          #   versions and feature sets; any addition/removal, including
+          #   backend-specific DNSSEC, requires a fresh risk review.
+          # RUSTSEC-2026-0514: hickory-resolver 0.24.4 (libp2p-dns) and 0.25.2
+          #   (litep2p) returned records that failed DNSSEC validation. Neither
+          #   resolver is built with a `dnssec*` feature, so no validation runs.
+          #   Fixed only in >=0.26.2, which needs the SDK networking stack.
+          # RUSTSEC-2026-0525: libp2p-quic 0.11.1. QUIC is not enabled in the
+          #   node build; same lockfile-only class as the rustls-webpki 0.101
+          #   ignore. The feature-exclusion check fails if libp2p's QUIC feature
+          #   or a QUIC crate appears. The fix is >=0.13.1, but libp2p 0.54.1
+          #   requires ^0.11.1, so it needs the next SDK networking bump.
+          # RUSTSEC-2026-0566/0569/0571: wasmtime 8.0.1, same sc-executor pin as
+          #   the other wasmtime ignores. 0566 is in wasmtime-wasi and 0571 in
+          #   wasmtime-wasi-http: neither crate is in Cargo.lock, and the node
+          #   never exposes WASI filesystem/http to runtime Wasm. 0569 names
+          #   `Caller::get_module_export`, which 8.0.1 does not have; its
+          #   `Caller::get_export` returns None without a calling instance, and
+          #   sc-executor-wasmtime does not call it. The feature-exclusion check
+          #   fails if WASI support or host features beyond the reviewed
+          #   core-Wasm graph appear. Fixed only in >=36.0.21 (SDK bump).
           # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
           # RUSTSEC-2025-0137 / RUSTSEC-2026-0220: ruint via the frontier/EVM
           #   fork tree; 0220 needs >=1.20.0, pinned below that by frontier.
@@ -97,6 +160,12 @@ jobs:
           #   requires moving Frontier off sqlx 0.8.6; revisit with that bump.
           # RUSTSEC-2026-0418 (libz-sys build-script env leak) was resolved by
           #   bumping libz-sys 1.1.22 → 1.1.32 in Cargo.lock (no ignore).
+          # RUSTSEC-2026-0544 (libz-sys heap buffer overflow) resolved by
+          #   bumping libz-sys 1.1.32 → 1.1.33 in Cargo.lock (no ignore).
+          # RUSTSEC-2026-0523/0524 (quinn-proto) and RUSTSEC-2026-0538
+          #   (quinn-udp) resolved by bumping quinn-proto 0.11.18 → 0.11.19 and
+          #   quinn-udp 0.5.14 → 0.5.16 in Cargo.lock (no ignore). Both crates
+          #   are lockfile-only, like libp2p-quic.
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \
                       --ignore RUSTSEC-2025-0009 \
@@ -134,4 +203,9 @@ jobs:
                       --ignore RUSTSEC-2026-0387 \
                       --ignore RUSTSEC-2026-0403 \
                       --ignore RUSTSEC-2026-0424 \
-                      --ignore RUSTSEC-2026-0459
+                      --ignore RUSTSEC-2026-0459 \
+                      --ignore RUSTSEC-2026-0514 \
+                      --ignore RUSTSEC-2026-0525 \
+                      --ignore RUSTSEC-2026-0566 \
+                      --ignore RUSTSEC-2026-0569 \
+                      --ignore RUSTSEC-2026-0571

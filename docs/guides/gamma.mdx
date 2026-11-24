@@ -159,6 +159,51 @@ deposit never opens without it. A deposit that already has another cap fails
 the mint with
 [`GammaDepositDailySpendCapMismatch`](/docs/errors/chain/GammaDepositDailySpendCapMismatch).
 
+### Deposits that gamma emission opens
+
+[Gamma emission](/docs/concepts/emission-weights#gamma-shares) credits a subnet
+owner's deposit at the subnet owner hotkey on the target subnet. From runtime
+495, a deposit that gamma emission opens has **no cap**: the owner hotkey can
+spend the gamma at once. Before runtime 495 such a deposit opened with a cap of
+0, and the owner coldkey had to set a cap first.
+
+An existing deposit keeps its cap. A deposit that is paused today stays paused
+until its coldkey sets or removes the cap. No migration changes it.
+
+Only this case changes. A deposit that you open with a mint has the cap that the
+mint names, or no cap when the mint names none, as before.
+
+```bash
+# The owner coldkey limits the owner hotkey to 20 gamma a day, pauses it, or removes the cap.
+btcli gamma set-cap --netuid 3 --hotkey OWNER_HOTKEY --daily-spend-cap-gamma 20
+btcli gamma set-cap --netuid 3 --hotkey OWNER_HOTKEY --daily-spend-cap-gamma 0
+btcli gamma set-cap --netuid 3 --hotkey OWNER_HOTKEY --remove-cap
+```
+
+To have a cap from the first credit, open the deposit before the first emission
+arrives. Sign with the owner coldkey and mint a small amount to the owner hotkey
+on the target subnet, with the cap that you want. Later credits keep that cap.
+
+```bash
+btcli gamma mint --netuid 3 --hotkey OWNER_HOTKEY --amount-tao 1 --daily-spend-cap-gamma 0
+```
+
+The cap belongs to the deposit, not to the hotkey. The chain removes a deposit
+when its coldkey closes it, moves its whole balance to another hotkey, or swaps
+its hotkey while it holds gamma. If gamma emission credits the same hotkey after
+that, it opens a new deposit **without a cap**. Before runtime 495 that deposit
+opened paused. To keep a cap or a pause on the owner hotkey, do not close its
+deposit and do not move its whole balance out.
+
+Gamma emission credits the owner hotkey of the subnet that pays the share. A
+hotkey swap on the target subnet only moves the deposit to the new hotkey, but
+the paying subnet keeps the old owner hotkey. Later credits then open a new
+deposit at the old hotkey, without a cap. To replace an owner hotkey, swap it on
+the paying subnet too, or on all subnets.
+
+Use an owner hotkey that you can protect. Without a cap, a person who controls
+that hotkey can spend all the gamma in its deposit.
+
 ## Spending
 
 The hotkey spends its deposit at a service the subnet lists with

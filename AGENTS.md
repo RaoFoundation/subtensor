@@ -186,7 +186,9 @@ requires.
 ## Null release exception (2026-10-01)
 
 For PR #3206, the owner explicitly chose a shared Null capacity of 2,500 UIDs
-(divided by emission mechanism count) and accepted Skeptic as the sole allowed
+(divided by emission mechanism count; subsequently changed to 2,500 UIDs per
+mechanism, with a total weight-row budget of 2,500 divided by mechanism count)
+and accepted Skeptic as the sole allowed
 non-green review check. Keep its result and findings visible; do not suppress
 the check or describe it as passed. All other CI checks and the mandatory local
 preflight/pre-push gate must pass. Further reward-accounting optimizations are

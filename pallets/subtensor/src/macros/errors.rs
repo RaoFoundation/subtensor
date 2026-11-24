@@ -362,9 +362,11 @@ mod errors {
         /// accumulate in place and composition changes only through `swap_basket`.
         RootWeightSettingDisabled,
         /// A root claim would process more root hotkeys and basket rows than the
-        /// fixed admission envelope. Use
+        /// admission envelope. Use
         /// `claim_root_with_hotkey` per validator so admission weight matches
-        /// the holdings actually walked.
+        /// the holdings actually walked. A `claim_root_with_hotkey` also fails with this
+        /// error when a `swap_basket` buy or a hotkey swap gave the same fund a new row
+        /// earlier in the same transaction; send the claim in a later transaction.
         RootClaimTooHeavy,
         /// Retired (kept for SCALE index stability on the 463 testnet/devnet runtime):
         /// `set_root_weights` concentration cap. The live guard is
@@ -505,5 +507,7 @@ mod errors {
         ServiceDoesNotExist,
         /// The signer is not the validator's delegate for this exact mechanism.
         NotMechWeightDelegate,
+        /// A Null weight row exceeds the total row budget divided by mechanism count.
+        TooManyWeightsForNullMechanism,
     }
 }
