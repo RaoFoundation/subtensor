@@ -475,36 +475,24 @@ fn dissolve_two_stakers_pro_rata_distribution() {
         let s2_before = SubtensorModule::get_coldkey_balance(&s2_cold);
         let owner_before = SubtensorModule::get_coldkey_balance(&oc);
 
-        // Expected τ shares with largest remainder
-        let total = (a1 + a2) as u128;
-        let prod1 = (a1 as u128) * (pot as u128);
-        let prod2 = (a2 as u128) * (pot as u128);
-        let share1 = (prod1 / total) as u64;
-        let share2 = (prod2 / total) as u64;
-        let mut distributed = share1 + share2;
-        let mut rem = [(s1_cold, prod1 % total), (s2_cold, prod2 % total)];
-        if distributed < pot {
-            rem.sort_by_key(|&(_c, r)| core::cmp::Reverse(r));
-            let leftover = pot - distributed;
-            for _ in 0..leftover as usize {
-                distributed += 1;
-            }
-        }
-        // Recompute exact expected shares using the same logic
-        let mut expected1 = share1;
-        let mut expected2 = share2;
-        if share1 + share2 < pot {
-            rem.sort_by_key(|&(_c, r)| core::cmp::Reverse(r));
-            if rem[0].0 == s1_cold {
-                expected1 += 1;
-            } else {
-                expected2 += 1;
-            }
-        }
-
         // Dissolve
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
+
+        let rate_tao =
+            |alpha: u64| -> u64 {
+                (U64F64::saturating_from_num(alpha)
+                    .saturating_mul(rate))
+                .floor()
+                .saturating_to_num::<u64>()
+            };
+        let expected1 = rate_tao(a1);
+        let expected2 = rate_tao(a2);
 
         // Cold-keys received their τ shares
         assert_eq!(

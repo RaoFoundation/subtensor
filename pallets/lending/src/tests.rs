@@ -1762,3 +1762,160 @@ fn uncollected_interest_is_tracked_when_collateral_dries() {
         );
     });
 }
+
+// ---- solvency, issuance reconciliation, try_state coverage -----------------
+
+/// I8: random books still satisfy pot ≥ payouts and `q × r` coverage bounds.
+#[test]
+fn random_state_solvency_property_i8() {
+    use substrate_fixed::types::U64F64;
+
+    new_test_ext().execute_with(|| {
+        for who in 1u8..=4 {
+            let mint = MINT + u64::from(who) * 37;
+            let coll = COLLATERAL + u64::from(who) * 100;
+            assert_ok!(open(who, mint, coll));
+        }
+        assert_ok!(close(2, MINT / 3));
+        {
+            for (_, _, pos) in Positions::<Test>::iter() {
+                let rate = Lending::dissolution_rate(netuid());
+                let owed = Lending::dissolution_owed(&pos, rate);
+                assert!(
+                    owed <= pos.funds(),
+                    "I8: owed {owed} exceeds funds {}",
+                    pos.funds()
+                );
+                if pos.zone_minted > 0 {
+                    assert!(
+                        owed >= pos.zone_proceeds,
+                        "zone settles at proceeds"
+                    );
+                }
+                let older = pos.minted.saturating_sub(pos.zone_minted);
+                let qr = (U64F64::saturating_from_num(older)
+                    .saturating_mul(rate))
+                .ceil()
+                .saturating_to_num::<u64>()
+                    + pos.zone_proceeds;
+                assert!(
+                    qr <= pos.collateral.saturating_add(pos.proceeds),
+                    "q×r ≤ C+P"
+                );
+            }
+            let synthetic = SyntheticOutstanding::<Test>::get(netuid());
+            let residual = ResidualAlpha::<Test>::get(netuid());
+            assert_eq!(
+                issuance(),
+                base_issuance() + synthetic + residual,
+                "I2: issuance reconciliation"
+            );
+            assert_ok!(Lending::start_dissolution(netuid()));
+            let rate = Lending::dissolution_rate(netuid());
+            let mut owed_sum = 0u64;
+            for (_, _, pos) in Positions::<Test>::iter() {
+                owed_sum = owed_sum.saturating_add(Lending::dissolution_owed(&pos, rate));
+            }
+            let reserve = ResidualReserve::<Test>::get(netuid());
+            assert!(
+                owed_sum.saturating_add(reserve) <=
+                    Positions::<Test>::iter()
+                        .map(|(_, _, p)| p.funds())
+                        .sum::<u64>()
+                        .saturating_add(reserve),
+                "I8: pot can fund payouts from short funds"
+            );
+            Dissolutions::<Test>::remove(netuid());
+        }
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+/// Adapter issuance deltas match synthetic / residual outstanding through
+/// forced close, reserve retirement, and default.
+#[test]
+fn adapter_issuance_reconciliation_forced_close_retire_default() {
+    new_test_ext().execute_with(|| {
+        let track = || {
+            (
+                issuance(),
+                SyntheticOutstanding::<Test>::get(netuid()),
+                ResidualAlpha::<Test>::get(netuid()),
+                burned_alpha(),
+            )
+        };
+        let reconcile =
+            || assert_eq!(issuance(), base_issuance() + track().1 + track().2);
+
+        assert_ok!(open(1, MINT, COLLATERAL));
+        reconcile();
+
+        // User close: adapter issuance drops with burned alpha.
+        System::set_block_number(11);
+        let before = track();
+        assert_ok!(close(1, MINT / 2));
+        reconcile();
+        assert!(track().1 < before.1);
+        assert!(track().3 > before.3);
+
+        // Forced deleverage close on a second short.
+        assert_ok!(open(2, MINT, COLLATERAL));
+        let (y, x) = pool();
+        set_pool(y * 5, x);
+        seed_twap_samples(netuid(), MIN_HEALTH_TWAP_SAMPLES, spot());
+        force_deleverage(2);
+        while Positions::<Test>::contains_key(account(2), netuid()) {
+            step_block();
+        }
+        reconcile();
+        assert!(ResidualAlpha::<Test>::get(netuid()) > 0);
+
+        // Reserve retirement: adapter issuance tracks residual burn.
+        let residual = ResidualAlpha::<Test>::get(netuid());
+        ResidualReserve::<Test>::insert(netuid(), 50_000);
+        mint_tao(&Lending::reserve_account(netuid()), 50_000);
+        let burned_before = burned_alpha();
+        Lending::retire_residual(netuid(), residual, &params());
+        reconcile();
+        assert!(burned_alpha() > burned_before);
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+/// Exercise try_state paths I2, I3, I5, I7, I8, I9 in one deterministic walk.
+#[test]
+fn try_state_covers_i2_i3_i5_i7_i8_i9_invariants() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        // I7: BlockNetMinted cleared on finalize.
+        assert!(Lending::block_net_minted(netuid()) != 0);
+        Lending::on_finalize(System::block_number());
+        assert_eq!(BlockNetMinted::<Test>::iter().count(), 0);
+        check_invariants();
+
+        // I5: interest charge capped at collateral.
+        force_deleverage(1);
+        let mut meter = WeightMeter::new();
+        let _ = Lending::deleverage_step(&account(1), netuid(), &params());
+        check_invariants();
+
+        let reserve = Lending::reserve_account(netuid());
+        let cap = pool().0 * params().reserve_cap_bps as u64 / 10_000;
+        mint_tao(&reserve, cap);
+        ResidualReserve::<Test>::insert(netuid(), cap);
+        set_residual(MINT / 3);
+        check_invariants();
+
+        // I8 / I9: dissolution pot funding and reserve cap.
+        assert_ok!(Lending::start_dissolution(netuid()));
+        loop {
+            let mut m = WeightMeter::new();
+            if Lending::settle_positions_on_dissolution(netuid(), &mut m) {
+                break;
+            }
+        }
+        write(b"test/dissolved", true);
+        assert!(pot() > 0, "I8: pot receives short settlement");
+        assert_ok!(Lending::do_try_state());
+    });
+}

@@ -25,6 +25,7 @@ mod gamma;
 mod hotkey_lineage;
 mod hotkey_owner_policy;
 mod leasing;
+mod lending_dissolve;
 mod locks;
 mod math;
 mod mechanism;
