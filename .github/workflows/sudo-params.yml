@@ -1,0 +1,108 @@
+name: Sudo parameters
+
+on:
+  pull_request:
+    paths:
+      - "sudo/**"
+      - ".github/workflows/sudo-params.yml"
+  push:
+    branches: [main]
+    paths:
+      - "sudo/**"
+      - ".github/workflows/sudo-params.yml"
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Optional reviewed baseline ref for separating unrelated live drift"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sudo-params-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Offline diff and encoding tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sudo/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --prefix sudo
+      - name: Run network-free tests
+        run: npm test --prefix sudo
+
+  proposal:
+    name: Propose ${{ matrix.network }} changes (read-only)
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        network: [devnet, testnet, mainnet]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sudo/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --prefix sudo
+      - name: Read the reviewed baseline parameter file when it exists
+        if: github.event_name == 'pull_request' || inputs.base_ref != ''
+        run: |
+          base_file="$RUNNER_TEMP/${NETWORK}-base.toml"
+          if ! git show "${BASE_REF}:sudo/${NETWORK}.toml" > "$base_file" 2>/dev/null; then
+            rm -f "$base_file"
+            echo "No baseline exists yet for ${NETWORK} at ${BASE_REF}; this comparison cannot infer drift."
+          fi
+        env:
+          NETWORK: ${{ matrix.network }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || inputs.base_ref }}
+      - name: Compare reviewed values with live state and encode only
+        run: |
+          args=(--output-dir "$RUNNER_TEMP/${NETWORK}-proposal")
+          if [ -f "$RUNNER_TEMP/${NETWORK}-base.toml" ]; then
+            args+=(--base-file "$RUNNER_TEMP/${NETWORK}-base.toml")
+          fi
+          node sudo/diff.js "${NETWORK}" "${args[@]}"
+        env:
+          NETWORK: ${{ matrix.network }}
+      - name: Publish the proposal in the workflow summary
+        run: cat "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.md" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          NETWORK: ${{ matrix.network }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sudo-${{ matrix.network }}-proposal
+          path: ${{ runner.temp }}/${{ matrix.network }}-proposal/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Mainnet is proposal-only
+        if: matrix.network == 'mainnet'
+        run: |
+          echo "No mainnet apply job exists. Review the artifacts and use the existing triumvirate process." >> "$GITHUB_STEP_SUMMARY"
+      - name: Devnet/testnet apply remains disabled
+        if: matrix.network != 'mainnet'
+        run: |
+          {
+            echo "TODO: automatic parameter application is not configured."
+            echo "A separate reviewed change may introduce a secret-gated job using the existing protected network environment and deployment credential."
+            echo "This workflow has no secrets and never signs or submits an extrinsic; the apply TODO is skipped by default."
+          } >> "$GITHUB_STEP_SUMMARY"

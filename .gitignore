@@ -8,6 +8,7 @@
 !evm-tests/yarn.lock
 !website/yarn.lock
 !sdk/python/uv.lock
+!sudo/package-lock.json
 
 *.ipynb
 

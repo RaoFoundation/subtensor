@@ -1,0 +1,101 @@
+# Root parameters as code
+
+These files describe root-controlled, chain-wide configuration. They do not change runtime code. Editing a file creates a proposal; it does not apply a change by itself.
+
+- `devnet.toml`, `testnet.toml`, `mainnet.toml`: desired values, initially exported from one finalized live block per network.
+- `export.js`: reads all supported storage at one finalized block and writes fresh TOML.
+- `diff.js`: reads live storage, separates reviewed edits from unrelated drift, and writes JSON/Markdown proposals.
+- `lib/params.js`: the explicit storage-to-root-setter allowlist.
+- `networks.json`: public endpoints used for reads.
+
+The tools use Node.js and `@polkadot/api`. They have no signing key, wallet, seed, or submission path. They encode calls and calculate hashes only.
+
+## Units and values
+
+Balances are raw rao, not TAO. Fixed-point values use raw integer bits, for example:
+
+```toml
+[subnet_moving_alpha]
+setter = "AdminUtils.sudo_set_subnet_moving_alpha"
+value = { bits = "1288490" }
+```
+
+Do not substitute a decimal fraction for raw bits. Integers are quoted so 64-bit and 128-bit values do not lose precision. Enum variants are strings. An absent optional account is represented as `{ none = true }` because TOML has no null value.
+
+Each table names its exact allowed setter. The loader rejects missing, unknown, or substituted tables and setters. The `basket_claim_dust` table is one atomic four-argument call, so changing any member writes all four members shown in the file.
+
+## Scope
+
+The files cover 51 storage values: 47 single-value setters plus the four values in the basket-claim-dust group. Covered categories include delegate and childkey takes and rate limits; network registration, lock, immunity, and dissolve settings; EVM chain ID; commit-reveal version; CK burn; admin freeze and owner hyperparameter limits; flow and emission-gate settings; mechanism count; start-call and coldkey-swap delays; basket trading and claim-dust settings; hashed-account settings; epoch scheduling; moving alpha; nomination requirements; emission bars; and the TAO/USD price oracle.
+
+Excluded by design:
+
+- netuid-keyed and subnet-owner-settable hyperparameters, including tempo, adjustment intervals, registration targets, kappa/rho, and per-subnet weight rate limits;
+- global defaults that have no corresponding root-only setter;
+- `sudo_toggle_evm_precompile`, which is keyed by precompile rather than being one chain-wide scalar;
+- `sudo_set_basket_trading_frozen`, which manages an account-keyed kill-switch set;
+- operational root calls that do not represent a configuration value.
+
+Review side effects, not only storage writes. Increasing `nominator_min_required_stake_factor` can clear small nominations. Changing an emission bar clears its stored gate bar for recomputation. Changing the oracle clears the cached TAO/USD price. Basket claim dust is atomic.
+
+## Refresh and compare
+
+Install the isolated, locked dependency graph and run the network-free tests:
+
+```bash
+npm ci --ignore-scripts --prefix sudo
+npm test --prefix sudo
+```
+
+Export live values. This overwrites the selected files in the output directory, so use a temporary directory when reviewing rather than importing a new baseline:
+
+```bash
+node sudo/export.js all --output-dir /tmp/sudo-export
+node sudo/export.js mainnet --output-dir /tmp/sudo-export
+```
+
+Every readable value is recorded. Any endpoint failure, missing storage item, or decode failure is reported and produces a nonzero exit. A partial export keeps an `UNREAD LIVE VALUES` comment; it is not a valid complete desired-state file.
+
+Compare a reviewed edit with the live chain and its PR base:
+
+```bash
+git show origin/main:sudo/mainnet.toml > /tmp/mainnet-base.toml
+node sudo/diff.js mainnet \
+  --file sudo/mainnet.toml \
+  --base-file /tmp/mainnet-base.toml \
+  --output-dir /tmp/sudo-mainnet-proposal
+```
+
+Values already equal to live state are skipped. A value edited from its base is proposed. A value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. Without `--base-file`, every live/file difference is treated as proposed and no drift is inferred. The first PR that introduces a network file therefore cannot infer drift; subsequent PRs use the base-branch file.
+
+Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapped in `Sudo.sudo`. The tool resolves calls and argument types from live metadata and SCALE round-trips each setter and the complete outer call before writing call data.
+
+## CI and application
+
+`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch may name a baseline ref to distinguish unrelated drift. It runs offline tests, then performs read-only comparisons for all three networks. JSON and Markdown artifacts include the finalized-block context, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
+
+**Mainnet is proposal-only. CI never signs or submits an extrinsic.**
+
+**TODO — devnet/testnet apply is disabled by default.** This workflow does not reference a secret or contain an apply job. A future, separately reviewed change may add an explicitly secret-gated job using the existing protected `devnet` or `testnet` environment and its existing deployment credential. Runtime-release credentials are not silently repurposed here. Until then, devnet/testnet artifacts are also proposals only.
+
+## Mainnet triumvirate review
+
+A changed mainnet proposal includes `mainnet-args.json` and `mainnet-countersign.py`. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`.
+
+On a trusted signer machine, install the repository SDK and inspect the JSON and Markdown artifacts. From the artifact directory:
+
+```bash
+SUDO_WALLET=<WALLET> python3 mainnet-countersign.py mainnet-proposal.json
+```
+
+The script first recomposes the call with the SDK against live metadata, verifies the signer-set derivation, call hash, and proposed old values, then invokes the standard `btcli call Sudo.sudo --args-file ... --multisig-account-mode legacy` approval flow. It contains no keys and does not accept seed material. Each signer independently reviews the decoded calls and hash before allowing `btcli` to use their own local wallet. The first approval creates the pending multisig operation; the final required approval executes it.
+
+The runtime-upgrade `SudoUncheckedSetCode` proxy cannot apply arbitrary parameter calls. Do not reuse a proposal after a runtime upgrade or out-of-band change; regenerate and review it instead.
+
+## Emergency drift recovery
+
+1. Use the established private sudo/multisig process to make the urgent on-chain change first. Do not wait for a file PR to protect the chain.
+2. Export the resulting live value into a temporary directory and review its decoded storage and side effects.
+3. Commit the new value to the appropriate network file in a follow-up PR, recording the finalized block and reason. The PR base comparison will classify the already-applied edit as a reviewed file change while skipping its now-correct setter.
+
+This ordering handles an emergency without teaching CI to revert unrelated out-of-band changes.

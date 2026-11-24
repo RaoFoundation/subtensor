@@ -1,0 +1,11 @@
+{
+  "devnet": {
+    "endpoint": "wss://dev.chain.opentensor.ai:443"
+  },
+  "testnet": {
+    "endpoint": "wss://test.finney.opentensor.ai:443"
+  },
+  "mainnet": {
+    "endpoint": "wss://entrypoint-finney.opentensor.ai:443"
+  }
+}
