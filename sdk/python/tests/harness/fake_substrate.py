@@ -61,25 +61,21 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "GammaSpent"): 0,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
-    # CloseLoan.build resolves side/units from the stored position.
+    # CloseShort.build reads the position's minted alpha.
     ("Lending", "Positions"): {
-        "side": "Short",
         "custody": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-        "principal": 10**9,
+        "minted": 10**10,
         "collateral": 10**10,
-        "proceeds": 10**9,
-        "escrow_alpha": 0,
-        "lift_tao": 10**9,
-        "lift_alpha": 10**9,
-        "annual_interest": 10**8,
+        "proceeds": 10**10,
+        "deposit": 10**8,
+        "zone_minted": 0,
+        "zone_proceeds": 0,
+        "opened_at": 0,
         "last_accrued": 0,
         "interest_remainder": 0,
-        "due": 10**9,
-        "expires_at": 2_628_000,
-        "expiry_due": 2_628_000,
-        "terms_version": 1,
-        "interest_period": 50_400,
-        "blocks_per_year": 2_628_000,
+        "due": 360,
+        "state": "Open",
+        "terms_version": 2,
     },
 }
 
@@ -93,65 +89,51 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Lending", "InterestPeriod"): 50_400,
 }
 
-# Runtime-API results answered when the test seeds nothing. Chosen so intent
-# builds that consult chain state (e.g. the alpha price backing the default
-# slippage-protection limit) work offline.
-_LENDING_OPEN_QUOTE = {
-    "principal": 10**9,
-    "opening_value": 10**9,
-    "annual_interest": 10**8,
-    "collateral": 10**10,
-    "v_dyn": 10**10,
-    "escrow_estimate": 10**9,
-}
-
 
 def _default_stake_availability(params: list) -> dict:
-    """Generous unlocked alpha so RaiseLoan/OpenLoan long preflights pass offline."""
+    """Generous unlocked alpha so stake preflights pass offline."""
     coldkeys = params[0] if params else []
     netuids = params[1] if len(params) > 1 else []
     entry = {"total": 10**18, "locked": 0, "available": 10**18}
     return {ck: {int(n): dict(entry) for n in netuids} for ck in coldkeys}
 
 
+# Runtime-API results answered when the test seeds nothing. Chosen so intent
+# builds that consult chain state (e.g. the alpha price backing the default
+# slippage-protection limit) work offline.
 DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
     ("BetaBasketRuntimeApi", "get_validator_basket"): [],
-    # Raise/Close preflight reads stake availability; keep offline plans unblocked.
-    # Prefer lending's 1 TAO stake fixture (covers raise/close); gamma mint uses
-    # the same key with a smaller amount on main alone.
+    # Stake preflights read stake availability; keep offline plans unblocked.
     ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**18},
     ("StakeInfoRuntimeApi", "get_stake_availability_for_coldkeys"): _default_stake_availability,
-    ("LendingRuntimeApi", "quote_open"): _LENDING_OPEN_QUOTE,
-    ("LendingRuntimeApi", "quote_open_for"): _LENDING_OPEN_QUOTE,
-    ("LendingRuntimeApi", "quote_open_exact_for"): _LENDING_OPEN_QUOTE,
-    ("LendingRuntimeApi", "quote_close"): {
-        "payment": 10**9,
-        "refund": 10**9,
-        "escrow_return": 10**9,
-        "shortfall": 0,
+    ("LendingRuntimeApi", "quote_open_short"): {
+        "Ok": {
+            "proceeds": 10**10,
+            "required_collateral": 5 * 10**9,
+            "deposit": 10**8,
+            "notional": 10**10,
+            "apr_bps": 2_000,
+            "annual_interest": 2 * 10**9,
+            "in_prune_zone": False,
+        }
     },
-    ("LendingRuntimeApi", "quote_repay"): {
-        "payment": 10**9,
-        "refund": 5 * 10**8,
-        "escrow_return": 5 * 10**8,
-        "shortfall": 0,
+    ("LendingRuntimeApi", "quote_close_short"): {
+        "Ok": {"alpha": 10**10, "tao_in": 10**10, "refund": 10**10 + 10**8}
     },
-    ("LendingRuntimeApi", "quote_raise"): {
-        "principal_tao": 10**9,
-        "collateral_alpha": 10**10,
-        "escrow_alpha": 10**9,
-        "sell_alpha": 10**9,
-        "free_tao_out": 10**9,
-        "price_before": {"bits": 10**9},
-        "price_after_buy": {"bits": 10**9},
-        "price_after": {"bits": 10**9},
-        "v_dyn": 10**10,
-        "ltv_tier_bps": 2500,
-        "long_cap_headroom": 10**12,
-        "annual_interest_alpha": 10**8,
+    ("LendingRuntimeApi", "short_health"): {
+        "minted": 10**10,
+        "collateral": 10**10,
+        "proceeds": 10**10,
+        "zone_minted": 0,
+        "accrued_interest": 0,
+        "equity_twap": 10**10,
+        "coverage_cost": 15 * 10**9,
+        "day_interest": 5_479_452,
+        "deleveraging": False,
     },
+    ("LendingRuntimeApi", "current_terms_version"): 2,
     # 1 TAO buys 1 alpha worth 1 TAO, minting 400 gamma.
     ("GammaRuntimeApi", "sim_mint_gamma"): {"Ok": (10**9, 10**9, 400 * 10**9)},
     ("GammaRuntimeApi", "sim_mint_gamma_with_stake"): {"Ok": (10**9, 10**9, 400 * 10**9)},

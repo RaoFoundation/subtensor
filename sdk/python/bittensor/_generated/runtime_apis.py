@@ -111,14 +111,9 @@ class GrandpaApi:
     current_set_id = Method('GrandpaApi', 'current_set_id')
 
 class LendingRuntimeApi:
-    quote_open = Method('LendingRuntimeApi', 'quote_open')
-    quote_open_for = Method('LendingRuntimeApi', 'quote_open_for')
-    quote_open_exact_for = Method('LendingRuntimeApi', 'quote_open_exact_for')
-    quote_close = Method('LendingRuntimeApi', 'quote_close')
-    quote_repay = Method('LendingRuntimeApi', 'quote_repay')
-    quote_raise = Method('LendingRuntimeApi', 'quote_raise')
-    lending_stats = Method('LendingRuntimeApi', 'lending_stats')
-    lending_stats_global = Method('LendingRuntimeApi', 'lending_stats_global')
+    quote_open_short = Method('LendingRuntimeApi', 'quote_open_short')
+    quote_close_short = Method('LendingRuntimeApi', 'quote_close_short')
+    short_health = Method('LendingRuntimeApi', 'short_health')
     current_terms_version = Method('LendingRuntimeApi', 'current_terms_version')
 
 class Metadata:

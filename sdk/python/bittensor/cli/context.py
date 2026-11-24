@@ -911,11 +911,6 @@ class AppContext:
         if key == "valid_until" and isinstance(value, int) and int(value) >= (2**32 - 1):
             # u32::MAX sentinel — never show 4294967295 (E2E F9).
             return "no deadline"
-        if key == "repay_from_wallet" and isinstance(value, bool):
-            # Escrow path can still take a free-TAO top-up on underwater shorts (U6).
-            return (
-                "yes (wallet repay)" if value else "no (escrow path; free-TAO top-up if shortfall)"
-            )
         if isinstance(value, bool):
             return "yes" if value else "no"
         if isinstance(value, Balance):

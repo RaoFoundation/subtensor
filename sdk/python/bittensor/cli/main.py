@@ -90,8 +90,7 @@ app = typer.Typer(
         "\n\nOverride docs links with BITTENSOR_DOCS_REF=<git-ref> "
         "(default main) or BITTENSOR_DOCS_URL=<site-root>."
     ),
-    # Wide enough that long option names stay intact on typical panes;
-    # lending shortens 80-col alias lists separately (E2E F15).
+    # Wide enough that long option names stay intact on typical panes.
     context_settings={
         "help_option_names": ["-h", "--help"],
         "max_content_width": 200,
@@ -130,7 +129,7 @@ app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_ACCOUNTS)
 for _sub_app, _aliases in (
     (wallet.app, ("w", "wallets")),
     (stake.app, ("st",)),
-    (lending.app, ("ln", "loan", "loans")),
+    (lending.app, ("ln", "short", "shorts")),
     (root.app, ("rt",)),
     (subnets.app, ("s", "subnet")),
     (sudo.app, ("su", "sudo")),

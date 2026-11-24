@@ -59,12 +59,12 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`add-loan-collateral`](/docs/tx/add-loan-collateral) | coldkey | signed account (pallet role may apply) | Add collateral to an open lending position without borrowing more. |
-| [`close-loan`](/docs/tx/close-loan) | coldkey | signed account (pallet role may apply) | Repay total principal and return remaining collateral on a subnet. |
-| [`open-loan`](/docs/tx/open-loan) | coldkey | signed account (pallet role may apply) | Open or increase a fixed-principal subnet loan at up to 33% LTV. |
-| [`raise-loan`](/docs/tx/raise-loan) | coldkey | signed account (pallet role may apply) | Atomic raise: escrowed long plus spot sale of unlocked alpha. |
-| [`repay-loan`](/docs/tx/repay-loan) | coldkey | signed account (pallet role may apply) | Partially repay principal on a subnet loan (§4.4). |
-| [`roll-loan`](/docs/tx/roll-loan) | coldkey | signed account (pallet role may apply) | Extend a live loan onto a fresh max_loan_duration clock without changing exposure. |
+| [`add-short-collateral`](/docs/tx/add-short-collateral) | coldkey | signed account (pallet role may apply) | Add TAO collateral to an open short. |
+| [`close-short`](/docs/tx/close-short) | coldkey | signed account (pallet role may apply) | Buy back and burn short alpha, paying from proceeds then collateral. |
+| [`increase-short`](/docs/tx/increase-short) | coldkey | signed account (pallet role may apply) | Grow an open short: mint and sell more alpha, add collateral, or both. |
+| [`open-short`](/docs/tx/open-short) | coldkey | signed account (pallet role may apply) | Open a synthetic short: mint subnet alpha, sell it, and lock the proceeds. |
+| [`poke-short`](/docs/tx/poke-short) | coldkey | signed account (pallet role may apply) | Run a permissionless health check on someone's short. |
+| [`withdraw-short-collateral`](/docs/tx/withdraw-short-collateral) | coldkey | signed account (pallet role may apply) | Withdraw TAO collateral from an open short. |
 
 ## LimitOrders
 

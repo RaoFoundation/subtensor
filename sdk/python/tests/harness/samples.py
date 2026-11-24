@@ -273,54 +273,18 @@ INTENT_SAMPLES: dict[str, dict] = {
         "block_number": 1,
         "signature": "0x" + "22" * 65,
     },
-    "open_loan": {
+    # Explicit floors and ceilings keep builds off the swap simulator.
+    "open_short": {"netuid": 1, "mint_alpha": 10.0, "collateral": 10.0, "min_tao_out": 9.0},
+    "increase_short": {
         "netuid": 1,
-        "side": "short",
-        "collateral": 10.0,
-        # Shorts are TAO-only; omit hotkey_ss58 (source_hotkey=None).
-        "min_borrow": 0,
-        "min_proceeds": 0,
-        "min_escrow_alpha": 0,
-        "valid_until": 10**9,
+        "extra_mint": 1.0,
+        "extra_collateral": 1.0,
+        "min_tao_out": 0.9,
     },
-    "raise_loan": {
-        "netuid": 1,
-        "hotkey_ss58": ALICE_HOT,
-        "collateral_alpha": 10.0,
-        # Ceiling must cover quoted collateral (FakeSubstrate quote = 10α).
-        "max_collateral_alpha": 10.0,
-        "min_borrow_tao": 0,
-        "sell_alpha": 1.0,
-        "min_tao_out": 0,
-        "min_escrow_alpha": 0,
-        "valid_until": 10**9,
-    },
-    "close_loan": {
-        "netuid": 1,
-        "hotkey_ss58": ALICE_HOT,
-        "max_payment": 10.0,
-        "min_refund": 0,
-        # Wallet alpha repay is not free-TAO spend; use collateral buyback so
-        # max_spend policy tests still see a TAO ceiling.
-        "repay_from_wallet": False,
-        "valid_until": 10**9,
-    },
-    "repay_loan": {
-        "netuid": 1,
-        "hotkey_ss58": ALICE_HOT,
-        "principal_part": 0.5,
-        "max_payment": 10.0,
-        "min_refund": 0,
-        "repay_from_wallet": False,
-        "valid_until": 10**9,
-    },
-    "roll_loan": {
-        "netuid": 1,
-    },
-    "add_loan_collateral": {
-        "netuid": 1,
-        "amount": 1.0,
-    },
+    "add_short_collateral": {"netuid": 1, "amount": 1.0},
+    "withdraw_short_collateral": {"netuid": 1, "amount": 1.0},
+    "close_short": {"netuid": 1, "max_tao_in": 11.0},
+    "poke_short": {"owner_ss58": ALICE, "netuid": 1},
 }
 
 
@@ -381,44 +345,13 @@ READ_SAMPLES: dict[str, dict] = {
     "is_fast_blocks": {},
     "lease": {"lease_id": 0},
     "leases": {},
-    "lending_close_quote": {
-        "coldkey_ss58": ALICE,
-        "netuid": 1,
-        "hotkey_ss58": ALICE_HOT,
-        "repay_from_wallet": True,
-    },
-    "lending_repay_quote": {
-        "coldkey_ss58": ALICE,
-        "netuid": 1,
-        "principal_part": "0.5",
-        "hotkey_ss58": ALICE_HOT,
-        "repay_from_wallet": False,
-    },
-    "lending_open_quote": {
-        "netuid": 1,
-        "side": "short",
-        "collateral": "10",
-        "coldkey_ss58": ALICE,
-        "amount": "1",
-    },
+    "lending_close_quote": {"coldkey_ss58": ALICE, "netuid": 1, "alpha": "1"},
+    "lending_open_quote": {"netuid": 1, "mint_alpha": "10"},
+    "lending_params": {},
     "lending_position": {"coldkey_ss58": ALICE, "netuid": 1},
     "lending_positions": {"netuid": 1},
     "lending_positions_for_coldkey": {"coldkey_ss58": ALICE},
-    "lending_raise_quote": {
-        "netuid": 1,
-        "coldkey_ss58": ALICE,
-        "hotkey_ss58": ALICE_HOT,
-        "collateral_alpha": "10",
-    },
-    "lending_required_collateral": {
-        "netuid": 1,
-        "side": "short",
-        "amount": "1",
-        "coldkey_ss58": ALICE,
-    },
-    "lending_reserves": {"netuid": 1},
-    "lending_stats": {"netuid": 1},
-    "lending_stats_global": {},
+    "lending_subnet": {"netuid": 1},
     "lending_current_terms_version": {},
     "locks_for_coldkey": {"coldkey_ss58": ALICE},
     "locks_for_hotkey": {"hotkey_ss58": ALICE_HOT, "netuid": 1},

@@ -111,7 +111,7 @@ _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
 # Default to a durable ref (`main`) — PR #3268 merges there — so links survive
 # branch deletion after merge (Auditor fid:607bf5c7). Testers can point at a
 # PR tip before merge with BITTENSOR_DOCS_REF=<sha-or-branch>, or replace the
-# whole root with BITTENSOR_DOCS_URL (documented on `btcli --help` / lending).
+# whole root with BITTENSOR_DOCS_URL (documented on `btcli --help`).
 _DOCS_REF = os.getenv("BITTENSOR_DOCS_REF", "main")
 _DOCS_REPO_BLOB = f"https://github.com/RaoFoundation/subtensor/blob/{_DOCS_REF}/docs"
 DOCS_URL = os.getenv("BITTENSOR_DOCS_URL", _DOCS_REPO_BLOB)

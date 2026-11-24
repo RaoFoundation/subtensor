@@ -306,25 +306,10 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # Remediation overrides keyed by the exact chain error name; more specific
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
-    "AmountTooSmall": (
-        "raise collateral / principal above the 1 τ minimum, or close the "
-        "remaining dust fully; if the side is full, expect SideCapacity instead"
-    ),
-    "SideCapacity": (
-        "reduce borrow size, wait for repayment on this side, or check "
-        "`btcli query lending-reserves` / the quote's cap headroom"
-    ),
-    "SideCapacityRamping": (
-        "reduce size to fit the new-subnet Cap ramp, or retry later as the ramp rises"
-    ),
-    "PositionSideMismatch": (
-        "close the existing loan first, or reuse its saved side (short vs long)"
-    ),
-    # F12: do not fall through to the generic INSUFFICIENT_LIQUIDITY pool line.
+    # Do not fall through to the generic INSUFFICIENT_LIQUIDITY pool line.
     "SlippageExceeded": (
-        "the forced trade missed your bound (quoted payment/refund vs "
-        "max_payment/min_refund, or raise min_tao_out); re-quote, raise "
-        "`--max-slippage` above the default 1%, or reduce size"
+        "the short's sale missed min_tao_out or its buy-back exceeded max_tao_in; "
+        "re-quote, raise `--max-slippage` above the default 0.5%, or reduce size"
     ),
     "SlippageTooHigh": (
         "the price moved past the slippage-protection limit (stake trades and gamma "
@@ -416,8 +401,8 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "StakeUnavailable": (
         "only unlocked stake can move — conviction Lock and/or miner collateral "
-        "still reserves some of this hotkey's alpha. For lending collateral / raise "
-        "sales, free that locked stake or use a hotkey with free alpha; check "
+        "still reserves some of this hotkey's alpha. Free that locked stake or use a "
+        "hotkey with free alpha; check "
         "`btcli stake list` / `btcli conviction show`"
     ),
     "LockHotkeyMismatch": (
