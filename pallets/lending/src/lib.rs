@@ -7525,17 +7525,17 @@ pub mod pallet {
         /// [`Self::collect_interest_retries`]: linked-list unlink + TotalPositions
         /// wipe of all queue heads (intentional; not a shared Source param).
         pub(crate) fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
-            // Entry: TotalPositions + NextDue (+ optional empty-book wipe).
-            // Reserve the full empty-book cleanup up front so a near-empty
-            // meter cannot clear ten keys after a one-write charge
-            // (skeptic fid:a9fb69a7).
-            if meter
-                .try_consume(Self::empty_book_cleanup_weight())
-                .is_err()
-            {
-                return;
-            }
+            // Empty book: reserve the full ten-key wipe before any kill so a
+            // near-empty meter cannot under-pay cleanup (skeptic
+            // fid:a9fb69a7). Live books keep the prior header budget so a
+            // single collect-weight forfeit still fits.
             if TotalPositions::<T>::get() == 0 {
+                if meter
+                    .try_consume(Self::empty_book_cleanup_weight())
+                    .is_err()
+                {
+                    return;
+                }
                 NextDue::<T>::kill();
                 DueBucketCursor::<T>::kill();
                 NextExpiry::<T>::kill();
