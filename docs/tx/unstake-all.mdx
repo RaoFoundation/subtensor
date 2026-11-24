@@ -108,7 +108,7 @@ pub fn claim_root_with_hotkey(
     let coldkey: T::AccountId = ensure_signed(origin)?;
     // Admission failures keep the declared envelope (see `claim_root`).
     // The declaration was sized before this transaction ran. It does not cover a
-    // row that a trade or a hotkey swap added to the fund since then.
+    // row that a trade or a key swap added to the fund since then.
     ensure!(
         !Self::basket_rows_opened_in_current_transaction(&hotkey),
         Error::<T>::RootClaimTooHeavy
@@ -148,7 +148,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`basket_rows_opened_in_current_transaction`](/code/pallets/subtensor/src/staking/claim_root.rs#L1526), [`root_claim_hotkey_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1272), [`root_claim_hotkey_sizing_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1384).
+Delegates to [`basket_rows_opened_in_current_transaction`](/code/pallets/subtensor/src/staking/claim_root.rs#L1538), [`root_claim_hotkey_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L1273), [`root_claim_hotkey_sizing_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L1387).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L351`](/code/pallets/utility/src/lib.rs#L345-L399):
 
