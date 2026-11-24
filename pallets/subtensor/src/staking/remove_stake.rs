@@ -9,7 +9,7 @@ use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
-use substrate_fixed::types::U96F32;
+use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
 
@@ -645,10 +645,28 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Protocol α settles at frozen `r` (not a remaining-pot pro-rata).
         let mut protocol_tao_share = TaoBalance::ZERO;
         if protocol_alpha_value_u128 > 0 {
-            let prod: u128 = pot_u128.saturating_mul(protocol_alpha_value_u128);
-            let share_u128: u128 = prod.checked_div(total_alpha_value_u128).unwrap_or_default();
+            let rate = status
+                .dissolution_price_bits
+                .map(U64F64::from_bits)
+                .unwrap_or_else(|| {
+                    let all = total_alpha_value_u128.max(1);
+                    U64F64::from_bits(
+                        sp_runtime::helpers_128bit::multiply_by_rational_with_rounding(
+                            pot_u128,
+                            1u128 << 64,
+                            all,
+                            sp_runtime::Rounding::Down,
+                        )
+                        .unwrap_or(0),
+                    )
+                });
+            let share_u128 = (U64F64::saturating_from_num(protocol_alpha_value_u128)
+                .saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u128>();
             protocol_tao_share = (share_u128.min(u128::from(u64::MAX)) as u64).into();
         }
 
@@ -664,7 +682,7 @@ impl<T: Config> Pallet<T> {
         //    - Legacy subnets (registered before NetworkRegistrationStartBlock) receive:
         //        refund = max(0, lock_cost(τ) − owner_received_emission_in_τ).
         //    - New subnets: no refund.
-        let mut refund: TaoBalance = if should_refund_owner {
+        let refund: TaoBalance = if should_refund_owner {
             lock_cost.saturating_sub(owner_emission_tao)
         } else {
             TaoBalance::ZERO
@@ -677,16 +695,14 @@ impl<T: Config> Pallet<T> {
             let transferrable =
                 Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
 
-            distributed_tao_value_u128 = distributed_tao_value_u128.saturating_add(refund.into());
-
-            if distributed_tao_value_u128 < pot_u128 {
-                let final_leftover: u128 = pot_u128.saturating_sub(distributed_tao_value_u128);
-
-                refund = refund.saturating_add(final_leftover.into());
-            }
+            let paid = refund.min(transferrable);
+            distributed_tao_value_u128 =
+                distributed_tao_value_u128.saturating_add(paid.into());
+            // Leftover pot after rate-based payouts is recycled below — never
+            // folded into the owner lock refund (SPEC P12).
             // We do our best effort to refund owner to as full amount of refund as possible, but
             // we cannot fail new subnet registration, so the result is ignored.
-            let _ = Self::transfer_tao(&subnet_account, &owner_coldkey, refund.min(transferrable));
+            let _ = Self::transfer_tao(&subnet_account, &owner_coldkey, paid);
         }
 
         // 9) Recycle TAO remaining on the subnet account, forgive errors.
@@ -730,18 +746,12 @@ impl<T: Config> Pallet<T> {
         if let Some(value) = status.subnet_total_alpha_value {
             total_alpha_value_u128 = value;
         } else {
-            let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
-            let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
-
-            // Legacy subnets keep the old dereg behavior: ignore SubnetAlphaIn.
-            // New subnets include SubnetAlphaIn.
-            let protocol_alpha_value_u128: u128 = if reg_at > tao_in_refund_deployment_block {
-                SubnetAlphaIn::<T>::get(netuid)
-                    .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
-                    .to_u64() as u128
-            } else {
-                SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128
-            };
+            // Pool alpha (SubnetAlphaIn) stays in the all_alpha denominator for
+            // every subnet, including legacy ones, so stakers settle at the same
+            // `r = min(T, T_ema) / all_alpha` as shorts (SPEC P12).
+            let protocol_alpha_value_u128: u128 = SubnetAlphaIn::<T>::get(netuid)
+                .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
+                .to_u64() as u128;
             total_alpha_value_u128 = protocol_alpha_value_u128;
         }
 
@@ -941,80 +951,45 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // total TAO in the subnet pool
+        // Stakers settle at frozen `r` per alpha (SPEC P12). Leftover pot TAO
+        // after these payouts is recycled in `destroy_alpha_in_out_stakes`, not
+        // distributed by largest-remainder.
         let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid);
         let pot_u64: u64 = pot_tao.into();
+        let rate = status.dissolution_price_bits.map(U64F64::from_bits).unwrap_or_else(|| {
+            // Tests that skip `start_dissolution` still pay α × (T / all_α).
+            let all = total_alpha_value_u128.max(1);
+            U64F64::from_bits(
+                sp_runtime::helpers_128bit::multiply_by_rational_with_rounding(
+                    u128::from(pot_u64),
+                    1u128 << 64,
+                    all,
+                    sp_runtime::Rounding::Down,
+                )
+                .unwrap_or(0),
+            )
+        });
 
-        struct Portion<A, C> {
-            _hot: A,
-            cold: C,
-            share: u64, // TAO to credit to coldkey balance
-            rem: u128,  // remainder for largest‑remainder method
-        }
-        let mut portions: Vec<Portion<_, _>> = Vec::with_capacity(stakers.len());
-
-        // Pro‑rata distribution of the pot by α value (largest‑remainder),
-        //    **credited directly to each staker's COLDKEY free balance**.
-        if pot_u64 > 0 && total_alpha_value_u128 > 0 && !stakers.is_empty() {
-            let pot_u128: u128 = pot_u64 as u128;
-
-            let mut distributed: u128 = 0;
-            let mut total_rem: u128 = 0;
-
-            for (hot, cold, alpha_val) in &stakers {
-                let prod: u128 = pot_u128.saturating_mul(*alpha_val);
-                let share_u128: u128 = prod.checked_div(total_alpha_value_u128).unwrap_or_default();
-                let share_u64: u64 = share_u128.min(u128::from(u64::MAX)) as u64;
-                distributed = distributed.saturating_add(u128::from(share_u64));
-
-                let rem: u128 = prod.checked_rem(total_alpha_value_u128).unwrap_or_default();
-                total_rem = total_rem.saturating_add(rem);
-                portions.push(Portion {
-                    _hot: hot.clone(),
-                    cold: cold.clone(),
-                    share: share_u64,
-                    rem,
-                });
-            }
-
-            let leftover: u128 = total_rem
-                .checked_div(total_alpha_value_u128)
-                .unwrap_or_default();
-            if leftover > 0 {
-                portions.sort_by(|a, b| b.rem.cmp(&a.rem));
-                let give: usize = core::cmp::min(leftover, portions.len() as u128) as usize;
-                for p in portions.iter_mut().take(give) {
-                    p.share = p.share.saturating_add(1);
-                }
-            }
-
-            portions = portions
-                .into_iter()
-                .filter(|p| p.share > 0)
-                .collect::<Vec<_>>();
-
-            // Aggregate the transfer amount for each coldkey
+        if pot_u64 > 0 && !stakers.is_empty() {
             let mut transfer_map = BTreeMap::<T::AccountId, TaoBalance>::new();
-            for p in portions {
-                if transfer_map.contains_key(&p.cold) {
-                    transfer_map.insert(
-                        p.cold.clone(),
-                        transfer_map
-                            .get(&p.cold)
-                            .unwrap_or(&TaoBalance::ZERO)
-                            .saturating_add(p.share.into()),
-                    );
-                } else {
-                    transfer_map.insert(p.cold.clone(), p.share.into());
+            for (_hot, cold, alpha_val) in &stakers {
+                let share_u128 = (U64F64::saturating_from_num(*alpha_val).saturating_mul(rate))
+                    .floor()
+                    .saturating_to_num::<u128>();
+                let share_u64 = share_u128.min(u128::from(u64::MAX)) as u64;
+                if share_u64 == 0 {
+                    continue;
                 }
+                transfer_map
+                    .entry(cold.clone())
+                    .and_modify(|v| *v = v.saturating_add(share_u64.into()))
+                    .or_insert_with(|| share_u64.into());
             }
 
-            // Credit each share directly to coldkey free balance.
-            for transfer in transfer_map.iter() {
-                // Cannot fail the whole transaction if this transfer fails
+            for (cold, amount) in transfer_map.iter() {
                 distributed_tao_value_u128 = distributed_tao_value_u128
-                    .saturating_add(transfer.1.to_u128().unwrap_or(0_u128));
-                let _ = Self::transfer_tao_from_subnet(netuid, transfer.0, *transfer.1);
+                    .saturating_add(amount.to_u128().unwrap_or(0_u128));
+                let _ = Self::transfer_tao_from_subnet(netuid, cold, *amount);
             }
         }
 

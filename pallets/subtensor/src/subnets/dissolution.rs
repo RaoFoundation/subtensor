@@ -122,7 +122,7 @@ impl DissolveCleanupPhase {
     }
 }
 
-#[crate::freeze_struct("c524ea54893ae91a")]
+#[crate::freeze_struct("45f9cde0a765a0fa")]
 #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
 pub struct DissolveCleanupStatus {
     pub netuid: NetUid,
@@ -130,6 +130,10 @@ pub struct DissolveCleanupStatus {
     pub last_key: Option<Vec<u8>>,
     pub subnet_total_alpha_value: Option<u128>,
     pub subnet_distributed_tao: Option<u128>,
+    /// Bits of frozen `r = min(T_flag, T_ema) / all_alpha` captured before
+    /// lending finish clears Dissolutions. Stakers and protocol α pay at this
+    /// rate; leftover pot TAO is recycled, never paid out (SPEC P12).
+    pub dissolution_price_bits: Option<u128>,
 }
 
 impl DissolveCleanupStatus {
@@ -140,6 +144,7 @@ impl DissolveCleanupStatus {
             last_key: None,
             subnet_total_alpha_value: None,
             subnet_distributed_tao: None,
+            dissolution_price_bits: None,
         }
     }
 
@@ -847,6 +852,9 @@ impl<T: Config> Pallet<T> {
                     );
                     if done {
                         status.subnet_distributed_tao = Some(0);
+                        // Capture frozen `r` before lending finish clears it.
+                        status.dissolution_price_bits =
+                            T::Lending::frozen_dissolution_price(netuid).map(|p| p.to_bits());
                         // §13: settle lending positions on dissolution after
                         // count, before staker payout.
                         status.set_phase(DissolveCleanupPhase::LendingSettle);
@@ -859,6 +867,10 @@ impl<T: Config> Pallet<T> {
                 }
 
                 DissolveCleanupPhase::LendingSettle => {
+                    if status.dissolution_price_bits.is_none() {
+                        status.dissolution_price_bits =
+                            T::Lending::frozen_dissolution_price(netuid).map(|p| p.to_bits());
+                    }
                     let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
                     if done {
                         let _ = T::Lending::finish_dissolution(netuid);
