@@ -1599,6 +1599,50 @@ fn claim_is_refused_after_a_hotkey_swap_moved_the_fund_in_the_same_transaction()
     });
 }
 
+/// The guard with the real hotkey swap call. The owner of the validator swaps the hotkey
+/// and claims on the new hotkey in one batch: the swap runs, and the claim is refused.
+#[test]
+fn batch_of_a_hotkey_swap_and_a_claim_on_the_new_hotkey_stops_at_the_claim() {
+    new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO; 3], &[1]);
+        let owner = U256::from(6_001);
+        let new_hotkey = U256::from(1009);
+        crate::Owner::<Test>::insert(fund.hotkey, owner);
+        add_balance_to_coldkey_account(&owner, (1_000 * TAO).into());
+
+        enter_transaction(2);
+        let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+            calls: vec![
+                RuntimeCall::SubtensorModule(crate::Call::swap_hotkey {
+                    hotkey: fund.hotkey,
+                    new_hotkey,
+                    netuid: None,
+                }),
+                claim_call(new_hotkey),
+            ],
+        });
+        assert_ok!(batch.dispatch(RuntimeOrigin::signed(owner)));
+
+        // The swap moved the fund, and the claim after it was refused.
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuids[0]), 0);
+        assert!(escrow_alpha(&new_hotkey, fund.netuids[0]) > 0);
+        assert!(System::events().iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::Utility(pallet_utility::Event::BatchInterrupted { index: 1, error })
+                if error == Error::<Test>::RootClaimTooHeavy.into()
+        )));
+        assert_eq!(
+            BasketRowsOpenedAt::<Test>::get(new_hotkey),
+            Some(this_transaction(2))
+        );
+
+        // The next transaction can claim on the new hotkey.
+        enter_transaction(3);
+        let declared_now = declared(new_hotkey);
+        assert!(claim(fund.stakers[0], new_hotkey).all_lte(declared_now));
+    });
+}
+
 /// Announces the swap of `coldkey` into the escrow account of the funds, waits for the
 /// announcement delay, and returns the call that runs the swap.
 fn announced_swap_into_the_escrow(coldkey: U256) -> RuntimeCall {
