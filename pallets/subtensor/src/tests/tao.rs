@@ -794,3 +794,102 @@ fn test_mint_and_sell_then_buy_and_burn_round_trip() {
         );
     });
 }
+
+/// Settle-at-r inputs: a short's sale proceeds leave `pool_tao` (the `T`
+/// basis excludes escrow) while its minted alpha stays in `alpha_issuance`
+/// (the `all_alpha` denominator counts synthetic alpha).
+#[test]
+fn test_settlement_basis_excludes_escrow_and_counts_synthetic_alpha() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        let custody_cold = U256::from(70);
+        let custody_hot = U256::from(71);
+        add_network(netuid, 1, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        SubtokenEnabled::<Test>::insert(netuid, true);
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, 1_000_000_000_000u64.into());
+        add_balance_to_coldkey_account(&custody_cold, ExistentialDeposit::get());
+        let tao_before = <SubtensorModule as LendingPoolInterface<U256>>::pool_tao(netuid);
+        let issuance_before =
+            <SubtensorModule as LendingPoolInterface<U256>>::alpha_issuance(netuid);
+
+        let mint = AlphaBalance::from(10_000_000_000u64);
+        let proceeds = <SubtensorModule as LendingPoolInterface<U256>>::mint_and_sell(
+            netuid,
+            &custody_cold,
+            &custody_hot,
+            mint,
+            TaoBalance::from(1u64),
+        )
+        .expect("mint and sell must fill on a deep pool");
+
+        assert_eq!(
+            Balances::total_balance(&custody_cold),
+            ExistentialDeposit::get() + proceeds
+        );
+        assert!(
+            <SubtensorModule as LendingPoolInterface<U256>>::pool_tao(netuid)
+                <= tao_before - proceeds,
+            "proceeds sit in custody escrow, outside the settlement T"
+        );
+        assert_eq!(
+            <SubtensorModule as LendingPoolInterface<U256>>::alpha_issuance(netuid),
+            issuance_before + mint,
+            "minted alpha counts toward all_alpha"
+        );
+    });
+}
+
+/// `pay_into_pot` credits the subnet account and `SubnetTAO`, tracks
+/// `TotalStake` only while the subnet is live, and still works once the
+/// subnet is flagged for dissolution.
+#[test]
+fn test_pay_into_pot_live_and_flagged() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10, 0);
+        let pot = 1_000_000u64;
+        SubnetTAO::<Test>::set(netuid, pot.into());
+        TotalStake::<Test>::put(TaoBalance::from(pot));
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, pot.into());
+        let payer = U256::from(42);
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&payer, ed + TaoBalance::from(2 * pot));
+
+        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_into_pot(
+            &payer,
+            netuid,
+            pot.into(),
+        )
+        .expect("live pot credit must succeed");
+        assert_eq!(paid, pot.into());
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (2 * pot).into());
+        assert_eq!(TotalStake::<Test>::get(), TaoBalance::from(2 * pot));
+        assert_eq!(Balances::total_balance(&subnet), (2 * pot).into());
+
+        NetworksAdded::<Test>::remove(netuid);
+        DissolveCleanupQueue::<Test>::mutate(|queue| queue.push(netuid));
+        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_into_pot(
+            &payer,
+            netuid,
+            pot.into(),
+        )
+        .expect("flagged pot credit must succeed");
+        assert_eq!(paid, pot.into());
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (3 * pot).into());
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            TaoBalance::from(2 * pot),
+            "a dissolving pot is already out of TotalStake"
+        );
+        assert_eq!(Balances::total_balance(&subnet), (3 * pot).into());
+    });
+}
