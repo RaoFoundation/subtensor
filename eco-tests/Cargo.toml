@@ -21,6 +21,11 @@ useless_conversion = "allow"
 # Keep `time` at a floor with the stack-exhaustion fix (GHSA-r6v5-fh4h-64xc); the old
 # =0.3.36 pin for the tracing-subscriber E0119 conflict is resolved by tracing-subscriber >= 0.3.20.
 time = { version = "0.3.47", default-features = false }
+# `freeze_struct` (subtensor-macros) hashes a struct with ahash, and the hashcodes in the
+# source are for ahash 0.8.12. ahash 0.8.13 gives other hash values, so every `freeze_struct`
+# fails to compile with it. This crate has no lockfile, so pin the version that the workspace
+# lockfile has.
+ahash = { version = "=0.8.12", default-features = false }
 pallet-subtensor = { path = "../pallets/subtensor", default-features = false, features = ["std"] }
 pallet-alpha-assets = { path = "../pallets/alpha-assets", default-features = false, features = ["std"] }
 frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a", default-features = false, features = ["std"] }
