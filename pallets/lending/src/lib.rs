@@ -1,18 +1,26 @@
-//! Synthetic-mint shorts (SPEC v1, shorts only).
+//! Synthetic-mint shorts (SPEC v1.2, shorts only).
 //!
 //! A short mints alpha into custody and sells it into the pool. The sale
 //! proceeds stay locked in the position's custody account beside the owner's
-//! TAO collateral. A position may exist only while its funds cover buying the
-//! minted alpha back after a hypothetical pump to `stress × max(EMA, spot)`,
-//! queued behind every other short on the subnet.
+//! TAO collateral and a small refundable deposit. A position may exist only
+//! while its funds cover its pro-rata share of buying the whole subnet book
+//! back after a hypothetical pump to `Stress_eff × max(EMA, spot, SMA30)`.
+//! `Stress_eff` grows with the book relative to pool alpha, which replaces a
+//! supply cap.
 //!
-//! Interest is charged in TAO on `minted × EMA` at an APR that rises with the
-//! subnet's synthetic share of issuance. Part burns; part funds a per-subnet
-//! residual reserve. A position whose TWAP equity turns negative, or whose
-//! collateral no longer covers a day of interest, deleverages through paced
-//! buy-backs. If its funds run out first it defaults: the unbought alpha
-//! becomes [`ResidualAlpha`] (holder dilution), which the reserve retires over
-//! time. There is no term, no expiry and no spot liquidation.
+//! Interest is charged in TAO on `minted × EMA` at a flat APR. Part burns;
+//! part funds a per-subnet residual reserve. A position whose median-TWAP
+//! equity turns negative, or whose collateral no longer covers a day of
+//! interest, deleverages through paced buy-backs shared pro rata across the
+//! subnet's deleveraging positions and paused while spot is pumped above the
+//! TWAP. If its funds run out first it defaults: the unbought alpha becomes
+//! [`ResidualAlpha`] (holder dilution), which the reserve retires over time and
+//! which trips a per-subnet breaker on new opens. There is no term, no expiry
+//! and no spot liquidation.
+//!
+//! On deregistration every short settles at the stakers' rate
+//! `r = min(T_flag, T_ema) / all_alpha`, except alpha minted while the subnet
+//! was in the prune zone, which settles at its own sale proceeds.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::too_many_arguments)]
 
@@ -56,11 +64,16 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn owner_allowed(_owner: &AccountId) -> bool {
         true
     }
+    /// `netuid` is immune from pruning (registration immunity), so it is
+    /// never in the prune zone and does not set the zone floor (P16).
+    fn prune_immune(_netuid: NetUid) -> bool {
+        false
+    }
     /// Alpha out for a real buy of `tao`, swap fees included.
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError>;
     /// TAO out for a real sale of `alpha`, swap fees included.
     fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> Result<TaoBalance, DispatchError>;
-    /// Live pool TAO reserve (`SubnetTAO`).
+    /// Live pool TAO reserve (`SubnetTAO`). Short escrow is not in it.
     fn pool_tao(netuid: NetUid) -> TaoBalance;
     /// Live pool alpha reserve (`SubnetAlphaIn`).
     fn pool_alpha(netuid: NetUid) -> AlphaBalance;
@@ -84,7 +97,7 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn alpha_issuance(netuid: NetUid) -> AlphaBalance;
     /// Slow emission moving price (the SPEC's EMA).
     fn moving_alpha_price(netuid: NetUid) -> U64F64;
-    /// Non-root live subnets (TWAP sampling).
+    /// Non-root live subnets (TWAP sampling and the prune-zone floor).
     fn live_subnets() -> alloc::vec::Vec<NetUid>;
 
     /// Mint `mint_alpha` onto custody stake and sell it into the pool. The sale
@@ -107,7 +120,8 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         max_tao_in: TaoBalance,
     ) -> Result<TaoBalance, DispatchError>;
 
-    /// Burn `amount` TAO from `account` (interest burn share).
+    /// Burn `amount` TAO from `account` (interest burn share, forfeited
+    /// deposits).
     fn burn_interest_tao(account: &AccountId, amount: TaoBalance) -> DispatchResult;
     /// Move interest TAO into the residual reserve. A credit too small to
     /// create `to` may be recycled; returns the amount actually credited.
@@ -137,7 +151,8 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         amount: TaoBalance,
     ) -> Result<TaoBalance, DispatchError>;
 
-    /// Benchmark-only: give `netuid` a deep, trading pool.
+    /// Benchmark-only: give `netuid` a deep, trading pool whose moving price
+    /// equals spot.
     #[cfg(feature = "runtime-benchmarks")]
     fn benchmark_seed_pool(_netuid: NetUid, _tao: u64, _alpha: u64) {}
     /// Benchmark-only: fund free TAO on `who`.
@@ -158,16 +173,17 @@ pub trait LendingInterface<AccountId> {
     fn max_positions() -> u32;
     /// Re-key positions from `old` to `new` without moving custody funds.
     fn on_coldkey_swap(old: &AccountId, new: &AccountId) -> DispatchResult;
-    /// Freeze the subnet's shorts and snapshot the settlement EMA (P12).
+    /// Freeze the subnet's shorts and snapshot the settlement rate `r` (P12).
+    /// Call before the pool is touched.
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
     /// Retired with lifts; kept so dissolution callers stay unchanged.
     fn readd_lifts_for_dissolution(netuid: NetUid) -> DispatchResult {
         let _ = netuid;
         Ok(())
     }
-    /// Settle every short at the flagged EMA into the staker pot. Runs after
-    /// the dissolution alpha count and before stakers are paid. Returns `true`
-    /// when done.
+    /// Settle every short at `r` (zone alpha at its proceeds) into the staker
+    /// pot and add the residual reserve. Runs after the dissolution alpha
+    /// count and before stakers are paid. Returns `true` when done.
     fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool;
     fn finish_dissolution(netuid: NetUid) -> DispatchResult;
     /// `(hotkey, coldkey)` is lending custody that dissolution payout skips.
@@ -180,12 +196,12 @@ pub trait LendingInterface<AccountId> {
     fn on_subtoken_enabled(netuid: NetUid) {
         let _ = netuid;
     }
-    /// Advance the slow deregistration-ranking EMA one block.
+    /// Advance the dereg-ranking SMA and the pool-TAO EMA one block (P13, P12).
     fn update_dereg_moving_price(netuid: NetUid) {
         let _ = netuid;
     }
-    /// Slow spot EMA that ranks subnets for pruning. `None` before the first
-    /// sample.
+    /// 30-day SMA of raw spot that ranks subnets for pruning (P13). `None`
+    /// before the first sample.
     fn dereg_moving_price(netuid: NetUid) -> Option<U64F64> {
         let _ = netuid;
         None
@@ -238,24 +254,28 @@ const WEIGHT_ACCURACY: u128 = 1_000_000_000_000_000_000;
 const FIXED_ONE: u128 = 1 << 64;
 /// Ring capacity for [`TwapState`]; bounds [`SynthParams::twap_samples`].
 pub const MAX_TWAP_SAMPLES: u32 = 168;
-/// Upper bound on [`SynthParams::apr_ceil_bps`] (1000%).
-pub const MAX_APR_BPS: u32 = 100_000;
+/// Ring capacity for [`dereg::RankState`]; bounds [`SynthParams::rank_days`].
+pub const MAX_RANK_DAYS: u32 = 90;
+/// Upper bound on [`SynthParams::apr_bps`] (100%).
+pub const MAX_APR_BPS: u32 = 10_000;
 /// Bounds on [`SynthParams::stress_bps`] (1.5× – 5×, SPEC P2).
 pub const MIN_STRESS_BPS: u32 = 15_000;
 pub const MAX_STRESS_BPS: u32 = 50_000;
-/// Deleverage steps attempted per block (pace limits each subnet anyway).
+/// Upper bound on [`SynthParams::stress_slope_bps`] (slope 10).
+pub const MAX_STRESS_SLOPE_BPS: u32 = 100_000;
+/// Deleverage steps attempted per block across all subnets.
 pub const DELEVERAGE_STEPS_PER_BLOCK: u32 = 8;
 /// Subnets whose residual alpha the reserve may retire per block.
 pub const RESIDUAL_RETIRES_PER_BLOCK: u32 = 4;
 /// Empty `Due` buckets skipped per idle pass before yielding.
 pub const MAX_EMPTY_DUE_BUMPS: u32 = 64;
 /// Rules version stamped on new positions.
-pub const TERMS_VERSION: u16 = 1;
+pub const TERMS_VERSION: u16 = 2;
 /// Bisection depth for fee-free inversions over `u64`.
 const SEARCH_STEPS: u32 = 64;
 
-/// Root-settable synthetic-short parameters (SPEC §2, Jacob 2026-11-24).
-#[freeze_struct("aaef12abc6914b1e")]
+/// Root-settable synthetic-short parameters (SPEC v1.2 §2).
+#[freeze_struct("338edfde226128bd")]
 #[derive(
     Encode,
     Decode,
@@ -269,50 +289,73 @@ const SEARCH_STEPS: u32 = 64;
     Eq,
 )]
 pub struct SynthParams {
-    /// Coverage pump multiple on `max(EMA, spot)` (P2).
+    /// Base coverage pump multiple on the reference price (P2).
     pub stress_bps: u32,
-    /// APR at zero synthetic share (P3).
-    pub apr_floor_bps: u32,
-    /// APR at and above the knee (P3).
-    pub apr_ceil_bps: u32,
-    /// Synthetic share of `Issuance_ex` where APR reaches the ceiling (P3).
-    pub knee_bps: u16,
-    /// Max `SyntheticOutstanding` as a share of `Issuance_ex` (P9).
-    pub cap_bps: u16,
+    /// Book-aware stress slope: `Stress_eff = stress × (1 + slope × Q / A)`.
+    pub stress_slope_bps: u32,
+    /// Flat interest rate on `minted × EMA` (P3).
+    pub apr_bps: u32,
     /// Interest share sent to the residual reserve; the rest burns (P4).
     pub reserve_share_bps: u16,
     /// Reserve cap as a share of pool TAO; overflow burns (P4).
     pub reserve_cap_bps: u16,
-    /// TWAP ring length (P6).
+    /// TWAP ring length (P6, read as a median).
     pub twap_samples: u32,
     /// Blocks between TWAP samples (P6).
     pub twap_interval_blocks: u32,
     /// Max price lift per block from deleverage plus reserve retire (P7).
     pub pace_bps_per_block: u16,
-    /// Max price drop per block from opens and increases (P8).
-    pub open_impact_bps: u16,
+    /// Max net alpha minted per block as a share of pool alpha (P8).
+    pub open_net_mint_bps: u16,
     /// Minimum `minted × EMA` in rao (P10).
     pub min_notional: u64,
-    /// Time constant of the dereg-ranking EMA in blocks (P13).
-    pub dereg_ma_blocks: u64,
+    /// Days in the dereg-ranking SMA (P13).
+    pub rank_days: u32,
+    /// Blocks per SMA day (P13).
+    pub rank_day_blocks: u32,
+    /// Time constant of the pool-TAO EMA used for `T_ema` (P12).
+    pub tao_ema_blocks: u32,
+    /// Prune zone: rank SMA within this multiple of the lowest non-immune
+    /// rank SMA (P16).
+    pub zone_bps: u32,
+    /// Protocol buy-backs pause while spot exceeds this multiple of the
+    /// median TWAP (P17).
+    pub pause_bps: u32,
+    /// Minimum pool TAO for opens and increases (P18).
+    pub min_pool_depth: u64,
+    /// Refundable per-position deposit, burned on default (P19).
+    pub deposit: u64,
+    /// Days of interest a withdrawal must leave on top of coverage (P20).
+    pub withdraw_buffer_days: u16,
+    /// Breaker trips when residual exceeds this share of `Issuance_ex` (P21).
+    pub breaker_on_bps: u16,
+    /// Breaker clears once residual falls below this share (P21).
+    pub breaker_off_bps: u16,
 }
 
 impl Default for SynthParams {
     fn default() -> Self {
         Self {
             stress_bps: 30_000,
-            apr_floor_bps: 2_000,
-            apr_ceil_bps: 10_000,
-            knee_bps: 2_000,
-            cap_bps: 2_000,
+            stress_slope_bps: 20_000,
+            apr_bps: 2_000,
             reserve_share_bps: 5_000,
             reserve_cap_bps: 200,
             twap_samples: 72,
             twap_interval_blocks: 300,
             pace_bps_per_block: 5,
-            open_impact_bps: 200,
+            open_net_mint_bps: 100,
             min_notional: 10_000_000_000,
-            dereg_ma_blocks: dereg::DEFAULT_DEREG_MA_BLOCKS,
+            rank_days: 30,
+            rank_day_blocks: 7_200,
+            tao_ema_blocks: 7_200,
+            zone_bps: 12_500,
+            pause_bps: 12_500,
+            min_pool_depth: 0,
+            deposit: 100_000_000,
+            withdraw_buffer_days: 7,
+            breaker_on_bps: 200,
+            breaker_off_bps: 100,
         }
     }
 }
@@ -320,18 +363,23 @@ impl Default for SynthParams {
 impl SynthParams {
     pub fn is_valid(&self) -> bool {
         (MIN_STRESS_BPS..=MAX_STRESS_BPS).contains(&self.stress_bps)
-            && self.apr_floor_bps <= self.apr_ceil_bps
-            && self.apr_ceil_bps <= MAX_APR_BPS
-            && (1..=10_000).contains(&self.knee_bps)
-            && (1..=10_000).contains(&self.cap_bps)
+            && self.stress_slope_bps <= MAX_STRESS_SLOPE_BPS
+            && (1..=MAX_APR_BPS).contains(&self.apr_bps)
             && self.reserve_share_bps <= 10_000
             && self.reserve_cap_bps <= 10_000
             && (1..=MAX_TWAP_SAMPLES).contains(&self.twap_samples)
             && self.twap_interval_blocks >= 1
             && (1..=10_000).contains(&self.pace_bps_per_block)
-            && (1..10_000).contains(&self.open_impact_bps)
+            && (1..=10_000).contains(&self.open_net_mint_bps)
             && self.min_notional >= 1
-            && self.dereg_ma_blocks >= 1
+            && (1..=MAX_RANK_DAYS).contains(&self.rank_days)
+            && self.rank_day_blocks >= 1
+            && self.tao_ema_blocks >= 1
+            && (10_000..=100_000).contains(&self.zone_bps)
+            && (10_000..=100_000).contains(&self.pause_bps)
+            && self.withdraw_buffer_days <= 365
+            && self.breaker_off_bps <= self.breaker_on_bps
+            && self.breaker_on_bps <= 10_000
     }
 }
 
@@ -355,12 +403,13 @@ pub enum ShortState<BlockNumber> {
     },
 }
 
-#[freeze_struct("99d4e5a6d4e7113f")]
+#[freeze_struct("132ee04bf82d68d9")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
 pub struct ShortPosition<AccountId, BlockNumber> {
-    /// Custody coldkey holding `collateral + proceeds`. Survives coldkey swap.
+    /// Custody coldkey holding `collateral + proceeds + deposit`. Survives
+    /// coldkey swap.
     pub custody: AccountId,
     /// Minted alpha not yet bought back.
     pub minted: u64,
@@ -368,6 +417,12 @@ pub struct ShortPosition<AccountId, BlockNumber> {
     pub collateral: u64,
     /// Locked sale proceeds in custody (P11).
     pub proceeds: u64,
+    /// Refundable deposit in custody, outside the funds (P19).
+    pub deposit: u64,
+    /// Part of `minted` minted while the subnet was in the prune zone (P16).
+    pub zone_minted: u64,
+    /// Sale proceeds of `zone_minted`; its dereg settlement (P16).
+    pub zone_proceeds: u64,
     pub opened_at: BlockNumber,
     pub last_accrued: BlockNumber,
     /// Interest numerator carried between charges (denominator
@@ -380,6 +435,7 @@ pub struct ShortPosition<AccountId, BlockNumber> {
 }
 
 impl<AccountId, BlockNumber> ShortPosition<AccountId, BlockNumber> {
+    /// Collateral plus proceeds: what coverage, health and buy-backs use.
     pub fn funds(&self) -> u64 {
         self.collateral.saturating_add(self.proceeds)
     }
@@ -391,6 +447,28 @@ impl<AccountId, BlockNumber> ShortPosition<AccountId, BlockNumber> {
         self.collateral = self
             .collateral
             .saturating_sub(amount.saturating_sub(from_proceeds));
+    }
+
+    /// Drop `alpha` from `minted`, shrinking the zone tranche pro rata.
+    fn reduce_minted(&mut self, alpha: u64) {
+        let before = self.minted;
+        let alpha = alpha.min(before);
+        self.minted = before.saturating_sub(alpha);
+        if before == 0 || self.zone_minted == 0 {
+            return;
+        }
+        let keep = |v: u64| {
+            multiply_by_rational_with_rounding(
+                u128::from(v),
+                u128::from(self.minted),
+                u128::from(before),
+                Rounding::Down,
+            )
+            .and_then(|v| u64::try_from(v).ok())
+            .unwrap_or(0)
+        };
+        self.zone_minted = keep(self.zone_minted);
+        self.zone_proceeds = keep(self.zone_proceeds);
     }
 }
 
@@ -421,11 +499,11 @@ pub struct TwapState<BlockNumber> {
 )]
 pub struct Dissolution<BlockNumber> {
     pub frozen_at: BlockNumber,
-    /// EMA at flag; every short settles at this price (P12).
+    /// `r = min(T_flag, T_ema) / all_alpha` at flag (P12).
     pub price: U64F64,
 }
 
-#[freeze_struct("785477a07b59a7b7")]
+#[freeze_struct("a717f90000059031")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -434,13 +512,17 @@ pub struct ShortOpenQuote {
     pub proceeds: u64,
     /// Smallest collateral that satisfies coverage and one day of interest.
     pub required_collateral: u64,
+    /// Deposit charged on top of the collateral (P19).
+    pub deposit: u64,
     /// `mint × EMA`.
     pub notional: u64,
     pub apr_bps: u32,
     pub annual_interest: u64,
+    /// The mint would be tracked as prune-zone alpha (P16).
+    pub in_prune_zone: bool,
 }
 
-#[freeze_struct("4ac48dc8573ff8d4")]
+#[freeze_struct("fec72bec798b2db3")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -449,11 +531,12 @@ pub struct ShortCloseQuote {
     pub alpha: u64,
     /// TAO the buy-back costs, swap fees included.
     pub tao_in: u64,
-    /// TAO returned to the owner on a full close (zero on a partial close).
+    /// TAO returned to the owner on a full close, deposit included (zero on a
+    /// partial close).
     pub refund: u64,
 }
 
-#[freeze_struct("6eeddc857f27a27a")]
+#[freeze_struct("32124cc913a5c62a")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
 )]
@@ -461,12 +544,13 @@ pub struct ShortHealth {
     pub minted: u64,
     pub collateral: u64,
     pub proceeds: u64,
+    pub zone_minted: u64,
     /// Interest accrued since the last charge.
     pub accrued_interest: u64,
-    /// `C + P − BuyCost(q) × TWAP / spot`.
+    /// `C + P − BuyCost(q) × TWAP / spot` with the median TWAP.
     pub equity_twap: i128,
-    /// Coverage buy-back cost after the stress pump; `None` when the pool
-    /// cannot supply the alpha.
+    /// This position's share of the whole-book stressed buy-back; `None`
+    /// when the pumped pool cannot supply the book.
     pub coverage_cost: Option<u64>,
     pub day_interest: u64,
     pub deleveraging: bool,
@@ -549,16 +633,41 @@ pub mod pallet {
     /// TAO held by [`Pallet::reserve_account`] for retiring residual alpha.
     #[pallet::storage]
     pub type ResidualReserve<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    /// Dilution breaker latched on (P21).
+    #[pallet::storage]
+    pub type BreakerTripped<T> = StorageMap<_, Identity, NetUid, bool, ValueQuery>;
+    /// Net alpha minted on the subnet in the tagged block (P8). Cleared in
+    /// `on_finalize`; a stale tag reads as zero.
+    #[pallet::storage]
+    pub type BlockNetMinted<T: Config> =
+        StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, i128), OptionQuery>;
     #[pallet::storage]
     pub type TwapRing<T: Config> =
         StorageMap<_, Identity, NetUid, TwapState<BlockNumberFor<T>>, ValueQuery>;
-    /// Positions in [`ShortState::Deleveraging`].
+    /// Daily means behind the dereg-ranking SMA (P13).
+    #[pallet::storage]
+    pub type RankRing<T: Config> = StorageMap<_, Identity, NetUid, dereg::RankState, OptionQuery>;
+    /// Current dereg-ranking SMA; changes once per SMA day.
+    #[pallet::storage]
+    pub type RankPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
+    /// EMA of pool TAO (`T_ema`, P12).
+    #[pallet::storage]
+    pub type PoolTaoEma<T: Config> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
+    /// Positions in [`ShortState::Deleveraging`], by subnet.
     #[pallet::storage]
     pub type DeleverageQueue<T: Config> =
-        StorageMap<_, Blake2_128Concat, (T::AccountId, NetUid), (), OptionQuery>;
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+    /// Σ `minted` over the subnet's deleveraging positions.
+    #[pallet::storage]
+    pub type DeleveragingMinted<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+    /// The block's pace budget and deleveraging book on the subnet, fixed at
+    /// its first deleverage step so fills are pro rata.
+    #[pallet::storage]
+    pub type DeleverageBudget<T: Config> =
+        StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u64, u64), OptionQuery>;
     /// Last queue key served; the next pass resumes after it.
     #[pallet::storage]
-    pub type DeleverageCursor<T: Config> = StorageValue<_, (T::AccountId, NetUid), OptionQuery>;
+    pub type DeleverageCursor<T: Config> = StorageValue<_, (NetUid, T::AccountId), OptionQuery>;
     /// Last subnet whose residual the reserve retired.
     #[pallet::storage]
     pub type RetireCursor<T> = StorageValue<_, NetUid, OptionQuery>;
@@ -576,10 +685,6 @@ pub mod pallet {
     /// Earliest `Due` bucket not yet drained.
     #[pallet::storage]
     pub type NextDue<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
-    /// Spot before the first open of the block (P8 per-block budget).
-    #[pallet::storage]
-    pub type OpenImpactAnchor<T: Config> =
-        StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, U64F64), OptionQuery>;
     /// Spot before the first protocol buy-back of the block (P7 budget).
     #[pallet::storage]
     pub type PaceAnchor<T: Config> =
@@ -589,9 +694,6 @@ pub mod pallet {
         StorageMap<_, Identity, NetUid, Dissolution<BlockNumberFor<T>>, OptionQuery>;
     #[pallet::storage]
     pub type PalletHotkey<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
-    /// Slow spot EMA that ranks subnets for deregistration (see [`dereg`]).
-    #[pallet::storage]
-    pub type DeregMovingPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
     /// One-shot migration markers.
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
@@ -666,6 +768,10 @@ pub mod pallet {
             price: U64F64,
             paid: u64,
         },
+        DilutionBreaker {
+            netuid: NetUid,
+            tripped: bool,
+        },
         SynthParamsSet {
             params: SynthParams,
         },
@@ -679,9 +785,12 @@ pub mod pallet {
         Disabled,
         SubnetNotEligible,
         BelowMinNotional,
+        /// Funds miss the position's whole-book share, or the pumped pool
+        /// cannot supply the book.
         CoverageNotMet,
-        SupplyCapExceeded,
+        /// Sale below `min_tao_out`, or `min_tao_out` of zero.
         SlippageExceeded,
+        /// Net alpha minted this block would exceed `open_net_mint_bps` (P8).
         OpenImpactTooHigh,
         NoPosition,
         PositionDeleveraging,
@@ -690,6 +799,12 @@ pub mod pallet {
         InvalidParams,
         CustodyUnavailable,
         Overflow,
+        /// Residual alpha above the breaker threshold (P21).
+        DilutionBreakerActive,
+        /// Pool TAO below `min_pool_depth` (P18).
+        PoolTooShallow,
+        /// Withdrawal leaves less than the interest buffer (P20).
+        WithdrawBufferBreached,
         /// `open_short` on an existing position; use `increase_short`.
         PositionExists,
         TooManyPositions,
@@ -713,7 +828,9 @@ pub mod pallet {
 
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let params = SynthParamsStore::<T>::get();
-            let mut weight = T::DbWeight::get().reads(1);
+            let db = T::DbWeight::get();
+            // The params read plus `on_finalize`'s clear of `BlockNetMinted`.
+            let mut weight = db.reads_writes(2, 1);
             if Self::block_u64(now).checked_rem(u64::from(params.twap_interval_blocks.max(1)))
                 == Some(0)
             {
@@ -732,6 +849,10 @@ pub mod pallet {
                 .saturating_add(T::WeightInfo::retire_residual().saturating_mul(u64::from(retires)))
         }
 
+        fn on_finalize(_now: BlockNumberFor<T>) {
+            let _ = BlockNetMinted::<T>::clear(u32::MAX, None);
+        }
+
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
             let mut meter = WeightMeter::with_limit(remaining);
             Self::collect_due(now, &mut meter);
@@ -747,7 +868,8 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Mint `mint_alpha`, sell it, and lock the proceeds beside
-        /// `collateral` TAO from the caller.
+        /// `collateral` TAO and the deposit from the caller. `min_tao_out`
+        /// must be non-zero.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::open_short())]
         #[frame_support::transactional]
@@ -763,6 +885,7 @@ pub mod pallet {
         }
 
         /// Mint and sell `extra_mint` more and/or add `extra_collateral`.
+        /// `min_tao_out` must be non-zero when `extra_mint` is.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::increase_short())]
         #[frame_support::transactional]
@@ -786,7 +909,8 @@ pub mod pallet {
             Self::do_add_collateral(who, netuid, tao)
         }
 
-        /// Withdraw collateral while coverage still holds afterwards.
+        /// Withdraw collateral while coverage plus the interest buffer still
+        /// hold afterwards (P20).
         #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::withdraw_collateral())]
         #[frame_support::transactional]
@@ -800,7 +924,8 @@ pub mod pallet {
         }
 
         /// Buy back and burn `alpha` (clamped to the position), paying from
-        /// proceeds then collateral. Closing the remainder refunds what is left.
+        /// proceeds then collateral. Closing the remainder refunds what is left
+        /// and the deposit.
         #[pallet::call_index(4)]
         #[pallet::weight(T::WeightInfo::close_short())]
         #[frame_support::transactional]
@@ -910,10 +1035,25 @@ pub mod pallet {
             Ok(())
         }
 
-        fn ensure_can_grow(owner: &T::AccountId, netuid: NetUid) -> DispatchResult {
+        /// Gates shared by every mint: enabled, live subnet, owner, pool depth
+        /// (P18) and the dilution breaker (P21).
+        fn ensure_can_grow(
+            owner: &T::AccountId,
+            netuid: NetUid,
+            params: &SynthParams,
+        ) -> DispatchResult {
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
             Self::ensure_tradeable(netuid)?;
             ensure!(T::Pool::owner_allowed(owner), Error::<T>::OwnerNotAllowed);
+            ensure!(
+                T::Pool::pool_tao(netuid).to_u64() >= params.min_pool_depth,
+                Error::<T>::PoolTooShallow
+            );
+            Self::refresh_breaker(netuid, params);
+            ensure!(
+                !BreakerTripped::<T>::get(netuid),
+                Error::<T>::DilutionBreakerActive
+            );
             Ok(())
         }
 
@@ -934,23 +1074,97 @@ pub mod pallet {
             minted: u64,
             params: &SynthParams,
         ) -> DispatchResult {
-            let notional = Self::mul_price(minted, T::Pool::moving_alpha_price(netuid), false);
             ensure!(
-                notional >= params.min_notional,
+                Self::notional(netuid, minted) >= params.min_notional,
                 Error::<T>::BelowMinNotional
             );
             Ok(())
         }
 
-        fn ensure_supply_cap(netuid: NetUid, extra: u64, params: &SynthParams) -> DispatchResult {
-            let cap = Self::issuance_ex(netuid)
-                .saturating_mul(u128::from(params.cap_bps))
-                .checked_div(BPS)
-                .unwrap_or(0);
-            let after = u128::from(SyntheticOutstanding::<T>::get(netuid))
-                .saturating_add(u128::from(extra));
-            ensure!(after <= cap, Error::<T>::SupplyCapExceeded);
+        // ---- P8 net-mint limit ---------------------------------------------
+
+        pub fn block_net_minted(netuid: NetUid) -> i128 {
+            let now = frame_system::Pallet::<T>::block_number();
+            match BlockNetMinted::<T>::get(netuid) {
+                Some((at, net)) if at == now => net,
+                _ => 0,
+            }
+        }
+
+        fn add_net_minted(netuid: NetUid, delta: i128) {
+            let now = frame_system::Pallet::<T>::block_number();
+            let net = Self::block_net_minted(netuid).saturating_add(delta);
+            BlockNetMinted::<T>::insert(netuid, (now, net));
+        }
+
+        fn ensure_net_mint_room(netuid: NetUid, mint: u64, params: &SynthParams) -> DispatchResult {
+            let limit = Self::mul_bps(
+                T::Pool::pool_alpha(netuid).to_u64(),
+                params.open_net_mint_bps,
+            );
+            let after = Self::block_net_minted(netuid).saturating_add(i128::from(mint));
+            ensure!(after <= i128::from(limit), Error::<T>::OpenImpactTooHigh);
             Ok(())
+        }
+
+        // ---- P21 dilution breaker --------------------------------------------
+
+        /// `ResidualAlpha / Issuance_ex` in bps.
+        pub fn residual_share_bps(netuid: NetUid) -> u128 {
+            let residual = u128::from(ResidualAlpha::<T>::get(netuid));
+            if residual == 0 {
+                return 0;
+            }
+            residual
+                .saturating_mul(BPS)
+                .checked_div(Self::issuance_ex(netuid))
+                .unwrap_or(u128::MAX)
+        }
+
+        /// Latch the breaker on above `breaker_on_bps` and off below
+        /// `breaker_off_bps`.
+        pub(crate) fn refresh_breaker(netuid: NetUid, params: &SynthParams) {
+            let share = Self::residual_share_bps(netuid);
+            let tripped = BreakerTripped::<T>::get(netuid);
+            let next = if tripped {
+                share >= u128::from(params.breaker_off_bps)
+            } else {
+                share > u128::from(params.breaker_on_bps)
+            };
+            if next != tripped {
+                if next {
+                    BreakerTripped::<T>::insert(netuid, true);
+                } else {
+                    BreakerTripped::<T>::remove(netuid);
+                }
+                Self::deposit_event(Event::DilutionBreaker {
+                    netuid,
+                    tripped: next,
+                });
+            }
+        }
+
+        // ---- P16 prune zone -------------------------------------------------------
+
+        /// Dereg-ranking SMA, falling back to the emission EMA before the first
+        /// sample (the same fallback subtensor's ranking uses).
+        pub fn rank_price(netuid: NetUid) -> U64F64 {
+            RankPrice::<T>::get(netuid).unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
+        }
+
+        /// The subnet's rank SMA is within `zone_bps` of the lowest non-immune
+        /// rank SMA, so it is a prune candidate (P16).
+        pub fn in_prune_zone(netuid: NetUid, params: &SynthParams) -> bool {
+            if T::Pool::prune_immune(netuid) {
+                return false;
+            }
+            let own = Self::rank_price(netuid);
+            let floor = T::Pool::live_subnets()
+                .into_iter()
+                .filter(|n| *n == netuid || !T::Pool::prune_immune(*n))
+                .map(Self::rank_price)
+                .fold(own, |lo, p| lo.min(p));
+            own <= Self::scale_price(floor, u128::from(params.zone_bps))
         }
 
         // ---- extrinsic bodies -----------------------------------------------
@@ -962,7 +1176,8 @@ pub mod pallet {
             collateral: u64,
             min_tao_out: u64,
         ) -> DispatchResult {
-            Self::ensure_can_grow(&owner, netuid)?;
+            let params = SynthParamsStore::<T>::get();
+            Self::ensure_can_grow(&owner, netuid, &params)?;
             ensure!(
                 !Positions::<T>::contains_key(&owner, netuid),
                 Error::<T>::PositionExists
@@ -973,9 +1188,8 @@ pub mod pallet {
                     && TotalPositions::<T>::get() < T::MaxTotalPositions::get(),
                 Error::<T>::TooManyPositions
             );
-            let params = SynthParamsStore::<T>::get();
             Self::ensure_min_notional(netuid, mint, &params)?;
-            Self::ensure_supply_cap(netuid, mint, &params)?;
+            let in_zone = Self::in_prune_zone(netuid, &params);
             Self::initialize_custody()?;
             let hot = Self::custody_hotkey()?;
             let now = frame_system::Pallet::<T>::block_number();
@@ -984,8 +1198,11 @@ pub mod pallet {
                 !EscrowOwner::<T>::contains_key(netuid, &custody),
                 Error::<T>::PositionExists
             );
-            if collateral > 0 {
-                T::Pool::transfer_tao(&owner, &custody, collateral.into())?;
+            let escrow = collateral
+                .checked_add(params.deposit)
+                .ok_or(Error::<T>::Overflow)?;
+            if escrow > 0 {
+                T::Pool::transfer_tao(&owner, &custody, escrow.into())?;
             }
             let proceeds = Self::sell_minted(netuid, &custody, &hot, mint, min_tao_out, &params)?;
             let due = now.saturating_add(T::InterestPeriod::get());
@@ -994,6 +1211,9 @@ pub mod pallet {
                 minted: mint,
                 collateral,
                 proceeds,
+                deposit: params.deposit,
+                zone_minted: if in_zone { mint } else { 0 },
+                zone_proceeds: if in_zone { proceeds } else { 0 },
                 opened_at: now,
                 last_accrued: now,
                 interest_remainder: 0,
@@ -1025,14 +1245,14 @@ pub mod pallet {
             extra_collateral: u64,
             min_tao_out: u64,
         ) -> DispatchResult {
-            Self::ensure_can_grow(&owner, netuid)?;
+            let params = SynthParamsStore::<T>::get();
+            Self::ensure_can_grow(&owner, netuid, &params)?;
             ensure!(
                 extra_mint > 0 || extra_collateral > 0,
                 Error::<T>::ZeroAmount
             );
             let mut pos = Self::position(&owner, netuid)?;
             Self::ensure_open_state(&pos)?;
-            let params = SynthParamsStore::<T>::get();
             Self::charge_interest(&owner, netuid, &mut pos, &params)?;
             if extra_collateral > 0 {
                 T::Pool::transfer_tao(&owner, &pos.custody, extra_collateral.into())?;
@@ -1045,7 +1265,7 @@ pub mod pallet {
                     .checked_add(extra_mint)
                     .ok_or(Error::<T>::Overflow)?;
                 Self::ensure_min_notional(netuid, minted, &params)?;
-                Self::ensure_supply_cap(netuid, extra_mint, &params)?;
+                let in_zone = Self::in_prune_zone(netuid, &params);
                 let hot = Self::custody_hotkey()?;
                 proceeds = Self::sell_minted(
                     netuid,
@@ -1057,6 +1277,10 @@ pub mod pallet {
                 )?;
                 pos.minted = minted;
                 pos.proceeds = pos.proceeds.saturating_add(proceeds);
+                if in_zone {
+                    pos.zone_minted = pos.zone_minted.saturating_add(extra_mint);
+                    pos.zone_proceeds = pos.zone_proceeds.saturating_add(proceeds);
+                }
             }
             Self::ensure_coverage(netuid, &pos, &params, Error::<T>::CoverageNotMet)?;
             Positions::<T>::insert(&owner, netuid, &pos);
@@ -1095,6 +1319,17 @@ pub mod pallet {
             ensure!(tao <= pos.collateral, Error::<T>::InsufficientFunds);
             pos.collateral = pos.collateral.saturating_sub(tao);
             Self::ensure_coverage(netuid, &pos, &params, Error::<T>::WithdrawBreaksCoverage)?;
+            let buffer = Self::days_interest(
+                netuid,
+                pos.minted,
+                u64::from(params.withdraw_buffer_days),
+                &params,
+            );
+            let need = Self::coverage_cost(netuid, pos.minted, &params).unwrap_or(u64::MAX);
+            ensure!(
+                pos.collateral >= buffer && pos.funds() >= need.saturating_add(buffer),
+                Error::<T>::WithdrawBufferBreached
+            );
             T::Pool::transfer_tao(&pos.custody, &owner, tao.into())?;
             Positions::<T>::insert(&owner, netuid, &pos);
             Self::deposit_event(Event::CollateralWithdrawn {
@@ -1124,8 +1359,7 @@ pub mod pallet {
             ensure!(estimate <= max_tao_in, Error::<T>::SlippageExceeded);
             let spent = Self::buy_back(netuid, &pos.custody, alpha, max_tao_in.min(funds))?;
             pos.debit(spent);
-            pos.minted = pos.minted.saturating_sub(alpha);
-            SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(alpha));
+            Self::burn_from_position(netuid, &mut pos, alpha);
             let refund = if pos.minted == 0 {
                 Self::finish_position(&owner, netuid, &pos)?
             } else {
@@ -1166,8 +1400,9 @@ pub mod pallet {
 
         // ---- pool operations ------------------------------------------------
 
-        /// Mint and sell into the pool, enforcing slippage and the per-block
-        /// open-impact budget (P8). Records the mint in `SyntheticOutstanding`.
+        /// Mint and sell into the pool, enforcing mandatory slippage and the
+        /// per-block net-mint limit (P8). Records the mint in
+        /// `SyntheticOutstanding`.
         fn sell_minted(
             netuid: NetUid,
             custody: &T::AccountId,
@@ -1176,27 +1411,13 @@ pub mod pallet {
             min_tao_out: u64,
             params: &SynthParams,
         ) -> Result<u64, DispatchError> {
-            let now = frame_system::Pallet::<T>::block_number();
-            let anchor = match OpenImpactAnchor::<T>::get(netuid) {
-                Some((at, price)) if at == now => price,
-                _ => {
-                    let spot = T::Pool::current_alpha_price(netuid);
-                    OpenImpactAnchor::<T>::insert(netuid, (now, spot));
-                    spot
-                }
-            };
+            ensure!(min_tao_out > 0, Error::<T>::SlippageExceeded);
+            Self::ensure_net_mint_room(netuid, mint, params)?;
             let tao = T::Pool::mint_and_sell(netuid, custody, hot, mint.into(), TaoBalance::ZERO)?
                 .to_u64();
             ensure!(tao >= min_tao_out, Error::<T>::SlippageExceeded);
-            let floor = Self::scale_price(
-                anchor,
-                BPS.saturating_sub(u128::from(params.open_impact_bps)),
-            );
-            ensure!(
-                T::Pool::current_alpha_price(netuid) >= floor,
-                Error::<T>::OpenImpactTooHigh
-            );
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_add(mint));
+            Self::add_net_minted(netuid, i128::from(mint));
             Ok(tao)
         }
 
@@ -1213,9 +1434,20 @@ pub mod pallet {
             )
         }
 
-        /// TAO a protocol buy-back may spend on `netuid` this block without
-        /// lifting spot more than `pace` above the block's first buy-back (P7).
-        fn pace_budget(netuid: NetUid, params: &SynthParams) -> u64 {
+        /// Record `alpha` of `pos` bought back and burned.
+        fn burn_from_position(netuid: NetUid, pos: &mut PositionOf<T>, alpha: u64) {
+            pos.reduce_minted(alpha);
+            SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(alpha));
+            if pos.state != ShortState::Open {
+                DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_sub(alpha));
+            }
+            Self::add_net_minted(netuid, i128::from(alpha).saturating_neg());
+        }
+
+        /// TAO a protocol buy-back may still spend on `netuid` this block
+        /// without lifting spot more than `pace` above the block's first
+        /// buy-back (P7).
+        fn pace_room(netuid: NetUid, params: &SynthParams) -> u64 {
             let now = frame_system::Pallet::<T>::block_number();
             let anchor = match PaceAnchor::<T>::get(netuid) {
                 Some((at, price)) if at == now => price,
@@ -1235,17 +1467,39 @@ pub mod pallet {
                 .unwrap_or(0)
         }
 
+        /// Protocol buy-backs wait while spot is pumped above the median TWAP
+        /// (P17).
+        pub fn buybacks_paused(netuid: NetUid, params: &SynthParams) -> bool {
+            let cap = Self::scale_price(Self::twap(netuid), u128::from(params.pause_bps));
+            T::Pool::current_alpha_price(netuid) > cap
+        }
+
+        /// The block's pace budget and deleveraging book on `netuid`, fixed at
+        /// the first call in the block.
+        fn deleverage_budget(netuid: NetUid, params: &SynthParams) -> (u64, u64) {
+            let now = frame_system::Pallet::<T>::block_number();
+            if let Some((at, budget, book)) = DeleverageBudget::<T>::get(netuid)
+                && at == now
+            {
+                return (budget, book);
+            }
+            let budget = Self::pace_room(netuid, params);
+            let book = DeleveragingMinted::<T>::get(netuid);
+            DeleverageBudget::<T>::insert(netuid, (now, budget, book));
+            (budget, book)
+        }
+
         // ---- position lifecycle --------------------------------------------
 
-        /// Refund remaining funds and drop every index of a position.
+        /// Refund remaining funds plus the deposit and drop every index.
         fn finish_position(
             owner: &T::AccountId,
             netuid: NetUid,
             pos: &PositionOf<T>,
         ) -> Result<u64, DispatchError> {
-            let funds = pos.funds();
-            let refund = if funds > 0 {
-                T::Pool::refund_dissolution_tao(&pos.custody, owner, funds.into())?.to_u64()
+            let held = pos.funds().saturating_add(pos.deposit);
+            let refund = if held > 0 {
+                T::Pool::refund_dissolution_tao(&pos.custody, owner, held.into())?.to_u64()
             } else {
                 0
             };
@@ -1258,7 +1512,10 @@ pub mod pallet {
             OpenByNetuid::<T>::remove(netuid, owner);
             EscrowOwner::<T>::remove(netuid, &pos.custody);
             Due::<T>::remove(pos.due, (owner.clone(), netuid));
-            DeleverageQueue::<T>::remove((owner.clone(), netuid));
+            if pos.state != ShortState::Open {
+                DeleverageQueue::<T>::remove(netuid, owner);
+                DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_sub(pos.minted));
+            }
             PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_sub(1));
             TotalPositions::<T>::mutate(|n| *n = n.saturating_sub(1));
         }
@@ -1280,7 +1537,8 @@ pub mod pallet {
             pos.state = ShortState::Deleveraging {
                 since: frame_system::Pallet::<T>::block_number(),
             };
-            DeleverageQueue::<T>::insert((owner.clone(), netuid), ());
+            DeleverageQueue::<T>::insert(netuid, owner, ());
+            DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_add(pos.minted));
             Self::deposit_event(Event::DeleverageStarted {
                 who: owner.clone(),
                 netuid,
@@ -1288,19 +1546,36 @@ pub mod pallet {
             });
         }
 
-        /// One paced buy-back for a deleveraging position. Closes it when the
-        /// minted alpha is gone and defaults it when its funds are.
+        /// One paced buy-back for a deleveraging position: its pro-rata share
+        /// of the block's pace budget, skipped while buy-backs are paused.
+        /// Closes the position when the minted alpha is gone and defaults it
+        /// when its funds are.
         pub(crate) fn deleverage_step(owner: &T::AccountId, netuid: NetUid, params: &SynthParams) {
             let Some(mut pos) = Positions::<T>::get(owner, netuid) else {
-                DeleverageQueue::<T>::remove((owner.clone(), netuid));
+                DeleverageQueue::<T>::remove(netuid, owner);
                 return;
             };
-            if Dissolutions::<T>::contains_key(netuid) || !T::Pool::subnet_exists(netuid) {
+            if Dissolutions::<T>::contains_key(netuid)
+                || !T::Pool::subnet_exists(netuid)
+                || Self::buybacks_paused(netuid, params)
+            {
                 return;
             }
             let funds = pos.funds();
-            let budget = Self::pace_budget(netuid, params);
-            let spend = budget.min(funds);
+            let (budget, book) = Self::deleverage_budget(netuid, params);
+            let share = if book == 0 {
+                budget
+            } else {
+                multiply_by_rational_with_rounding(
+                    u128::from(budget),
+                    u128::from(pos.minted),
+                    u128::from(book),
+                    Rounding::Down,
+                )
+                .and_then(|v| u64::try_from(v).ok())
+                .unwrap_or(budget)
+            };
+            let spend = share.min(funds).min(Self::pace_room(netuid, params));
             let alpha = if spend == 0 {
                 0
             } else {
@@ -1310,7 +1585,9 @@ pub mod pallet {
                     .min(pos.minted)
             };
             if alpha == 0 {
-                if budget >= funds {
+                let dust = funds == 0
+                    || T::Pool::quote_buy(netuid, funds.into()).is_ok_and(|a| a.to_u64() == 0);
+                if dust {
                     Self::default_position(owner, netuid, &pos);
                 }
                 return;
@@ -1326,8 +1603,7 @@ pub mod pallet {
                 return;
             };
             pos.debit(spent);
-            pos.minted = pos.minted.saturating_sub(alpha);
-            SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(alpha));
+            Self::burn_from_position(netuid, &mut pos, alpha);
             Self::deposit_event(Event::DeleverageStep {
                 who: owner.clone(),
                 netuid,
@@ -1353,8 +1629,8 @@ pub mod pallet {
             }
         }
 
-        /// Unbought alpha becomes residual (holder dilution); leftover dust
-        /// funds go to the reserve that retires it.
+        /// Unbought alpha becomes residual (holder dilution). Leftover dust
+        /// funds go to the reserve that retires it; the deposit burns (P19).
         pub(crate) fn default_position(owner: &T::AccountId, netuid: NetUid, pos: &PositionOf<T>) {
             let residual = pos.minted;
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(residual));
@@ -1370,7 +1646,11 @@ pub mod pallet {
                     });
                 }
             }
+            if pos.deposit > 0 {
+                let _ = T::Pool::burn_interest_tao(&pos.custody, pos.deposit.into());
+            }
             Self::remove_position(owner, netuid, pos);
+            Self::refresh_breaker(netuid, &SynthParamsStore::<T>::get());
             Self::deposit_event(Event::ShortDefaulted {
                 who: owner.clone(),
                 netuid,
@@ -1381,9 +1661,9 @@ pub mod pallet {
         /// Serve up to `max` deleveraging positions, resuming after the cursor.
         /// Returns the number of steps taken.
         pub(crate) fn process_deleverage_queue(max: u32, params: &SynthParams) -> u32 {
-            let keys: alloc::vec::Vec<(T::AccountId, NetUid)> = match DeleverageCursor::<T>::get() {
-                Some(last) => DeleverageQueue::<T>::iter_keys_from(
-                    DeleverageQueue::<T>::hashed_key_for(&last),
+            let keys: alloc::vec::Vec<(NetUid, T::AccountId)> = match DeleverageCursor::<T>::get() {
+                Some((netuid, owner)) => DeleverageQueue::<T>::iter_keys_from(
+                    DeleverageQueue::<T>::hashed_key_for(netuid, &owner),
                 )
                 .take(max as usize)
                 .collect(),
@@ -1396,14 +1676,15 @@ pub mod pallet {
             } else if let Some(last) = keys.last() {
                 DeleverageCursor::<T>::put(last.clone());
             }
-            for (owner, netuid) in keys.iter() {
+            for (netuid, owner) in keys.iter() {
                 Self::deleverage_step(owner, *netuid, params);
             }
             keys.len() as u32
         }
 
         /// The reserve buys back and burns residual alpha under the pace limit
-        /// (SPEC §1.6). Returns the number of subnets served.
+        /// and the pump pause (SPEC §1.6). Returns the number of subnets
+        /// served.
         pub(crate) fn retire_residuals(max: u32, params: &SynthParams) -> u32 {
             let entries: alloc::vec::Vec<(NetUid, u64)> = match RetireCursor::<T>::get() {
                 Some(last) => {
@@ -1429,10 +1710,11 @@ pub mod pallet {
             if reserve_tao == 0
                 || Dissolutions::<T>::contains_key(netuid)
                 || !T::Pool::subnet_exists(netuid)
+                || Self::buybacks_paused(netuid, params)
             {
                 return;
             }
-            let spend = Self::pace_budget(netuid, params).min(reserve_tao);
+            let spend = Self::pace_room(netuid, params).min(reserve_tao);
             if spend == 0 {
                 return;
             }
@@ -1459,6 +1741,8 @@ pub mod pallet {
             } else {
                 ResidualAlpha::<T>::insert(netuid, left);
             }
+            Self::add_net_minted(netuid, i128::from(alpha).saturating_neg());
+            Self::refresh_breaker(netuid, params);
             Self::deposit_event(Event::ResidualRetired {
                 netuid,
                 alpha,
@@ -1479,24 +1763,6 @@ pub mod pallet {
                 .saturating_sub(u128::from(ResidualAlpha::<T>::get(netuid)))
         }
 
-        /// `floor + (ceil − floor) × min(1, S / (knee × Issuance_ex))` (P3).
-        pub fn apr_bps(netuid: NetUid, params: &SynthParams) -> u32 {
-            let s = u128::from(SyntheticOutstanding::<T>::get(netuid));
-            let knee = Self::issuance_ex(netuid)
-                .saturating_mul(u128::from(params.knee_bps))
-                .checked_div(BPS)
-                .unwrap_or(0);
-            let span = u128::from(params.apr_ceil_bps.saturating_sub(params.apr_floor_bps));
-            let extra = if s >= knee {
-                if s == 0 { 0 } else { span }
-            } else {
-                multiply_by_rational_with_rounding(span, s, knee, Rounding::Down).unwrap_or(span)
-            };
-            params
-                .apr_floor_bps
-                .saturating_add(u32::try_from(extra).unwrap_or(u32::MAX))
-        }
-
         fn notional(netuid: NetUid, minted: u64) -> u64 {
             Self::mul_price(minted, T::Pool::moving_alpha_price(netuid), false)
         }
@@ -1505,13 +1771,17 @@ pub mod pallet {
             BPS.saturating_mul(u128::from(T::BlocksPerYear::get().max(1)))
         }
 
-        /// Interest on `minted` for one day at the current APR, rounded up.
-        pub fn day_interest(netuid: NetUid, minted: u64, params: &SynthParams) -> u64 {
-            let day = T::BlocksPerYear::get() / 365;
+        /// Interest on `minted` for `days` days at the flat APR, rounded up.
+        pub fn days_interest(netuid: NetUid, minted: u64, days: u64, params: &SynthParams) -> u64 {
+            let blocks = (T::BlocksPerYear::get() / 365).saturating_mul(days);
             let num = u128::from(Self::notional(netuid, minted))
-                .saturating_mul(u128::from(Self::apr_bps(netuid, params)))
-                .saturating_mul(u128::from(day));
+                .saturating_mul(u128::from(params.apr_bps))
+                .saturating_mul(u128::from(blocks));
             u64::try_from(num.div_ceil(Self::interest_denominator())).unwrap_or(u64::MAX)
+        }
+
+        pub fn day_interest(netuid: NetUid, minted: u64, params: &SynthParams) -> u64 {
+            Self::days_interest(netuid, minted, 1, params)
         }
 
         /// Interest accrued from `last_accrued` to now, with the carried
@@ -1524,7 +1794,7 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             let blocks = Self::block_u64(now.saturating_sub(pos.last_accrued));
             let num = u128::from(Self::notional(netuid, pos.minted))
-                .saturating_mul(u128::from(Self::apr_bps(netuid, params)))
+                .saturating_mul(u128::from(params.apr_bps))
                 .saturating_mul(u128::from(blocks))
                 .saturating_add(u128::from(pos.interest_remainder));
             let den = Self::interest_denominator();
@@ -1675,18 +1945,25 @@ pub mod pallet {
             });
         }
 
-        /// Mean of the ring; spot before the first sample.
+        /// Median of the ring (P6); spot before the first sample. An even
+        /// count averages the two middle samples.
         pub fn twap(netuid: NetUid) -> U64F64 {
-            let ring = TwapRing::<T>::get(netuid);
-            if ring.samples.is_empty() {
+            let mut samples = TwapRing::<T>::get(netuid).samples.into_inner();
+            if samples.is_empty() {
                 return T::Pool::current_alpha_price(netuid);
             }
-            let sum = ring
-                .samples
-                .iter()
-                .fold(U64F64::from_num(0), |acc, p| acc.saturating_add(*p));
-            sum.checked_div(U64F64::from_num(ring.samples.len()))
-                .unwrap_or(sum)
+            samples.sort_unstable();
+            let mid = samples.len() / 2;
+            let upper = samples.get(mid).copied().unwrap_or_default();
+            if samples.len() % 2 == 1 {
+                return upper;
+            }
+            let lower = samples.get(mid.saturating_sub(1)).copied().unwrap_or(upper);
+            let half = upper
+                .saturating_sub(lower)
+                .checked_div(U64F64::from_num(2))
+                .unwrap_or_default();
+            lower.saturating_add(half)
         }
 
         // ---- health and coverage -------------------------------------------
@@ -1708,29 +1985,65 @@ pub mod pallet {
             funds.saturating_sub(i128::try_from(scaled).unwrap_or(i128::MAX))
         }
 
-        /// Cost to buy back `minted` after a pump to `stress × max(EMA, spot)`,
-        /// queued behind `others` synthetic alpha (P2).
-        pub(crate) fn coverage_cost_on(
-            pool: PoolState,
-            ema: U64F64,
-            others: u64,
-            minted: u64,
-            params: &SynthParams,
-        ) -> Option<u64> {
-            let base = ema.max(Self::price_on(pool));
-            let target = Self::scale_price(base, u128::from(params.stress_bps));
-            let pumped = Self::pump_to(pool, target)?;
-            let others_cost = Self::buy_cost_on(pumped, others)?;
-            let behind = Self::after_buy(pumped, others_cost);
-            Self::buy_cost_on(behind, minted)
+        /// `Stress_eff = stress × (1 + slope × book / pool_alpha)` in bps.
+        pub fn stress_eff_bps(book: u64, pool_alpha: u64, params: &SynthParams) -> u128 {
+            let stress = u128::from(params.stress_bps);
+            if pool_alpha == 0 {
+                return u128::MAX;
+            }
+            let lift = multiply_by_rational_with_rounding(
+                u128::from(params.stress_slope_bps),
+                u128::from(book),
+                u128::from(pool_alpha),
+                Rounding::Up,
+            )
+            .unwrap_or(u128::MAX);
+            multiply_by_rational_with_rounding(stress, BPS.saturating_add(lift), BPS, Rounding::Up)
+                .unwrap_or(u128::MAX)
         }
 
+        /// `q_pos`'s pro-rata share of buying back the whole `book` after a pump
+        /// to `Stress_eff × ref` (P2). `None` when the pumped pool cannot
+        /// supply the book.
+        fn book_need(
+            pool: PoolState,
+            reference: U64F64,
+            book: u64,
+            q_pos: u64,
+            params: &SynthParams,
+        ) -> Option<u64> {
+            if q_pos == 0 {
+                return Some(0);
+            }
+            let book = book.max(q_pos);
+            let stress = Self::stress_eff_bps(book, pool.alpha, params);
+            let target = Self::scale_price(reference, stress);
+            let pumped = Self::pump_to(pool, target)?;
+            let cost = Self::buy_cost_on(pumped, book)?;
+            multiply_by_rational_with_rounding(
+                u128::from(cost),
+                u128::from(q_pos),
+                u128::from(book),
+                Rounding::Up,
+            )
+            .and_then(|v| u64::try_from(v).ok())
+        }
+
+        /// `max(EMA, spot, SMA30_rank)` on `pool` (P2).
+        fn reference_price(netuid: NetUid, pool: PoolState) -> U64F64 {
+            T::Pool::moving_alpha_price(netuid)
+                .max(Self::price_on(pool))
+                .max(Self::rank_price(netuid))
+        }
+
+        /// Whole-book coverage need of a position holding `minted` on the live
+        /// pool and book.
         pub fn coverage_cost(netuid: NetUid, minted: u64, params: &SynthParams) -> Option<u64> {
-            let others = SyntheticOutstanding::<T>::get(netuid).saturating_sub(minted);
-            Self::coverage_cost_on(
-                Self::pool_state(netuid),
-                T::Pool::moving_alpha_price(netuid),
-                others,
+            let pool = Self::pool_state(netuid);
+            Self::book_need(
+                pool,
+                Self::reference_price(netuid, pool),
+                SyntheticOutstanding::<T>::get(netuid),
                 minted,
                 params,
             )
@@ -1878,22 +2191,51 @@ pub mod pallet {
 
         // ---- dissolution ------------------------------------------------------
 
+        /// `r = min(T, T_ema) / all_alpha`, with `T` pool TAO (short escrow is
+        /// not in the pool) and `all_alpha` raw issuance including synthetic
+        /// and residual alpha (P12).
+        pub fn dissolution_rate(netuid: NetUid) -> U64F64 {
+            let tao = T::Pool::pool_tao(netuid).to_u64();
+            let tao = PoolTaoEma::<T>::get(netuid).map_or(tao, |ema| ema.min(tao));
+            let all = T::Pool::alpha_issuance(netuid).to_u64();
+            if all == 0 {
+                return U64F64::from_num(0);
+            }
+            U64F64::from_bits(
+                multiply_by_rational_with_rounding(
+                    u128::from(tao),
+                    FIXED_ONE,
+                    u128::from(all),
+                    Rounding::Down,
+                )
+                .unwrap_or(0),
+            )
+        }
+
         pub fn start_dissolution(netuid: NetUid) -> DispatchResult {
             Self::ensure_not_dissolving(netuid)?;
             Dissolutions::<T>::insert(
                 netuid,
                 Dissolution {
                     frozen_at: frame_system::Pallet::<T>::block_number(),
-                    price: T::Pool::moving_alpha_price(netuid),
+                    price: Self::dissolution_rate(netuid),
                 },
             );
             Ok(())
         }
 
-        /// Settle each short at the flagged EMA (P12): pay `minted × price`
-        /// into the pot from proceeds then collateral and refund the rest. A
-        /// shortfall is not chased (holder dilution). Then the reserve joins
-        /// the pot and the subnet's synthetic state is cleared.
+        /// What `pos` owes the pot at rate `r`: zone alpha at its own proceeds,
+        /// the rest at `r`, capped at its funds.
+        pub fn dissolution_owed(pos: &PositionOf<T>, rate: U64F64) -> u64 {
+            let older = pos.minted.saturating_sub(pos.zone_minted);
+            Self::mul_price(older, rate, true)
+                .saturating_add(pos.zone_proceeds)
+                .min(pos.funds())
+        }
+
+        /// Settle each short (P12, P16), then add the reserve to the pot and
+        /// clear the subnet's synthetic state. A shortfall is not chased
+        /// (holder dilution).
         pub fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             let Some(dissolution) = Dissolutions::<T>::get(netuid) else {
                 return true;
@@ -1918,20 +2260,21 @@ pub mod pallet {
             }
             ResidualAlpha::<T>::remove(netuid);
             SyntheticOutstanding::<T>::remove(netuid);
+            DeleveragingMinted::<T>::remove(netuid);
+            DeleverageBudget::<T>::remove(netuid);
+            BreakerTripped::<T>::remove(netuid);
             TwapRing::<T>::remove(netuid);
-            OpenImpactAnchor::<T>::remove(netuid);
             PaceAnchor::<T>::remove(netuid);
+            BlockNetMinted::<T>::remove(netuid);
             true
         }
 
-        fn settle_one_on_dissolution(owner: &T::AccountId, netuid: NetUid, price: U64F64) {
+        fn settle_one_on_dissolution(owner: &T::AccountId, netuid: NetUid, rate: U64F64) {
             let Some(pos) = Positions::<T>::get(owner, netuid) else {
                 OpenByNetuid::<T>::remove(netuid, owner);
                 return;
             };
-            let funds = pos.funds();
-            let owed = Self::mul_price(pos.minted, price, true);
-            let due = owed.min(funds);
+            let due = Self::dissolution_owed(&pos, rate);
             let paid = if due > 0 {
                 T::Pool::pay_into_pot(&pos.custody, netuid, due.into())
                     .map(|p| p.to_u64())
@@ -1939,7 +2282,7 @@ pub mod pallet {
             } else {
                 0
             };
-            let refund = funds.saturating_sub(paid);
+            let refund = pos.funds().saturating_sub(paid).saturating_add(pos.deposit);
             if refund > 0 {
                 let _ = T::Pool::refund_dissolution_tao(&pos.custody, owner, refund.into());
             }
@@ -1948,7 +2291,7 @@ pub mod pallet {
             Self::deposit_event(Event::ShortSettledOnDissolution {
                 who: owner.clone(),
                 netuid,
-                price,
+                price: rate,
                 paid,
             });
         }
@@ -1956,7 +2299,9 @@ pub mod pallet {
         pub fn finish_dissolution(netuid: NetUid) -> DispatchResult {
             Dissolutions::<T>::remove(netuid);
             PositionCount::<T>::remove(netuid);
-            DeregMovingPrice::<T>::remove(netuid);
+            RankRing::<T>::remove(netuid);
+            RankPrice::<T>::remove(netuid);
+            PoolTaoEma::<T>::remove(netuid);
             Ok(())
         }
 
@@ -1993,8 +2338,8 @@ pub mod pallet {
                 if Due::<T>::take(pos.due, (old.clone(), netuid)).is_some() {
                     Due::<T>::insert(pos.due, (new.clone(), netuid), ());
                 }
-                if DeleverageQueue::<T>::take((old.clone(), netuid)).is_some() {
-                    DeleverageQueue::<T>::insert((new.clone(), netuid), ());
+                if DeleverageQueue::<T>::take(netuid, old).is_some() {
+                    DeleverageQueue::<T>::insert(netuid, new, ());
                     DeleverageCursor::<T>::kill();
                 }
             }
@@ -2003,7 +2348,8 @@ pub mod pallet {
 
         // ---- quotes -------------------------------------------------------------
 
-        /// Proceeds and minimum collateral for opening a fresh `mint` short.
+        /// Proceeds, minimum collateral and deposit for opening a fresh `mint`
+        /// short.
         pub fn quote_open_short(
             netuid: NetUid,
             mint: u64,
@@ -2011,8 +2357,16 @@ pub mod pallet {
             Self::ensure_tradeable(netuid)?;
             ensure!(mint > 0, Error::<T>::ZeroAmount);
             let params = SynthParamsStore::<T>::get();
+            ensure!(
+                T::Pool::pool_tao(netuid).to_u64() >= params.min_pool_depth,
+                Error::<T>::PoolTooShallow
+            );
+            ensure!(
+                !BreakerTripped::<T>::get(netuid),
+                Error::<T>::DilutionBreakerActive
+            );
             Self::ensure_min_notional(netuid, mint, &params)?;
-            Self::ensure_supply_cap(netuid, mint, &params)?;
+            Self::ensure_net_mint_room(netuid, mint, &params)?;
             let proceeds = T::Pool::quote_sell(netuid, mint.into())?.to_u64();
             let pool = Self::pool_state(netuid);
             let gross = T::Pool::quote_sell_on(
@@ -2027,24 +2381,25 @@ pub mod pallet {
                 alpha: pool.alpha.saturating_add(mint),
                 weight: pool.weight,
             };
-            let cost = Self::coverage_cost_on(
+            let cost = Self::book_need(
                 after_sale,
-                T::Pool::moving_alpha_price(netuid),
-                SyntheticOutstanding::<T>::get(netuid),
+                Self::reference_price(netuid, after_sale),
+                SyntheticOutstanding::<T>::get(netuid).saturating_add(mint),
                 mint,
                 &params,
             )
             .ok_or(Error::<T>::CoverageNotMet)?;
-            let apr_bps = Self::apr_bps(netuid, &params);
             let notional = Self::notional(netuid, mint);
             Ok(ShortOpenQuote {
                 proceeds,
                 required_collateral: cost
                     .saturating_sub(proceeds)
                     .max(Self::day_interest(netuid, mint, &params)),
+                deposit: params.deposit,
                 notional,
-                apr_bps,
-                annual_interest: Self::mul_bps_u32(notional, apr_bps),
+                apr_bps: params.apr_bps,
+                annual_interest: Self::mul_bps_u32(notional, params.apr_bps),
+                in_prune_zone: Self::in_prune_zone(netuid, &params),
             })
         }
 
@@ -2069,7 +2424,7 @@ pub mod pallet {
             let funds = pos.funds().saturating_sub(owed.min(pos.collateral));
             ensure!(tao_in <= funds, Error::<T>::InsufficientFunds);
             let refund = if alpha == pos.minted {
-                funds.saturating_sub(tao_in)
+                funds.saturating_sub(tao_in).saturating_add(pos.deposit)
             } else {
                 0
             };
@@ -2087,6 +2442,7 @@ pub mod pallet {
                 minted: pos.minted,
                 collateral: pos.collateral,
                 proceeds: pos.proceeds,
+                zone_minted: pos.zone_minted,
                 accrued_interest: Self::accrued(netuid, &pos, &params).0,
                 equity_twap: Self::equity_twap(netuid, &pos),
                 coverage_cost: Self::coverage_cost(netuid, pos.minted, &params),
@@ -2102,11 +2458,13 @@ pub mod pallet {
 
         // ---- invariants ---------------------------------------------------------
 
-        /// I1, index consistency, and the deleveraging queue.
+        /// I1, I11, index consistency, and the deleveraging book.
         #[cfg(any(test, feature = "try-runtime"))]
         pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
-            let mut minted: alloc::collections::BTreeMap<NetUid, u64> = Default::default();
-            let mut per_subnet: alloc::collections::BTreeMap<NetUid, u32> = Default::default();
+            use alloc::collections::BTreeMap;
+            let mut minted: BTreeMap<NetUid, u64> = Default::default();
+            let mut deleveraging: BTreeMap<NetUid, u64> = Default::default();
+            let mut per_subnet: BTreeMap<NetUid, u32> = Default::default();
             let mut total = 0u32;
             for (owner, netuid, pos) in Positions::<T>::iter() {
                 let m = minted.entry(netuid).or_default();
@@ -2115,6 +2473,14 @@ pub mod pallet {
                 *c = c.saturating_add(1);
                 total = total.saturating_add(1);
                 ensure!(pos.minted > 0, "position with nothing minted");
+                ensure!(
+                    pos.zone_minted <= pos.minted,
+                    "I11: zone_minted above minted"
+                );
+                ensure!(
+                    pos.zone_proceeds <= pos.proceeds.saturating_add(pos.collateral),
+                    "zone_proceeds above funds"
+                );
                 ensure!(
                     OpenByNetuid::<T>::contains_key(netuid, &owner),
                     "position missing from OpenByNetuid"
@@ -2128,11 +2494,15 @@ pub mod pallet {
                         || Due::<T>::contains_key(pos.due, (owner.clone(), netuid)),
                     "position not scheduled for interest"
                 );
+                let queued = DeleverageQueue::<T>::contains_key(netuid, &owner);
                 ensure!(
-                    (pos.state != ShortState::Open)
-                        == DeleverageQueue::<T>::contains_key((owner.clone(), netuid)),
+                    (pos.state != ShortState::Open) == queued,
                     "deleverage queue out of sync with position state"
                 );
+                if queued {
+                    let d = deleveraging.entry(netuid).or_default();
+                    *d = d.saturating_add(pos.minted);
+                }
             }
             for (netuid, s) in SyntheticOutstanding::<T>::iter() {
                 ensure!(
@@ -2150,6 +2520,18 @@ pub mod pallet {
                     "PositionCount drift"
                 );
             }
+            for (netuid, d) in DeleveragingMinted::<T>::iter() {
+                ensure!(
+                    deleveraging.get(&netuid).copied().unwrap_or(0) == d,
+                    "DeleveragingMinted drift"
+                );
+            }
+            for (netuid, d) in deleveraging.iter() {
+                ensure!(
+                    DeleveragingMinted::<T>::get(netuid) == *d,
+                    "deleveraging minted without DeleveragingMinted"
+                );
+            }
             ensure!(TotalPositions::<T>::get() == total, "TotalPositions drift");
             ensure!(
                 OpenByNetuid::<T>::iter().count() as u32 == total,
@@ -2159,7 +2541,7 @@ pub mod pallet {
                 EscrowOwner::<T>::iter().count() as u32 == total,
                 "EscrowOwner has stale entries"
             );
-            for (owner, netuid) in DeleverageQueue::<T>::iter_keys() {
+            for (netuid, owner) in DeleverageQueue::<T>::iter_keys() {
                 ensure!(
                     Positions::<T>::contains_key(&owner, netuid),
                     "deleverage queue entry without position"
@@ -2209,7 +2591,9 @@ pub mod pallet {
         fn on_subnet_registered(netuid: NetUid) {
             // A reused netuid must not inherit the pruned subnet's prices.
             TwapRing::<T>::remove(netuid);
-            DeregMovingPrice::<T>::remove(netuid);
+            RankRing::<T>::remove(netuid);
+            RankPrice::<T>::remove(netuid);
+            PoolTaoEma::<T>::remove(netuid);
         }
         fn update_dereg_moving_price(netuid: NetUid) {
             Self::update_dereg_moving_price(netuid)

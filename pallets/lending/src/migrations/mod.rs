@@ -70,6 +70,8 @@ pub const RETIRED_ITEMS: &[&str] = &[
     "StatsGlobal",
     "CurrentTermsVersion",
     "DeregMaBlocks",
+    "DeregMovingPrice",
+    "OpenImpactAnchor",
 ];
 
 pub fn synth_shorts_v1_key() -> BoundedVec<u8, MigrationKeyMaxLen> {

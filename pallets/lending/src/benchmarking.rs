@@ -37,7 +37,7 @@ mod benchmarks {
             netuid(),
             MINT,
             COLLATERAL,
-            0,
+            1,
         ));
         assert!(Positions::<T>::contains_key(caller, netuid()));
     }
@@ -57,7 +57,7 @@ mod benchmarks {
             netuid(),
             MINT,
             COLLATERAL,
-            0,
+            1,
         );
         assert!(Positions::<T>::contains_key(&caller, netuid()));
     }
@@ -73,7 +73,7 @@ mod benchmarks {
             netuid(),
             MINT,
             COLLATERAL,
-            0,
+            1,
         );
         assert_eq!(
             Positions::<T>::get(&caller, netuid()).map(|p| p.minted),
@@ -158,7 +158,8 @@ mod benchmarks {
                 };
             }
         });
-        DeleverageQueue::<T>::insert((caller.clone(), netuid()), ());
+        DeleverageQueue::<T>::insert(netuid(), &caller, ());
+        DeleveragingMinted::<T>::insert(netuid(), MINT);
         advance::<T>(1);
         let params = SynthParamsStore::<T>::get();
         #[block]

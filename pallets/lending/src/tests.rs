@@ -5,7 +5,7 @@
     clippy::indexing_slicing
 )]
 
-//! Focused tests for synthetic-mint shorts (SPEC v1 §6).
+//! Focused tests for synthetic-mint shorts (SPEC v1.2 §6).
 
 use super::*;
 use crate::weights::WeightInfo;
@@ -54,6 +54,7 @@ const POOL: u64 = 1_000_000_000_000_000;
 const ISSUANCE: u64 = 10_000_000_000_000_000;
 const MINT: u64 = 1_000_000_000_000;
 const COLLATERAL: u64 = 2_500_000_000_000;
+const DEPOSIT: u64 = 100_000_000;
 const HALF_WEIGHT: u64 = 500_000_000_000_000_000;
 
 fn account(n: u8) -> Account {
@@ -64,6 +65,10 @@ fn burn_account() -> Account {
 }
 fn netuid() -> NetUid {
     64.into()
+}
+/// A second live subnet whose rank price sets the prune-zone floor.
+fn other() -> NetUid {
+    65.into()
 }
 fn key(prefix: &[u8], args: impl Encode) -> Vec<u8> {
     [prefix, &args.encode()].concat()
@@ -120,6 +125,17 @@ fn set_live(live: bool) {
 }
 fn spot() -> f64 {
     MockPool::current_alpha_price(netuid()).to_num::<f64>()
+}
+/// Residual alpha `r`, with issuance kept at base + synthetic + residual (I2).
+fn set_residual(r: u64) {
+    ResidualAlpha::<Test>::insert(netuid(), r);
+    write(
+        &key(b"test/issuance", netuid()),
+        base_issuance() + SyntheticOutstanding::<Test>::get(netuid()) + r,
+    );
+}
+fn set_other_rank(price: f64) {
+    RankPrice::<Test>::insert(other(), U64F64::from_num(price));
 }
 
 pub struct MockPool;
@@ -231,7 +247,7 @@ impl LendingPoolInterface<Account> for MockPool {
         read(&key(b"test/ema", netuid))
     }
     fn live_subnets() -> Vec<NetUid> {
-        vec![netuid()]
+        vec![netuid(), other()]
     }
     fn mint_and_sell(
         netuid: NetUid,
@@ -298,6 +314,8 @@ fn new_test_ext() -> sp_io::TestExternalities {
         set_pool(POOL, POOL);
         set_issuance(ISSUANCE);
         set_ema(1.0);
+        // Far below netuid 64, so 64 sits outside the prune zone by default.
+        set_other_rank(0.1);
     });
     ext
 }
@@ -310,8 +328,8 @@ fn run(f: impl FnOnce()) {
     });
 }
 
-/// I1 via `do_try_state`, I2 issuance reconciliation, I3 custody and reserve
-/// balances, I4 coverage for open positions, I5 collateral never negative.
+/// I1 and I11 via `do_try_state`, I2 issuance reconciliation, I3 custody and
+/// reserve balances.
 fn check_invariants() {
     assert_ok!(Lending::do_try_state());
     if Dissolutions::<Test>::get(netuid()).is_none() && !read::<bool>(b"test/dissolved") {
@@ -323,9 +341,12 @@ fn check_invariants() {
             "I2: issuance must equal base + synthetic + residual"
         );
     }
-    for (_, n, pos) in Positions::<Test>::iter() {
-        assert_eq!(tao(&pos.custody), pos.funds(), "I3: custody TAO");
-        let _ = n;
+    for (_, _, pos) in Positions::<Test>::iter() {
+        assert_eq!(
+            tao(&pos.custody),
+            pos.funds() + pos.deposit,
+            "I3: custody TAO"
+        );
     }
     for (n, r) in ResidualReserve::<Test>::iter() {
         assert_eq!(tao(&Lending::reserve_account(n)), r, "I3: reserve TAO");
@@ -336,10 +357,21 @@ fn params() -> SynthParams {
     SynthParamsStore::<Test>::get()
 }
 
+/// Fund `who` with `collateral` plus the deposit and open with the minimum
+/// non-zero slippage bound.
 fn open(who: u8, mint: u64, collateral: u64) -> DispatchResult {
     let owner = account(who);
-    mint_tao(&owner, collateral);
-    Lending::open_short(RuntimeOrigin::signed(owner), netuid(), mint, collateral, 0)
+    mint_tao(&owner, collateral + DEPOSIT);
+    Lending::open_short(RuntimeOrigin::signed(owner), netuid(), mint, collateral, 1)
+}
+
+fn close(who: u8, alpha: u64) -> DispatchResult {
+    Lending::close_short(
+        RuntimeOrigin::signed(account(who)),
+        netuid(),
+        alpha,
+        u64::MAX,
+    )
 }
 
 fn position(who: u8) -> ShortPosition<Account, u64> {
@@ -348,11 +380,19 @@ fn position(who: u8) -> ShortPosition<Account, u64> {
 
 fn run_to(block: u64) {
     while System::block_number() < block {
+        Lending::on_finalize(System::block_number());
         let next = System::block_number() + 1;
         System::set_block_number(next);
         Lending::on_initialize(next);
         Lending::on_idle(next, Weight::MAX);
     }
+}
+
+fn step_block() {
+    Lending::on_finalize(System::block_number());
+    let next = System::block_number() + 1;
+    System::set_block_number(next);
+    Lending::on_initialize(next);
 }
 
 fn events() -> Vec<Event<Test>> {
@@ -365,38 +405,57 @@ fn events() -> Vec<Event<Test>> {
         .collect()
 }
 
+/// Put `who` into deleverage the way an unhealthy poke does.
+fn force_deleverage(who: u8) {
+    let since = System::block_number();
+    let mut pos = position(who);
+    pos.state = ShortState::Deleveraging { since };
+    Positions::<Test>::insert(account(who), netuid(), &pos);
+    DeleverageQueue::<Test>::insert(netuid(), account(who), ());
+    DeleveragingMinted::<Test>::mutate(netuid(), |d| *d += pos.minted);
+}
+
+/// Fill the TWAP ring at the current spot.
+fn fill_twap(samples: u32) {
+    SynthParamsStore::<Test>::mutate(|p| {
+        p.twap_samples = samples;
+        p.twap_interval_blocks = 10;
+    });
+    let start = System::block_number();
+    for i in 1..=u64::from(samples) {
+        run_to((start / 10 + i) * 10);
+    }
+    assert_eq!(
+        TwapRing::<Test>::get(netuid()).samples.len(),
+        samples as usize
+    );
+}
+
 // ---- open / close ----------------------------------------------------------
 
 #[test]
-fn open_close_round_trip_costs_only_rounding() {
+fn open_close_round_trip_costs_only_rounding_and_refunds_deposit() {
     run(|| {
         let (y0, x0) = pool();
         assert_ok!(open(1, MINT, COLLATERAL));
         let pos = position(1);
         assert_eq!(pos.minted, MINT);
         assert_eq!(pos.collateral, COLLATERAL);
+        assert_eq!(pos.deposit, DEPOSIT);
         assert!(pos.proceeds > 0);
         assert_eq!(SyntheticOutstanding::<Test>::get(netuid()), MINT);
         assert_eq!(issuance(), ISSUANCE + MINT);
         assert_eq!(tao(&account(1)), 0);
         check_invariants();
 
-        assert_ok!(Lending::close_short(
-            RuntimeOrigin::signed(account(1)),
-            netuid(),
-            MINT,
-            u64::MAX
-        ));
+        assert_ok!(close(1, MINT));
         assert!(Positions::<Test>::get(account(1), netuid()).is_none());
         assert_eq!(SyntheticOutstanding::<Test>::get(netuid()), 0);
         assert_eq!(issuance(), ISSUANCE);
         assert_eq!(burned_alpha(), MINT);
         let refund = tao(&account(1));
-        assert!(
-            COLLATERAL - refund <= 2,
-            "round trip lost {}",
-            COLLATERAL - refund
-        );
+        let lost = COLLATERAL + DEPOSIT - refund;
+        assert!(lost <= 2, "round trip lost {lost}");
         let (y1, x1) = pool();
         assert_eq!(x1, x0);
         assert!(y1 >= y0 && y1 - y0 <= 2);
@@ -412,12 +471,7 @@ fn partial_close_and_increase_keep_coverage() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         System::set_block_number(11);
-        assert_ok!(Lending::close_short(
-            RuntimeOrigin::signed(account(1)),
-            netuid(),
-            MINT / 2,
-            u64::MAX
-        ));
+        assert_ok!(close(1, MINT / 2));
         assert_eq!(position(1).minted, MINT / 2);
         check_invariants();
 
@@ -427,7 +481,7 @@ fn partial_close_and_increase_keep_coverage() {
             netuid(),
             MINT / 2,
             COLLATERAL,
-            0
+            1
         ));
         let pos = position(1);
         assert_eq!(pos.minted, MINT);
@@ -445,13 +499,53 @@ fn open_rejects_existing_position_and_zero_mint() {
     });
 }
 
-// ---- coverage --------------------------------------------------------------
+#[test]
+fn slippage_bound_is_mandatory_and_enforced() {
+    run(|| {
+        let quote = Lending::quote_open_short(netuid(), MINT).unwrap();
+        mint_tao(&account(1), COLLATERAL + DEPOSIT);
+        for min_tao_out in [0, quote.proceeds + 1] {
+            assert_noop!(
+                Lending::open_short(
+                    RuntimeOrigin::signed(account(1)),
+                    netuid(),
+                    MINT,
+                    COLLATERAL,
+                    min_tao_out
+                ),
+                Error::<Test>::SlippageExceeded
+            );
+        }
+        assert_ok!(Lending::open_short(
+            RuntimeOrigin::signed(account(1)),
+            netuid(),
+            MINT,
+            COLLATERAL,
+            quote.proceeds
+        ));
+        mint_tao(&account(1), COLLATERAL);
+        assert_noop!(
+            Lending::increase_short(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                MINT,
+                COLLATERAL,
+                0
+            ),
+            Error::<Test>::SlippageExceeded
+        );
+    });
+}
+
+// ---- coverage (P2) ---------------------------------------------------------
 
 #[test]
 fn quote_required_collateral_is_the_coverage_boundary() {
     run(|| {
         let quote = Lending::quote_open_short(netuid(), MINT).unwrap();
         assert_eq!(quote.notional, MINT);
+        assert_eq!(quote.deposit, DEPOSIT);
+        assert!(!quote.in_prune_zone);
         assert_err!(
             open(1, MINT, quote.required_collateral - 1),
             Error::<Test>::CoverageNotMet
@@ -461,73 +555,114 @@ fn quote_required_collateral_is_the_coverage_boundary() {
         assert_eq!(pos.proceeds, quote.proceeds);
         let cost = Lending::coverage_cost(netuid(), MINT, &params()).unwrap();
         assert_eq!(pos.funds(), cost);
-        // About 3× notional must be in custody at the default 3× stress.
+        // About 3× notional at the default stress, a little more for the book.
         assert!(cost > 3 * MINT && cost < 31 * MINT / 10, "{cost}");
     });
 }
 
 #[test]
-fn coverage_queues_behind_other_shorts() {
+fn stress_eff_scales_with_book_over_pool_alpha() {
+    let p = SynthParams::default();
+    assert_eq!(Lending::stress_eff_bps(0, POOL, &p), 30_000);
+    // 3 × (1 + 2 × ½) = 6.
+    assert_eq!(Lending::stress_eff_bps(POOL / 2, POOL, &p), 60_000);
+    // 3 × (1 + 2 × 1%) = 3.06.
+    assert_eq!(Lending::stress_eff_bps(POOL / 100, POOL, &p), 30_600);
+    let flat = SynthParams {
+        stress_slope_bps: 0,
+        ..p
+    };
+    assert_eq!(Lending::stress_eff_bps(POOL, POOL, &flat), 30_000);
+    assert_eq!(Lending::stress_eff_bps(1, 0, &p), u128::MAX);
+}
+
+#[test]
+fn whole_book_coverage_is_pro_rata_and_grows_with_the_book() {
     run(|| {
-        let alone = Lending::quote_open_short(netuid(), MINT).unwrap();
-        assert_ok!(open(1, MINT * 5, 20 * MINT));
-        let behind = Lending::quote_open_short(netuid(), MINT).unwrap();
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let alone = Lending::coverage_cost(netuid(), MINT, &params()).unwrap();
+        System::set_block_number(11);
+        assert_ok!(open(2, 5 * MINT, 5 * COLLATERAL));
+        // The earlier short now shares a larger book with a steeper stress.
+        let shared = Lending::coverage_cost(netuid(), MINT, &params()).unwrap();
+        assert!(shared > alone, "{shared} <= {alone}");
+        let big = Lending::coverage_cost(netuid(), 5 * MINT, &params()).unwrap();
         assert!(
-            behind.required_collateral > alone.required_collateral,
-            "queued coverage must cost more"
+            big.abs_diff(5 * shared) <= 5,
+            "pro-rata: {big} vs 5 × {shared}"
         );
+        // A later quote prices the whole book, not its place in a queue.
+        let quote = Lending::quote_open_short(netuid(), MINT).unwrap();
+        assert!(quote.required_collateral + quote.proceeds > shared);
     });
 }
 
 #[test]
-fn coverage_uses_max_of_ema_and_spot() {
+fn unbuyable_book_is_coverage_not_met() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        System::set_block_number(11);
+        // A pool this small cannot supply the book after the stress pump.
+        set_pool(MINT, MINT);
+        assert_eq!(Lending::coverage_cost(netuid(), MINT, &params()), None);
+        assert_err!(
+            Lending::quote_open_short(netuid(), params().min_notional),
+            Error::<Test>::CoverageNotMet
+        );
+        mint_tao(&account(1), COLLATERAL);
+        assert_noop!(
+            Lending::increase_short(
+                RuntimeOrigin::signed(account(1)),
+                netuid(),
+                0,
+                COLLATERAL,
+                0
+            ),
+            Error::<Test>::CoverageNotMet
+        );
+        set_pool(POOL, POOL);
+    });
+}
+
+#[test]
+fn coverage_reference_is_max_of_ema_spot_and_rank_sma() {
     run(|| {
         let at_spot = Lending::quote_open_short(netuid(), MINT).unwrap();
         set_ema(2.0);
         let at_ema = Lending::quote_open_short(netuid(), MINT).unwrap();
         assert!(at_ema.required_collateral > at_spot.required_collateral * 2);
+        set_ema(1.0);
+        RankPrice::<Test>::insert(netuid(), U64F64::from_num(2.0));
+        let at_rank = Lending::quote_open_short(netuid(), MINT).unwrap();
+        assert_eq!(at_rank.required_collateral, at_ema.required_collateral);
     });
 }
 
+// ---- withdraw (P20) ----------------------------------------------------------
+
 #[test]
-fn withdraw_blocked_when_coverage_would_break() {
+fn withdraw_keeps_coverage_plus_interest_buffer() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         let pos = position(1);
-        let cost = Lending::coverage_cost(netuid(), MINT, &params()).unwrap();
+        let p = params();
+        let cost = Lending::coverage_cost(netuid(), MINT, &p).unwrap();
+        let buffer = Lending::days_interest(netuid(), MINT, 7, &p);
+        assert!(buffer > 0);
         let slack = pos.funds() - cost;
-        System::set_block_number(11);
+        let withdraw =
+            |tao| Lending::withdraw_collateral(RuntimeOrigin::signed(account(1)), netuid(), tao);
+        assert_noop!(withdraw(slack + 1), Error::<Test>::WithdrawBreaksCoverage);
         assert_noop!(
-            Lending::withdraw_collateral(RuntimeOrigin::signed(account(1)), netuid(), slack + 1),
-            Error::<Test>::WithdrawBreaksCoverage
+            withdraw(slack - buffer + 1),
+            Error::<Test>::WithdrawBufferBreached
         );
-        assert_ok!(Lending::withdraw_collateral(
-            RuntimeOrigin::signed(account(1)),
-            netuid(),
-            slack / 2
-        ));
-        assert_eq!(tao(&account(1)), slack / 2);
+        assert_ok!(withdraw(slack - buffer));
+        assert_eq!(tao(&account(1)), slack - buffer);
     });
 }
 
-// ---- supply cap, minimum, impact -----------------------------------------------
-
-#[test]
-fn supply_cap_exact_boundary() {
-    run(|| {
-        set_issuance(5 * MINT);
-        let cap = MINT; // 20% of 5 × MINT
-        assert_err!(open(1, cap + 1, 10 * cap), Error::<Test>::SupplyCapExceeded);
-        assert_ok!(open(1, cap, 10 * cap));
-        mint_tao(&account(1), 10 * cap);
-        assert_noop!(
-            Lending::increase_short(RuntimeOrigin::signed(account(1)), netuid(), 1, 0, 0),
-            Error::<Test>::SupplyCapExceeded
-        );
-        // Issuance_ex excludes the synthetic alpha just minted.
-        assert_eq!(Lending::issuance_ex(netuid()), u128::from(5 * MINT));
-    });
-}
+// ---- minimum, depth, net mint (P8, P10, P18) -------------------------------------
 
 #[test]
 fn minimum_notional_boundary() {
@@ -539,54 +674,130 @@ fn minimum_notional_boundary() {
         );
         assert_ok!(open(1, min, COLLATERAL));
         // A partial close may not leave dust below the minimum.
-        assert_noop!(
-            Lending::close_short(RuntimeOrigin::signed(account(1)), netuid(), 1, u64::MAX),
-            Error::<Test>::BelowMinNotional
-        );
+        assert_noop!(close(1, 1), Error::<Test>::BelowMinNotional);
         set_ema(0.5);
         assert_err!(open(2, min, COLLATERAL), Error::<Test>::BelowMinNotional);
     });
 }
 
 #[test]
-fn open_impact_budget_is_per_block() {
+fn net_mint_per_block_spans_accounts_and_nets_burns() {
     run(|| {
-        // Each 7.5e12 sale drops spot by about 1.5% of a 1e15 pool.
-        let big = 7_500_000_000_000;
-        assert_ok!(open(1, big, 40 * big));
-        assert!(spot() < 0.986 && spot() > 0.98);
-        assert_err!(open(2, big, 40 * big), Error::<Test>::OpenImpactTooHigh);
+        // Limit is 1% of pool alpha: about 1e13 here.
+        let big = 6 * MINT;
+        assert_ok!(open(1, big, 4 * big));
+        assert_err!(open(2, big, 4 * big), Error::<Test>::OpenImpactTooHigh);
+        assert_err!(
+            Lending::quote_open_short(netuid(), big),
+            Error::<Test>::OpenImpactTooHigh
+        );
+        // Buying back in the same block frees room.
+        assert_ok!(close(1, big / 2));
+        assert_eq!(Lending::block_net_minted(netuid()), i128::from(big / 2));
+        assert_ok!(open(2, big, 4 * big));
+        Lending::on_finalize(System::block_number());
+        assert_eq!(BlockNetMinted::<Test>::iter().count(), 0);
         System::set_block_number(11);
-        assert_ok!(open(2, big, 40 * big));
+        assert_eq!(Lending::block_net_minted(netuid()), 0);
+        assert_ok!(open(3, big, 4 * big));
     });
 }
 
 #[test]
-fn slippage_guard() {
+fn pool_depth_floor_blocks_growth() {
     run(|| {
-        let quote = Lending::quote_open_short(netuid(), MINT).unwrap();
-        mint_tao(&account(1), COLLATERAL);
-        assert_noop!(
-            Lending::open_short(
-                RuntimeOrigin::signed(account(1)),
-                netuid(),
-                MINT,
-                COLLATERAL,
-                quote.proceeds + 1
-            ),
-            Error::<Test>::SlippageExceeded
+        assert_eq!(params().min_pool_depth, 0);
+        SynthParamsStore::<Test>::mutate(|p| p.min_pool_depth = POOL + 1);
+        assert_err!(open(1, MINT, COLLATERAL), Error::<Test>::PoolTooShallow);
+        assert_err!(
+            Lending::quote_open_short(netuid(), MINT),
+            Error::<Test>::PoolTooShallow
         );
+        SynthParamsStore::<Test>::mutate(|p| p.min_pool_depth = POOL);
+        assert_ok!(open(1, MINT, COLLATERAL));
     });
 }
 
-// ---- interest ----------------------------------------------------------------
+// ---- dilution breaker (P21) ----------------------------------------------------------
+
+#[test]
+fn dilution_breaker_trips_above_two_percent_and_clears_below_one() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let ex = ISSUANCE;
+        let p = params();
+        set_residual(ex * 200 / 10_000);
+        Lending::refresh_breaker(netuid(), &p);
+        assert!(
+            !BreakerTripped::<Test>::get(netuid()),
+            "2% exactly stays open"
+        );
+        set_residual(ex * 201 / 10_000);
+        Lending::refresh_breaker(netuid(), &p);
+        assert!(BreakerTripped::<Test>::get(netuid()));
+        assert!(events().contains(&Event::DilutionBreaker {
+            netuid: netuid(),
+            tripped: true
+        }));
+        System::set_block_number(11);
+        assert_err!(
+            open(2, MINT, COLLATERAL),
+            Error::<Test>::DilutionBreakerActive
+        );
+        assert_noop!(
+            Lending::increase_short(RuntimeOrigin::signed(account(1)), netuid(), MINT, 0, 1),
+            Error::<Test>::DilutionBreakerActive
+        );
+        assert_err!(
+            Lending::quote_open_short(netuid(), MINT),
+            Error::<Test>::DilutionBreakerActive
+        );
+        // Hysteresis: 1.5% keeps it latched.
+        set_residual(ex * 150 / 10_000);
+        assert_err!(
+            open(2, MINT, COLLATERAL),
+            Error::<Test>::DilutionBreakerActive
+        );
+        // Closing and adding collateral stay open while latched.
+        mint_tao(&account(1), 1);
+        assert_ok!(Lending::add_collateral(
+            RuntimeOrigin::signed(account(1)),
+            netuid(),
+            1
+        ));
+        set_residual(ex * 99 / 10_000);
+        assert_ok!(open(2, MINT, COLLATERAL));
+        assert!(!BreakerTripped::<Test>::get(netuid()));
+        assert!(events().contains(&Event::DilutionBreaker {
+            netuid: netuid(),
+            tripped: false
+        }));
+        assert_ok!(close(1, MINT));
+    });
+}
+
+// ---- interest (P3, P4) ------------------------------------------------------------
 
 fn expected_interest(minted: u64, blocks: u64, remainder: u64) -> (u64, u64) {
     let notional = u128::from(minted);
-    let apr = u128::from(Lending::apr_bps(netuid(), &params()));
+    let apr = u128::from(params().apr_bps);
     let num = notional * apr * u128::from(blocks) + u128::from(remainder);
     let den = 10_000u128 * u128::from(BLOCKS_PER_YEAR);
     ((num / den) as u64, (num % den) as u64)
+}
+
+#[test]
+fn apr_is_flat_regardless_of_book() {
+    run(|| {
+        let before = Lending::quote_open_short(netuid(), MINT).unwrap();
+        assert_eq!(before.apr_bps, 2_000);
+        assert_eq!(before.annual_interest, MINT / 5);
+        assert_ok!(open(1, 9 * MINT, 9 * COLLATERAL));
+        System::set_block_number(11);
+        let after = Lending::quote_open_short(netuid(), MINT).unwrap();
+        assert_eq!(after.apr_bps, 2_000);
+        assert_eq!(after.annual_interest, MINT / 5);
+    });
 }
 
 #[test]
@@ -643,45 +854,18 @@ fn interest_remainder_carries_across_charges() {
 }
 
 #[test]
-fn apr_rises_to_ceiling_at_knee() {
-    run(|| {
-        let p = params();
-        assert_eq!(Lending::apr_bps(netuid(), &p), p.apr_floor_bps);
-        // Knee = 20% of Issuance_ex; half the knee gives the midpoint APR.
-        let half_knee = ISSUANCE / 10;
-        SyntheticOutstanding::<Test>::insert(netuid(), half_knee);
-        set_issuance(ISSUANCE + half_knee);
-        write(&key(b"test/base_issuance", netuid()), ISSUANCE);
-        assert_eq!(Lending::apr_bps(netuid(), &p), 6_000);
-        SyntheticOutstanding::<Test>::insert(netuid(), 2 * half_knee);
-        set_issuance(ISSUANCE + 2 * half_knee);
-        assert_eq!(Lending::apr_bps(netuid(), &p), p.apr_ceil_bps);
-        SyntheticOutstanding::<Test>::insert(netuid(), 3 * half_knee);
-        set_issuance(ISSUANCE + 3 * half_knee);
-        assert_eq!(Lending::apr_bps(netuid(), &p), p.apr_ceil_bps);
-        SyntheticOutstanding::<Test>::remove(netuid());
-        set_issuance(ISSUANCE);
-    });
-}
-
-#[test]
 fn exhausted_collateral_starts_deleverage() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
-        SynthParamsStore::<Test>::mutate(|p| {
-            p.apr_floor_bps = MAX_APR_BPS;
-            p.apr_ceil_bps = MAX_APR_BPS;
-        });
-        // 1000% APR on 1e12 for 200 days far exceeds the collateral.
-        System::set_block_number(20_000);
-        Lending::on_idle(20_000, Weight::MAX);
+        SynthParamsStore::<Test>::mutate(|p| p.apr_bps = MAX_APR_BPS);
+        // 100% APR on 1e12 for 1000 days far exceeds the collateral.
+        System::set_block_number(100_000);
+        Lending::on_idle(100_000, Weight::MAX);
         let pos = position(1);
         assert_eq!(pos.collateral, 0, "I5: charge capped at collateral");
         assert!(matches!(pos.state, ShortState::Deleveraging { .. }));
-        assert!(DeleverageQueue::<Test>::contains_key((
-            account(1),
-            netuid()
-        )));
+        assert!(DeleverageQueue::<Test>::contains_key(netuid(), account(1)));
+        assert_eq!(DeleveragingMinted::<Test>::get(netuid()), MINT);
     });
 }
 
@@ -703,27 +887,32 @@ fn failed_charge_retries_later() {
     });
 }
 
-// ---- TWAP -------------------------------------------------------------------
+// ---- TWAP (P6) -------------------------------------------------------------------
 
 #[test]
-fn twap_ring_averages_and_wraps() {
+fn twap_is_the_ring_median_and_wraps() {
     run(|| {
         SynthParamsStore::<Test>::mutate(|p| {
             p.twap_samples = 3;
             p.twap_interval_blocks = 10;
         });
         assert_eq!(Lending::twap(netuid()).to_num::<f64>(), 1.0);
-        for (block, price) in [(20u64, 1.0f64), (30, 2.0), (40, 3.0)] {
+        for (block, price) in [(20u64, 1.0f64), (30, 2.0), (40, 4.0)] {
             set_pool((POOL as f64 * price) as u64, POOL);
             run_to(block);
         }
         assert_eq!(TwapRing::<Test>::get(netuid()).samples.len(), 3);
-        assert!((Lending::twap(netuid()).to_num::<f64>() - 2.0).abs() < 1e-9);
-        // A one-block spike moves the mean by a third of its size.
+        assert_eq!(Lending::twap(netuid()).to_num::<f64>(), 2.0);
+        // Overwrites the oldest (1.0): [10, 2, 4] has median 4.
         set_pool(POOL * 10, POOL);
         run_to(50);
-        assert!((Lending::twap(netuid()).to_num::<f64>() - 5.0).abs() < 1e-9);
+        assert_eq!(Lending::twap(netuid()).to_num::<f64>(), 4.0);
         assert_eq!(TwapRing::<Test>::get(netuid()).cursor, 1);
+        // An even count averages the middle pair.
+        SynthParamsStore::<Test>::mutate(|p| p.twap_samples = 4);
+        set_pool(POOL * 3, POOL);
+        run_to(60);
+        assert_eq!(Lending::twap(netuid()).to_num::<f64>(), 3.5);
         // A re-registered netuid starts clean.
         <Lending as LendingInterface<Account>>::on_subnet_registered(netuid());
         assert!(TwapRing::<Test>::get(netuid()).samples.is_empty());
@@ -732,17 +921,25 @@ fn twap_ring_averages_and_wraps() {
 }
 
 #[test]
+fn one_block_145x_spike_leaves_the_median_unchanged() {
+    run(|| {
+        fill_twap(72);
+        let before = Lending::twap(netuid());
+        assert_eq!(before.to_num::<f64>(), 1.0);
+        set_pool(POOL * 145, POOL);
+        let next = (System::block_number() / 10 + 1) * 10;
+        run_to(next);
+        set_pool(POOL, POOL);
+        assert_eq!(Lending::twap(netuid()), before);
+    });
+}
+
+#[test]
 fn twap_smooths_a_spike_out_of_equity() {
     run(|| {
-        SynthParamsStore::<Test>::mutate(|p| {
-            p.twap_samples = 72;
-            p.twap_interval_blocks = 10;
-        });
         assert_ok!(open(1, MINT, COLLATERAL));
-        for b in 1..=72u64 {
-            run_to(10 + b * 10);
-        }
-        // Spot spikes 4×; the TWAP still sits near 1, so equity stays positive.
+        fill_twap(72);
+        // Spot spikes 4×; the median still sits near 1, so equity stays positive.
         set_pool(POOL * 2, POOL / 2);
         let pos = position(1);
         assert!(Lending::equity_twap(netuid(), &pos) > 0);
@@ -756,7 +953,7 @@ fn twap_smooths_a_spike_out_of_equity() {
     });
 }
 
-// ---- deleverage -------------------------------------------------------------------
+// ---- deleverage (P5, P7, P17, P19) -------------------------------------------------
 
 fn pump_and_deleverage() {
     assert_ok!(open(1, MINT, COLLATERAL));
@@ -769,6 +966,7 @@ fn pump_and_deleverage() {
         netuid()
     ));
     assert!(matches!(position(1).state, ShortState::Deleveraging { .. }));
+    assert_eq!(DeleveragingMinted::<Test>::get(netuid()), MINT);
     assert!(matches!(
         events().last(),
         Some(Event::DeleverageStarted { equity_twap, .. }) if *equity_twap < 0
@@ -776,33 +974,98 @@ fn pump_and_deleverage() {
 }
 
 #[test]
-fn deleverage_respects_pace_and_defaults_with_residual() {
+fn deleverage_respects_pace_and_defaults_with_residual_burning_deposit() {
     run(|| {
         pump_and_deleverage();
         let pace = f64::from(params().pace_bps_per_block) / 10_000.0;
         let mut blocks = 0;
         while Positions::<Test>::contains_key(account(1), netuid()) {
             let before = spot();
-            let next = System::block_number() + 1;
-            System::set_block_number(next);
-            Lending::on_initialize(next);
+            step_block();
             assert!(
                 spot() <= before * (1.0 + pace) * (1.0 + 1e-12),
                 "I9: pace exceeded"
             );
             check_invariants();
             blocks += 1;
-            assert!(blocks < 1_000, "deleverage must finish");
+            assert!(blocks < 2_000, "deleverage must finish");
         }
         assert!(blocks > 1, "deleverage must be partial across blocks");
         let residual = ResidualAlpha::<Test>::get(netuid());
         assert!(residual > 0);
         assert_eq!(SyntheticOutstanding::<Test>::get(netuid()), 0);
+        assert_eq!(DeleveragingMinted::<Test>::get(netuid()), 0);
         assert_eq!(burned_alpha() + residual, MINT);
+        assert_eq!(
+            tao(&burn_account()),
+            DEPOSIT,
+            "P19: deposit burns on default"
+        );
+        assert_eq!(tao(&account(1)), 0);
         assert!(events().iter().any(|e| matches!(
             e,
             Event::ShortDefaulted { residual_alpha, .. } if *residual_alpha == residual
         )));
+    });
+}
+
+#[test]
+fn deleverage_fills_are_pro_rata_across_the_book() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        assert_ok!(open(2, 3 * MINT, 3 * COLLATERAL));
+        force_deleverage(1);
+        force_deleverage(2);
+        assert_eq!(DeleveragingMinted::<Test>::get(netuid()), 4 * MINT);
+        let before = spot();
+        step_block();
+        let pace = f64::from(params().pace_bps_per_block) / 10_000.0;
+        assert!(spot() <= before * (1.0 + pace) * (1.0 + 1e-12));
+        let spent = |who: u8| {
+            events()
+                .iter()
+                .find_map(|e| match e {
+                    Event::DeleverageStep {
+                        who: w, tao_spent, ..
+                    } if *w == account(who) => Some(*tao_spent as f64),
+                    _ => None,
+                })
+                .expect("step")
+        };
+        let ratio = spent(2) / spent(1);
+        assert!((ratio - 3.0).abs() < 0.01, "pro-rata ratio {ratio}");
+        assert_eq!(
+            DeleveragingMinted::<Test>::get(netuid()),
+            position(1).minted + position(2).minted
+        );
+    });
+}
+
+#[test]
+fn buybacks_pause_while_spot_is_pumped_over_the_median() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        fill_twap(3);
+        force_deleverage(1);
+        let reserve = Lending::reserve_account(netuid());
+        mint_tao(&reserve, MINT);
+        ResidualReserve::<Test>::mutate(netuid(), |r| *r += MINT);
+        set_residual(1_000_000);
+        // 1.3× the median is above the 1.25× pause line.
+        set_pool(POOL * 13 / 10, POOL);
+        assert!(Lending::buybacks_paused(netuid(), &params()));
+        step_block();
+        assert_eq!(position(1).minted, MINT);
+        assert_eq!(ResidualAlpha::<Test>::get(netuid()), 1_000_000);
+        assert!(!events().iter().any(|e| matches!(
+            e,
+            Event::DeleverageStep { .. } | Event::ResidualRetired { .. }
+        )));
+        set_pool(POOL * 12 / 10, POOL);
+        assert!(!Lending::buybacks_paused(netuid(), &params()));
+        step_block();
+        assert!(position(1).minted < MINT);
+        set_pool(POOL, POOL);
     });
 }
 
@@ -824,16 +1087,9 @@ fn deleveraging_position_cannot_grow_or_withdraw_but_can_close() {
             netuid(),
             COLLATERAL
         ));
-        assert_ok!(Lending::close_short(
-            RuntimeOrigin::signed(account(1)),
-            netuid(),
-            MINT,
-            u64::MAX
-        ));
-        assert!(!DeleverageQueue::<Test>::contains_key((
-            account(1),
-            netuid()
-        )));
+        assert_ok!(close(1, MINT));
+        assert!(!DeleverageQueue::<Test>::contains_key(netuid(), account(1)));
+        assert_eq!(DeleveragingMinted::<Test>::get(netuid()), 0);
     });
 }
 
@@ -841,7 +1097,7 @@ fn deleveraging_position_cannot_grow_or_withdraw_but_can_close() {
 fn reserve_retires_residual_under_pace() {
     run(|| {
         pump_and_deleverage();
-        run_to(System::block_number() + 200);
+        run_to(System::block_number() + 2_000);
         assert!(!Positions::<Test>::contains_key(account(1), netuid()));
         let residual = ResidualAlpha::<Test>::get(netuid());
         assert!(residual > 0);
@@ -849,44 +1105,101 @@ fn reserve_retires_residual_under_pace() {
         let funding = 100 * MINT;
         mint_tao(&reserve, funding);
         ResidualReserve::<Test>::mutate(netuid(), |r| *r += funding);
+        // Re-anchor the median at the current spot so retirement is not paused.
+        TwapRing::<Test>::remove(netuid());
         let pace = f64::from(params().pace_bps_per_block) / 10_000.0;
         let before = spot();
-        let next = System::block_number() + 1;
-        System::set_block_number(next);
-        Lending::on_initialize(next);
+        step_block();
         assert!(spot() <= before * (1.0 + pace) * (1.0 + 1e-12));
         let after = ResidualAlpha::<Test>::get(netuid());
         assert!(after < residual);
         check_invariants();
-        run_to(next + 200);
+        for _ in 0..400 {
+            TwapRing::<Test>::remove(netuid());
+            step_block();
+        }
         assert_eq!(ResidualAlpha::<Test>::get(netuid()), 0);
     });
 }
 
-// ---- dissolution -------------------------------------------------------------------
+// ---- prune zone (P16) ---------------------------------------------------------------
 
 #[test]
-fn dissolution_settles_at_ema_once_with_resuming_cursor() {
+fn opens_in_the_prune_zone_track_zone_tranche() {
+    run(|| {
+        // Floor 0.9: 1.0 ≤ 1.25 × 0.9, so netuid 64 is a prune candidate.
+        set_other_rank(0.9);
+        assert!(Lending::in_prune_zone(netuid(), &params()));
+        assert!(
+            Lending::quote_open_short(netuid(), MINT)
+                .unwrap()
+                .in_prune_zone
+        );
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let pos = position(1);
+        assert_eq!(pos.zone_minted, MINT);
+        assert_eq!(pos.zone_proceeds, pos.proceeds);
+
+        set_other_rank(0.1);
+        assert!(!Lending::in_prune_zone(netuid(), &params()));
+        System::set_block_number(11);
+        mint_tao(&account(1), COLLATERAL);
+        assert_ok!(Lending::increase_short(
+            RuntimeOrigin::signed(account(1)),
+            netuid(),
+            MINT,
+            COLLATERAL,
+            1
+        ));
+        let pos = position(1);
+        assert_eq!((pos.minted, pos.zone_minted), (2 * MINT, MINT));
+        let zone_proceeds = pos.zone_proceeds;
+
+        // Burns shrink the zone tranche pro rata.
+        assert_ok!(close(1, MINT));
+        let pos = position(1);
+        assert_eq!(pos.zone_minted, MINT / 2);
+        assert_eq!(pos.zone_proceeds, zone_proceeds / 2);
+    });
+}
+
+#[test]
+fn zone_floor_is_the_lowest_rank_and_ignores_far_subnets() {
+    run(|| {
+        // Only one subnet below: 64 itself is the floor.
+        set_other_rank(5.0);
+        assert!(Lending::in_prune_zone(netuid(), &params()));
+        set_other_rank(0.8);
+        assert!(Lending::in_prune_zone(netuid(), &params()));
+        set_other_rank(0.79);
+        assert!(!Lending::in_prune_zone(netuid(), &params()));
+    });
+}
+
+// ---- dissolution (P12, P16) ------------------------------------------------------------
+
+#[test]
+fn dissolution_settles_at_r_once_with_resuming_cursor() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         assert_ok!(open(2, MINT, 2 * COLLATERAL));
         let reserve = Lending::reserve_account(netuid());
         mint_tao(&reserve, 7);
         ResidualReserve::<Test>::insert(netuid(), 7);
-        ResidualAlpha::<Test>::insert(netuid(), 3);
-        write(&key(b"test/issuance", netuid()), issuance() + 3);
+        set_residual(3);
         let funds: Vec<u64> = [1u8, 2].iter().map(|w| position(*w).funds()).collect();
-        set_ema(1.5);
+        // T_ema below pool TAO wins the min.
+        let t_ema = pool().0 / 2;
+        PoolTaoEma::<Test>::insert(netuid(), t_ema);
+        let rate = U64F64::from_bits(u128::from(t_ema) * (1u128 << 64) / u128::from(issuance()));
+        assert_eq!(Lending::dissolution_rate(netuid()), rate);
         assert_ok!(Lending::start_dissolution(netuid()));
-        assert_eq!(
-            Dissolutions::<Test>::get(netuid()).unwrap().price,
-            U64F64::from_num(1.5)
-        );
+        assert_eq!(Dissolutions::<Test>::get(netuid()).unwrap().price, rate);
         assert_err!(
             open(3, MINT, COLLATERAL),
             Error::<Test>::DissolutionInProgress
         );
-        // Settling at EMA ignores a later spot move.
+        // Settling at r ignores a later spot move.
         set_pool(POOL * 4, POOL);
 
         let step = <Test as Config>::WeightInfo::settle_dissolution();
@@ -900,14 +1213,19 @@ fn dissolution_settles_at_ema_once_with_resuming_cursor() {
         }
         assert_eq!(calls, 3, "one position per call, then the reserve");
         write(b"test/dissolved", true);
-        let owed = MINT * 3 / 2;
-        assert_eq!(
-            pot(),
-            2 * owed + 7,
-            "I8: pot gains owed EMA value plus reserve"
+        let owed = Lending::dissolution_owed(
+            &ShortPosition {
+                zone_minted: 0,
+                zone_proceeds: 0,
+                ..position_template()
+            },
+            rate,
         );
-        assert_eq!(tao(&account(1)), funds[0] - owed);
-        assert_eq!(tao(&account(2)), funds[1] - owed);
+        let expect = (u128::from(MINT) * rate.to_bits()).div_ceil(1u128 << 64) as u64;
+        assert_eq!(owed, expect);
+        assert_eq!(pot(), 2 * owed + 7, "I8: pot gains owed value plus reserve");
+        assert_eq!(tao(&account(1)), funds[0] - owed + DEPOSIT);
+        assert_eq!(tao(&account(2)), funds[1] - owed + DEPOSIT);
         let settled = events()
             .iter()
             .filter(|e| matches!(e, Event::ShortSettledOnDissolution { .. }))
@@ -917,6 +1235,59 @@ fn dissolution_settles_at_ema_once_with_resuming_cursor() {
         assert_eq!(ResidualAlpha::<Test>::get(netuid()), 0);
         assert_ok!(Lending::finish_dissolution(netuid()));
         assert_eq!(TotalPositions::<Test>::get(), 0);
+        assert_eq!(PoolTaoEma::<Test>::get(netuid()), None);
+    });
+}
+
+fn position_template() -> ShortPosition<Account, u64> {
+    ShortPosition {
+        custody: account(0),
+        minted: MINT,
+        collateral: u64::MAX / 4,
+        proceeds: 0,
+        deposit: 0,
+        zone_minted: 0,
+        zone_proceeds: 0,
+        opened_at: 0,
+        last_accrued: 0,
+        interest_remainder: 0,
+        due: 0,
+        state: ShortState::Open,
+        terms_version: TERMS_VERSION,
+    }
+}
+
+#[test]
+fn zone_alpha_settles_at_its_proceeds_and_the_rest_at_r() {
+    run(|| {
+        set_other_rank(0.9);
+        assert_ok!(open(1, MINT, COLLATERAL));
+        set_other_rank(0.1);
+        System::set_block_number(11);
+        mint_tao(&account(1), COLLATERAL);
+        assert_ok!(Lending::increase_short(
+            RuntimeOrigin::signed(account(1)),
+            netuid(),
+            MINT,
+            COLLATERAL,
+            1
+        ));
+        let pos = position(1);
+        let funds = pos.funds();
+        let rate = Lending::dissolution_rate(netuid());
+        let older = (u128::from(MINT) * rate.to_bits()).div_ceil(1u128 << 64) as u64;
+        let owed = older + pos.zone_proceeds;
+        assert_eq!(Lending::dissolution_owed(&pos, rate), owed);
+        let reserve = ResidualReserve::<Test>::get(netuid());
+        assert_ok!(Lending::start_dissolution(netuid()));
+        let mut meter = WeightMeter::new();
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
+        write(b"test/dissolved", true);
+        assert_eq!(pot(), owed + reserve);
+        assert_eq!(tao(&account(1)), funds - owed + DEPOSIT);
     });
 }
 
@@ -925,16 +1296,17 @@ fn dissolution_shortfall_is_not_chased() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         let funds = position(1).funds();
-        set_ema(10.0);
+        // Little alpha outstanding makes r large; the debt caps at the funds.
+        write(&key(b"test/issuance", netuid()), MINT + 1);
+        write(b"test/dissolved", true);
         assert_ok!(Lending::start_dissolution(netuid()));
         let mut meter = WeightMeter::new();
         assert!(Lending::settle_positions_on_dissolution(
             netuid(),
             &mut meter
         ));
-        write(b"test/dissolved", true);
         assert_eq!(pot(), funds);
-        assert_eq!(tao(&account(1)), 0);
+        assert_eq!(tao(&account(1)), DEPOSIT);
     });
 }
 
@@ -948,7 +1320,7 @@ fn disabled_blocks_growth_only() {
         assert_err!(open(2, MINT, COLLATERAL), Error::<Test>::Disabled);
         mint_tao(&account(1), COLLATERAL);
         assert_noop!(
-            Lending::increase_short(RuntimeOrigin::signed(account(1)), netuid(), MINT, 0, 0),
+            Lending::increase_short(RuntimeOrigin::signed(account(1)), netuid(), MINT, 0, 1),
             Error::<Test>::Disabled
         );
         assert_ok!(Lending::add_collateral(
@@ -961,12 +1333,7 @@ fn disabled_blocks_growth_only() {
             account(1),
             netuid()
         ));
-        assert_ok!(Lending::close_short(
-            RuntimeOrigin::signed(account(1)),
-            netuid(),
-            MINT,
-            u64::MAX
-        ));
+        assert_ok!(close(1, MINT));
     });
 }
 
@@ -989,38 +1356,52 @@ fn root_params_are_bounded() {
             Lending::set_enabled(RuntimeOrigin::signed(account(1)), false),
             DispatchError::BadOrigin
         );
+        let d = SynthParams::default;
         let bad = [
             SynthParams {
                 stress_bps: MIN_STRESS_BPS - 1,
-                ..Default::default()
+                ..d()
             },
             SynthParams {
                 stress_bps: MAX_STRESS_BPS + 1,
-                ..Default::default()
+                ..d()
             },
             SynthParams {
-                apr_floor_bps: 10_001,
-                ..Default::default()
+                stress_slope_bps: MAX_STRESS_SLOPE_BPS + 1,
+                ..d()
             },
+            SynthParams { apr_bps: 0, ..d() },
             SynthParams {
-                apr_ceil_bps: MAX_APR_BPS + 1,
-                ..Default::default()
-            },
-            SynthParams {
-                cap_bps: 0,
-                ..Default::default()
+                apr_bps: MAX_APR_BPS + 1,
+                ..d()
             },
             SynthParams {
                 twap_samples: MAX_TWAP_SAMPLES + 1,
-                ..Default::default()
+                ..d()
             },
             SynthParams {
-                open_impact_bps: 10_000,
-                ..Default::default()
+                open_net_mint_bps: 0,
+                ..d()
             },
             SynthParams {
                 min_notional: 0,
-                ..Default::default()
+                ..d()
+            },
+            SynthParams {
+                rank_days: 0,
+                ..d()
+            },
+            SynthParams {
+                zone_bps: 9_999,
+                ..d()
+            },
+            SynthParams {
+                pause_bps: 9_999,
+                ..d()
+            },
+            SynthParams {
+                breaker_off_bps: 201,
+                ..d()
             },
         ];
         for params in bad {
@@ -1031,7 +1412,9 @@ fn root_params_are_bounded() {
         }
         let ok = SynthParams {
             stress_bps: MIN_STRESS_BPS,
-            ..Default::default()
+            apr_bps: 5_000,
+            stress_slope_bps: 0,
+            ..d()
         };
         assert_ok!(Lending::set_synth_params(RuntimeOrigin::root(), ok));
         assert_eq!(params(), ok);
@@ -1041,22 +1424,24 @@ fn root_params_are_bounded() {
 #[test]
 fn defaults_match_decisions() {
     let p = SynthParams::default();
-    assert_eq!(p.stress_bps, 30_000);
-    assert_eq!(
-        (p.apr_floor_bps, p.apr_ceil_bps, p.knee_bps),
-        (2_000, 10_000, 2_000)
-    );
+    assert_eq!((p.stress_bps, p.stress_slope_bps), (30_000, 20_000));
+    assert_eq!(p.apr_bps, 2_000);
     assert_eq!((p.reserve_share_bps, p.reserve_cap_bps), (5_000, 200));
+    assert_eq!(p.twap_samples, 72);
     assert_eq!(
         p.twap_samples * p.twap_interval_blocks,
         21_600,
         "3-day TWAP"
     );
     assert_eq!(p.pace_bps_per_block, 5);
-    assert_eq!(p.open_impact_bps, 200);
-    assert_eq!(p.cap_bps, 2_000);
+    assert_eq!(p.open_net_mint_bps, 100);
     assert_eq!(p.min_notional, 10_000_000_000);
-    assert_eq!(p.dereg_ma_blocks, dereg::DEFAULT_DEREG_MA_BLOCKS);
+    assert_eq!((p.rank_days, p.rank_day_blocks), (30, 7_200));
+    assert_eq!((p.zone_bps, p.pause_bps), (12_500, 12_500));
+    assert_eq!(p.min_pool_depth, 0);
+    assert_eq!(p.deposit, DEPOSIT);
+    assert_eq!(p.withdraw_buffer_days, 7);
+    assert_eq!((p.breaker_on_bps, p.breaker_off_bps), (200, 100));
     assert!(p.is_valid());
 }
 
@@ -1073,12 +1458,7 @@ fn coldkey_swap_rekeys_positions() {
             Some(account(2))
         );
         check_invariants();
-        assert_ok!(Lending::close_short(
-            RuntimeOrigin::signed(account(2)),
-            netuid(),
-            MINT,
-            u64::MAX
-        ));
+        assert_ok!(close(2, MINT));
         assert!(tao(&account(2)) > 0);
         assert_eq!(tao(&account(1)), 0);
     });
@@ -1109,7 +1489,9 @@ fn health_and_close_quotes() {
         assert_ok!(open(1, MINT, COLLATERAL));
         let health = Lending::short_health(&account(1), netuid()).unwrap();
         assert_eq!(health.minted, MINT);
+        assert_eq!(health.zone_minted, 0);
         assert!(health.equity_twap > 0);
+        assert!(health.day_interest > 0);
         assert!(!health.deleveraging);
         let quote = Lending::quote_close_short(&account(1), netuid(), MINT).unwrap();
         assert_ok!(Lending::close_short(
@@ -1122,18 +1504,25 @@ fn health_and_close_quotes() {
     });
 }
 
-// ---- migration and dereg ----------------------------------------------------------
+// ---- migration and dereg ranking (P13) ---------------------------------------------------
 
 #[test]
-fn migration_clears_lift_storage_and_installs_defaults() {
+fn migration_clears_retired_storage_and_installs_defaults() {
     run(|| {
         let pallet = b"Lending";
-        for item in ["Lifts", "LiftParamsStore", "Positions", "Expiry"] {
+        for item in [
+            "Lifts",
+            "LiftParamsStore",
+            "Positions",
+            "Expiry",
+            "DeregMovingPrice",
+            "OpenImpactAnchor",
+        ] {
             let mut k = frame_support::storage::storage_prefix(pallet, item.as_bytes()).to_vec();
             k.extend_from_slice(&[1, 2, 3]);
             sp_io::storage::set(&k, &[9, 9]);
         }
-        assert!(crate::migrations::retired_keys_left::<Test>() >= 4);
+        assert!(crate::migrations::retired_keys_left::<Test>() >= 6);
         Enabled::<Test>::put(true);
         SynthParamsStore::<Test>::mutate(|p| p.stress_bps = MIN_STRESS_BPS);
         assert_ok!(Lending::initialize_custody());
@@ -1151,25 +1540,41 @@ fn migration_clears_lift_storage_and_installs_defaults() {
 }
 
 #[test]
-fn dereg_moving_price_seeds_at_spot_tracks_slowly_and_resets_on_registration() {
+fn rank_sma_seeds_at_spot_moves_per_day_and_resets_on_registration() {
     run(|| {
-        assert_eq!(params().dereg_ma_blocks, dereg::DEFAULT_DEREG_MA_BLOCKS);
-        let seed = MockPool::current_alpha_price(netuid());
-        assert_eq!(Lending::dereg_moving_price(netuid()), None);
-        <Lending as LendingInterface<_>>::update_dereg_moving_price(netuid());
-        assert_eq!(Lending::dereg_moving_price(netuid()), Some(seed));
+        SynthParamsStore::<Test>::mutate(|p| {
+            p.rank_days = 3;
+            p.rank_day_blocks = 2;
+            p.tao_ema_blocks = 4;
+        });
+        let update = || <Lending as LendingInterface<_>>::update_dereg_moving_price(netuid());
+        let rank = || <Lending as LendingInterface<_>>::dereg_moving_price(netuid());
+        assert_eq!(rank(), None);
+        assert_eq!(Lending::rank_price(netuid()), U64F64::from_num(1.0));
+        update();
+        assert_eq!(rank(), Some(U64F64::from_num(1.0)));
+        assert_eq!(PoolTaoEma::<Test>::get(netuid()), Some(POOL));
 
-        // A short dump halves spot; one block moves the rank price 1/window of the gap.
-        SynthParamsStore::<Test>::mutate(|p| p.dereg_ma_blocks = 1_000);
-        set_pool(POOL, 2 * POOL);
-        let dumped = MockPool::current_alpha_price(netuid());
-        <Lending as LendingInterface<_>>::update_dereg_moving_price(netuid());
-        let after = Lending::dereg_moving_price(netuid()).unwrap_or_default();
-        assert_eq!(after, dereg::dereg_ema_step(Some(seed), dumped, 1_000));
-        assert!(after < seed && after > dumped);
+        // Raw spot halves (no add-back of minted alpha); one day moves the SMA a third.
+        set_pool(POOL / 2, POOL);
+        update();
+        assert_eq!(rank(), Some(U64F64::from_num(1.0)), "mid-day: unchanged");
+        update();
+        let sma = rank().unwrap().to_num::<f64>();
+        assert!((sma - 2.5 / 3.0).abs() < 1e-12, "{sma}");
+        // T_ema steps a quarter of the gap each block.
+        assert_eq!(
+            PoolTaoEma::<Test>::get(netuid()),
+            Some(dereg::ema_step(Some(POOL - POOL / 8), POOL / 2, 4))
+        );
+        // r uses min(T, T_ema).
+        let r = Lending::dissolution_rate(netuid()).to_num::<f64>();
+        assert!((r - (POOL / 2) as f64 / ISSUANCE as f64).abs() < 1e-12);
 
         <Lending as LendingInterface<_>>::on_subnet_registered(netuid());
-        assert_eq!(Lending::dereg_moving_price(netuid()), None);
+        assert_eq!(rank(), None);
+        assert_eq!(RankRing::<Test>::get(netuid()), None);
+        assert_eq!(PoolTaoEma::<Test>::get(netuid()), None);
         set_pool(POOL, POOL);
     });
 }
