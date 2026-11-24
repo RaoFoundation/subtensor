@@ -3667,11 +3667,11 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
 
     /// --- MAP ( validator_hotkey ) --> `(block, extrinsic_index)` of the last transaction
-    /// in which a `swap_basket` buy or a hotkey swap gave the fund a row that its
-    /// single-hotkey claim weight had not counted. `claim_root_with_hotkey` declares its
-    /// weight from the fund's rows before the transaction runs, so a claim later in that
-    /// same transaction is refused (`RootClaimTooHeavy`). A row from an earlier transaction
-    /// has no effect. Moves with the fund on hotkey swap.
+    /// in which the fund got a row that its single-hotkey claim weight had not counted: by
+    /// a `swap_basket` buy, a hotkey swap, or a coldkey swap into the escrow account.
+    /// `claim_root_with_hotkey` declares its weight from the fund's rows before the
+    /// transaction runs, so a claim later in that same transaction is refused
+    /// (`RootClaimTooHeavy`). A hotkey swap removes the record of the old hotkey.
     #[pallet::storage]
     pub type BasketRowsOpenedAt<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u32), OptionQuery>;

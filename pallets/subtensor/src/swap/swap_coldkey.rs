@@ -1263,15 +1263,27 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
+        // No check refuses the basket escrow as the destination. A position that moves
+        // there becomes a holding of the fund of its hotkey. On a subnet where that fund
+        // had no row, this opens a row that a single-hotkey claim declared earlier in this
+        // transaction did not count. Record it, as a `swap_basket` buy and a hotkey swap
+        // do, so that such a claim is refused. The root cash slot is exempt: every claim
+        // reserves it. The record is one write for a hotkey that moved a position, and
+        // the weight of that position (`transfer_stake`) covers it.
+        let into_escrow = *new_coldkey == Self::get_beta_escrow_account_id();
         for hotkey in Self::coldkey_swap_hotkeys(old_coldkey) {
             let netuids: BTreeSet<NetUid> = Self::alpha_iter_prefix((&hotkey, old_coldkey))
                 .map(|(netuid, _)| netuid)
                 .collect();
+            let mut fund_row_opened = false;
             for netuid in netuids {
                 let alpha_old =
                     Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, old_coldkey, netuid);
                 if alpha_old.is_zero() {
                     continue;
+                }
+                if into_escrow && !netuid.is_root() && !Self::basket_row_stored(&hotkey, netuid) {
+                    fund_row_opened = true;
                 }
                 // Credit the new coldkey with exactly what left the old one.
                 let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1286,6 +1298,9 @@ impl<T: Config> Pallet<T> {
                     netuid,
                     alpha_moved,
                 );
+            }
+            if fund_row_opened {
+                Self::note_basket_rows_opened(&hotkey);
             }
 
             Self::transfer_basket_claimed_for_new_coldkey(&hotkey, old_coldkey, new_coldkey)?;

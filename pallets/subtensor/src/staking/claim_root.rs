@@ -1256,8 +1256,9 @@ impl<T: Config> Pallet<T> {
     /// computed several times in one transaction, and the claim checks the size once
     /// more. Each of them gets the kept count with one read. The kept count stays a
     /// bound for the whole transaction: the fund's rows and queued credits cannot grow in
-    /// a transaction, except through a `swap_basket` buy or a hotkey swap, and a claim
-    /// after one of those is refused ([`Self::basket_rows_opened_in_current_transaction`]).
+    /// a transaction, except through a `swap_basket` buy, a hotkey swap or a coldkey swap
+    /// into the escrow account, and a claim after one of those is refused
+    /// ([`Self::basket_rows_opened_in_current_transaction`]).
     ///
     /// A hotkey without a fund gets no kept count. A claim can name any account, and a
     /// record for each named account would let a caller grow the state. The count of an
@@ -1473,9 +1474,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// A wrapper call (batch, proxy) computes this before it runs any inner call. The
     /// value stays a bound for a claim later in the same transaction: the fund's rows and
-    /// queued credits cannot grow in a transaction, except through a `swap_basket` buy or
-    /// a hotkey swap, and a claim after one of those is refused
-    /// ([`Self::basket_rows_opened_in_current_transaction`]).
+    /// queued credits cannot grow in a transaction, except through a `swap_basket` buy, a
+    /// hotkey swap or a coldkey swap into the escrow account, and a claim after one of
+    /// those is refused ([`Self::basket_rows_opened_in_current_transaction`]).
     pub fn root_claim_hotkey_declared_weight_for(hotkey: &T::AccountId) -> Weight {
         match Self::root_claim_hotkey_work(hotkey) {
             Some(work) => Self::root_claim_hotkey_weight_for_work(work.units(), work.queued)
@@ -1521,10 +1522,19 @@ impl<T: Config> Pallet<T> {
         T::DbWeight::get().reads_writes(1, 1)
     }
 
-    /// True when a `swap_basket` buy or a hotkey swap gave `hotkey`'s fund a new row
-    /// earlier in the current transaction. The weight that
-    /// [`Pallet::claim_root_with_hotkey`] declared for this transaction was sized before
-    /// that row existed, so the claim must not run.
+    /// True when the fund of `hotkey` has a stored row on `netuid`: the raw storage key
+    /// that [`Self::count_root_claim_hotkey_work`] counts.
+    pub(crate) fn basket_row_stored(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        let escrow = Self::get_beta_escrow_account_id();
+        AlphaV2::<T>::contains_key((hotkey, &escrow, netuid))
+            || (T::LegacyAlphaCompatibility::get()
+                && Alpha::<T>::contains_key((hotkey, &escrow, netuid)))
+    }
+
+    /// True when `hotkey`'s fund got a new row earlier in the current transaction: by a
+    /// `swap_basket` buy, a hotkey swap, or a coldkey swap into the escrow account. The
+    /// weight that [`Pallet::claim_root_with_hotkey`] declared for this transaction was
+    /// sized before that row existed, so the claim must not run.
     pub(crate) fn basket_rows_opened_in_current_transaction(hotkey: &T::AccountId) -> bool {
         Self::current_transaction()
             .is_some_and(|transaction| BasketRowsOpenedAt::<T>::get(hotkey) == Some(transaction))

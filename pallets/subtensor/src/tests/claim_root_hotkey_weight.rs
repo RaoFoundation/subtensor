@@ -8,8 +8,9 @@
 //! the validator).
 //!
 //! A batch or proxy computes the declaration before any inner call runs. The fund's rows
-//! and queued credits cannot grow in a transaction, except through a `swap_basket` buy or
-//! a hotkey swap. A claim after one of those, in the same transaction, is refused.
+//! and queued credits cannot grow in a transaction, except through a `swap_basket` buy, a
+//! hotkey swap or a coldkey swap into the escrow account. A claim after one of those, in
+//! the same transaction, is refused.
 //!
 //! A claim starts with the settlement of the claimant's deferred-dividend debts. A debt can
 //! outlive the queued credit that made it, so the fund's rows and queued credits do not
@@ -58,7 +59,7 @@ use sp_core::{Get, U256};
 use sp_runtime::traits::Dispatchable;
 use std::collections::BTreeMap;
 use substrate_fixed::types::{I64F64, I96F32, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
 
 pub(super) const TAO: u64 = 1_000_000_000;
 /// Fund shares per unit of `stakes` in [`real_fund`].
@@ -1595,5 +1596,135 @@ fn claim_is_refused_after_a_hotkey_swap_moved_the_fund_in_the_same_transaction()
         let empty_new = U256::from(4002);
         SubtensorModule::transfer_basket_for_new_hotkey(&empty_old, &empty_new);
         assert_eq!(BasketRowsOpenedAt::<Test>::get(empty_new), None);
+    });
+}
+
+/// Announces the swap of `coldkey` into the escrow account of the funds, waits for the
+/// announcement delay, and returns the call that runs the swap.
+fn announced_swap_into_the_escrow(coldkey: U256) -> RuntimeCall {
+    let escrow = SubtensorModule::get_beta_escrow_account_id();
+    let hash =
+        <<Test as frame_system::Config>::Hashing as sp_runtime::traits::Hash>::hash_of(&escrow);
+    add_balance_to_coldkey_account(
+        &coldkey,
+        SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+    );
+    assert_ok!(SubtensorModule::announce_coldkey_swap(
+        RuntimeOrigin::signed(coldkey),
+        hash
+    ));
+    let delay = crate::ColdkeySwapAnnouncementDelay::<Test>::get();
+    System::set_block_number(System::block_number() + delay + 1);
+    RuntimeCall::SubtensorModule(crate::Call::swap_coldkey_announced {
+        new_coldkey: escrow,
+    })
+}
+
+/// No check refuses the escrow account of the funds as the destination of a coldkey swap.
+/// Each stake position of the old coldkey then becomes a holding of the fund of its
+/// hotkey, and a position on a subnet where that fund had no row opens a row. A claim
+/// later in the same transaction was sized before that, so it is refused. The next
+/// transaction can claim.
+///
+/// A coldkey with an announced swap can send no batch itself. Its proxy can: the proxy
+/// runs the swap for the coldkey and then claims for itself, in one batch.
+#[test]
+fn claim_is_refused_after_a_coldkey_swap_into_the_escrow_in_the_same_transaction() {
+    new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO; 3], &[1]);
+        let claimant = fund.stakers[0];
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let rows = |hotkey: U256| AlphaV2::<Test>::iter_key_prefix((hotkey, escrow)).count();
+        // A coldkey with stake on the validator, on 40 subnets where the fund has no row.
+        // The claimant is its proxy.
+        let donor = U256::from(7_500);
+        for netuid in (100..140).map(priced_subnet) {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &fund.hotkey,
+                &donor,
+                netuid,
+                (5 * TAO).into(),
+            );
+        }
+        add_balance_to_coldkey_account(&donor, TAO.into());
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(donor),
+            claimant,
+            ProxyType::Any,
+            0
+        ));
+        let swap = announced_swap_into_the_escrow(donor);
+
+        // One transaction of the claimant: the swap for the donor, and then a claim.
+        enter_transaction(2);
+        let before = declared(fund.hotkey);
+        assert_eq!(
+            before,
+            SubtensorModule::root_claim_hotkey_min_declared_weight()
+        );
+        assert_eq!(rows(fund.hotkey), 3);
+        let batch = RuntimeCall::Utility(pallet_utility::Call::batch {
+            calls: vec![
+                RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                    real: donor,
+                    force_proxy_type: None,
+                    call: Box::new(swap),
+                }),
+                claim_call(fund.hotkey),
+            ],
+        });
+        assert_ok!(batch.dispatch(RuntimeOrigin::signed(claimant)));
+
+        // The swap ran: the fund has 40 more rows. The claim after it was refused.
+        assert_eq!(rows(fund.hotkey), 43);
+        assert!(System::events().iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::Utility(pallet_utility::Event::BatchInterrupted { index: 1, error })
+                if error == Error::<Test>::RootClaimTooHeavy.into()
+        )));
+        assert_eq!(
+            BasketRowsOpenedAt::<Test>::get(fund.hotkey),
+            Some(this_transaction(2))
+        );
+
+        // The next transaction counts the 43 rows. Its declaration covers the claim, and
+        // the claim is more work than the declaration from before the swap.
+        enter_transaction(3);
+        let after = declared(fund.hotkey);
+        let reported = claim(claimant, fund.hotkey);
+        assert!(reported.all_lte(after));
+        assert!(reported.ref_time() > before.ref_time());
+    });
+}
+
+/// A coldkey swap into the escrow account that opens no row does not stop a claim: the
+/// stake goes into a row that the fund already has, and into its root cash slot, which
+/// every claim reserves.
+#[test]
+fn coldkey_swap_into_a_held_row_or_into_root_cash_does_not_refuse_a_claim() {
+    new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO; 3], &[1]);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let donor = U256::from(7_500);
+        for netuid in [fund.netuids[0], NetUid::ROOT] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &fund.hotkey,
+                &donor,
+                netuid,
+                (5 * TAO).into(),
+            );
+        }
+        let swap = announced_swap_into_the_escrow(donor);
+
+        enter_transaction(2);
+        let before = declared(fund.hotkey);
+        assert_ok!(swap.dispatch(RuntimeOrigin::signed(donor)));
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuids[0]), 10 * TAO);
+        assert_eq!(root_stake_of(&fund.hotkey, &escrow), 5 * TAO);
+        assert_eq!(BasketRowsOpenedAt::<Test>::get(fund.hotkey), None);
+
+        // The claim in the same transaction runs, inside the declaration from before.
+        let reported = claim(fund.stakers[0], fund.hotkey);
+        assert!(reported.all_lte(before));
     });
 }

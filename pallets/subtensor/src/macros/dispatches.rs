@@ -2222,7 +2222,7 @@ mod dispatches {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             // Admission failures keep the declared envelope (see `claim_root`).
             // The declaration was sized before this transaction ran. It does not cover a
-            // row that a trade or a hotkey swap added to the fund since then.
+            // row that a trade or a key swap added to the fund since then.
             ensure!(
                 !Self::basket_rows_opened_in_current_transaction(&hotkey),
                 Error::<T>::RootClaimTooHeavy
