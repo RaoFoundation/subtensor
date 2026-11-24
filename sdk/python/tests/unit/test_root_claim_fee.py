@@ -155,6 +155,8 @@ def test_single_hotkey_declared_weight_follows_the_fund_size():
     # credit, and the end of both maps.
     assert fees._hotkey_claim_sizing_ref_time(4, 4) == 30 * 25_000_000 + 100_000_000
     assert fees._hotkey_claim_sizing_ref_time(257, 257) == 1_042 * 25_000_000 + 100_000_000
+    # A hotkey without a fund has no kept count: ten times one read and the two ends.
+    assert fees._hotkey_claim_sizing_ref_time(0, 0) == 30 * 25_000_000
     # Without the two parts above, the floor and the ceiling are the values of the claim
     # work alone.
     assert floor - fees._DEBT_SETTLEMENT_BOUND_REF_TIME - 850_000_000 == 34_094_612_996

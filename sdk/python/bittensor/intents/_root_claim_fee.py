@@ -131,7 +131,12 @@ def _hotkey_claim_sizing_ref_time(rows: int, queued: int) -> int:
     """``Pallet::root_claim_hotkey_sizing_weight(rows, queued)`` ref_time. One count of the
     fund reads each stored row and each queued credit, and probes the end of both maps.
     The declaration has ``_HOTKEY_CLAIM_COUNTS`` counts, the reads that find the kept count
-    again, and the one write that keeps it."""
+    again, and the one write that keeps it.
+
+    A hotkey without a fund has no kept count: each computation of its weight reads that
+    there is none and probes the end of both maps, and nothing is written."""
+    if rows == 0 and queued == 0:
+        return _HOTKEY_CLAIM_COUNT_READS * 3 * _ROCKSDB_READ_PS
     count = rows + queued + 2
     return (
         _HOTKEY_CLAIM_COUNTS * count + _HOTKEY_CLAIM_COUNT_READS
@@ -937,8 +942,8 @@ def _spent_fee(
     flush work really done, with ``active = max(selected hotkeys, relationships
     classified, realized + swept, 1)``. Classifying a relationship reads its root
     share-pool state, so it is priced as a full hotkey unit. The flush work and, from
-    runtime 495, the settlement of the claimant's deferred-dividend debts are left out,
-    so ``spent`` is a floor. ``estimate_fee`` prices
+    runtime 495, the counts of the fund and the settlement of the claimant's
+    deferred-dividend debts are left out, so ``spent`` is a floor. ``estimate_fee`` prices
     the charged allowance plus extrinsic base/length; the fee wrapper caps the charge
     at that allowance, so spent never exceeds reserved.
     """
