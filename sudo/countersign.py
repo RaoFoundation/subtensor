@@ -160,7 +160,7 @@ async def verify(proposal, affected, call_args, signatories, threshold):
                 raise ValueError(f"Live value changed for {entry['key']}; regenerate the proposal")
         print(
             "Verified live sudo key, independently supplied call hash, "
-            "and every affected old value."
+            "and every affected old value at this read."
         )
         print("Call hash:", actual)
         return call
@@ -214,7 +214,10 @@ def main(argv=None):
         args_path = Path(directory) / "verified-mainnet-args.json"
         args_path.write_text(json.dumps(call_args, indent=2) + "\n")
         asyncio.run(verify(proposal, affected, call_args, signatories, threshold))
-        print("Review the displayed batch, then approve in the standard btcli flow.")
+        print(
+            "Review the displayed batch. Before the final executing approval, "
+            "the last signer must rerun this verifier and confirm no drift."
+        )
         return subprocess.run(btcli_command(args_path, signatories, threshold, wallet)).returncode
 
 

@@ -79,7 +79,9 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   assert.match(markdown, /Reviewed baseline commit: `def`/);
   assert.match(markdown, /Source SHA-256: `123`/);
   assert.match(markdown, /Baseline SHA-256: `456`/);
-  assert.match(markdown, /python3 sudo\/countersign.py \/path\/to\/downloaded\/mainnet-proposal.json \/path\/to\/independently-reproduced\/mainnet-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>/);
+  assert.match(markdown, /SUDO_WALLET=<WALLET> python3 sudo\/countersign.py \/path\/to\/downloaded\/mainnet-proposal.json \/path\/to\/independently-reproduced\/mainnet-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>/);
+  assert.match(markdown, /old-value checks are not atomic with execution/);
+  assert.match(markdown, /last signer must rerun this verifier immediately before the final, executing approval and confirm no drift/);
   assert.equal(fs.existsSync(path.join(output, "mainnet-countersign.py")), false);
   assert.equal(fs.readdirSync(output).some((name) => name.endsWith(".py") || name.endsWith(".sh")), false);
   assert.equal(proposal.btcli_args.call.Utility.batch_all.calls.length, 1);
@@ -87,6 +89,7 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   assert.equal(proposal.diff.reviewed, true);
   assert.match(script, /threshold = config\["threshold"\]/);
   assert.match(script, /Set SUDO_WALLET/);
+  assert.match(script, /last signer must rerun this verifier and confirm no drift/);
   assert.doesNotMatch(script, /Pass --wallet/);
   const parse = spawnSync("python3", ["-c", "import ast, sys; ast.parse(open(sys.argv[1]).read())", path.join(__dirname, "..", "countersign.py")]);
   assert.equal(parse.status, 0);

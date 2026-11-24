@@ -94,7 +94,7 @@ jobs:
       - name: Mainnet is proposal-only
         if: matrix.network == 'mainnet'
         run: |
-          echo "No mainnet apply job exists. Review the artifacts and use the existing triumvirate process." >> "$GITHUB_STEP_SUMMARY"
+          echo "No mainnet apply job exists. Review the artifacts and use the existing triumvirate process. The final signer must rerun the verifier immediately before executing approval and confirm no drift." >> "$GITHUB_STEP_SUMMARY"
       - name: Devnet/testnet apply remains disabled
         if: matrix.network != 'mainnet'
         run: |

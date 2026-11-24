@@ -82,6 +82,8 @@ Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapp
 
 A changed mainnet proposal contains data-only JSON/Markdown artifacts, decoded call and old-to-new fields, and a ready-to-copy countersign command. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
 
+**Known limitation:** the old-value checks are not atomic with the later multisig execution. An emergency update can finalize after verification but before the final approval, as with today's manual multisig process. **The last signer must rerun the verifier immediately before the final, executing approval and confirm no drift.** If any value changed, stop, regenerate the proposal, and restart review. This is a procedural mitigation, not a runtime-enforced compare-and-set.
+
 On a trusted signer machine, install the repository SDK and inspect the JSON and Markdown artifacts. In a **separately reviewed repository checkout**, rerun the diff from the exact recorded source and baseline commits and independently confirm the call hash. Then run the checked-in verifier against the downloaded data-only artifact:
 
 ```bash
