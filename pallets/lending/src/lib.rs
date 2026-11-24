@@ -1749,7 +1749,8 @@ pub mod pallet {
     #[pallet::storage]
     pub type ProtocolForcedImpact<T: Config> =
         StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u128, u128), OptionQuery>;
-    /// Benchmark-only: α sold by the combined residual path (skeptic fid:ced7b9db).
+    /// Benchmark-only: α sold by the combined residual path so `settle_long`
+    /// can assert that path ran (skeptic fid:ced7b9db).
     #[cfg(feature = "runtime-benchmarks")]
     #[pallet::storage]
     pub type BenchCombinedResidualSale<T: Config> = StorageValue<_, u64, ValueQuery>;
