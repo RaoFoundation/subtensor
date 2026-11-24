@@ -142,7 +142,7 @@ fn set_other_rank(price: f64) {
 }
 
 fn seed_twap_samples(netuid: NetUid, samples: u32, price: f64) {
-    let mut ring = TwapState::<u64>::default();
+    let mut ring = crate::TwapState::<u64>::default();
     for _ in 0..samples {
         let _ = ring.samples.try_push(U64F64::from_num(price));
     }
@@ -1004,6 +1004,7 @@ fn pump_and_deleverage() {
     // Spot 5×: buying 1e12 back costs about 5e12 > funds.
     let (y, x) = pool();
     set_pool(y * 5, x);
+    seed_twap_samples(netuid(), MIN_HEALTH_TWAP_SAMPLES, spot());
     assert_ok!(Lending::poke(
         RuntimeOrigin::signed(account(9)),
         account(1),
@@ -1615,8 +1616,7 @@ fn rank_stays_dark_until_enabled_and_seeds_from_moving_price() {
         assert!((sma - (2.0 * 0.42 + 0.5) / 3.0).abs() < 1e-9, "{sma}");
 
         <Lending as LendingInterface<_>>::on_subnet_registered(netuid());
-        assert_eq!(rank(), None);
-        assert_eq!(RankRing::<Test>::get(netuid()).is_some(), true);
+        assert_eq!(rank(), Some(U64F64::from_num(0.42)));
         set_pool(POOL, POOL);
     });
 }
@@ -1642,7 +1642,10 @@ fn migration_seeds_rank_ring_from_moving_price() {
         Enabled::<Test>::put(false);
         crate::migrations::migrate_to_synth_shorts_v1::<Test>();
         assert!(!Enabled::<Test>::get());
-        assert_eq!(<Lending as LendingInterface<_>>::dereg_moving_price(netuid()), None);
+        assert_eq!(
+            <Lending as LendingInterface<_>>::dereg_moving_price(netuid()),
+            None
+        );
         let ring = RankRing::<Test>::get(netuid()).expect("migration prepares rank ring");
         assert!(ring.days.iter().all(|d| *d == U64F64::from_num(0.77)));
     });

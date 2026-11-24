@@ -4,10 +4,9 @@
 //!   [`RankPrice`], a [`SynthParams::rank_days`]-day SMA of raw spot (no
 //!   add-back of minted short alpha). Each block adds spot to a day
 //!   accumulator; every [`SynthParams::rank_day_blocks`] the day's mean enters
-//!   a ring of daily means and the SMA is recomputed. The ring is seeded with
-//!   the first price at registration, so a new subnet cannot be pruned off a
-//!   single bad day, and sustained short selling must hold for most of the
-//!   window to move the ranking.
+//!   a ring of daily means and the SMA is recomputed. The ring is seeded from
+//!   [`LendingPoolInterface::moving_alpha_price`] when lending is enabled (not
+//!   from one block of spot), so ranking stays dark until then.
 //! * **P12 `T_ema`.** An EMA of pool TAO with time constant
 //!   [`SynthParams::tao_ema_blocks`], seeded at pool TAO.
 
@@ -35,6 +34,18 @@ pub struct RankState {
     pub day_blocks: u32,
 }
 
+/// Fill every SMA day slot with `price` (registration / enable / migration).
+pub fn seed_rank_ring(state: &mut RankState, price: U64F64, days: u32) {
+    let cap = days.clamp(1, MAX_RANK_DAYS) as usize;
+    while state.days.pop().is_some() {}
+    state.day_sum = U64F64::from_num(0);
+    state.day_blocks = 0;
+    state.cursor = 0;
+    for _ in 0..cap {
+        let _ = state.days.try_push(price);
+    }
+}
+
 /// Mean of `values`; zero when empty.
 pub fn mean(values: &[U64F64]) -> U64F64 {
     if values.is_empty() {
@@ -57,11 +68,7 @@ pub fn rank_step(
 ) -> Option<U64F64> {
     let cap = days.clamp(1, MAX_RANK_DAYS) as usize;
     if state.days.is_empty() {
-        for _ in 0..cap {
-            let _ = state.days.try_push(spot);
-        }
-        state.cursor = 0;
-        return Some(spot);
+        return None;
     }
     state.day_sum = state.day_sum.saturating_add(spot);
     state.day_blocks = state.day_blocks.saturating_add(1);
@@ -110,12 +117,6 @@ impl<T: Config> Pallet<T> {
     /// Advance `netuid`'s ranking SMA and pool-TAO EMA one block.
     pub fn update_dereg_moving_price(netuid: NetUid) {
         let params = SynthParamsStore::<T>::get();
-        let spot = T::Pool::current_alpha_price(netuid);
-        let mut state = RankRing::<T>::get(netuid).unwrap_or_default();
-        if let Some(sma) = rank_step(&mut state, spot, params.rank_days, params.rank_day_blocks) {
-            RankPrice::<T>::insert(netuid, sma);
-        }
-        RankRing::<T>::insert(netuid, state);
         let tao = T::Pool::pool_tao(netuid).to_u64();
         let ema = ema_step(
             PoolTaoEma::<T>::get(netuid),
@@ -123,6 +124,15 @@ impl<T: Config> Pallet<T> {
             u64::from(params.tao_ema_blocks),
         );
         PoolTaoEma::<T>::insert(netuid, ema);
+        if !Enabled::<T>::get() {
+            return;
+        }
+        let spot = T::Pool::current_alpha_price(netuid);
+        let mut state = RankRing::<T>::get(netuid).unwrap_or_default();
+        if let Some(sma) = rank_step(&mut state, spot, params.rank_days, params.rank_day_blocks) {
+            RankPrice::<T>::insert(netuid, sma);
+        }
+        RankRing::<T>::insert(netuid, state);
     }
 
     pub fn dereg_moving_price(netuid: NetUid) -> Option<U64F64> {
@@ -140,17 +150,18 @@ mod tests {
     }
 
     #[test]
-    fn first_sample_seeds_the_whole_window() {
+    fn seed_fills_the_whole_window() {
         let mut s = RankState::default();
-        assert_eq!(rank_step(&mut s, p(0.25), 30, 10), Some(p(0.25)));
+        seed_rank_ring(&mut s, p(0.25), 30);
         assert_eq!(s.days.len(), 30);
         assert!(s.days.iter().all(|d| *d == p(0.25)));
+        assert_eq!(rank_step(&mut s, p(0.25), 30, 10), None);
     }
 
     #[test]
     fn one_bad_day_moves_the_sma_by_a_window_fraction() {
         let mut s = RankState::default();
-        rank_step(&mut s, p(1.0), 30, 10);
+        seed_rank_ring(&mut s, p(1.0), 30);
         let mut sma = None;
         for _ in 0..10 {
             sma = rank_step(&mut s, p(0.0), 30, 10).or(sma);
@@ -162,7 +173,7 @@ mod tests {
     #[test]
     fn sustained_pressure_replaces_the_window_and_wraps() {
         let mut s = RankState::default();
-        rank_step(&mut s, p(1.0), 3, 2);
+        seed_rank_ring(&mut s, p(1.0), 3);
         let mut sma = None;
         for _ in 0..(4 * 2) {
             sma = rank_step(&mut s, p(0.5), 3, 2).or(sma);

@@ -121,6 +121,14 @@ pub fn migrate_to_synth_shorts_v1<T: Config>() -> Weight {
     }
     SynthParamsStore::<T>::put(SynthParams::default());
     Enabled::<T>::put(false);
+    let params = SynthParamsStore::<T>::get();
+    for netuid in T::Pool::live_subnets() {
+        let price = T::Pool::moving_alpha_price(netuid);
+        let mut state = dereg::RankState::default();
+        dereg::seed_rank_ring(&mut state, price, params.rank_days);
+        RankRing::<T>::insert(netuid, state);
+        weight = weight.saturating_add(db.reads_writes(1, 1));
+    }
     HasMigrationRun::<T>::insert(&key, true);
     weight.saturating_add(db.writes(3))
 }

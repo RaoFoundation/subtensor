@@ -510,7 +510,7 @@ impl<AccountId, BlockNumber> ShortPosition<AccountId, BlockNumber> {
 }
 
 /// Spot samples for the health TWAP (P6).
-#[freeze_struct("2bca3316f5ce8016")]
+#[freeze_struct("25904ca8bf3e6337")]
 #[derive(
     Encode,
     Decode,
@@ -1016,7 +1016,7 @@ pub mod pallet {
             if enabled && !was {
                 let params = SynthParamsStore::<T>::get();
                 for netuid in T::Pool::live_subnets() {
-                    Self::seed_rank_from_moving(*netuid, &params, true);
+                    Self::seed_rank_from_moving(netuid, &params, true);
                 }
             }
             Self::deposit_event(Event::EnabledSet { enabled });
