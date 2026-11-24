@@ -88,10 +88,16 @@ impl<T: Config> pallet_commitments::CommitBurnInterface<T::AccountId> for Pallet
             Self::init_new_network(netuid, 1);
         }
         SubtokenEnabled::<T>::insert(netuid, true);
-        let _ = Self::create_account_if_non_existent(coldkey, hotkey);
+        // Ownership must succeed: ignored `create_account` errors left the hotkey
+        // unassociated and mapped to `AccountNotAuthorized` in commitments benches.
+        frame_support::assert_ok!(Self::create_account_if_non_existent(coldkey, hotkey));
         if !Self::is_hotkey_registered_on_network(netuid, hotkey) {
             Self::append_neuron(netuid, hotkey, 0);
         }
+        debug_assert!(
+            Self::ensure_coldkey_hotkey(netuid, coldkey, hotkey).is_ok(),
+            "benchmark channel fixture must satisfy ensure_coldkey_hotkey"
+        );
     }
 
     #[cfg(feature = "runtime-benchmarks")]

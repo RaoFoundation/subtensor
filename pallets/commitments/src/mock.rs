@@ -174,6 +174,13 @@ impl pallet_commitments::CommitBurnInterface<u64> for TestCommitBurn {
     fn payment_weight() -> Weight {
         Weight::zero()
     }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_prepare_channel(_: NetUid, coldkey: &u64, _: &u64) {
+        // Mirror Subtensor ownership setup so distinct cold/hot bench callers work.
+        TestCommitBurn::set_coldkey_for_hotkey(0, *coldkey);
+        TestCommitBurn::set_accepts_any_owner(true);
+    }
 }
 
 pub struct TestWeightInfo;
