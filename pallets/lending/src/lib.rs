@@ -2658,26 +2658,24 @@ pub mod pallet {
         }
 
         /// Worst-case expiry settle under constrained impact search.
-        /// [`WeightInfo::settle`] is measured on the short partial-buyback
-        /// path. Long force-settle also runs sell search (+ post-escrow quote)
-        /// and may exceed that alone, so reserve `2 × settle` until a dedicated
-        /// long settle weight is reference-measured (skeptic fid:13d1d6a8 /
-        /// 322786f7). Do not add bare DbWeight reads — they do not bound AMM
-        /// execution.
+        /// Takes the max of short [`WeightInfo::settle`] and long
+        /// [`WeightInfo::settle_long`] so collectors cover both sides'
+        /// nested AMM search work (skeptic fid:13d1d6a8 / 2d40f9ac).
         pub(crate) fn settle_with_buyback_search_weight() -> Weight {
-            T::WeightInfo::settle().saturating_mul(2)
+            T::WeightInfo::settle().max(T::WeightInfo::settle_long())
         }
 
-        /// Open one due bucket: cursor read + resume writes for `NextDue` /
-        /// `DueBucketCursor`. Charged before touching those keys so a later
+        /// Open one due bucket: cursor read + NextDue probe (for resume) +
+        /// resume writes. Charged before touching those keys so a later
         /// peek/collect miss can persist resume state within budget
-        /// (skeptic fid:7e2fd27c).
+        /// (skeptic fid:7e2fd27c / 06a849b1).
         pub(crate) fn due_bucket_open_weight() -> Weight {
             Weight::from_parts(
                 0,
-                Self::EXPIRY_CURSOR_PROOF.saturating_add(Self::EXPIRY_SCALAR_PROOF),
+                Self::EXPIRY_CURSOR_PROOF
+                    .saturating_add(Self::EXPIRY_SCALAR_PROOF.saturating_mul(2)),
             )
-            .saturating_add(T::DbWeight::get().reads_writes(1, 2))
+            .saturating_add(T::DbWeight::get().reads_writes(2, 2))
         }
 
         /// Empty-book queue-head wipe: ten storage clears. Charged before any
@@ -6616,7 +6614,7 @@ pub mod pallet {
                     let mut coll_left = position.collateral;
                     if remaining_cap > 0 && escrow_left > 0 {
                         let sell = remaining_cap.min(escrow_left);
-                        let out = T::Pool::forced_sell_into_escrow(
+                        match T::Pool::forced_sell_into_escrow(
                             &escrow,
                             &custody,
                             &escrow,
@@ -6624,13 +6622,23 @@ pub mod pallet {
                             sell.into(),
                             0u64.into(),
                             skip_flow,
-                        )?;
-                        raised = Self::add(raised, out.to_u64())?;
-                        sold_alpha = Self::add(sold_alpha, sell)?;
-                        escrow_left = escrow_left.saturating_sub(sell);
-                        remaining_cap = remaining_cap.saturating_sub(sell);
-                        if enforce_realized_slippage {
-                            Self::ensure_realized_sell_within_slippage(netuid, raised, sold_alpha)?;
+                        ) {
+                            Ok(out) => {
+                                raised = Self::add(raised, out.to_u64())?;
+                                sold_alpha = Self::add(sold_alpha, sell)?;
+                                escrow_left = escrow_left.saturating_sub(sell);
+                                remaining_cap = remaining_cap.saturating_sub(sell);
+                                if enforce_realized_slippage {
+                                    Self::ensure_realized_sell_within_slippage(
+                                        netuid, raised, sold_alpha,
+                                    )?;
+                                }
+                            }
+                            Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
+                                // Dust escrow slice — leave in escrow_left for
+                                // can_progress / terminal burn (fid:ca8f3bcf).
+                            }
+                            Err(e) => return Err(e),
                         }
                     }
                     if raised < principal && remaining_cap > 0 && coll_left > 0 {
@@ -9248,7 +9256,7 @@ pub mod pallet {
                         let mut coll_left = position.collateral;
                         if remaining_cap > 0 && escrow_left > 0 {
                             let sell = remaining_cap.min(escrow_left);
-                            let out = T::Pool::forced_sell_into_escrow(
+                            match T::Pool::forced_sell_into_escrow(
                                 &escrow,
                                 &custody,
                                 &escrow,
@@ -9256,15 +9264,23 @@ pub mod pallet {
                                 sell.into(),
                                 0u64.into(),
                                 skip_flow,
-                            )?;
-                            raised = Self::add(raised, out.to_u64())?;
-                            sold_alpha = Self::add(sold_alpha, sell)?;
-                            escrow_left = escrow_left.saturating_sub(sell);
-                            remaining_cap = remaining_cap.saturating_sub(sell);
-                            if realized_guard {
-                                Self::ensure_realized_sell_within_slippage(
-                                    netuid, raised, sold_alpha,
-                                )?;
+                            ) {
+                                Ok(out) => {
+                                    raised = Self::add(raised, out.to_u64())?;
+                                    sold_alpha = Self::add(sold_alpha, sell)?;
+                                    escrow_left = escrow_left.saturating_sub(sell);
+                                    remaining_cap = remaining_cap.saturating_sub(sell);
+                                    if realized_guard {
+                                        Self::ensure_realized_sell_within_slippage(
+                                            netuid, raised, sold_alpha,
+                                        )?;
+                                    }
+                                }
+                                Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
+                                    // Dust escrow — classify via can_progress
+                                    // (skeptic fid:ca8f3bcf).
+                                }
+                                Err(e) => return Err(e),
                             }
                         }
                         if raised < principal && remaining_cap > 0 && coll_left > 0 {
@@ -9275,7 +9291,7 @@ pub mod pallet {
                             };
                             let sell = needed_alpha.min(coll_left).min(remaining_cap);
                             if sell > 0 {
-                                let out = T::Pool::forced_sell_into_escrow(
+                                match T::Pool::forced_sell_into_escrow(
                                     &escrow,
                                     &custody,
                                     &escrow,
@@ -9283,14 +9299,19 @@ pub mod pallet {
                                     sell.into(),
                                     0u64.into(),
                                     skip_flow,
-                                )?;
-                                raised = Self::add(raised, out.to_u64())?;
-                                sold_alpha = Self::add(sold_alpha, sell)?;
-                                coll_left = coll_left.saturating_sub(sell);
-                                if realized_guard {
-                                    Self::ensure_realized_sell_within_slippage(
-                                        netuid, raised, sold_alpha,
-                                    )?;
+                                ) {
+                                    Ok(out) => {
+                                        raised = Self::add(raised, out.to_u64())?;
+                                        sold_alpha = Self::add(sold_alpha, sell)?;
+                                        coll_left = coll_left.saturating_sub(sell);
+                                        if realized_guard {
+                                            Self::ensure_realized_sell_within_slippage(
+                                                netuid, raised, sold_alpha,
+                                            )?;
+                                        }
+                                    }
+                                    Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
+                                    Err(e) => return Err(e),
                                 }
                             }
                         }

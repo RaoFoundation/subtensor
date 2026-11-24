@@ -56,6 +56,8 @@ pub trait WeightInfo {
 	fn collect() -> Weight;
 	fn update_reference() -> Weight;
 	fn settle() -> Weight;
+	/// Force-market long expiry under ProtocolForcedImpact (sell search).
+	fn settle_long() -> Weight;
 }
 
 /// Weights for `pallet_lending` using the Substrate node and recommended hardware.
@@ -1309,6 +1311,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(57_u64))
 			.saturating_add(T::DbWeight::get().writes(51_u64))
 	}
+	/// Interim: short `settle` ×2 until validate-benchmarks measures
+	/// `settle_long` (force-market long sell search). Collectors take
+	/// `settle().max(settle_long())` (skeptic fid:2d40f9ac).
+	fn settle_long() -> Weight {
+		Self::settle().saturating_mul(2)
+	}
 }
 
 // For backwards compatibility and tests.
@@ -2560,5 +2568,11 @@ impl WeightInfo for () {
 		Weight::from_parts(3_810_116_000, 11306)
 			.saturating_add(RocksDbWeight::get().reads(57_u64))
 			.saturating_add(RocksDbWeight::get().writes(51_u64))
+	}
+	/// Interim: short `settle` ×2 until validate-benchmarks measures
+	/// `settle_long` (force-market long sell search). Collectors take
+	/// `settle().max(settle_long())` (skeptic fid:2d40f9ac).
+	fn settle_long() -> Weight {
+		Self::settle().saturating_mul(2)
 	}
 }

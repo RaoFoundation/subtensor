@@ -277,9 +277,15 @@ mod benchmarks {
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        // Top up free balance so roll's deposit/ED accounting cannot fail the
-        // extrinsic under production Balances (CI: "Account cannot exist…").
-        T::Pool::benchmark_mint_tao(&caller, 1_000_000_000_000);
+        // Zero coupon so advancing one block does not deposit dust interest
+        // into an empty reserve (production Balances ED: "Account cannot
+        // exist with the funds that would be given").
+        Positions::<T>::mutate(&caller, netuid, |p| {
+            if let Some(p) = p {
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
+            }
+        });
         let opened = frame_system::Pallet::<T>::block_number();
         frame_system::Pallet::<T>::set_block_number(opened.saturating_add(1u32.into()));
         #[extrinsic_call]
@@ -473,6 +479,62 @@ mod benchmarks {
         assert!(
             fair_after > 0,
             "settle must note ProtocolForcedImpact via buyback search"
+        );
+    }
+
+    /// Force-market long expiry under ProtocolForcedImpact (sell search +
+    /// possible post-escrow sizing). Collectors charge
+    /// `settle().max(settle_long())` (skeptic fid:2d40f9ac).
+    #[benchmark]
+    fn settle_long() {
+        let caller: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("hk", 0, 0);
+        let netuid = NetUid::from(1u16);
+        seed_lending_ready::<T>(netuid, &caller, &hotkey);
+        let now = frame_system::Pallet::<T>::block_number();
+        assert_ok!(Pallet::<T>::open(
+            RawOrigin::Signed(caller.clone()).into(),
+            netuid,
+            Side::Long,
+            10_000_000_000u64,
+            Some(hotkey),
+            1u64,
+            0u64,
+            0u64,
+            now.saturating_add(100u32.into()),
+        ));
+        let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a long");
+        let principal_before = position.principal;
+        let expires_at = position.expires_at;
+        let available = position.escrow_alpha.saturating_add(position.collateral);
+        let pool = available.saturating_mul(8).max(1);
+        T::Pool::benchmark_seed_pool(netuid, pool, pool);
+        LiftParamsStore::<T>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100;
+            p.forced_min_buyback_bps = 500;
+            p.ema_band_bps = 10_000;
+        });
+        let params = LiftParamsStore::<T>::get();
+        let force_at = expires_at.saturating_add(params.max_settlement_deferral.saturated_into());
+        BandDeferralSince::<T>::insert(&caller, netuid, expires_at);
+        frame_system::Pallet::<T>::set_block_number(force_at);
+        ProtocolForcedImpact::<T>::remove(netuid);
+        #[block]
+        {
+            let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+            Pallet::<T>::collect_expiry(force_at, &mut meter, u32::MAX);
+        }
+        let after = Positions::<T>::get(&caller, netuid);
+        assert!(
+            after
+                .as_ref()
+                .map(|p| p.principal < principal_before)
+                .unwrap_or(true),
+            "settle_long must run impact-capped sell (principal reduced or cleared)"
+        );
+        assert!(
+            ProtocolForcedImpact::<T>::get(netuid).is_some(),
+            "settle_long must note ProtocolForcedImpact"
         );
     }
 }
