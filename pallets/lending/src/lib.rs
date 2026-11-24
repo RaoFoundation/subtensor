@@ -2673,6 +2673,15 @@ pub mod pallet {
             T::WeightInfo::settle().max(T::WeightInfo::settle_long())
         }
 
+        /// Worst-case interest collect: plain forfeiture *or* the same
+        /// impact-capped buyback search that expiry settle measures.
+        /// `charge_interest` can call [`Self::forfeit`] →
+        /// `max_forced_buyback_alpha`; charging only [`WeightInfo::collect`]
+        /// under-reserved that path by ~10× (skeptic fid:80e5fc65).
+        pub(crate) fn collect_with_forfeit_search_weight() -> Weight {
+            T::WeightInfo::collect().max(Self::settle_with_buyback_search_weight())
+        }
+
         /// Open one due bucket: cursor read + NextDue probe (for resume) +
         /// resume writes. Charged before touching those keys so a later
         /// peek/collect miss can persist resume state within budget
@@ -7911,7 +7920,10 @@ pub mod pallet {
                         break;
                     };
                     saw_entry = true;
-                    if meter.try_consume(T::WeightInfo::collect()).is_err() {
+                    if meter
+                        .try_consume(Self::collect_with_forfeit_search_weight())
+                        .is_err()
+                    {
                         // Row fetched under peek; resume from last_done so this
                         // key is retried (iter_prefix_from is exclusive).
                         Self::resume_due_collect(due, last_done);
@@ -8157,7 +8169,10 @@ pub mod pallet {
                     };
                     saw_entry = true;
                     empty_bumps = 0;
-                    if meter.try_consume(T::WeightInfo::collect()).is_err() {
+                    if meter
+                        .try_consume(Self::collect_with_forfeit_search_weight())
+                        .is_err()
+                    {
                         if let Some(done) = last_done {
                             InterestRetryCursor::<T>::put(done);
                         }

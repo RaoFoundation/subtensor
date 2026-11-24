@@ -6491,13 +6491,15 @@ fn collect_due_forfeit_consumes_collect_weight_budget() {
         System::set_block_number(due);
         // TotalPositions header + NextDue header + due_bucket_open (cursor +
         // resume writes) + peek + one collect body (skeptic fid:5012ec2d /
-        // d6b74a90 / 7e2fd27c).
+        // d6b74a90 / 7e2fd27c / 80e5fc65). Collectors reserve
+        // collect_with_forfeit_search_weight so impact-capped forfeit search
+        // cannot overrun the idle meter.
         let header = Weight::from_parts(0, 499).saturating_add(RocksDbWeight::get().reads(1));
         let one = header
             .saturating_add(header) // NextDue live-header
             .saturating_add(Lending::due_bucket_open_weight())
             .saturating_add(Lending::due_queue_peek_weight())
-            .saturating_add(<() as WeightInfo>::collect());
+            .saturating_add(Lending::collect_with_forfeit_search_weight());
         let mut meter = WeightMeter::with_limit(one.saturating_add(Weight::from_parts(1, 0)));
         Lending::collect_due(due, &mut meter);
         assert!(

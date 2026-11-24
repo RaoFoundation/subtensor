@@ -352,16 +352,19 @@ mod benchmarks {
 
     #[benchmark]
     fn collect() {
-        // Measure the forfeit-inclusive idle path (Skeptic fid:f2eb3d14): crank
-        // the coupon above remaining collateral so charge_interest defaults the
-        // loan (re-add, optional k-burn, remove_position + queue unlink).
+        // Measure interest-triggered forfeit under an impact-capped buyback
+        // search (skeptic fid:80e5fc65 / f2eb3d14). Crank the coupon above the
+        // pot so charge_interest defaults the loan, then size the pool like
+        // `settle` so `max_forced_buyback_alpha` binary-searches instead of
+        // closing in one shot. Collectors reserve
+        // `collect_with_forfeit_search_weight` = collect.max(settle/settle_long).
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
         let year: u64 = T::BlocksPerYear::get();
         let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
-        let due = Positions::<T>::mutate(&caller, netuid, |maybe| {
+        let (due, principal_before) = Positions::<T>::mutate(&caller, netuid, |maybe| {
             let position = maybe.as_mut().expect("fixture opened a short");
             // Short interest burns TAO from collateral + escrowed proceeds. Size
             // the coupon so one InterestPeriod exhausts the whole pot and
@@ -373,8 +376,24 @@ mod benchmarks {
                 .saturating_add(1)
                 .max(1);
             position.interest_remainder = 0;
-            position.due
+            (position.due, position.principal)
         });
+        // Pool depth on the order of principal so full buyback exceeds a 1%
+        // band; the search + 5% floor leave a residual (same shape as settle).
+        let pool = principal_before.saturating_mul(8).max(1);
+        T::Pool::benchmark_seed_pool(netuid, pool, pool);
+        LiftParamsStore::<T>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100; // 1%
+            p.forced_min_buyback_bps = 500; // 5% floor → residual remains
+            p.ema_band_bps = 10_000;
+        });
+        // Seed deferral so `past_max_settlement_deferral` is true at `due`:
+        // permissionless interest forfeit then force-markets (skips EMA gate,
+        // applies forced_min_buyback floor) — same search as expiry settle.
+        let params = LiftParamsStore::<T>::get();
+        let since = due.saturating_sub(params.max_settlement_deferral.saturated_into());
+        BandDeferralSince::<T>::insert(&caller, netuid, since);
+        ProtocolForcedImpact::<T>::remove(netuid);
         frame_system::Pallet::<T>::set_block_number(due);
         #[block]
         {
@@ -383,9 +402,16 @@ mod benchmarks {
                 Weight::from_parts(u64::MAX, u64::MAX),
             );
         }
+        let after = Positions::<T>::get(&caller, netuid)
+            .expect("collect must leave a reduced residual after impact-capped forfeit");
         assert!(
-            !Positions::<T>::contains_key(&caller, netuid),
-            "collect benchmark must exercise forfeiture, not a plain reschedule"
+            after.principal > 0 && after.principal < principal_before,
+            "collect must impact-cap forfeit buyback: principal {principal_before} → {}",
+            after.principal
+        );
+        assert!(
+            ProtocolForcedImpact::<T>::get(netuid).is_some(),
+            "collect forfeit must note ProtocolForcedImpact via buyback search"
         );
     }
 
@@ -511,10 +537,15 @@ mod benchmarks {
         // scaled x=100·10^9 / y=51·10^9 pool. Reserves (and the subnet
         // free balance seeded with them) stay well above the runtime ED
         // of 500 so the real unstake can pay out (skeptic fid:aa20fa99).
+        // Zero the coupon so advancing to force_at does not burn the sole
+        // unit of collateral as final interest before the combined sale
+        // (skeptic fid:39f778c6). Dust legs must survive until settle.
         Positions::<T>::mutate(&caller, netuid, |maybe| {
             if let Some(p) = maybe {
                 p.escrow_alpha = 1;
                 p.collateral = 1;
+                p.annual_interest = 0;
+                p.interest_remainder = 0;
             }
         });
         const POOL_X: u64 = 100_000_000_000;

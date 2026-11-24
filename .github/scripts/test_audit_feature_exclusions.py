@@ -36,6 +36,53 @@ class AuditExclusions(unittest.TestCase):
             with self.subTest(features=features):
                 self.assertTrue(module.violations(f"wasmtime v8.0.1 {features}"))
 
+    def test_reviewed_dns_noise_and_quic_graph_is_allowed(self):
+        tree = "\n".join(
+            (
+                "libp2p v0.54.1 dns,identify,noise,tcp",
+                "hickory-proto v0.24.4 (/vendor/hickory-proto-0.24.4) "
+                "mdns,socket2,tokio,tokio-runtime",
+                "hickory-proto v0.25.2 (/vendor/hickory-proto-0.25.2) "
+                "futures-io,std,tokio (*)",
+                "hickory-resolver v0.24.4 ipconfig,resolv-conf,system-config,"
+                "tokio,tokio-runtime",
+                "hickory-resolver v0.25.2 default,system-config,tokio",
+            )
+        )
+        self.assertEqual(module.violations(tree), [])
+
+    def test_dns_noise_or_quic_graph_change_fails(self):
+        for tree in (
+            "libp2p v0.54.1 identify,noise,tcp",
+            "libp2p v0.54.1 dns,identify,tcp",
+            "libp2p v0.54.1 dns,noise,quic,tcp",
+            "libp2p-quic v0.12.0",
+            "quinn-proto v0.11.13",
+            "quinn-udp v0.5.14",
+            "hickory-proto v0.24.4 dnssec,tokio",
+            "hickory-proto v0.25.2 futures-io,std,tokio,dnssec-ring",
+            "hickory-proto v0.25.2 futures-io,std,tokio,dnssec-aws-lc-rs",
+            "hickory-resolver v0.25.2 default,system-config,tokio,dnssec-ring",
+            "hickory-proto v0.25.2 futures-io,std",
+            "hickory-proto v0.26.2 std,tokio",
+            "hickory-resolver v0.24.3 system-config,tokio",
+        ):
+            with self.subTest(tree=tree):
+                self.assertTrue(module.violations(tree))
+
+    def test_wasi_filesystem_or_http_graph_change_fails(self):
+        for tree in (
+            "wasmtime v8.0.1 cache,wasi-common",
+            "wasmtime v8.0.1 cache,wasi-http",
+            "wasmtime v8.0.1 cache,component-model-async",
+            "wasmtime v8.0.1 cache,runtime",
+            "wasmtime-wasi v8.0.1",
+            "wasmtime-wasi-http v8.0.1",
+            "wasi-common v8.0.1",
+        ):
+            with self.subTest(tree=tree):
+                self.assertTrue(module.violations(tree))
+
 
 if __name__ == "__main__":
     unittest.main()

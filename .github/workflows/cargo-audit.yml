@@ -3,6 +3,10 @@ name: Cargo Audit
 on:
   pull_request:
     types: [labeled, unlabeled, synchronize, opened]
+  # Manual dispatch: PR synchronize events are not always delivered for this
+  # branch tip; keep pull_request as the primary path and allow operators to
+  # re-run against a ref when CI attach fails.
+  workflow_dispatch:
 
 concurrency:
   group: cargo-audit-${{ github.ref }}
