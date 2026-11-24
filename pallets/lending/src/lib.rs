@@ -2154,7 +2154,7 @@ pub mod pallet {
             // cleanup). Without these, RocksDbWeight-only padding under-funds
             // proof size and the u32 drain cap cannot be reached (skeptic
             // fid:a74169e6).
-            let settle_budget = T::WeightInfo::settle()
+            let settle_budget = Self::settle_with_buyback_search_weight()
                 .saturating_mul(u64::from(hard_cap))
                 .saturating_add(Self::expiry_collect_header_weight())
                 .saturating_add(Self::expiry_bucket_open_weight())
@@ -2182,14 +2182,19 @@ pub mod pallet {
             // (never a raw u32::MAX drain there — skeptic fid:da997768).
             ExpiryAttemptsLeft::<T>::put(leftover);
             let n = u64::from(ActiveNetCount::<T>::get()).clamp(1, MAX_ACTIVE_NET_UPDATES);
+            // Include handoff put (+ finalize kill accounted below) in the
+            // mandatory returned weight (skeptic fid:7895d7c7).
             meter
                 .consumed()
                 .saturating_add(T::WeightInfo::update_reference().saturating_mul(n))
-                .saturating_add(T::DbWeight::get().reads(2))
+                .saturating_add(T::DbWeight::get().reads_writes(2, 2))
+                .saturating_add(Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(2)))
         }
 
         fn on_finalize(now: BlockNumberFor<T>) {
             // Drop any unread handoff so it cannot leak into the next block.
+            // Weight for this kill is reserved in on_initialize's return
+            // (skeptic fid:7895d7c7).
             ExpiryAttemptsLeft::<T>::kill();
             let params = LiftParamsStore::<T>::get();
             // Seeded nets only — registration / migration / warm_reference enroll.
@@ -2255,10 +2260,23 @@ pub mod pallet {
             // Resume hop-capped DueTail rebuild before queue collectors (audit M2).
             // Charge the pending probe first, then reserve hop budget before
             // work so post-hoc consume cannot fail after execution
-            // (skeptic fid:849ace2f).
-            let hop = T::DbWeight::get().reads(1);
-            let overhead = T::DbWeight::get().reads_writes(4, 3);
-            let pending_probe = T::DbWeight::get().reads(4);
+            // (skeptic fid:849ace2f / aaee63ba).
+            //
+            // `due_bucket_still_live` is up to 4 reads (DueIndex / NextDue /
+            // DuePrev / DueNext). The helper also validates the saved cursor
+            // and the candidate tail. Reserve worst-case validation + proof
+            // size in both weight dimensions (fid:aaee63ba).
+            let hop = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF)
+                .saturating_add(T::DbWeight::get().reads(1));
+            let validation = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(4))
+                .saturating_add(T::DbWeight::get().reads(4));
+            // Marker + cursor + head/tail probes + two validations + writes.
+            let overhead = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(8))
+                .saturating_add(T::DbWeight::get().reads_writes(8, 3))
+                .saturating_add(validation.saturating_mul(2));
+            // rebuild_due_tail_pending: HasMigrationRun + cursor + DueTail + NextDue.
+            let pending_probe = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(4))
+                .saturating_add(T::DbWeight::get().reads(4));
             if meter.try_consume(pending_probe).is_ok()
                 && migrations::rebuild_due_tail_pending::<T>()
                 && meter.remaining().all_gte(overhead.saturating_add(hop))
@@ -2282,8 +2300,14 @@ pub mod pallet {
             Self::collect_interest_retries(now, &mut meter);
             // Metered fallback after the bounded on_initialize drain. Attempt
             // budget is the leftover from on_initialize — never a raw u32::MAX
-            // drain (skeptic fid:da997768). If on_initialize did not publish
-            // (unit tests that call on_idle alone), fall back to the live cap.
+            // drain (skeptic fid:da997768). Reserve the handoff take (read +
+            // clear) and the live-cap fallback read before touching storage
+            // (skeptic fid:8b8c551d / 7895d7c7).
+            let handoff = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(2))
+                .saturating_add(T::DbWeight::get().reads_writes(2, 1));
+            if meter.try_consume(handoff).is_err() {
+                return meter.consumed();
+            }
             let left = ExpiryAttemptsLeft::<T>::take()
                 .unwrap_or_else(Self::max_expiry_settlements_per_block);
             if left > 0 {
@@ -2619,6 +2643,20 @@ pub mod pallet {
         /// key shape as expiry entries (`AccountId` + `NetUid`).
         pub(crate) fn due_queue_peek_weight() -> Weight {
             Self::expiry_queue_peek_weight()
+        }
+
+        /// Worst-case `WeightInfo::settle()` plus the bounded binary-search
+        /// quote loop in [`Self::max_forced_buyback_alpha`] (≤64 AMM quotes).
+        /// Charged wherever collectors call settle (skeptic fid:dccdc8ec).
+        pub(crate) fn settle_with_buyback_search_weight() -> Weight {
+            T::WeightInfo::settle().saturating_add(T::DbWeight::get().reads(64))
+        }
+
+        /// Empty-book queue-head wipe: ten storage clears. Charged before any
+        /// kill so idle cannot under-reserve (skeptic fid:a9fb69a7).
+        pub(crate) fn empty_book_cleanup_weight() -> Weight {
+            Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(10))
+                .saturating_add(T::DbWeight::get().reads_writes(2, 10))
         }
 
         /// Empty-bucket cleanup: `ExpiryIndex` remove + linked-list unlink
@@ -7484,10 +7522,11 @@ pub mod pallet {
         /// [`Self::collect_interest_retries`]: linked-list unlink + TotalPositions
         /// wipe of all queue heads (intentional; not a shared Source param).
         pub(crate) fn collect_due(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
-            if meter
-                .try_consume(T::DbWeight::get().reads_writes(2, 1))
-                .is_err()
-            {
+            // Entry: TotalPositions + NextDue (+ optional empty-book wipe).
+            // Reserve the full empty-book cleanup up front so a near-empty
+            // meter cannot clear ten keys after a one-write charge
+            // (skeptic fid:a9fb69a7).
+            if meter.try_consume(Self::empty_book_cleanup_weight()).is_err() {
                 return;
             }
             if TotalPositions::<T>::get() == 0 {
@@ -7655,7 +7694,7 @@ pub mod pallet {
                         Self::resume_expiry_collect(at, last_done);
                         return 0;
                     }
-                    if meter.try_consume(T::WeightInfo::settle()).is_err() {
+                    if meter.try_consume(Self::settle_with_buyback_search_weight()).is_err() {
                         // Row was fetched under peek weight; resume from
                         // last_done so this key is retried (iter_prefix_from
                         // is exclusive of the cursor) — unless the prior
@@ -7877,7 +7916,7 @@ pub mod pallet {
                         NextExpiryRetry::<T>::put(at);
                         return 0;
                     }
-                    if meter.try_consume(T::WeightInfo::settle()).is_err() {
+                    if meter.try_consume(Self::settle_with_buyback_search_weight()).is_err() {
                         if let Some(done) = last_done {
                             ExpiryRetryCursor::<T>::put(done);
                         }
@@ -7958,6 +7997,16 @@ pub mod pallet {
                 let Some((netuid, pending)) = iter.next() else {
                     break;
                 };
+                // Reserve Dissolutions lookup (+ proof) before probing so
+                // dissolving rows are not free walks (skeptic fid:f21cfe53).
+                let diss_probe = Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF)
+                    .saturating_add(T::DbWeight::get().reads(1));
+                if meter.try_consume(diss_probe).is_err() {
+                    if let Some(done) = last_done {
+                        ConversionCursor::<T>::put(done);
+                    }
+                    return;
+                }
                 if pending == 0 || Dissolutions::<T>::contains_key(netuid) {
                     last_done = Some(netuid);
                     continue;
@@ -8221,7 +8270,7 @@ pub mod pallet {
             };
             let phase = DissolutionPhase::<T>::get(netuid);
             if phase == 0 {
-                if meter.try_consume(T::WeightInfo::settle()).is_err() {
+                if meter.try_consume(Self::settle_with_buyback_search_weight()).is_err() {
                     return false;
                 }
                 // §13.2.2: read live pot after phase-0 basket → root sales.
@@ -8264,7 +8313,7 @@ pub mod pallet {
                 Some(d) => d,
                 None => return true,
             };
-            let positions = if let Some(cursor) = DissolutionCursor::<T>::get(netuid) {
+            let mut positions = if let Some(cursor) = DissolutionCursor::<T>::get(netuid) {
                 OpenByNetuid::<T>::iter_prefix_from(
                     netuid,
                     OpenByNetuid::<T>::hashed_key_for(netuid, cursor),
@@ -8272,8 +8321,20 @@ pub mod pallet {
             } else {
                 OpenByNetuid::<T>::iter_prefix(netuid)
             };
-            for (owner, ()) in positions {
-                if meter.try_consume(T::WeightInfo::settle()).is_err() {
+            // Reserve peek before every advance (including the terminal empty
+            // probe) so an exhausted meter cannot walk storage free
+            // (skeptic fid:dd82806d).
+            loop {
+                if meter.try_consume(Self::due_queue_peek_weight()).is_err() {
+                    return false;
+                }
+                let Some((owner, ())) = positions.next() else {
+                    break;
+                };
+                if meter
+                    .try_consume(Self::settle_with_buyback_search_weight())
+                    .is_err()
+                {
                     return false;
                 }
                 let Some(position) = Positions::<T>::get(&owner, netuid) else {
@@ -8295,7 +8356,10 @@ pub mod pallet {
             DissolutionCursor::<T>::remove(netuid);
 
             // Phase 2: pending long interest at dissolution_price → burn TAO
-            if meter.try_consume(T::WeightInfo::settle()).is_err() {
+            if meter
+                .try_consume(Self::settle_with_buyback_search_weight())
+                .is_err()
+            {
                 DissolutionPhase::<T>::insert(netuid, 2u8);
                 return false;
             }
@@ -8891,6 +8955,10 @@ pub mod pallet {
                     Side::Long => {
                         let mut raised = 0u64;
                         let mut sold_alpha = 0u64;
+                        // Pre-trade spot for ProtocolForcedImpact fair notional
+                        // (skeptic fid:36b86c33). Post-sale spot understates
+                        // adverse impact after forced sells move the pool.
+                        let pre_spot = T::Pool::current_alpha_price(netuid);
                         let skip_flow = Self::skip_long_tao_flow(netuid);
                         if position.escrow_alpha > 0 {
                             let out = T::Pool::forced_sell_into_escrow(
@@ -8936,8 +9004,13 @@ pub mod pallet {
                         }
                         ensure!(raised >= position.principal, Error::<T>::InsufficientEscrow);
                         // Spot-relative ProtocolForcedImpact (sells); EMA still
-                        // gates the per-trade realized band above.
-                        let impact_fair = Self::fair_spot_tao(netuid, sold_alpha, false)?;
+                        // gates the per-trade realized band above. Fair uses
+                        // pre-trade spot (fid:36b86c33).
+                        let impact_fair = if sold_alpha > 0 {
+                            Self::tao_for_alpha(sold_alpha, pre_spot, false)?
+                        } else {
+                            0
+                        };
                         let impact_realized = raised;
                         let repay = position.principal;
                         let surplus = raised.saturating_sub(repay);

@@ -55,10 +55,9 @@ jobs:
           #   the polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
           # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
           #   libp2p networking stack.
-          # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
-          # Additional Hickory advisories (0487…0551) live in .cargo/audit.toml
-          # — same SDK-pin exception channel as wasmtime — so this workflow
-          # ignore list stays aligned with main for those IDs.
+          # Hickory (0118/0119 and 0487…0551): resolved by vendoring
+          # litep2p / libp2p-dns / libp2p-mdns off vulnerable hickory stacks
+          # (OS resolver + hickory-proto 0.26.3 for mdns). No longer ignored.
           # RUSTSEC-2026-0523/0524/0525/0538: quinn-proto / quinn-udp /
           #   libp2p-quic. QUIC is not enabled in the node build; same
           #   lockfile-only class as the rustls-webpki 0.101 ignore.
@@ -130,8 +129,6 @@ jobs:
                       --ignore RUSTSEC-2026-0098 \
                       --ignore RUSTSEC-2026-0099 \
                       --ignore RUSTSEC-2026-0104 \
-                      --ignore RUSTSEC-2026-0118 \
-                      --ignore RUSTSEC-2026-0119 \
                       --ignore RUSTSEC-2026-0204 \
                       --ignore RUSTSEC-2026-0220 \
                       --ignore RUSTSEC-2026-0222 \

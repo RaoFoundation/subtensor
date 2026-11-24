@@ -706,9 +706,16 @@ pub async fn build_full<CM: ConsensusMechanism>(
     skip_history_backfill: bool,
     enable_warp_sync_checkpoint_rpc: bool,
 ) -> Result<TaskManager, ServiceError> {
+    // Litep2p only: Libp2p remains in the build graph for sc-network but is
+    // not operator-selectable (skeptic fid:0d65a3a7 / 669a21c1). Vendored
+    // libp2p-dns/mdns also drop vulnerable hickory from that path.
     match config.network.network_backend {
         sc_network::config::NetworkBackendType::Libp2p => {
-            new_full::<sc_network::NetworkWorker<_, _>, CM>(
+            log::warn!(
+                target: "subtensor",
+                "Libp2p network backend is disabled; using Litep2p instead"
+            );
+            new_full::<sc_network::Litep2pNetworkBackend, CM>(
                 config,
                 eth_config,
                 sealing,

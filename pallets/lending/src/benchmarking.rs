@@ -424,25 +424,44 @@ mod benchmarks {
 
     #[benchmark]
     fn settle() {
-        // Measure fixed-term expiry-as-close (spot buyback / readd / k-burn),
-        // the path `collect_expiry` charges via `WeightInfo::settle`
-        // (Auditor fid:59fefdd6). Dissolution settle remains a separate flow.
+        // Measure fixed-term expiry under a near-full ProtocolForcedImpact
+        // band so `max_forced_buyback_alpha` binary-searches (skeptic
+        // fid:dccdc8ec). Past max_settlement_deferral forces buyback;
+        // residual principal may remain. Dissolution settle is separate.
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let expires_at = Positions::<T>::get(&caller, netuid)
-            .expect("fixture opened a short")
-            .expires_at;
-        frame_system::Pallet::<T>::set_block_number(expires_at);
+        let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a short");
+        let principal_before = position.principal;
+        let expires_at = position.expires_at;
+        let params = LiftParamsStore::<T>::get();
+        let force_at = expires_at.saturating_add(params.max_settlement_deferral.saturated_into());
+        frame_system::Pallet::<T>::set_block_number(force_at);
+        // Prior fill this block at the band → only tiny α fits → search runs.
+        let band_bps = u128::from(params.expiry_max_slippage_bps.max(1));
+        let prior_fair: u128 = 1_000_000_000_000;
+        let prior_diff = prior_fair.saturating_mul(band_bps) / 10_000;
+        ProtocolForcedImpact::<T>::insert(netuid, (force_at, prior_fair, prior_diff));
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
-            Pallet::<T>::collect_expiry(expires_at, &mut meter, u32::MAX);
+            Pallet::<T>::collect_expiry(force_at, &mut meter, u32::MAX);
         }
+        let after = Positions::<T>::get(&caller, netuid);
         assert!(
-            !Positions::<T>::contains_key(&caller, netuid),
-            "settle benchmark must expire the fixture via the AMM close path"
+            after
+                .as_ref()
+                .map(|p| p.principal < principal_before)
+                .unwrap_or(true),
+            "settle must run impact-capped buyback (principal reduced or cleared)"
+        );
+        let fair_after = ProtocolForcedImpact::<T>::get(netuid)
+            .map(|(_blk, fair, _diff)| fair)
+            .unwrap_or(0);
+        assert!(
+            fair_after > prior_fair,
+            "settle must advance ProtocolForcedImpact via buyback search"
         );
     }
 }

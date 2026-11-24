@@ -337,6 +337,12 @@ default = []
 pow-faucet = []
 
 [patch.crates-io]
+# Real Hickory fix (skeptic fid:0d65a3a7): replace vulnerable hickory DNS
+# stacks with OS-resolver vendors. Default backend is litep2p; libp2p remains
+# buildable but no longer pulls hickory-proto/resolver.
+litep2p = { path = "vendor/litep2p" }
+libp2p-dns = { path = "vendor/libp2p-dns" }
+libp2p-mdns = { path = "vendor/libp2p-mdns" }
 evm-gasometer = { path = "vendor/evm-gasometer" }
 w3f-bls = { path = "vendor/w3f-bls" }
 zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
