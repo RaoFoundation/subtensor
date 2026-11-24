@@ -3682,7 +3682,7 @@ pub mod pallet {
     /// batch or proxy that holds the call. The first of them counts the fund and writes
     /// this record. The others, and the claim, read it. A record of an earlier
     /// transaction has no effect. Only a hotkey whose fund has a row or a queued credit
-    /// gets a record, so the map has at most one entry for each fund.
+    /// gets a record, and a hotkey swap removes it: at most one entry for each fund.
     #[pallet::storage]
     pub type BasketRowsCountedAt<T: Config> = StorageMap<
         _,

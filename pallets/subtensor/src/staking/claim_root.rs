@@ -1956,6 +1956,11 @@ impl<T: Config> Pallet<T> {
         if fund_grew && Self::note_basket_rows_opened(new_hotkey) {
             moved_rows = moved_rows.saturating_add(1);
         }
+        // The kept count of the old hotkey is obsolete too. Without this, each hotkey that
+        // a fund leaves would keep a record. Charged as one more moved row.
+        if BasketRowsCountedAt::<T>::take(old_hotkey).is_some() {
+            moved_rows = moved_rows.saturating_add(1);
+        }
 
         // Trading guardrails follow the fund so a hotkey swap can neither escape a
         // governance freeze nor refill the turnover bucket. The freeze is copied, not

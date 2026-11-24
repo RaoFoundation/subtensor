@@ -1226,6 +1226,47 @@ fn hotkey_without_a_fund_keeps_no_count() {
     });
 }
 
+/// A hotkey swap moves the fund to a new hotkey. The kept count of the old hotkey goes
+/// away with the fund, so a validator that changes its hotkey leaves no record behind.
+#[test]
+fn hotkey_swap_removes_the_kept_count_of_the_old_hotkey() {
+    // The rows that the swap of this fund moves when the old hotkey has no kept count.
+    let moved_without_record = new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO; 3], &[1]);
+        enter_transaction(2);
+        SubtensorModule::transfer_basket_for_new_hotkey(&fund.hotkey, &U256::from(1009))
+    });
+    new_test_ext(1).execute_with(|| {
+        let fund = real_fund(&[5 * TAO; 3], &[1]);
+        let new_hotkey = U256::from(1009);
+
+        // A transaction computes the weight of a claim: the count of the fund is kept.
+        enter_transaction(1);
+        let weight = declared(fund.hotkey);
+        assert!(BasketRowsCountedAt::<Test>::contains_key(fund.hotkey));
+
+        // A later transaction swaps the hotkey.
+        enter_transaction(2);
+        let moved = SubtensorModule::transfer_basket_for_new_hotkey(&fund.hotkey, &new_hotkey);
+        assert_eq!(BasketRowsCountedAt::<Test>::iter().count(), 0);
+        // The removal is charged as one more moved row.
+        assert_eq!(moved, moved_without_record + 1);
+
+        // The next transaction counts the fund at its new hotkey: one record, for the
+        // hotkey that has the fund.
+        enter_transaction(3);
+        assert_eq!(declared(new_hotkey), weight);
+        assert_eq!(
+            declared(fund.hotkey),
+            SubtensorModule::root_claim_hotkey_min_declared_weight()
+        );
+        assert_eq!(
+            BasketRowsCountedAt::<Test>::iter_keys().collect::<Vec<_>>(),
+            vec![new_hotkey]
+        );
+    });
+}
+
 /// A claim that fails after its admission is charged the counts too. A small fund is
 /// charged the fixed admission bound of 771 reads, which is more than its two counts. At
 /// the limit the two counts are more than that bound.
