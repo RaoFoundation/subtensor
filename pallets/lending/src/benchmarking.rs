@@ -302,32 +302,46 @@ mod benchmarks {
 
     #[benchmark]
     fn roll() {
-        // Interest + expiry-queue rewrite only (no AMM trade). Measured path
-        // mirrors a warm short open then roll; committed weight aliases close
-        // until reference re-measure (H2).
+        // Interest-exhaustion forfeit with impact-capped buyback search; roll
+        // commits that slice and stops (skeptic fid:d283c021). Declared weight
+        // also saturating-adds settle search until reference re-measure.
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        // Zero coupon so advancing one block does not deposit dust interest
-        // into an empty reserve (production Balances ED: "Account cannot
-        // exist with the funds that would be given").
-        Positions::<T>::mutate(&caller, netuid, |p| {
-            if let Some(p) = p {
-                p.annual_interest = 0;
-                p.interest_remainder = 0;
-            }
+        let year: u64 = T::BlocksPerYear::get();
+        let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
+        let (due, principal_before) = Positions::<T>::mutate(&caller, netuid, |maybe| {
+            let position = maybe.as_mut().expect("fixture opened a short");
+            let pot = position.collateral.saturating_add(position.proceeds);
+            position.annual_interest = pot
+                .saturating_mul(year)
+                .saturating_div(period)
+                .saturating_add(1)
+                .max(1);
+            position.interest_remainder = 0;
+            (position.due, position.principal)
         });
-        let opened = frame_system::Pallet::<T>::block_number();
-        frame_system::Pallet::<T>::set_block_number(opened.saturating_add(1u32.into()));
+        let pool = principal_before.saturating_mul(8).max(1);
+        T::Pool::benchmark_seed_pool(netuid, pool, pool);
+        LiftParamsStore::<T>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100;
+            p.forced_min_buyback_bps = 500;
+            p.ema_band_bps = 10_000;
+        });
+        let params = LiftParamsStore::<T>::get();
+        let since = due.saturating_sub(params.max_settlement_deferral.saturated_into());
+        BandDeferralSince::<T>::insert(&caller, netuid, since);
+        ProtocolForcedImpact::<T>::remove(netuid);
+        frame_system::Pallet::<T>::set_block_number(due);
         #[extrinsic_call]
         _(RawOrigin::Signed(caller.clone()), netuid);
-        let position = Positions::<T>::get(&caller, netuid).expect("roll keeps position");
-        let now = frame_system::Pallet::<T>::block_number();
-        assert_eq!(
-            position.expires_at,
-            now.saturating_add(Pallet::<T>::max_loan_duration()),
-            "roll must set expires_at = now + max_loan_duration"
+        let after = Positions::<T>::get(&caller, netuid)
+            .expect("roll interest-forfeit must leave a reduced residual");
+        assert!(
+            after.principal > 0 && after.principal < principal_before,
+            "roll must impact-cap interest forfeit: {principal_before} → {}",
+            after.principal
         );
     }
 

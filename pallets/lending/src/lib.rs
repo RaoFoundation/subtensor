@@ -2355,11 +2355,9 @@ pub mod pallet {
         // locks). Charge the componentwise max of both measured benchmarks
         // (Skeptic fid:75297abf). Plus worst-case expiry mid-list walk
         // (skeptic fid:98821ef3 / 600d74dc) — DbWeight only, no invented time.
-        #[pallet::weight(
-            T::WeightInfo::open()
-                .max(T::WeightInfo::open_long())
-                .saturating_add(Pallet::<T>::expiry_insert_weight())
-        )]
+        // Increase path runs interest-exhaustion forfeit search before sizing
+        // (skeptic fid:46fef61e).
+        #[pallet::weight(Pallet::<T>::open_with_interest_forfeit_weight())]
         pub fn open(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2388,9 +2386,8 @@ pub mod pallet {
 
         /// Open or increase with an exact additional principal.
         #[pallet::call_index(1)]
-        #[pallet::weight(
-            T::WeightInfo::open_exact().saturating_add(Pallet::<T>::expiry_insert_weight())
-        )]
+        // Increase path may forfeit-search before sizing (skeptic fid:46fef61e).
+        #[pallet::weight(Pallet::<T>::open_exact_with_interest_forfeit_weight())]
         pub fn open_exact(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2453,12 +2450,9 @@ pub mod pallet {
         #[pallet::call_index(3)]
         // Fixed-collateral and amount-mode bisection paths differ (amount: up to
         // 64× `principal_feasible` / `v_dyn`). Charge the componentwise max of
-        // both measured benchmarks (Skeptic fid:98e6778c).
-        #[pallet::weight(
-            T::WeightInfo::open_long_and_sell()
-                .max(T::WeightInfo::open_long_and_sell_by_amount())
-                .saturating_add(Pallet::<T>::expiry_insert_weight())
-        )]
+        // both measured benchmarks (Skeptic fid:98e6778c). Existing-position
+        // path may forfeit-search before sizing (skeptic fid:46fef61e).
+        #[pallet::weight(Pallet::<T>::open_long_and_sell_with_interest_forfeit_weight())]
         #[transactional]
         pub fn open_long_and_sell(
             origin: OriginFor<T>,
@@ -2563,13 +2557,10 @@ pub mod pallet {
         /// proceeds / escrow_alpha, lift legs, or `last_exposure_added_at`.
         /// Opens-off (`Enabled=false`) disables rolls.
         #[pallet::call_index(8)]
-        // Alias close until a reference-hardware re-measure (H2). Roll charges
-        // interest and rewrites the expiry queue but does no AMM trade; close is
-        // a safe upper bound. Plus worst-case expiry mid-list walk DbWeight
+        // Interest may forfeit-search before the roll body; charge both legs
+        // (skeptic fid:d283c021). Plus worst-case expiry mid-list walk DbWeight
         // (skeptic fid:98821ef3). Do not invent local execution-time numerics.
-        #[pallet::weight(
-            T::WeightInfo::roll().saturating_add(Pallet::<T>::expiry_insert_weight())
-        )]
+        #[pallet::weight(Pallet::<T>::roll_with_interest_forfeit_weight())]
         #[transactional]
         pub fn roll(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
             let owner = ensure_signed(origin)?;
@@ -2696,6 +2687,42 @@ pub mod pallet {
             Self::close_with_interest_forfeit_weight().max(
                 T::WeightInfo::repay().saturating_add(Self::settle_with_buyback_search_weight()),
             )
+        }
+
+        /// Open / increase: measured open body (short or long) plus expiry
+        /// insert, plus interest-exhaustion forfeit search on an existing
+        /// position before sizing (skeptic fid:46fef61e).
+        pub(crate) fn open_with_interest_forfeit_weight() -> Weight {
+            T::WeightInfo::open()
+                .max(T::WeightInfo::open_long())
+                .saturating_add(Self::expiry_insert_weight())
+                .saturating_add(Self::settle_with_buyback_search_weight())
+        }
+
+        /// Exact-principal open / increase: same forfeit-search leg as
+        /// [`Self::open_with_interest_forfeit_weight`] (skeptic fid:46fef61e).
+        pub(crate) fn open_exact_with_interest_forfeit_weight() -> Weight {
+            T::WeightInfo::open_exact()
+                .saturating_add(Self::expiry_insert_weight())
+                .saturating_add(Self::settle_with_buyback_search_weight())
+        }
+
+        /// Raise: measured open_long_and_sell paths plus expiry insert plus
+        /// interest-exhaustion forfeit search on an existing long
+        /// (skeptic fid:46fef61e).
+        pub(crate) fn open_long_and_sell_with_interest_forfeit_weight() -> Weight {
+            T::WeightInfo::open_long_and_sell()
+                .max(T::WeightInfo::open_long_and_sell_by_amount())
+                .saturating_add(Self::expiry_insert_weight())
+                .saturating_add(Self::settle_with_buyback_search_weight())
+        }
+
+        /// Roll: measured roll body plus expiry insert plus interest-exhaustion
+        /// forfeit search (skeptic fid:d283c021).
+        pub(crate) fn roll_with_interest_forfeit_weight() -> Weight {
+            T::WeightInfo::roll()
+                .saturating_add(Self::expiry_insert_weight())
+                .saturating_add(Self::settle_with_buyback_search_weight())
         }
 
         /// Open one due bucket: cursor read + NextDue probe (for resume) +
@@ -4406,8 +4433,16 @@ pub mod pallet {
             // Accrue through now before adequacy / cap checks.
             Self::charge_interest(&owner, netuid, &mut position, now, false, false, false)?;
             if !Positions::<T>::contains_key(&owner, netuid) {
-                // Exhausted and forfeited during charge — nothing left to roll.
-                return Err(Error::<T>::PositionMissing.into());
+                // Fully forfeited during charge — commit that unwind and stop.
+                // Returning Err would roll the forfeit back under
+                // `#[transactional]` (same class as close / expiry;
+                // skeptic fid:d283c021 / e638b265).
+                return Ok(());
+            }
+            // Partial interest-forfeit (C=0, P open): commit and stop. A later
+            // adequacy rejection would otherwise discard the unwind.
+            if position.collateral == 0 && position.principal > 0 {
+                return Ok(());
             }
 
             Self::ensure_roll_collateral_adequate(netuid, &owner, &position, &reference, &params)?;
