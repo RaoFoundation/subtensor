@@ -76,6 +76,14 @@ Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapp
 
 Devnet and testnet CI simply produce the decoded diff, decoded call, call data, and call hash for review. There is no additional apply-status section. CI never signs or submits an extrinsic.
 
+### Discord proposal notifications
+
+After generating a proposal, CI sends **one Discord message per network with at least one proposed change**. Zero-change and drift-only reports do not notify. The message lists every `parameter: old -> new` change, a compact decoded call, the call hash, the merged PR (or a commit-link fallback), the run containing the countersign command, and a UTC timestamp. Mentions are disabled, and long decoded calls are truncated with a pointer to the run URL.
+
+Notifications run only for pushes to `main` after merge and manual dispatches on `main`. Pull-request runs never receive the webhook or post messages, avoiding secret exposure to untrusted changes and notification noise on each PR update. `pull_request_target` is not used. The optional repository secret `SUDO_DISCORD_WEBHOOK` is passed only to the trusted notification step as an environment variable. If it is unset or empty, CI emits a warning, skips the notification, and succeeds; the webhook is never logged. GitHub's read-only token resolves the merged PR through the commit-to-PR API.
+
+The message is informational only. It does not execute a call, apply a proposal, watch for execution, or schedule network scans.
+
 ## Mainnet triumvirate review
 
 A changed mainnet proposal contains data-only JSON/Markdown artifacts and one ready-to-copy countersign command in both the Markdown artifact and workflow step summary. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
