@@ -264,7 +264,8 @@ root-stakes to.
   basket holds. Since runtime 495 a single-validator claim reserves the weight
   of that validator's own fund: its stored basket rows and its queued dividend
   credits. It also reserves a fixed 32 ms for the stake-change corrections of
-  the claimant, which the claim settles first. One claim admits a fund of up to
+  the claimant, which the claim settles first, and the reads that count the
+  fund two times. One claim admits a fund of up to
   258 claim units (the validator,
   each stored row, and each queued credit on a subnet where the fund has no
   row), which is a fund with rows on 256 subnets. A coldkey-wide claim reserves
@@ -274,7 +275,8 @@ root-stakes to.
   network count. Classifying the staking-hotkey vector is separately capped at
   256 relationships. The amount you actually spend
   follows the holdings scanned and redeemed (around τ0.057 on a full
-  128-holding basket).
+  128-holding basket). A small claim also pays for the count of the fund and
+  for the corrections that it settles.
   `btcli root claim --dry-run` shows reserved versus spent, compares the
   spent fee to accrued yield, warns if the claim loses money, and
   refuses if free TAO cannot cover the reserved amount.

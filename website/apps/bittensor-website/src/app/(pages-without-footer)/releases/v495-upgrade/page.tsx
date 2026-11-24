@@ -68,15 +68,17 @@ btcli --version`} />
           <h3 className={styles.subtitle_small}>What changes on chain</h3>
           <p>
             V495 adds one SubtensorModule error, <code>TooManyWeightsForNullMechanism</code>, at
-            error index <strong>209</strong>, and one SubtensorModule storage item,{' '}
-            <code>BasketRowsOpenedAt</code>. It adds no call, no event, and no migration. Mechanism
-            storage keeps the index <code>netuid + mecid * 4096</code>.
+            error index <strong>209</strong>, and two SubtensorModule storage items,{' '}
+            <code>BasketRowsOpenedAt</code> and <code>BasketRowsCountedAt</code>. It adds no call,
+            no event, and no migration. Mechanism storage keeps the index{' '}
+            <code>netuid + mecid * 4096</code>.
           </p>
           <p>
-            <code>BasketRowsOpenedAt</code> is a map from a validator hotkey to a block number and
-            an extrinsic index. The{' '}
-            <DocLink href='#root-claims'>root claim section</DocLink> explains it. The error{' '}
-            <code>RootClaimTooHeavy</code> keeps its index and gets one more cause.
+            Each of the two storage items is a map from a validator hotkey to a block number and
+            an extrinsic index. <code>BasketRowsCountedAt</code> also has a count of the rows and
+            the queued credits of the fund. The chain uses both only in the transaction that
+            wrote them. The <DocLink href='#root-claims'>root claim section</DocLink> explains
+            them. The error <code>RootClaimTooHeavy</code> keeps its index and gets one more cause.
           </p>
           <p>V494 added these calls. Regenerate metadata; do not hard-code call indices.</p>
           <div className={layout.table_scroller}>
@@ -140,7 +142,7 @@ btcli --version`} />
                 <tr>
                   <td>Block weight that <code>claim_root_with_hotkey</code> reserves</td><td>V495</td>
                   <td>The same 2,093 ms for every validator</td>
-                  <td>Sized to the validator&apos;s fund: 478 ms for a fund with 129 rows and no queued credits</td>
+                  <td>Sized to the validator&apos;s fund: 482 ms for a fund with 129 rows and no queued credits</td>
                 </tr>
                 <tr>
                   <td>Largest fund that one <code>claim_root_with_hotkey</code> admits</td><td>V495</td>
@@ -765,12 +767,12 @@ await client.submit_call(raw, owner_wallet)`} />
               </thead>
               <tbody>
                 <tr><td>Up to 8 rows, no queued credits</td><td>2,093 ms</td><td>67 ms</td></tr>
-                <tr><td>129 rows, no queued credits</td><td>2,093 ms</td><td>478 ms</td></tr>
-                <tr><td>129 rows, 128 queued credits</td><td>2,093 ms</td><td>1,273 ms</td></tr>
-                <tr><td>161 rows, no queued credits</td><td>Claim refused</td><td>587 ms</td></tr>
-                <tr><td>161 rows, 160 queued credits</td><td>Claim refused</td><td>1,570 ms</td></tr>
-                <tr><td>257 rows, no queued credits</td><td>Claim refused</td><td>913 ms</td></tr>
-                <tr><td>257 rows, 256 queued credits</td><td>Claim refused</td><td>2,459 ms</td></tr>
+                <tr><td>129 rows, no queued credits</td><td>2,093 ms</td><td>482 ms</td></tr>
+                <tr><td>129 rows, 128 queued credits</td><td>2,093 ms</td><td>1,280 ms</td></tr>
+                <tr><td>161 rows, no queued credits</td><td>Claim refused</td><td>591 ms</td></tr>
+                <tr><td>161 rows, 160 queued credits</td><td>Claim refused</td><td>1,578 ms</td></tr>
+                <tr><td>257 rows, no queued credits</td><td>Claim refused</td><td>920 ms</td></tr>
+                <tr><td>257 rows, 256 queued credits</td><td>Claim refused</td><td>2,472 ms</td></tr>
               </tbody>
             </table>
           </div>
@@ -787,6 +789,22 @@ await client.submit_call(raw, owner_wallet)`} />
             first. The chain reserves the weight before it knows your account. Thus it reserves
             the weight for the most corrections that one account can have on one validator: 256.
           </p>
+          <p>
+            Each number also includes the reads with which the chain counts the rows and the
+            queued credits of the fund. A transaction counts a fund one time and keeps the count
+            in the new storage item <code>BasketRowsCountedAt</code>. The fee logic, a batch, and
+            a proxy read that count; they do not count the fund again. Only the first
+            transaction of a block counts two times, so the reserved weight has two counts: 13 ms
+            for a fund with 129 rows and 128 queued credits.
+          </p>
+          <h3 className={styles.subtitle_small}>Waiting credits: less work, the same result</h3>
+          <p>
+            A claimant can sell their own part of a waiting credit in the claim. In V494, each of
+            these sales went through all waiting credits of the validator again, so the work
+            grew with the square of their number. In V495, the claim reads the waiting credits
+            and the corrections of the claimant one time, and it writes the corrections one
+            time. The payout, the corrections, and the errors are the same as in V494.
+          </p>
           <h3 className={styles.subtitle_small}>The limit: 258 claim units</h3>
           <p>
             One claim admits a fund of at most <strong>258 claim units</strong>. The validator is
@@ -797,7 +815,7 @@ await client.submit_call(raw, owner_wallet)`} />
             <code>RootClaimTooHeavy</code>.
           </p>
           <p>
-            The largest weight that a claim can reserve is 2,464 ms. That is 94.8% of the largest
+            The largest weight that a claim can reserve is 2,478 ms. That is 95.3% of the largest
             transaction that a block accepts, 2,599.9 ms. Only a fund with rows on 256 subnets and
             a queued credit for each row comes near this value.
           </p>
@@ -822,11 +840,21 @@ await client.submit_call(raw, owner_wallet)`} />
             <code>BasketRowsOpenedAt</code>. A trade that buys more of a subnet that the fund
             already holds, or that sells into TAO, does not stop a claim.
           </p>
+          <h3 className={styles.subtitle_small}>The fee of a small claim</h3>
+          <p>
+            After a claim, the chain charges the work that the claim reports, up to four claim
+            units. This rule does not change. With V495 a claim reports two more parts of its
+            work: the counts of the fund, and the corrections of the claimant. A claim that does
+            more work than four claim units pays the same as before. A smaller claim also pays
+            for these two parts. Example: for a fund with 30 rows and a claimant with 12
+            corrections, the two parts are 3.8 ms. That is about 0.001 TAO.
+          </p>
           <h3 className={styles.subtitle_small}>What does not change</h3>
           <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
-              The fee. The chain charges a claim for at most four claim units, for every fund
-              size. A fee quote returns the same fee, and a weight that now depends on the fund.
+              The fee quote and the largest fee. The chain charges a claim for at most four
+              claim units, for every fund size. That is about 0.0082 TAO of weight fee. A fee
+              quote returns the same fee, and a weight that now depends on the fund.
             </li>
             <li>The payout, the claim threshold, and the dust rules.</li>
             <li>
@@ -1033,12 +1061,14 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
           <ul className={`${styles.list} ${layout.bullets}`}>
             <li>
               Regenerate metadata for spec 495. The transaction version stays 2. V495 appends one
-              error at index 209 and one storage item, <code>BasketRowsOpenedAt</code>. It changes
-              no call, no event, and no type of an existing storage item.
+              error at index 209 and two storage items, <code>BasketRowsOpenedAt</code> and{' '}
+              <code>BasketRowsCountedAt</code>. It changes no call, no event, and no type of an
+              existing storage item.
             </li>
             <li>
               The weight in a fee quote for <code>claim_root_with_hotkey</code> now depends on the
-              fund of the validator. The fee does not. Do not use a fixed weight for this call.
+              fund of the validator. The fee in the quote does not. Do not use a fixed weight for
+              this call.
             </li>
             <li>
               If you did not update for V494, also add its calls, storage items, events, and
@@ -1101,19 +1131,10 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             </li>
             <li>
               <strong>Largest root claim (to confirm).</strong> A single-validator claim on a fund
-              at the limit of 258 claim units, with a queued credit for each row, reserves 2,464 ms.
-              That is 94.8% of the largest transaction. It stays below the limit, and a claim on a
-              real fund reserves much less than before. The project accepted 2,432 ms. The fixed
-              32 ms for the corrections of the claimant came after that, from an audit.
-            </li>
-            <li>
-              <strong>Claims with many waiting credits (open).</strong> A queued credit that cannot
-              go into the fund at the current price waits, and a claimant can sell their own part
-              of it in the claim. For each of these sales the chain goes through all waiting
-              credits of the validator again. The reserved weight counts each waiting credit one
-              time. This code is the same as in V494, but V494 reserved a fixed 2,093 ms for
-              every claim, which left more room for this work. This case is not measured on
-              reference hardware. The work grows with the number of subnets.
+              at the limit of 258 claim units, with a queued credit for each row, reserves 2,478 ms.
+              That is 95.3% of the largest transaction. It stays below the limit, and a claim on a
+              real fund reserves much less than before. The project accepted 2,464 ms. The two
+              counts of the fund, which the reserved weight has after an audit, add 13 ms.
             </li>
             <li>
               <strong>Trade and deposit weight at 256 subnets (open).</strong>{' '}
@@ -1188,7 +1209,9 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
             </li>
             <li>
               <strong>Root stakers:</strong> no action. A single-validator claim reserves less
-              block weight; the fee and the payout do not change.
+              block weight. The fee quote, the largest fee, and the payout do not change. A small
+              claim pays for two more parts of its work (see{' '}
+              <DocLink href='#root-claims'>the root claim section</DocLink>).
             </li>
             <li>
               <strong>SDK and indexer operators:</strong> regenerate calls, storage, errors, and
