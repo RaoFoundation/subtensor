@@ -2426,7 +2426,7 @@ pub mod pallet {
         /// alpha is staked to `hotkey`. Short escrow buyback may pull extra free
         /// TAO from the owner when `E_S + C` is underwater (≤ `max_payment`).
         #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::close())]
+        #[pallet::weight(Pallet::<T>::close_with_interest_forfeit_weight())]
         #[transactional]
         pub fn close(
             origin: OriginFor<T>,
@@ -2513,9 +2513,10 @@ pub mod pallet {
         ///
         /// `hotkey` is the alpha source and destination, as in [`Pallet::close`].
         #[pallet::call_index(6)]
-        // Full repay delegates to `do_close`; charge the heavier of the two measured
-        // paths so the close-path R/W budget is never undercharged (Auditor fid:424daaa1).
-        #[pallet::weight(T::WeightInfo::close().max(T::WeightInfo::repay()))]
+        // Full repay delegates to `do_close`; charge the heavier of close/repay
+        // including interest-exhaustion forfeit search (Auditor fid:424daaa1,
+        // skeptic fid:d3ef3feb).
+        #[pallet::weight(Pallet::<T>::repay_with_interest_forfeit_weight())]
         #[transactional]
         pub fn repay(
             origin: OriginFor<T>,
@@ -2680,6 +2681,21 @@ pub mod pallet {
         /// under-reserved that path by ~10× (skeptic fid:80e5fc65).
         pub(crate) fn collect_with_forfeit_search_weight() -> Weight {
             T::WeightInfo::collect().max(Self::settle_with_buyback_search_weight())
+        }
+
+        /// Signed close/repay can run interest-exhaustion forfeit (buyback
+        /// search) *then* continue ordinary close work on the residual — the
+        /// two legs are sequential, so charge the sum (skeptic fid:d3ef3feb).
+        pub(crate) fn close_with_interest_forfeit_weight() -> Weight {
+            T::WeightInfo::close().saturating_add(Self::settle_with_buyback_search_weight())
+        }
+
+        /// Partial repay charges interest first (may forfeit-search) then the
+        /// measured repay body; full repay delegates to close.
+        pub(crate) fn repay_with_interest_forfeit_weight() -> Weight {
+            Self::close_with_interest_forfeit_weight().max(
+                T::WeightInfo::repay().saturating_add(Self::settle_with_buyback_search_weight()),
+            )
         }
 
         /// Open one due bucket: cursor read + NextDue probe (for resume) +
@@ -4941,6 +4957,12 @@ pub mod pallet {
             if !Positions::<T>::contains_key(&owner, netuid) {
                 return Ok(());
             }
+            // Partial interest-forfeit left C=0 with P open: stop. Continuing
+            // would stack another buyback on a loan that already spent this
+            // block's impact room (skeptic fid:d3ef3feb / e638b265 class).
+            if position.collateral == 0 && position.principal > 0 {
+                return Ok(());
+            }
             ensure!(
                 position.collateral > 0 || position.side == Side::Short,
                 Error::<T>::InsufficientEscrow
@@ -5367,6 +5389,11 @@ pub mod pallet {
             Self::charge_interest(&owner, netuid, &mut position, now, true, false, false)?;
             // Same as close / settle: forfeit already cleaned up — stop.
             if !Positions::<T>::contains_key(&owner, netuid) {
+                return Ok(());
+            }
+            // Partial interest-forfeit (C=0, P open): commit and stop (same
+            // class as close / expiry; skeptic fid:d3ef3feb / e638b265).
+            if position.collateral == 0 && position.principal > 0 {
                 return Ok(());
             }
             ensure!(
@@ -9165,6 +9192,14 @@ pub mod pallet {
             )?;
             if !Positions::<T>::contains_key(owner, netuid) {
                 Self::emit_loan_expired(owner, netuid, side, expires_at, interest_until);
+                return Ok(());
+            }
+            // Interest already made impact-capped forfeit progress (C drained,
+            // P remains). Commit that slice and stop — a second forfeit in this
+            // same transactional attempt can fail the impact check and roll
+            // back the first unwind (skeptic fid:e638b265). Outer
+            // process_one_expiry requeues at ForcedSettlementRetryDelay.
+            if position.collateral == 0 && position.principal > 0 {
                 return Ok(());
             }
 

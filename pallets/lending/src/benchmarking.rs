@@ -221,22 +221,54 @@ mod benchmarks {
 
     #[benchmark]
     fn close() {
-        // Escrow buyback path (not wallet repay): inverse-price search,
-        // stepwise buyback, optional dust sale (Auditor fid:59fefdd6).
+        // Interest-exhaustion forfeit with impact-capped buyback search, then
+        // stop on the residual (skeptic fid:d3ef3feb). Declared weight also
+        // saturating-adds settle search until reference re-measure.
         let caller: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("hk", 0, 0);
         let netuid = NetUid::from(1u16);
         open_short_fixture::<T>(&caller, &hotkey, netuid);
-        let now = frame_system::Pallet::<T>::block_number();
+        let year: u64 = T::BlocksPerYear::get();
+        let period: u64 = T::InterestPeriod::get().saturated_into::<u64>().max(1);
+        let (due, principal_before) = Positions::<T>::mutate(&caller, netuid, |maybe| {
+            let position = maybe.as_mut().expect("fixture opened a short");
+            let pot = position.collateral.saturating_add(position.proceeds);
+            position.annual_interest = pot
+                .saturating_mul(year)
+                .saturating_div(period)
+                .saturating_add(1)
+                .max(1);
+            position.interest_remainder = 0;
+            (position.due, position.principal)
+        });
+        let pool = principal_before.saturating_mul(8).max(1);
+        T::Pool::benchmark_seed_pool(netuid, pool, pool);
+        LiftParamsStore::<T>::mutate(|p| {
+            p.expiry_max_slippage_bps = 100;
+            p.forced_min_buyback_bps = 500;
+            p.ema_band_bps = 10_000;
+        });
+        let params = LiftParamsStore::<T>::get();
+        let since = due.saturating_sub(params.max_settlement_deferral.saturated_into());
+        BandDeferralSince::<T>::insert(&caller, netuid, since);
+        ProtocolForcedImpact::<T>::remove(netuid);
+        frame_system::Pallet::<T>::set_block_number(due);
         #[extrinsic_call]
         _(
-            RawOrigin::Signed(caller),
+            RawOrigin::Signed(caller.clone()),
             netuid,
             hotkey,
             false,
             u64::MAX,
             0u64,
-            now.saturating_add(100u32.into()),
+            due.saturating_add(100u32.into()),
+        );
+        let after = Positions::<T>::get(&caller, netuid)
+            .expect("close interest-forfeit must leave a reduced residual");
+        assert!(
+            after.principal > 0 && after.principal < principal_before,
+            "close must impact-cap interest forfeit: {principal_before} → {}",
+            after.principal
         );
     }
 
