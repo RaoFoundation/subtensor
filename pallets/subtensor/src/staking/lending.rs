@@ -5,6 +5,7 @@
 //! through the ordinary stake paths, so TAO flow records and the short moves
 //! emission. Sale proceeds sit on custody coldkeys, outside `SubnetTAO`.
 use super::*;
+use crate::SubnetFastMovingPrice;
 use frame_support::{
     traits::{Imbalance, tokens::fungible::Inspect},
     transactional,
@@ -98,6 +99,13 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         Self::get_moving_alpha_price(netuid)
     }
 
+    fn notional_alpha_price(netuid: NetUid) -> U64F64 {
+        let spot = T::SwapInterface::current_alpha_price(netuid.into());
+        SubnetFastMovingPrice::<T>::get(netuid)
+            .unwrap_or(spot)
+            .max(spot)
+    }
+
     fn live_subnets() -> alloc::vec::Vec<NetUid> {
         Self::get_all_subnet_netuids()
             .into_iter()
@@ -150,7 +158,7 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         custody_hot: &T::AccountId,
         alpha: AlphaBalance,
         max_tao_in: TaoBalance,
-    ) -> Result<TaoBalance, DispatchError> {
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
         ensure!(!alpha.is_zero(), Error::<T>::AmountTooLow);
         let tao = Self::tao_for_exact_alpha(netuid, alpha, max_tao_in)?;
         let bought =
@@ -164,7 +172,7 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             )?;
         ensure!(bought >= alpha, Error::<T>::SlippageTooHigh);
         Self::destroy_custody_alpha(custody_cold, custody_hot, netuid, bought)?;
-        Ok(tao)
+        Ok((tao, bought))
     }
 
     #[transactional]

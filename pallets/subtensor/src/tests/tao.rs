@@ -724,7 +724,7 @@ fn test_mint_and_sell_then_buy_and_burn_round_trip() {
         );
 
         let buyback = AlphaBalance::from(5_000_000_000u64);
-        let spent = <SubtensorModule as LendingPoolInterface<U256>>::buy_and_burn(
+        let (spent, bought_alpha) = <SubtensorModule as LendingPoolInterface<U256>>::buy_and_burn(
             netuid,
             &custody_cold,
             &custody_hot,
@@ -733,6 +733,7 @@ fn test_mint_and_sell_then_buy_and_burn_round_trip() {
         )
         .expect("buyback within proceeds must fill");
         assert!(!spent.is_zero() && spent <= proceeds);
+        assert!(bought_alpha >= buyback);
         let short_by_one =
             <SubtensorModule as LendingPoolInterface<U256>>::quote_buy(netuid, spent - 1u64.into())
                 .expect("smaller buy still quotes");

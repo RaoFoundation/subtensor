@@ -97,6 +97,10 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn alpha_issuance(netuid: NetUid) -> AlphaBalance;
     /// Slow emission moving price (the SPEC's EMA).
     fn moving_alpha_price(netuid: NetUid) -> U64F64;
+    /// Uncapped spot/EMA for notional, minimum size and interest (not ranking).
+    fn notional_alpha_price(netuid: NetUid) -> U64F64 {
+        Self::moving_alpha_price(netuid)
+    }
     /// Non-root live subnets (TWAP sampling and the prune-zone floor).
     fn live_subnets() -> alloc::vec::Vec<NetUid>;
 
@@ -111,14 +115,15 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         min_tao_out: TaoBalance,
     ) -> Result<TaoBalance, DispatchError>;
     /// Buy at least `alpha` from the pool with `custody_cold`'s TAO, spending
-    /// at most `max_tao_in`, and burn every bought unit. Returns the TAO spent.
+    /// at most `max_tao_in`, and burn every bought unit. Returns
+    /// `(tao_spent, alpha_burned)`.
     fn buy_and_burn(
         netuid: NetUid,
         custody_cold: &AccountId,
         custody_hot: &AccountId,
         alpha: AlphaBalance,
         max_tao_in: TaoBalance,
-    ) -> Result<TaoBalance, DispatchError>;
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
 
     /// Burn `amount` TAO from `account` (interest burn share, forfeited
     /// deposits).
@@ -226,6 +231,11 @@ pub trait LendingInterface<AccountId> {
     /// count and before stakers are paid. Returns `true` when done.
     fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool;
     fn finish_dissolution(netuid: NetUid) -> DispatchResult;
+    /// Frozen dissolution rate `r` while a subnet is dissolving, else `None`.
+    fn frozen_dissolution_price(netuid: NetUid) -> Option<U64F64> {
+        let _ = netuid;
+        None
+    }
     /// `(hotkey, coldkey)` is lending custody that dissolution payout skips.
     fn is_lending_custody(hotkey: &AccountId, coldkey: &AccountId, netuid: NetUid) -> bool;
     /// `hotkey` is the lending custody hotkey (no third-party stake).
@@ -306,6 +316,8 @@ pub const DELEVERAGE_STEPS_PER_BLOCK: u32 = 8;
 pub const MAX_DELEVERAGE_STEPS_PER_BLOCK: u32 = 64;
 /// Interest charges attempted in `on_initialize` each block (MEDIUM 7).
 pub const MAX_DUE_CHARGES_PER_BLOCK: u32 = 32;
+/// `BlockNetMinted` rows cleared per block in `on_finalize` (bounded work).
+pub const BLOCK_NET_MINT_CLEAR_PER_BLOCK: u32 = 64;
 /// Subnets whose residual alpha the reserve may retire per block.
 pub const RESIDUAL_RETIRES_PER_BLOCK: u32 = 4;
 /// Empty `Due` buckets skipped per idle pass before yielding.
@@ -421,6 +433,11 @@ impl SynthParams {
             && self.withdraw_buffer_days <= 365
             && self.breaker_off_bps <= self.breaker_on_bps
             && self.breaker_on_bps <= 10_000
+            && self.min_pool_depth <= 1_000_000_000_000_000
+            && self.deposit <= 1_000_000_000_000_000
+            && self.twap_interval_blocks <= 1_000_000
+            && self.rank_day_blocks <= 1_000_000
+            && self.tao_ema_blocks <= 1_000_000
     }
 }
 
@@ -743,6 +760,10 @@ pub mod pallet {
     /// Earliest `Due` bucket not yet drained.
     #[pallet::storage]
     pub type NextDue<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+    /// Interest that accrued but could not be collected from collateral (I5).
+    #[pallet::storage]
+    pub type UncollectedInterest<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Identity, NetUid, u64, ValueQuery>;
     /// Spot before the first protocol buy-back of the block (P7 budget).
     #[pallet::storage]
     pub type PaceAnchor<T: Config> =
@@ -798,6 +819,13 @@ pub mod pallet {
             netuid: NetUid,
             burned: u64,
             reserved: u64,
+        },
+        /// Accrued interest that collateral could not cover this charge.
+        InterestUncollected {
+            who: T::AccountId,
+            netuid: NetUid,
+            amount: u64,
+            cumulative: u64,
         },
         DeleverageStarted {
             who: T::AccountId,
@@ -888,8 +916,11 @@ pub mod pallet {
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let params = SynthParamsStore::<T>::get();
             let db = T::DbWeight::get();
-            // The params read plus `on_finalize`'s clear of `BlockNetMinted`.
-            let mut weight = db.reads_writes(2, 1);
+            // Params read plus bounded `on_finalize` `BlockNetMinted` clearing.
+            let mut weight = db.reads_writes(2, 1).saturating_add(db.reads_writes(
+                u64::from(BLOCK_NET_MINT_CLEAR_PER_BLOCK),
+                u64::from(BLOCK_NET_MINT_CLEAR_PER_BLOCK),
+            ));
             let interval = params.twap_interval_blocks.max(1);
             let close_interval = Self::block_u64(now)
                 .checked_rem(u64::from(interval))
@@ -923,7 +954,13 @@ pub mod pallet {
         }
 
         fn on_finalize(_now: BlockNumberFor<T>) {
-            let _ = BlockNetMinted::<T>::clear(u32::MAX, None);
+            let limit = BLOCK_NET_MINT_CLEAR_PER_BLOCK;
+            let mut cleared = 0u32;
+            for (netuid, _) in BlockNetMinted::<T>::iter().take(limit as usize) {
+                BlockNetMinted::<T>::remove(netuid);
+                cleared = cleared.saturating_add(1);
+            }
+            let _ = cleared;
         }
 
         fn on_idle(now: BlockNumberFor<T>, remaining: Weight) -> Weight {
@@ -1436,13 +1473,14 @@ pub mod pallet {
             Self::charge_interest(&owner, netuid, &mut pos, &params)?;
             let alpha = alpha.min(pos.minted);
             let funds = pos.funds();
-            let estimate = Self::buy_cost_on(Self::pool_state(netuid), alpha)
-                .ok_or(Error::<T>::SlippageExceeded)?;
+            let estimate =
+                Self::buy_cost_fee_inclusive(netuid, alpha).ok_or(Error::<T>::SlippageExceeded)?;
             ensure!(estimate <= funds, Error::<T>::InsufficientFunds);
             ensure!(estimate <= max_tao_in, Error::<T>::SlippageExceeded);
-            let spent = Self::buy_back(netuid, &pos.custody, alpha, max_tao_in.min(funds))?;
+            let (spent, burned) =
+                Self::buy_back(netuid, &pos.custody, alpha, max_tao_in.min(funds))?;
             pos.debit(spent);
-            Self::burn_from_position(netuid, &mut pos, alpha);
+            Self::burn_from_position(netuid, &mut pos, burned, true);
             let refund = if pos.minted == 0 {
                 Self::finish_position(&owner, netuid, &pos)?
             } else {
@@ -1456,7 +1494,7 @@ pub mod pallet {
             Self::deposit_event(Event::ShortClosed {
                 who: owner,
                 netuid,
-                burned: alpha,
+                burned,
                 tao_spent: spent,
                 refund,
             });
@@ -1509,22 +1547,28 @@ pub mod pallet {
             payer: &T::AccountId,
             alpha: u64,
             max_tao_in: u64,
-        ) -> Result<u64, DispatchError> {
+        ) -> Result<(u64, u64), DispatchError> {
             let hot = Self::custody_hotkey()?;
-            Ok(
-                T::Pool::buy_and_burn(netuid, payer, &hot, alpha.into(), max_tao_in.into())?
-                    .to_u64(),
-            )
+            let (tao, burned) =
+                T::Pool::buy_and_burn(netuid, payer, &hot, alpha.into(), max_tao_in.into())?;
+            Ok((tao.to_u64(), burned.to_u64()))
         }
 
         /// Record `alpha` of `pos` bought back and burned.
-        fn burn_from_position(netuid: NetUid, pos: &mut PositionOf<T>, alpha: u64) {
+        fn burn_from_position(
+            netuid: NetUid,
+            pos: &mut PositionOf<T>,
+            alpha: u64,
+            track_net_mint: bool,
+        ) {
             pos.reduce_minted(alpha);
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(alpha));
             if pos.state != ShortState::Open {
                 DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_sub(alpha));
             }
-            Self::add_net_minted(netuid, i128::from(alpha).saturating_neg());
+            if track_net_mint {
+                Self::add_net_minted(netuid, i128::from(alpha).saturating_neg());
+            }
         }
 
         /// TAO a protocol buy-back may still spend on `netuid` this block
@@ -1600,6 +1644,7 @@ pub mod pallet {
                 DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_sub(pos.minted));
             }
             DeleverageFilled::<T>::remove(netuid, owner);
+            UncollectedInterest::<T>::remove(owner, netuid);
             PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_sub(1));
             TotalPositions::<T>::mutate(|n| *n = n.saturating_sub(1));
         }
@@ -1693,11 +1738,11 @@ pub mod pallet {
             let bought =
                 with_transaction(
                     || match Self::buy_back(netuid, &pos.custody, alpha, spend) {
-                        Ok(spent) => TransactionOutcome::Commit(Ok(spent)),
+                        Ok((spent, burned)) => TransactionOutcome::Commit(Ok((spent, burned))),
                         Err(e) => TransactionOutcome::Rollback(Err(e)),
                     },
                 );
-            let Ok(spent) = bought else {
+            let Ok((spent, burned)) = bought else {
                 return false;
             };
             DeleverageFilled::<T>::insert(
@@ -1706,11 +1751,11 @@ pub mod pallet {
                 (now, allocation, filled.saturating_add(spent)),
             );
             pos.debit(spent);
-            Self::burn_from_position(netuid, &mut pos, alpha);
+            Self::burn_from_position(netuid, &mut pos, burned, false);
             Self::deposit_event(Event::DeleverageStep {
                 who: owner.clone(),
                 netuid,
-                burned: alpha,
+                burned,
                 tao_spent: spent,
             });
             if pos.minted == 0 {
@@ -1721,7 +1766,7 @@ pub mod pallet {
                 Self::deposit_event(Event::ShortClosed {
                     who: owner.clone(),
                     netuid,
-                    burned: alpha,
+                    burned,
                     tao_spent: spent,
                     refund,
                 });
@@ -1736,16 +1781,27 @@ pub mod pallet {
         /// Unbought alpha becomes residual (holder dilution). Leftover dust
         /// funds go to the reserve that retires it; the deposit burns (P19).
         pub(crate) fn default_position(owner: &T::AccountId, netuid: NetUid, pos: &PositionOf<T>) {
+            let params = SynthParamsStore::<T>::get();
             let residual = pos.minted;
             let dust = pos.funds();
             if dust > 0 {
                 let reserve = Self::reserve_account(netuid);
-                let credited =
-                    match T::Pool::collect_interest_tao(&pos.custody, &reserve, dust.into()) {
+                let cap = Self::mul_bps(T::Pool::pool_tao(netuid).to_u64(), params.reserve_cap_bps);
+                let room = cap.saturating_sub(ResidualReserve::<T>::get(netuid));
+                let to_reserve = dust.min(room);
+                let credited = if to_reserve > 0 {
+                    match T::Pool::collect_interest_tao(&pos.custody, &reserve, to_reserve.into()) {
                         Ok(credited) => credited.to_u64(),
                         Err(_) => return,
-                    };
+                    }
+                } else {
+                    0
+                };
                 ResidualReserve::<T>::mutate(netuid, |r| *r = r.saturating_add(credited));
+                let overflow = dust.saturating_sub(credited);
+                if overflow > 0 {
+                    let _ = T::Pool::burn_interest_tao(&pos.custody, overflow.into());
+                }
             }
             if pos.deposit > 0
                 && T::Pool::burn_interest_tao(&pos.custody, pos.deposit.into()).is_err()
@@ -1851,24 +1907,23 @@ pub mod pallet {
             let reserve = Self::reserve_account(netuid);
             let bought =
                 with_transaction(|| match Self::buy_back(netuid, &reserve, alpha, spend) {
-                    Ok(spent) => TransactionOutcome::Commit(Ok(spent)),
+                    Ok((spent, burned)) => TransactionOutcome::Commit(Ok((spent, burned))),
                     Err(e) => TransactionOutcome::Rollback(Err(e)),
                 });
-            let Ok(spent) = bought else {
+            let Ok((spent, burned)) = bought else {
                 return;
             };
             ResidualReserve::<T>::mutate(netuid, |r| *r = r.saturating_sub(spent));
-            let left = residual.saturating_sub(alpha);
+            let left = residual.saturating_sub(burned);
             if left == 0 {
                 ResidualAlpha::<T>::remove(netuid);
             } else {
                 ResidualAlpha::<T>::insert(netuid, left);
             }
-            Self::add_net_minted(netuid, i128::from(alpha).saturating_neg());
             Self::refresh_breaker(netuid, params);
             Self::deposit_event(Event::ResidualRetired {
                 netuid,
-                alpha,
+                alpha: burned,
                 tao: spent,
             });
         }
@@ -1887,7 +1942,7 @@ pub mod pallet {
         }
 
         fn notional(netuid: NetUid, minted: u64) -> u64 {
-            Self::mul_price(minted, T::Pool::moving_alpha_price(netuid), false)
+            Self::mul_price(minted, T::Pool::notional_alpha_price(netuid), false)
         }
 
         fn interest_denominator() -> u128 {
@@ -1939,6 +1994,19 @@ pub mod pallet {
             pos.last_accrued = frame_system::Pallet::<T>::block_number();
             pos.interest_remainder = remainder;
             let paid = owed.min(pos.collateral);
+            let shortfall = owed.saturating_sub(paid);
+            if shortfall > 0 {
+                let cumulative = UncollectedInterest::<T>::mutate(owner, netuid, |u| {
+                    *u = u.saturating_add(shortfall);
+                    *u
+                });
+                Self::deposit_event(Event::InterestUncollected {
+                    who: owner.clone(),
+                    netuid,
+                    amount: shortfall,
+                    cumulative,
+                });
+            }
             if paid == 0 {
                 return Ok(());
             }
@@ -1957,13 +2025,15 @@ pub mod pallet {
                 0
             };
             ResidualReserve::<T>::mutate(netuid, |r| *r = r.saturating_add(reserved));
-            let burned = paid.saturating_sub(to_reserve);
-            T::Pool::burn_interest_tao(&pos.custody, burned.into())?;
+            let burn_tao = paid.saturating_sub(reserved);
+            if burn_tao > 0 {
+                T::Pool::burn_interest_tao(&pos.custody, burn_tao.into())?;
+            }
             pos.collateral = pos.collateral.saturating_sub(paid);
             Self::deposit_event(Event::InterestCharged {
                 who: owner.clone(),
                 netuid,
-                burned: paid.saturating_sub(reserved),
+                burned: burn_tao,
                 reserved,
             });
             Ok(())
@@ -2185,6 +2255,7 @@ pub mod pallet {
         /// to `Stress_eff × ref` (P2). `None` when the pumped pool cannot
         /// supply the book.
         fn book_need(
+            netuid: NetUid,
             pool: PoolState,
             reference: U64F64,
             book: u64,
@@ -2199,8 +2270,9 @@ pub mod pallet {
             let target = Self::scale_price(reference, stress);
             let pumped = Self::pump_to(pool, target)?;
             let cost = Self::buy_cost_on(pumped, book)?;
+            let scaled = Self::scale_fee_inclusive_book_cost(netuid, cost, book)?;
             multiply_by_rational_with_rounding(
-                u128::from(cost),
+                u128::from(scaled),
                 u128::from(q_pos),
                 u128::from(book),
                 Rounding::Up,
@@ -2208,9 +2280,47 @@ pub mod pallet {
             .and_then(|v| u64::try_from(v).ok())
         }
 
-        /// `max(EMA, spot, SMA30_rank)` on `pool` (P2).
+        /// Fee-inclusive TAO to buy `alpha` on the live pool.
+        pub(crate) fn buy_cost_fee_inclusive(netuid: NetUid, alpha: u64) -> Option<u64> {
+            if alpha == 0 {
+                return Some(0);
+            }
+            let pool = Self::pool_state(netuid);
+            if alpha >= pool.alpha {
+                return None;
+            }
+            let estimate = Self::buy_cost_on(pool, alpha)?;
+            Self::search_min(estimate, |tao| {
+                T::Pool::quote_buy(netuid, tao.into()).is_ok_and(|out| out.to_u64() >= alpha)
+            })
+        }
+
+        /// Scale a fee-free whole-book cost to include swap fees from the live pool.
+        fn scale_fee_inclusive_book_cost(netuid: NetUid, free_cost: u64, book: u64) -> Option<u64> {
+            if free_cost == 0 || book == 0 {
+                return Some(free_cost);
+            }
+            let sample = book.min(Self::pool_state(netuid).alpha.saturating_sub(1));
+            if sample == 0 {
+                return Some(free_cost);
+            }
+            let fee = Self::buy_cost_fee_inclusive(netuid, sample)?;
+            let free = Self::buy_cost_on(Self::pool_state(netuid), sample)?;
+            if free == 0 {
+                return Some(free_cost);
+            }
+            multiply_by_rational_with_rounding(
+                u128::from(free_cost),
+                u128::from(fee),
+                u128::from(free),
+                Rounding::Up,
+            )
+            .and_then(|v| u64::try_from(v).ok())
+        }
+
+        /// `max(uncapped_EMA, spot, SMA30_rank)` on `pool` (P2).
         fn reference_price(netuid: NetUid, pool: PoolState) -> U64F64 {
-            T::Pool::moving_alpha_price(netuid)
+            T::Pool::notional_alpha_price(netuid)
                 .max(Self::price_on(pool))
                 .max(Self::rank_price(netuid))
         }
@@ -2220,6 +2330,7 @@ pub mod pallet {
         pub fn coverage_cost(netuid: NetUid, minted: u64, params: &SynthParams) -> Option<u64> {
             let pool = Self::pool_state(netuid);
             Self::book_need(
+                netuid,
                 pool,
                 Self::reference_price(netuid, pool),
                 SyntheticOutstanding::<T>::get(netuid),
@@ -2450,10 +2561,14 @@ pub mod pallet {
         }
 
         fn settle_one_on_dissolution(owner: &T::AccountId, netuid: NetUid, rate: U64F64) {
-            let Some(pos) = Positions::<T>::get(owner, netuid) else {
+            let Some(mut pos) = Positions::<T>::get(owner, netuid) else {
                 OpenByNetuid::<T>::remove(netuid, owner);
                 return;
             };
+            let params = SynthParamsStore::<T>::get();
+            if Self::charge_interest(owner, netuid, &mut pos, &params).is_ok() {
+                Positions::<T>::insert(owner, netuid, &pos);
+            }
             let (pot, due) = match T::Pool::subnet_pot_account(netuid) {
                 Some(pot) => (pot, Self::dissolution_owed(&pos, rate)),
                 None => (owner.clone(), 0),
@@ -2562,6 +2677,7 @@ pub mod pallet {
                 weight: pool.weight,
             };
             let cost = Self::book_need(
+                netuid,
                 after_sale,
                 Self::reference_price(netuid, after_sale),
                 SyntheticOutstanding::<T>::get(netuid).saturating_add(mint),
@@ -2595,12 +2711,8 @@ pub mod pallet {
             let (owed, _) = Self::accrued(netuid, &pos, &params);
             let alpha = alpha.min(pos.minted);
             ensure!(alpha > 0, Error::<T>::ZeroAmount);
-            let estimate = Self::buy_cost_on(Self::pool_state(netuid), alpha)
-                .ok_or(Error::<T>::SlippageExceeded)?;
-            let tao_in = Self::search_min(estimate, |tao| {
-                T::Pool::quote_buy(netuid, tao.into()).is_ok_and(|out| out.to_u64() >= alpha)
-            })
-            .ok_or(Error::<T>::SlippageExceeded)?;
+            let tao_in =
+                Self::buy_cost_fee_inclusive(netuid, alpha).ok_or(Error::<T>::SlippageExceeded)?;
             let funds = pos.funds().saturating_sub(owed.min(pos.collateral));
             ensure!(tao_in <= funds, Error::<T>::InsufficientFunds);
             let refund = if alpha == pos.minted {
@@ -2727,6 +2839,30 @@ pub mod pallet {
                     "deleverage queue entry without position"
                 );
             }
+            let now = frame_system::Pallet::<T>::block_number();
+            for (_, (at, _)) in BlockNetMinted::<T>::iter() {
+                ensure!(at == now, "I7: BlockNetMinted stale tag");
+            }
+            let params = SynthParamsStore::<T>::get();
+            for (netuid, reserve) in ResidualReserve::<T>::iter() {
+                let cap = Self::mul_bps(T::Pool::pool_tao(netuid).to_u64(), params.reserve_cap_bps);
+                ensure!(reserve <= cap, "I5/I9: reserve above cap");
+                let issued = T::Pool::alpha_issuance(netuid).to_u64();
+                let synthetic = SyntheticOutstanding::<T>::get(netuid);
+                let residual = ResidualAlpha::<T>::get(netuid);
+                ensure!(
+                    issued >= synthetic.saturating_add(residual),
+                    "I2: issuance below synthetic + residual"
+                );
+            }
+            for (netuid, residual) in ResidualAlpha::<T>::iter() {
+                if residual > 0 && SyntheticOutstanding::<T>::get(netuid) == 0 {
+                    ensure!(
+                        ResidualReserve::<T>::get(netuid) > 0,
+                        "I8: residual alpha without retire funding"
+                    );
+                }
+            }
             Ok(())
         }
     }
@@ -2757,6 +2893,9 @@ pub mod pallet {
         }
         fn finish_dissolution(netuid: NetUid) -> DispatchResult {
             Self::finish_dissolution(netuid)
+        }
+        fn frozen_dissolution_price(netuid: NetUid) -> Option<U64F64> {
+            Dissolutions::<T>::get(netuid).map(|d| d.price)
         }
         fn is_lending_custody(
             hotkey: &T::AccountId,

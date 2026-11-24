@@ -264,6 +264,9 @@ impl LendingPoolInterface<Account> for MockPool {
     fn moving_alpha_price(netuid: NetUid) -> U64F64 {
         read(&key(b"test/ema", netuid))
     }
+    fn notional_alpha_price(netuid: NetUid) -> U64F64 {
+        Self::moving_alpha_price(netuid)
+    }
     fn live_subnets() -> Vec<NetUid> {
         vec![netuid(), other()]
     }
@@ -290,7 +293,7 @@ impl LendingPoolInterface<Account> for MockPool {
         _: &Account,
         alpha: AlphaBalance,
         max_tao_in: TaoBalance,
-    ) -> Result<TaoBalance, DispatchError> {
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
         let a = alpha.to_u64();
         let (y, x) = pool();
         ensure!(a < x, "insufficient pool alpha");
@@ -303,7 +306,7 @@ impl LendingPoolInterface<Account> for MockPool {
         set_pool(y + t, x - bought);
         write(&key(b"test/issuance", netuid), issuance() - bought);
         write(&key(b"test/burned_alpha", netuid), burned_alpha() + bought);
-        Ok(t.into())
+        Ok((t.into(), bought.into()))
     }
     fn burn_interest_tao(account: &Account, amount: TaoBalance) -> DispatchResult {
         Self::transfer_tao(account, &burn_account(), amount)
@@ -358,6 +361,7 @@ fn run(f: impl FnOnce()) {
 /// I1 and I11 via `do_try_state`, I2 issuance reconciliation, I3 custody and
 /// reserve balances.
 fn check_invariants() {
+    Lending::on_finalize(System::block_number());
     assert_ok!(Lending::do_try_state());
     if Dissolutions::<Test>::get(netuid()).is_none() && !read::<bool>(b"test/dissolved") {
         let synthetic = SyntheticOutstanding::<Test>::get(netuid());
@@ -1672,5 +1676,89 @@ fn migration_seeds_rank_ring_from_moving_price() {
         );
         let ring = RankRing::<Test>::get(netuid()).expect("migration prepares rank ring");
         assert!(ring.days.iter().all(|d| *d == U64F64::from_num(0.77)));
+    });
+}
+
+#[test]
+fn dissolution_charges_accrued_interest_first() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let funds_before = position(1).funds();
+        System::set_block_number(20);
+        assert_ok!(Lending::start_dissolution(netuid()));
+        let mut meter = WeightMeter::new();
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
+        write(b"test/dissolved", true);
+        assert!(
+            events()
+                .iter()
+                .any(|e| matches!(e, Event::InterestCharged { .. }))
+        );
+        assert!(!Positions::<Test>::contains_key(account(1), netuid()));
+        assert!(tao(&account(1)) < funds_before + DEPOSIT);
+    });
+}
+
+#[test]
+fn protocol_buybacks_do_not_touch_net_mint_budget() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let net = netuid();
+        assert_eq!(Lending::block_net_minted(net), i128::from(MINT));
+        force_deleverage(1);
+        assert!(Lending::deleverage_step(&account(1), net, &params()));
+        assert_eq!(
+            Lending::block_net_minted(net),
+            i128::from(MINT),
+            "deleverage must not debit BlockNetMinted"
+        );
+        set_residual(MINT / 4);
+        Lending::retire_residual(net, MINT / 4, &params());
+        assert_eq!(
+            Lending::block_net_minted(net),
+            i128::from(MINT),
+            "residual retire must not debit BlockNetMinted"
+        );
+    });
+}
+
+#[test]
+fn default_leftovers_respect_reserve_cap() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let cap = pool().0 * params().reserve_cap_bps as u64 / 10_000;
+        let reserve = Lending::reserve_account(netuid());
+        mint_tao(&reserve, cap);
+        ResidualReserve::<Test>::insert(netuid(), cap);
+        let owner = account(1);
+        let pos = position(1);
+        let dust = pos.funds();
+        assert!(dust > 0);
+        Lending::default_position(&owner, netuid(), &pos);
+        assert!(ResidualReserve::<Test>::get(netuid()) <= cap);
+        assert!(
+            tao(&burn_account()) > 0,
+            "overflow burns when reserve is full"
+        );
+    });
+}
+
+#[test]
+fn uncollected_interest_is_tracked_when_collateral_dries() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        SynthParamsStore::<Test>::mutate(|p| p.apr_bps = MAX_APR_BPS);
+        System::set_block_number(100_000);
+        Lending::on_idle(100_000, Weight::MAX);
+        let shortfall = UncollectedInterest::<Test>::get(account(1), netuid());
+        assert!(shortfall > 0, "shortfall must be recorded");
+        assert!(
+            events()
+                .iter()
+                .any(|e| matches!(e, Event::InterestUncollected { .. }))
+        );
     });
 }

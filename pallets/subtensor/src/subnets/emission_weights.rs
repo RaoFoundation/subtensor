@@ -422,7 +422,7 @@ impl<T: Config> Pallet<T> {
     /// `alpha_issuance × legacy_owner_cut / u16::MAX`, floored. `legacy_owner_cut`
     /// is the frozen global `SubnetOwnerCut` (its setter is deprecated).
     pub fn legacy_owner_cut_accrued(netuid: NetUid, legacy_owner_cut: u16) -> AlphaBalance {
-        let issuance: u64 = Self::get_alpha_issuance(netuid).to_u64();
+        let issuance: u64 = Self::alpha_issuance_for_schedule(netuid).to_u64();
         let fraction = U96F32::saturating_from_num(legacy_owner_cut)
             .safe_div(U96F32::saturating_from_num(u16::MAX));
         U96F32::saturating_from_num(issuance)

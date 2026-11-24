@@ -2123,6 +2123,15 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotKeyAccountNotExists
         );
 
+        ensure!(
+            !T::Lending::is_custody_hotkey(origin_hotkey),
+            Error::<T>::CustodyHotkey
+        );
+        ensure!(
+            !T::Lending::is_custody_hotkey(destination_hotkey),
+            Error::<T>::CustodyHotkey
+        );
+
         // Ensure there is enough stake in the origin subnet.
         let origin_alpha = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
             origin_hotkey,
