@@ -143,6 +143,51 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         Self::transfer_tao(from, to, amount)?;
         Ok(amount)
     }
+    /// Move `recovery` to `vault` and `refund` to `recipient`. Overrides must
+    /// withdraw both legs at once so a below-ED remainder cannot be reaped
+    /// between them. Returns `(recovered, refunded)` after dust recycling.
+    fn terminal_split_tao(
+        from: &AccountId,
+        vault: &AccountId,
+        recipient: &AccountId,
+        recovery: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance), DispatchError> {
+        let recovered = if recovery.is_zero() {
+            recovery
+        } else {
+            Self::refund_dissolution_tao(from, vault, recovery)?
+        };
+        let refunded = if refund.is_zero() {
+            refund
+        } else {
+            Self::refund_dissolution_tao(from, recipient, refund)?
+        };
+        Ok((recovered, refunded))
+    }
+    /// [`Self::terminal_split_tao`] with an interest burn leg in the same
+    /// withdraw. Returns `(recovered, burned, refunded)`.
+    fn terminal_settle_short_tao(
+        from: &AccountId,
+        vault: &AccountId,
+        recipient: &AccountId,
+        recovery: TaoBalance,
+        interest: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance, TaoBalance), DispatchError> {
+        if !interest.is_zero() {
+            Self::burn_interest_tao(from, interest)?;
+        }
+        let (recovered, refunded) =
+            Self::terminal_split_tao(from, vault, recipient, recovery, refund)?;
+        Ok((recovered, interest, refunded))
+    }
+    /// Account holding `netuid`'s dissolution pot. Must resolve after the
+    /// subnet is flagged for dissolution.
+    fn subnet_pot_account(netuid: NetUid) -> Option<AccountId>;
+    /// Book `amount` TAO already on [`Self::subnet_pot_account`] into the pot
+    /// (`SubnetTAO`).
+    fn credit_pot_reserve(netuid: NetUid, amount: TaoBalance);
     /// Pay `amount` from `from` into `netuid`'s dissolution pot (`SubnetTAO`).
     /// Must work after the subnet is flagged for dissolution.
     fn pay_into_pot(
@@ -2274,18 +2319,24 @@ pub mod pallet {
                 OpenByNetuid::<T>::remove(netuid, owner);
                 return;
             };
-            let due = Self::dissolution_owed(&pos, rate);
-            let paid = if due > 0 {
-                T::Pool::pay_into_pot(&pos.custody, netuid, due.into())
-                    .map(|p| p.to_u64())
-                    .unwrap_or(0)
-            } else {
-                0
+            let (pot, due) = match T::Pool::subnet_pot_account(netuid) {
+                Some(pot) => (pot, Self::dissolution_owed(&pos, rate)),
+                None => (owner.clone(), 0),
             };
-            let refund = pos.funds().saturating_sub(paid).saturating_add(pos.deposit);
-            if refund > 0 {
-                let _ = T::Pool::refund_dissolution_tao(&pos.custody, owner, refund.into());
-            }
+            let refund = pos.funds().saturating_sub(due).saturating_add(pos.deposit);
+            let paid = match T::Pool::terminal_split_tao(
+                &pos.custody,
+                &pot,
+                owner,
+                due.into(),
+                refund.into(),
+            ) {
+                Ok((recovered, _)) => {
+                    T::Pool::credit_pot_reserve(netuid, recovered);
+                    recovered.to_u64()
+                }
+                Err(_) => 0,
+            };
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(pos.minted));
             Self::remove_position(owner, netuid, &pos);
             Self::deposit_event(Event::ShortSettledOnDissolution {

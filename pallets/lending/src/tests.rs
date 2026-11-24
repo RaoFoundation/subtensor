@@ -63,6 +63,9 @@ fn account(n: u8) -> Account {
 fn burn_account() -> Account {
     account(255)
 }
+fn pot_account() -> Account {
+    account(254)
+}
 fn netuid() -> NetUid {
     64.into()
 }
@@ -289,6 +292,12 @@ impl LendingPoolInterface<Account> for MockPool {
     }
     fn burn_interest_tao(account: &Account, amount: TaoBalance) -> DispatchResult {
         Self::transfer_tao(account, &burn_account(), amount)
+    }
+    fn subnet_pot_account(_: NetUid) -> Option<Account> {
+        Some(pot_account())
+    }
+    fn credit_pot_reserve(netuid: NetUid, amount: TaoBalance) {
+        write(&key(b"test/pot", netuid), pot() + amount.to_u64());
     }
     fn pay_into_pot(
         from: &Account,

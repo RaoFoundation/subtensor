@@ -5,7 +5,10 @@
 //! through the ordinary stake paths, so TAO flow records and the short moves
 //! emission. Sale proceeds sit on custody coldkeys, outside `SubnetTAO`.
 use super::*;
-use frame_support::{traits::tokens::fungible::Inspect, transactional};
+use frame_support::{
+    traits::{Imbalance, tokens::fungible::Inspect},
+    transactional,
+};
 use pallet_lending::LendingPoolInterface;
 use sp_runtime::traits::AccountIdConversion;
 #[cfg(feature = "runtime-benchmarks")]
@@ -202,9 +205,72 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         Self::transfer_lending_tao_or_recycle_dust(from, to, amount)
     }
 
+    #[transactional]
+    fn terminal_split_tao(
+        from: &T::AccountId,
+        vault: &T::AccountId,
+        recipient: &T::AccountId,
+        recovery: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance), DispatchError> {
+        let total = recovery
+            .checked_add(&refund)
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        if total.is_zero() {
+            return Ok((TaoBalance::ZERO, TaoBalance::ZERO));
+        }
+        let credit = Self::withdraw_tao_as_credit(from, total)?;
+        let (credit, recovered) =
+            Self::resolve_lending_credit_or_recycle_dust(vault, credit, recovery)?;
+        let (credit, refunded) =
+            Self::resolve_lending_credit_or_recycle_dust(recipient, credit, refund)?;
+        Self::recycle_credit(credit);
+        Ok((recovered, refunded))
+    }
+
+    #[transactional]
+    fn terminal_settle_short_tao(
+        from: &T::AccountId,
+        vault: &T::AccountId,
+        recipient: &T::AccountId,
+        recovery: TaoBalance,
+        interest: TaoBalance,
+        refund: TaoBalance,
+    ) -> Result<(TaoBalance, TaoBalance, TaoBalance), DispatchError> {
+        let total = recovery
+            .checked_add(&interest)
+            .and_then(|t| t.checked_add(&refund))
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        if total.is_zero() {
+            return Ok((TaoBalance::ZERO, TaoBalance::ZERO, TaoBalance::ZERO));
+        }
+        let credit = Self::withdraw_tao_as_credit(from, total)?;
+        let burn: T::AccountId = T::BurnAccountId::get().into_account_truncating();
+        let (credit, burned) =
+            Self::resolve_lending_credit_or_recycle_dust(&burn, credit, interest)?;
+        let (credit, recovered) =
+            Self::resolve_lending_credit_or_recycle_dust(vault, credit, recovery)?;
+        let (credit, refunded) =
+            Self::resolve_lending_credit_or_recycle_dust(recipient, credit, refund)?;
+        Self::recycle_credit(credit);
+        Ok((recovered, burned, refunded))
+    }
+
+    fn subnet_pot_account(netuid: NetUid) -> Option<T::AccountId> {
+        Self::get_subnet_account_id(netuid)
+    }
+
+    /// `TotalStake` follows only while the subnet is live because dissolution
+    /// already dropped the pot from it.
+    fn credit_pot_reserve(netuid: NetUid, amount: TaoBalance) {
+        Self::increase_provided_tao_reserve(netuid, amount);
+        if Self::if_subnet_exist(netuid) {
+            TotalStake::<T>::mutate(|total| *total = total.saturating_add(amount));
+        }
+    }
+
     /// Credit `amount` from `from` to the subnet account and `SubnetTAO`.
-    /// Works after the subnet is flagged; `TotalStake` follows only while the
-    /// subnet is live because dissolution already dropped the pot from it.
+    /// Works after the subnet is flagged.
     #[transactional]
     fn pay_into_pot(
         from: &T::AccountId,
@@ -216,10 +282,7 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         }
         let subnet = Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
         let paid = Self::transfer_lending_tao_or_recycle_dust(from, &subnet, amount)?;
-        Self::increase_provided_tao_reserve(netuid, paid);
-        if Self::if_subnet_exist(netuid) {
-            TotalStake::<T>::mutate(|total| *total = total.saturating_add(paid));
-        }
+        <Self as LendingPoolInterface<T::AccountId>>::credit_pot_reserve(netuid, paid);
         Ok(paid)
     }
 
@@ -314,6 +377,28 @@ impl<T: Config> Pallet<T> {
             *out = out.saturating_sub(amount);
             Ok(())
         })
+    }
+
+    /// Spend `amount` of `credit` on `to`, recycling it when too small to
+    /// create `to`. Returns the remaining credit and the amount credited.
+    fn resolve_lending_credit_or_recycle_dust(
+        to: &T::AccountId,
+        credit: crate::coinbase::tao::CreditOf<T>,
+        amount: TaoBalance,
+    ) -> Result<(crate::coinbase::tao::CreditOf<T>, TaoBalance), DispatchError> {
+        if amount.is_zero() {
+            return Ok((credit, TaoBalance::ZERO));
+        }
+        if amount < <T as Config>::Currency::minimum_balance()
+            && <T as Config>::Currency::total_balance(to).is_zero()
+        {
+            let (dust, remainder) = credit.split(amount);
+            Self::recycle_credit(dust);
+            return Ok((remainder, TaoBalance::ZERO));
+        }
+        let remainder = Self::spend_tao(to, credit, amount)
+            .map_err(|_credit| Error::<T>::InsufficientLiquidity)?;
+        Ok((remainder, amount))
     }
 
     /// Recycle only a payment too small to create its destination. Large failures retry.
