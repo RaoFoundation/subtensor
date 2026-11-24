@@ -482,11 +482,10 @@ mod benchmarks {
         );
     }
 
-    /// Force-market long expiry under ProtocolForcedImpact. Shallow pool +
-    /// split A/C so ordinary slice fills can round to zero TAO while the
-    /// combined residual (precomputed impact cap, one sell) still progresses
-    /// (skeptic fid:2d40f9ac / 468a71b2). Collectors charge
-    /// `settle().max(settle_long())`.
+    /// Force-market long expiry that **must** hit the combined residual sale:
+    /// both A and C split attempts round to zero TAO, then one sale of the
+    /// reused pre-split impact cap progresses (skeptic fid:2d40f9ac / ced7b9db).
+    /// Collectors charge `settle().max(settle_long())`.
     #[benchmark]
     fn settle_long() {
         let caller: T::AccountId = whitelisted_caller();
@@ -508,25 +507,34 @@ mod benchmarks {
         let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a long");
         let principal_before = position.principal;
         let expires_at = position.expires_at;
-        let available = position.escrow_alpha.saturating_add(position.collateral);
-        // Keep both A and C positive so the split path runs before any
-        // combined residual fallback.
-        let half = available / 2;
-        if half > 0 && available.saturating_sub(half) > 0 {
-            Positions::<T>::mutate(&caller, netuid, |maybe| {
-                if let Some(p) = maybe {
-                    p.escrow_alpha = half;
-                    p.collateral = available.saturating_sub(half);
-                }
-            });
-        }
-        // Deep pool: tiny slice fills can return 0 TAO; combined residual
-        // still quotes and uses the reused impact cap.
-        let pool = available.saturating_mul(1_000_000).max(1);
-        T::Pool::benchmark_seed_pool(netuid, pool, pool);
+        // Two dust-sized legs: quote(1) → 0 TAO, quote(2) → >0 against x=100,y=51.
+        Positions::<T>::mutate(&caller, netuid, |maybe| {
+            if let Some(p) = maybe {
+                p.escrow_alpha = 1;
+                p.collateral = 1;
+            }
+        });
+        T::Pool::benchmark_seed_pool(netuid, 51, 100);
+        assert!(
+            matches!(
+                T::Pool::quote_sell(netuid, 1u64.into()),
+                Ok(r) if r.to_u64() == 0
+            ) || matches!(
+                T::Pool::quote_sell(netuid, 1u64.into()),
+                Err(e) if T::Pool::quote_may_round_to_zero(&e)
+            ),
+            "settle_long fixture: single-α split must round to zero"
+        );
+        assert!(
+            matches!(
+                T::Pool::quote_sell(netuid, 2u64.into()),
+                Ok(r) if r.to_u64() > 0
+            ),
+            "settle_long fixture: combined 2α must quote positive TAO"
+        );
         LiftParamsStore::<T>::mutate(|p| {
-            p.expiry_max_slippage_bps = 100;
-            p.forced_min_buyback_bps = 500;
+            p.expiry_max_slippage_bps = 10_000;
+            p.forced_min_buyback_bps = 10_000;
             p.ema_band_bps = 10_000;
         });
         let params = LiftParamsStore::<T>::get();
@@ -534,28 +542,27 @@ mod benchmarks {
         BandDeferralSince::<T>::insert(&caller, netuid, expires_at);
         frame_system::Pallet::<T>::set_block_number(force_at);
         ProtocolForcedImpact::<T>::remove(netuid);
+        BenchCombinedResidualSale::<T>::kill();
         #[block]
         {
             let mut meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
             Pallet::<T>::collect_expiry(force_at, &mut meter, u32::MAX);
         }
+        assert!(
+            BenchCombinedResidualSale::<T>::get() > 0,
+            "settle_long must execute the combined residual sale (not an ordinary split fill)"
+        );
         let after = Positions::<T>::get(&caller, netuid);
-        let impact = ProtocolForcedImpact::<T>::get(netuid);
         assert!(
             after
                 .as_ref()
                 .map(|p| p.principal < principal_before)
-                .unwrap_or(true)
-                || impact.is_some(),
-            "settle_long must run impact-capped sell or combined residual (principal reduced/cleared or impact noted)"
+                .unwrap_or(true),
+            "settle_long combined residual must reduce or clear principal"
         );
         assert!(
-            impact.is_some()
-                || after
-                    .as_ref()
-                    .map(|p| p.principal < principal_before)
-                    .unwrap_or(false),
-            "settle_long must note ProtocolForcedImpact or leave a reduced principal"
+            ProtocolForcedImpact::<T>::get(netuid).is_some(),
+            "settle_long must note ProtocolForcedImpact"
         );
     }
 }

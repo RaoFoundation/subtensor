@@ -1749,6 +1749,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type ProtocolForcedImpact<T: Config> =
         StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u128, u128), OptionQuery>;
+    /// Benchmark-only: α sold by the combined residual path (skeptic fid:ced7b9db).
+    #[cfg(feature = "runtime-benchmarks")]
+    #[pallet::storage]
+    pub type BenchCombinedResidualSale<T: Config> = StorageValue<_, u64, ValueQuery>;
     #[pallet::storage]
     pub type ConversionCursor<T> = StorageValue<_, NetUid, OptionQuery>;
     #[pallet::storage]
@@ -6686,15 +6690,13 @@ pub mod pallet {
                     // other Err. Reuse the cap for the combined sale so the
                     // fallback is not a second unbounded search
                     // (skeptic fid:5e401aab / 468a71b2 / 6088994c).
-                    let mut residual_cap = 0u64;
+                    // Reuse the pre-split impact room — no second
+                    // max_forced_sell_alpha search (skeptic fid:ced7b9db).
+                    let residual_cap = remaining_cap.min(alpha_left);
                     let mut residual_sellable = false;
                     if alpha_left > 0 {
                         match T::Pool::quote_sell(netuid, alpha_left.into()) {
-                            Ok(r) if r.to_u64() > 0 => {
-                                residual_sellable = true;
-                                residual_cap =
-                                    Self::max_forced_sell_alpha(netuid, alpha_left, force_market)?;
-                            }
+                            Ok(r) if r.to_u64() > 0 => residual_sellable = true,
                             Ok(_) => {}
                             Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
                             Err(e) => return Err(e),
@@ -6702,8 +6704,8 @@ pub mod pallet {
                     }
                     let can_progress = residual_sellable && residual_cap > 0;
                     // Split sales rounded to zero while combined α still
-                    // quotes: one impact-capped combined sale with the
-                    // already-computed cap (skeptic fid:ca547fa3 / 468a71b2).
+                    // quotes: one sale with the reused cap
+                    // (skeptic fid:ca547fa3 / 468a71b2 / ced7b9db).
                     if repay == 0 && can_progress {
                         match T::Pool::forced_sell_into_escrow(
                             &escrow,
@@ -6725,6 +6727,10 @@ pub mod pallet {
                                 sold_coll = position.collateral.saturating_sub(coll_left);
                                 repay = raised.min(principal);
                                 alpha_left = escrow_left.saturating_add(coll_left);
+                                #[cfg(feature = "runtime-benchmarks")]
+                                {
+                                    BenchCombinedResidualSale::<T>::put(residual_cap);
+                                }
                                 if enforce_realized_slippage {
                                     Self::ensure_realized_sell_within_slippage(
                                         netuid, raised, sold_alpha,
@@ -9394,19 +9400,14 @@ pub mod pallet {
                             }
                         }
                         let mut alpha_left = escrow_left.saturating_add(coll_left);
-                        let mut residual_cap = 0u64;
+                        // Reuse pre-split impact room (no second search)
+                        // (skeptic fid:ced7b9db / 468a71b2).
+                        let residual_cap = remaining_cap.min(alpha_left);
                         let mut residual_dust = alpha_left == 0;
                         let mut residual_sellable = false;
                         if alpha_left > 0 {
                             match T::Pool::quote_sell(netuid, alpha_left.into()) {
-                                Ok(r) if r.to_u64() > 0 => {
-                                    residual_sellable = true;
-                                    residual_cap = Self::max_forced_sell_alpha(
-                                        netuid,
-                                        alpha_left,
-                                        force_market,
-                                    )?;
-                                }
+                                Ok(r) if r.to_u64() > 0 => residual_sellable = true,
                                 Ok(_) => residual_dust = true,
                                 Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
                                     residual_dust = true;
@@ -9415,8 +9416,7 @@ pub mod pallet {
                             }
                         }
                         let can_progress = residual_sellable && residual_cap > 0;
-                        // Combined residual sale when split fills raised 0 —
-                        // reuse residual_cap (skeptic fid:ca547fa3 / 468a71b2).
+                        // Combined residual sale when split fills raised 0.
                         if raised == 0 && can_progress {
                             match T::Pool::forced_sell_into_escrow(
                                 &escrow,
@@ -9435,6 +9435,10 @@ pub mod pallet {
                                     coll_left = coll_left
                                         .saturating_sub(residual_cap.saturating_sub(from_escrow));
                                     alpha_left = escrow_left.saturating_add(coll_left);
+                                    #[cfg(feature = "runtime-benchmarks")]
+                                    {
+                                        BenchCombinedResidualSale::<T>::put(residual_cap);
+                                    }
                                     if realized_guard {
                                         Self::ensure_realized_sell_within_slippage(
                                             netuid, raised, sold_alpha,
