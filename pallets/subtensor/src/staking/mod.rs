@@ -16,6 +16,8 @@ pub use claim_root::RootClaimHotkeyWork;
 #[cfg(test)]
 pub(crate) use claim_root::RootClaimOutcome;
 pub mod decrease_take;
+#[cfg(test)]
+mod deferred_dividends_reference;
 pub mod helpers;
 pub mod increase_take;
 pub mod lock;

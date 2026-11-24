@@ -1644,9 +1644,20 @@ impl<T: Config> Pallet<T> {
         stake_delta: i128,
     ) -> DispatchResult {
         Self::rebase_deferred_dividends(hotkey, coldkey, stake_delta)?;
+        Self::rebase_basket_claimed_watermark(hotkey, coldkey, stake_delta);
+        Ok(())
+    }
+
+    /// The share part of a stake change of `stake_delta`: move the claimed watermark by
+    /// `rate * stake_delta`. The caller rebases the deferred dividends first.
+    pub(super) fn rebase_basket_claimed_watermark(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        stake_delta: i128,
+    ) {
         let rate = BasketRate::<T>::get(hotkey);
         if rate == I96F32::saturating_from_num(0) {
-            return Ok(());
+            return;
         }
         BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
             *claimed = claimed.saturating_add(
@@ -1654,7 +1665,6 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<i128>(),
             );
         });
-        Ok(())
     }
 
     /// Grant `shares` fund shares to a staker unconditionally by decrementing their signed

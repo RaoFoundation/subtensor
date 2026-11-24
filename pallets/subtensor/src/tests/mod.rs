@@ -11,6 +11,7 @@ mod coinbase;
 mod coldkey_lineage;
 mod commit_burn;
 mod consensus;
+mod deferred_claim_linear;
 mod delegate_info;
 mod destroy_alpha_tests;
 mod dissolution;

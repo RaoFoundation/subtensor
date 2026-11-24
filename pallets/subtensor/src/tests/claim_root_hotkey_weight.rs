@@ -49,9 +49,9 @@ use std::collections::BTreeMap;
 use substrate_fixed::types::{I64F64, I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
-const TAO: u64 = 1_000_000_000;
+pub(super) const TAO: u64 = 1_000_000_000;
 /// Fund shares per unit of `stakes` in [`real_fund`].
-const SHARE: u64 = 1_000_000;
+pub(super) const SHARE: u64 = 1_000_000;
 
 /// Dispatch-extension weight that FRAME folds into every declared call weight.
 fn extension() -> Weight {
@@ -388,16 +388,16 @@ fn worst_case_at_the_ceiling_fits_the_max_extrinsic() {
 // Real funds: the declaration made before a claim covers the work of the claim.
 // =============================================================================
 
-struct RealFund {
-    hotkey: U256,
+pub(super) struct RealFund {
+    pub(super) hotkey: U256,
     /// One subnet per row, in `rows` order.
-    netuids: Vec<NetUid>,
+    pub(super) netuids: Vec<NetUid>,
     /// Root stakers, one per `stakes` entry.
-    stakers: Vec<U256>,
+    pub(super) stakers: Vec<U256>,
 }
 
 /// A new subnet with a 100k-TAO balanced pool priced at 1 (spot, fast anchor, slow EMA).
-fn priced_subnet(index: u32) -> NetUid {
+pub(super) fn priced_subnet(index: u32) -> NetUid {
     let subnet_owner = U256::from(20_000 + 2 * index);
     let subnet_hotkey = U256::from(20_001 + 2 * index);
     // The lock cost doubles per same-block registration; pin it so many subnets fit.
@@ -417,7 +417,7 @@ fn priced_subnet(index: u32) -> NetUid {
 
 /// A root validator whose fund holds `rows[i]` alpha on its own priced subnet. `stakes`
 /// root stakers each hold `stakes[i] × SHARE` fund shares.
-fn real_fund(rows: &[u64], stakes: &[u64]) -> RealFund {
+pub(super) fn real_fund(rows: &[u64], stakes: &[u64]) -> RealFund {
     let hotkey = U256::from(1002);
     let escrow = SubtensorModule::get_beta_escrow_account_id();
     zero_claim_threshold();

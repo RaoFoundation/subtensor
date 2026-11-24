@@ -581,6 +581,73 @@ thread_local! {
     static BASKET_SWAP_OPS: Cell<u64> = const { Cell::new(0) };
     static BASKET_QUOTE_OPS: Cell<u64> = const { Cell::new(0) };
     static BASKET_WRITE_OPS: Cell<u64> = const { Cell::new(0) };
+    /// Storage steps of the deferred-dividend code that grow with the number of waiting
+    /// credits: rate states read, conversion records looked up, and debts loaded or stored.
+    static DEFERRED_DIVIDEND_OPS: Cell<u64> = const { Cell::new(0) };
+    /// When set, a claim sells deferred credits with the code of runtime 494.
+    static REFERENCE_DEFERRED_CLAIMS: Cell<bool> = const { Cell::new(false) };
+    /// How often the claims of deferred credits took each [`DeferredClaimPath`].
+    static DEFERRED_CLAIM_PATHS: Cell<DeferredClaimPaths> =
+        const { Cell::new(DeferredClaimPaths::NONE) };
+}
+
+/// A path of a claim of deferred credits that a test can count.
+#[derive(Clone, Copy)]
+pub enum DeferredClaimPath {
+    /// The claimant sold a part of one deferred credit.
+    Sale,
+    /// A sale took the whole credit, and its rate state was converted.
+    Converted,
+    /// A stake change went to the list of kept changes.
+    Kept,
+    /// The bound did not cover a stake change, so each later change goes to each debt.
+    NotCovered,
+    /// The product of the sum of the kept changes did not fit, so each change was added.
+    SingleProducts,
+}
+
+/// One counter for each [`DeferredClaimPath`].
+#[derive(Clone, Copy)]
+struct DeferredClaimPaths {
+    sale: u64,
+    converted: u64,
+    kept: u64,
+    not_covered: u64,
+    single_products: u64,
+}
+
+impl DeferredClaimPaths {
+    const NONE: Self = Self {
+        sale: 0,
+        converted: 0,
+        kept: 0,
+        not_covered: 0,
+        single_products: 0,
+    };
+
+    fn counter(&mut self, path: DeferredClaimPath) -> &mut u64 {
+        match path {
+            DeferredClaimPath::Sale => &mut self.sale,
+            DeferredClaimPath::Converted => &mut self.converted,
+            DeferredClaimPath::Kept => &mut self.kept,
+            DeferredClaimPath::NotCovered => &mut self.not_covered,
+            DeferredClaimPath::SingleProducts => &mut self.single_products,
+        }
+    }
+}
+
+pub fn reset_deferred_claim_paths() {
+    DEFERRED_CLAIM_PATHS.set(DeferredClaimPaths::NONE);
+}
+
+pub fn deferred_claim_path(path: DeferredClaimPath) -> u64 {
+    *DEFERRED_CLAIM_PATHS.get().counter(path)
+}
+
+pub(crate) fn note_deferred_claim_path(path: DeferredClaimPath) {
+    let mut paths = DEFERRED_CLAIM_PATHS.get();
+    *paths.counter(path) += 1;
+    DEFERRED_CLAIM_PATHS.set(paths);
 }
 
 /// Reset swap/quote/write counters used by pending-basket flush tests.
@@ -612,6 +679,28 @@ pub(crate) fn inc_basket_quote_ops() {
 
 pub(crate) fn inc_basket_write_ops() {
     BASKET_WRITE_OPS.set(BASKET_WRITE_OPS.get().saturating_add(1));
+}
+
+pub fn reset_deferred_dividend_ops() {
+    DEFERRED_DIVIDEND_OPS.set(0);
+}
+
+pub fn deferred_dividend_ops() -> u64 {
+    DEFERRED_DIVIDEND_OPS.get()
+}
+
+pub(crate) fn inc_deferred_dividend_ops(steps: usize) {
+    DEFERRED_DIVIDEND_OPS.set(DEFERRED_DIVIDEND_OPS.get().saturating_add(steps as u64));
+}
+
+/// Select the code that sells deferred credits in a claim: the code of runtime 494
+/// (`true`), which the equivalence tests use as the reference, or the current code.
+pub fn set_reference_deferred_claims(reference: bool) {
+    REFERENCE_DEFERRED_CLAIMS.set(reference);
+}
+
+pub(crate) fn reference_deferred_claims() -> bool {
+    REFERENCE_DEFERRED_CLAIMS.get()
 }
 
 pub struct FakeProxier(pub Vec<(U256, U256)>);
