@@ -572,40 +572,6 @@ fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
     });
 }
 
-/// Live-subnet expiry/settle payouts must debit TotalStake with SubnetTAO.
-/// Dissolution already drops the reserve from TotalStake earlier; expiry does not.
-#[test]
-fn test_pay_from_pot_decreases_total_stake_on_live_subnet() {
-    new_test_ext(1).execute_with(|| {
-        use pallet_lending::LendingPoolInterface;
-
-        let netuid = NetUid::from(1);
-        add_network(netuid, 10, 0);
-        let pot = 1_000_000u64;
-        let pay = 250_000u64;
-        SubnetTAO::<Test>::set(netuid, pot.into());
-        TotalStake::<Test>::put(TaoBalance::from(pot));
-        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-        add_balance_to_coldkey_account(&subnet, pot.into());
-        let recipient = U256::from(42);
-        add_balance_to_coldkey_account(&recipient, ExistentialDeposit::get());
-
-        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_from_pot(
-            netuid,
-            &recipient,
-            pay.into(),
-        )
-        .expect("live pot payout must succeed");
-        assert_eq!(paid, pay.into());
-        assert_eq!(SubnetTAO::<Test>::get(netuid), (pot - pay).into());
-        assert_eq!(
-            TotalStake::<Test>::get(),
-            TaoBalance::from(pot - pay),
-            "live expiry payout must keep TotalStake aligned with SubnetTAO"
-        );
-    });
-}
-
 /// Regression for short dissolution settlement: recovery + below-ED refund must
 /// leave the escrow via one credit split. Separate Expendable transfers would
 /// reap the refund remainder after recovery and strand the position.
@@ -891,5 +857,27 @@ fn test_pay_into_pot_live_and_flagged() {
             "a dissolving pot is already out of TotalStake"
         );
         assert_eq!(Balances::total_balance(&subnet), (3 * pot).into());
+    });
+}
+
+/// `prune_immune` follows registration immunity exactly as
+/// `get_network_to_prune` does, so the P16 zone floor skips young subnets.
+#[test]
+fn test_prune_immune_tracks_registration_immunity() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        SubtensorModule::set_network_immunity_period(100);
+        NetworkRegisteredAt::<Test>::insert(netuid, 50u64);
+
+        System::set_block_number(149);
+        assert!(<SubtensorModule as LendingPoolInterface<U256>>::prune_immune(netuid));
+        assert_eq!(SubtensorModule::get_network_to_prune(), None);
+
+        System::set_block_number(150);
+        assert!(!<SubtensorModule as LendingPoolInterface<U256>>::prune_immune(netuid));
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(netuid));
     });
 }

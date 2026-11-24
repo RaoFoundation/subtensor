@@ -8,6 +8,8 @@ use super::*;
 use frame_support::{traits::tokens::fungible::Inspect, transactional};
 use pallet_lending::LendingPoolInterface;
 use sp_runtime::traits::AccountIdConversion;
+#[cfg(feature = "runtime-benchmarks")]
+use substrate_fixed::types::I96F32;
 use substrate_fixed::types::U64F64;
 use subtensor_swap_interface::{Order, SwapHandler};
 
@@ -22,6 +24,10 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
     fn owner_allowed(owner: &T::AccountId) -> bool {
         !ColdkeySwapAnnouncements::<T>::contains_key(owner)
             && !ColdkeySwapDisputes::<T>::contains_key(owner)
+    }
+
+    fn prune_immune(netuid: NetUid) -> bool {
+        Self::is_network_prune_immune(netuid)
     }
 
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError> {
@@ -230,6 +236,13 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         NetworkRegisteredAt::<T>::insert(netuid, 0u64);
         SubnetTAO::<T>::set(netuid, tao.into());
         SubnetAlphaIn::<T>::set(netuid, alpha.into());
+        // Short notional and interest use the moving price; settle it at spot.
+        SubnetMovingPrice::<T>::insert(
+            netuid,
+            I96F32::saturating_from_num(tao)
+                .checked_div(I96F32::saturating_from_num(alpha.max(1)))
+                .unwrap_or_default(),
+        );
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao.into()));
         if let Some(subnet) = Self::get_subnet_account_id(netuid) {
             let _ = <T as Config>::Currency::make_free_balance_be(&subnet, tao.into());

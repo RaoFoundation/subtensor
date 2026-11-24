@@ -401,24 +401,25 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| Self::get_moving_alpha_price(netuid))
     }
 
-    pub fn get_network_to_prune() -> Option<NetUid> {
-        let current_block: u64 = Self::get_current_block_as_u64();
+    /// Registration immunity: `netuid` registered less than
+    /// `NetworkImmunityPeriod` blocks ago cannot be pruned.
+    pub fn is_network_prune_immune(netuid: NetUid) -> bool {
+        Self::get_current_block_as_u64()
+            < NetworkRegisteredAt::<T>::get(netuid)
+                .saturating_add(Self::get_network_immunity_period())
+    }
 
+    pub fn get_network_to_prune() -> Option<NetUid> {
         let mut candidate_netuid: Option<NetUid> = None;
         let mut candidate_price: U64F64 = U64F64::saturating_from_num(u128::MAX);
         let mut candidate_timestamp: u64 = u64::MAX;
 
         for (netuid, added) in NetworksAdded::<T>::iter() {
-            if !added || netuid == NetUid::ROOT {
+            if !added || netuid == NetUid::ROOT || Self::is_network_prune_immune(netuid) {
                 continue;
             }
 
             let registered_at = NetworkRegisteredAt::<T>::get(netuid);
-
-            // Skip immune networks.
-            if current_block < registered_at.saturating_add(Self::get_network_immunity_period()) {
-                continue;
-            }
 
             let price: U64F64 = Self::dereg_rank_price(netuid);
 
