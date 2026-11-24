@@ -584,6 +584,8 @@ thread_local! {
     /// Storage steps of the deferred-dividend code that grow with the number of waiting
     /// credits: rate states read, conversion records looked up, and debts loaded or stored.
     static DEFERRED_DIVIDEND_OPS: Cell<u64> = const { Cell::new(0) };
+    /// Times that the rows and queued credits of a fund were counted for a claim.
+    static ROOT_CLAIM_FUND_COUNTS: Cell<u64> = const { Cell::new(0) };
     /// When set, a claim sells deferred credits with the code of runtime 494.
     static REFERENCE_DEFERRED_CLAIMS: Cell<bool> = const { Cell::new(false) };
     /// How often the claims of deferred credits took each [`DeferredClaimPath`].
@@ -691,6 +693,18 @@ pub fn deferred_dividend_ops() -> u64 {
 
 pub(crate) fn inc_deferred_dividend_ops(steps: usize) {
     DEFERRED_DIVIDEND_OPS.set(DEFERRED_DIVIDEND_OPS.get().saturating_add(steps as u64));
+}
+
+pub fn reset_root_claim_fund_counts() {
+    ROOT_CLAIM_FUND_COUNTS.set(0);
+}
+
+pub fn root_claim_fund_counts() -> u64 {
+    ROOT_CLAIM_FUND_COUNTS.get()
+}
+
+pub(crate) fn inc_root_claim_fund_counts() {
+    ROOT_CLAIM_FUND_COUNTS.set(ROOT_CLAIM_FUND_COUNTS.get().saturating_add(1));
 }
 
 /// Select the code that sells deferred credits in a claim: the code of runtime 494

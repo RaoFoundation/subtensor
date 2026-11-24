@@ -998,12 +998,15 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
         assert!(root_slot >= nav_before * 99 / 100);
 
         // Charged as two active units (the swept rows) plus a one-row scan (the root
-        // slot) — not the full per-row claim weight.
+        // slot) — not the full per-row claim weight. Since runtime 495 the claim also
+        // reports the storage work that counted the two rows of the fund for its
+        // declaration (`root_claim_hotkey_sizing_weight`).
         let actual = post
             .actual_weight
             .expect("claim reports benchmark-derived actual weight");
         let expected = <Test as crate::Config>::WeightInfo::claim_root(2)
-            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(1));
+            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(1))
+            .saturating_add(SubtensorModule::root_claim_hotkey_sizing_weight(2, 0));
         assert_eq!(actual, expected);
     });
 }

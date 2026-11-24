@@ -121,6 +121,21 @@ pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 258;
 /// runtime bills a root claim for (`ROOT_CLAIM_FEE_ALLOWANCE`), so the fee quoted before
 /// dispatch does not depend on the size of the fund.
 pub const MIN_ROOT_CLAIM_HOTKEY_WORK: u32 = 4;
+/// Most times that one transaction counts the rows and the queued credits of one fund for
+/// the weight of a single-hotkey claim. A transaction counts a fund one time and keeps
+/// the count ([`BasketRowsCountedAt`]). The first transaction of a block is the exception:
+/// the block executive computes its weight before it marks the inherents as applied, and
+/// a count from that moment is not kept. That transaction counts the fund once more.
+pub const ROOT_CLAIM_HOTKEY_COUNTS: u32 = 2;
+/// Reads of the kept count and of the same-transaction guard that the weight of one
+/// single-hotkey claim covers. The weight of the call is computed by the block executive,
+/// by the fee logic (in validation and in preparation; two times each for a call in a
+/// batch or a proxy), and by each batch or proxy that holds the call. Each of these is
+/// one read of the kept count. The claim reads the kept count and the guard one time
+/// each. A claim in a batch in a proxy makes nine of these reads. Only two of them go to
+/// the database: the first read of the kept count, and the read of the guard. The others
+/// find the kept count in the storage overlay of the block, also in a deeper nest.
+pub const ROOT_CLAIM_HOTKEY_COUNT_READS: u32 = 10;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
@@ -3654,6 +3669,23 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketRowsOpenedAt<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u32), OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> `(block, extrinsic_index, count)`: the rows and the
+    /// queued dividend credits of the fund, as the transaction `(block, extrinsic_index)`
+    /// counted them for the weight of `claim_root_with_hotkey`. `count` is `None` for a
+    /// fund above the limit of one claim. The weight of that call is computed several
+    /// times in one transaction: by the block executive, by the fee logic, and by each
+    /// batch or proxy that holds the call. The first of them counts the fund and writes
+    /// this record. The others, and the claim, read it. A record of an earlier
+    /// transaction has no effect.
+    #[pallet::storage]
+    pub type BasketRowsCountedAt<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        (u64, u32, Option<crate::staking::RootClaimHotkeyWork>),
+        OptionQuery,
+    >;
 
     /// --- MAP ( validator_hotkey, netuid ) --> `(alpha_bought, last_block)` of
     /// destination-pool flow used by `swap_basket` in the current refill window.

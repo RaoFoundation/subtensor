@@ -15,6 +15,12 @@
 //! outlive the queued credit that made it, so the fund's rows and queued credits do not
 //! bound the debts. Each declaration has a fixed part for them: the settlement of the most
 //! debts that one claimant can hold on one validator (`MAX_ROOT_CLAIM_WORK`).
+//!
+//! The weight of the call is computed several times in one transaction: by the block
+//! executive, by the fee logic, and by each batch or proxy that holds the call. The chain
+//! counts the fund one time in a transaction and keeps the count (`BasketRowsCountedAt`).
+//! The declaration has the storage work of two counts, because the first transaction of a
+//! block counts twice, and the claim reports that work after dispatch.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -23,8 +29,12 @@
     clippy::unwrap_used
 )]
 
+use crate::migrations::migrate_seed_beta_basket::{
+    SeedBetaBasketV2Migration, SeedBetaBasketV2Progress,
+};
 use crate::staking::{
     BasketFlushWork, DeferredBasketConversion, DeferredBasketDebt, RootClaimHotkeyWork,
+    RootClaimOutcome,
 };
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, register_on_root, root_stake_of,
@@ -33,17 +43,18 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    AlphaV2, BasketClaimed, BasketDailyTurnoverCap, BasketRate, BasketRowsOpenedAt, BasketShares,
-    BasketTradingEnabled, DeferredBasketConversions, DeferredBasketDebts, DeferredBasketRates,
-    Error, MAX_ROOT_CLAIM_HOTKEY_WORK, MAX_ROOT_CLAIM_WORK, MIN_ROOT_CLAIM_HOTKEY_WORK,
-    PendingBasketDeposits, RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut,
-    SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice, SubnetTAO,
+    AlphaV2, BasketClaimed, BasketDailyTurnoverCap, BasketRate, BasketRowsCountedAt,
+    BasketRowsOpenedAt, BasketShares, BasketTradingEnabled, DeferredBasketConversions,
+    DeferredBasketDebts, DeferredBasketRates, Error, MAX_ROOT_CLAIM_HOTKEY_WORK,
+    MAX_ROOT_CLAIM_WORK, MIN_ROOT_CLAIM_HOTKEY_WORK, PendingBasketDeposits, RootClaimableThreshold,
+    SubnetAlphaIn, SubnetAlphaOut, SubnetFastMovingPrice, SubnetLimit, SubnetMovingPrice,
+    SubnetTAO,
 };
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use frame_support::weights::Weight;
 use frame_support::{BoundedBTreeMap, assert_ok, assert_storage_noop};
 use pallet_subtensor_utility as pallet_utility;
-use sp_core::U256;
+use sp_core::{Get, U256};
 use sp_runtime::traits::Dispatchable;
 use std::collections::BTreeMap;
 use substrate_fixed::types::{I64F64, I96F32, U64F64};
@@ -921,6 +932,259 @@ fn small_fund_with_the_most_historical_debts_fits_its_declaration() {
             "actual {actual:?} must exceed the declaration without the bound {without_bound:?}"
         );
     });
+}
+
+// =============================================================================
+// The count of the fund: one count in a transaction, and the weight covers it.
+// =============================================================================
+
+/// A fund of raw rows on netuids `1..=rows`, with a queued credit on each of the first
+/// `queued` of them.
+fn raw_fund(hotkey: U256, rows: u16, queued: u16) -> RootClaimHotkeyWork {
+    for netuid in 1..=rows {
+        add_raw_row(hotkey, netuid);
+    }
+    for netuid in 1..=queued {
+        queue_raw_credit(hotkey, netuid);
+    }
+    RootClaimHotkeyWork {
+        rows: u32::from(rows),
+        queued: u32::from(queued),
+        new_rows: 0,
+    }
+}
+
+/// The weight of the call is computed by the block executive, by the fee logic and by
+/// each wrapper, and the claim checks the size of the fund. In one transaction all of
+/// them count the fund one time.
+#[test]
+fn transaction_counts_the_fund_one_time() {
+    new_test_ext(1).execute_with(|| {
+        let claimant = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let work = raw_fund(hotkey, 20, 20);
+
+        enter_transaction(3);
+        reset_root_claim_fund_counts();
+        // The first computation of the weight counts the fund and keeps the count.
+        let weight = declared(hotkey);
+        assert_eq!(weight, sized(work));
+        assert_eq!(root_claim_fund_counts(), 1);
+        assert_eq!(
+            BasketRowsCountedAt::<Test>::get(hotkey),
+            Some((this_transaction(3).0, 3, Some(work)))
+        );
+
+        // Each later computation reads the kept count.
+        for _ in 0..6 {
+            assert_eq!(declared(hotkey), weight);
+        }
+        assert_eq!(root_claim_fund_counts(), 1);
+
+        // So does the claim.
+        let actual = claim(claimant, hotkey);
+        assert_eq!(root_claim_fund_counts(), 1);
+        assert!(actual.all_lte(weight));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_key_prefix(hotkey).count(),
+            0
+        );
+
+        // The next transaction counts the fund again: the claim settled the queue.
+        enter_transaction(4);
+        assert_eq!(
+            declared(hotkey),
+            sized(RootClaimHotkeyWork { queued: 0, ..work })
+        );
+        assert_eq!(root_claim_fund_counts(), 2);
+        assert_eq!(
+            BasketRowsCountedAt::<Test>::get(hotkey).map(|(_, index, _)| index),
+            Some(4)
+        );
+    });
+}
+
+/// The transaction pool, a fee quote and a block hook are not in a user transaction.
+/// There each computation of the weight counts the fund, and none writes storage.
+#[test]
+fn nothing_is_kept_outside_a_user_transaction() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1002);
+        let work = raw_fund(hotkey, 12, 5);
+        reset_root_claim_fund_counts();
+
+        assert_storage_noop!(assert_eq!(declared(hotkey), sized(work)));
+        assert_storage_noop!(assert_eq!(declared(hotkey), sized(work)));
+        assert_eq!(root_claim_fund_counts(), 2);
+        assert_eq!(BasketRowsCountedAt::<Test>::get(hotkey), None);
+
+        // A block hook has an extrinsic index, but the inherents are not applied.
+        System::set_extrinsic_index(0);
+        assert_storage_noop!(assert_eq!(declared(hotkey), sized(work)));
+        assert_eq!(root_claim_fund_counts(), 3);
+    });
+}
+
+/// The block executive computes the weight of the first transaction of a block before it
+/// marks the inherents as applied. That count is not kept, so this one transaction counts
+/// the fund two times. The declaration has the work of two counts for every claim.
+#[test]
+fn first_transaction_of_a_block_counts_the_fund_two_times() {
+    new_test_ext(1).execute_with(|| {
+        let claimant = U256::from(1001);
+        let hotkey = U256::from(1002);
+        raw_fund(hotkey, 20, 20);
+        reset_root_claim_fund_counts();
+
+        // The block executive: the inherents are not marked as applied yet.
+        System::set_extrinsic_index(1);
+        let weight = declared(hotkey);
+        assert_eq!(BasketRowsCountedAt::<Test>::get(hotkey), None);
+        assert_eq!(root_claim_fund_counts(), 1);
+
+        // The transaction starts. The fee logic computes the weight again: that count
+        // is kept for the rest of the transaction.
+        enter_transaction(1);
+        for _ in 0..4 {
+            assert_eq!(declared(hotkey), weight);
+        }
+        claim(claimant, hotkey);
+        assert_eq!(root_claim_fund_counts(), 2);
+        assert_eq!(u64::from(crate::ROOT_CLAIM_HOTKEY_COUNTS), 2);
+    });
+}
+
+/// Each batch and each derivative call computes the weight of its inner call again when
+/// it runs. With a claim inside four such wrappers, the fund is still counted one time.
+#[test]
+fn wrappers_do_not_count_the_fund_again() {
+    new_test_ext(1).execute_with(|| {
+        let signer = U256::from(1001);
+        let hotkey = U256::from(1002);
+        raw_fund(hotkey, 20, 20);
+        // batch [ as_derivative ( batch [ as_derivative ( claim ) ] ) ]
+        let wrap = |call: RuntimeCall, index: u16| {
+            RuntimeCall::Utility(pallet_utility::Call::batch {
+                calls: vec![RuntimeCall::Utility(pallet_utility::Call::as_derivative {
+                    index,
+                    call: Box::new(call),
+                })],
+            })
+        };
+        let call = wrap(wrap(claim_call(hotkey), 1), 0);
+
+        enter_transaction(2);
+        reset_root_claim_fund_counts();
+        // The block executive, then the fee logic.
+        let info = call.get_dispatch_info();
+        assert_eq!(call.get_dispatch_info().call_weight, info.call_weight);
+        assert_eq!(root_claim_fund_counts(), 1);
+
+        assert_ok!(call.dispatch(RuntimeOrigin::signed(signer)));
+        assert_eq!(root_claim_fund_counts(), 1);
+        // No batch stopped, and the claim ran for the derived account: it settled the
+        // queue of the validator.
+        assert!(!System::events().iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::Utility(pallet_utility::Event::BatchInterrupted { .. })
+        )));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::iter_key_prefix(hotkey).count(),
+            0
+        );
+    });
+}
+
+/// The declaration has the storage work of two counts of the fund, the reads of the kept
+/// count, and the write that keeps it. The claim reports the same work after dispatch,
+/// on top of the work of the claim.
+#[test]
+fn weight_of_a_claim_covers_the_counts_of_the_fund() {
+    new_test_ext(1).execute_with(|| {
+        let db = <Test as frame_system::Config>::DbWeight::get();
+        assert_eq!(crate::ROOT_CLAIM_HOTKEY_COUNTS, 2);
+        assert_eq!(crate::ROOT_CLAIM_HOTKEY_COUNT_READS, 10);
+        // One count of a fund with 20 rows and 7 queued credits reads the 27 keys and the
+        // end of each map that it walks. The chain walks two maps. This test runtime
+        // also walks the legacy stake map, so here that is three.
+        let legacy_map: bool = <Test as crate::Config>::LegacyAlphaCompatibility::get();
+        assert!(legacy_map);
+        let ends = 3;
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_sizing_weight(20, 7),
+            db.reads_writes(2 * (27 + ends) + 10, 1)
+        );
+        // The largest fund: 257 rows and 257 queued credits.
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_sizing_weight(257, 257),
+            db.reads_writes(2 * (514 + ends) + 10, 1)
+        );
+    });
+
+    // A claim on a real fund, run two times on equal states: once as the work alone, and
+    // once as the call. The call reports the work and the counts.
+    let fund_with_queue = || {
+        let fund = real_fund(&[5 * TAO; 6], &[1]);
+        for netuid in fund.netuids.iter().take(3) {
+            queue_credit(&fund.hotkey, *netuid, TAO);
+        }
+        fund
+    };
+    let work_alone = new_test_ext(1).execute_with(|| {
+        let fund = fund_with_queue();
+        let outcome = SubtensorModule::root_claim_for_hotkey(&fund.hotkey, &fund.stakers[0], false)
+            .expect("the claim runs");
+        assert!(outcome.tao > 0);
+        SubtensorModule::root_claim_actual_weight(1, 0, &outcome)
+    });
+    new_test_ext(1).execute_with(|| {
+        let fund = fund_with_queue();
+        let work = SubtensorModule::root_claim_hotkey_work(&fund.hotkey).expect("the fund fits");
+        assert_eq!((work.rows, work.queued), (6, 3));
+        let declared_before = declared(fund.hotkey);
+        let reported = claim(fund.stakers[0], fund.hotkey);
+        let counts = SubtensorModule::root_claim_hotkey_sizing_weight(6, 3);
+        assert_eq!(reported, work_alone.saturating_add(counts));
+        assert!(reported.all_lte(declared_before));
+    });
+}
+
+/// A claim that fails after its admission is charged the counts too. A small fund is
+/// charged the fixed admission bound of 771 reads, which is more than its two counts. At
+/// the limit the two counts are more than that bound.
+#[test]
+fn claim_that_fails_after_admission_is_charged_the_counts() {
+    for (rows, queued) in [(20u16, 20u16), (257, 257)] {
+        new_test_ext(1).execute_with(|| {
+            let claimant = U256::from(1001);
+            let hotkey = U256::from(1002);
+            let work = raw_fund(hotkey, rows, queued);
+            assert_eq!(SubtensorModule::root_claim_hotkey_work(&hotkey), Some(work));
+            // The seed migration stops every claim after its admission, before any work.
+            SeedBetaBasketV2Migration::<Test>::put(SeedBetaBasketV2Progress::Convert {
+                after: None,
+                hotkey: None,
+            });
+
+            let err =
+                SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(claimant), hotkey)
+                    .expect_err("the claim fails");
+            assert_eq!(err.error, Error::<Test>::BetaBasketSeedInProgress.into());
+            let charged = err
+                .post_info
+                .actual_weight
+                .expect("an admitted claim reports its weight");
+
+            let counts = SubtensorModule::root_claim_hotkey_sizing_weight(work.rows, work.queued);
+            let admission =
+                SubtensorModule::root_claim_admission_weight(MAX_ROOT_CLAIM_HOTKEY_WORK);
+            let no_work =
+                SubtensorModule::root_claim_actual_weight(1, 0, &RootClaimOutcome::default());
+            assert_eq!(charged, no_work.saturating_add(admission.max(counts)));
+            assert!(charged.ref_time() >= no_work.saturating_add(counts).ref_time());
+            assert_eq!(counts.ref_time() > admission.ref_time(), rows == 257);
+        });
+    }
 }
 
 // =============================================================================

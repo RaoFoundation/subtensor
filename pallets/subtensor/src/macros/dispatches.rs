@@ -2227,13 +2227,18 @@ mod dispatches {
                 !Self::basket_rows_opened_in_current_transaction(&hotkey),
                 Error::<T>::RootClaimTooHeavy
             );
-            ensure!(
-                Self::root_claim_hotkey_fits_declared_budget(&hotkey),
-                Error::<T>::RootClaimTooHeavy
-            );
+            // The count of the fund that sized the declaration. A fund above the limit
+            // has none.
+            let Some(work) = Self::root_claim_hotkey_work(&hotkey) else {
+                return Err(Error::<T>::RootClaimTooHeavy.into());
+            };
 
+            // The counts of the fund are work of this call, also when the claim fails.
+            // The work counters of the claim do not count them.
+            let sizing = Self::root_claim_hotkey_sizing_weight(work.rows, work.queued);
             let admitted =
-                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work())
+                    .max(sizing);
             // The claim starts with the settlement of the claimant's deferred-dividend
             // debts. The work counters of the claim do not count it.
             let settlement =
@@ -2250,7 +2255,9 @@ mod dispatches {
             )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::root_claim_actual_weight(1, 0, &outcome).saturating_add(settlement);
+            let weight = Self::root_claim_actual_weight(1, 0, &outcome)
+                .saturating_add(settlement)
+                .saturating_add(sizing);
             Ok((Some(weight), Pays::Yes).into())
         }
 
