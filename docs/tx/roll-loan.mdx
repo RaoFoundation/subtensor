@@ -16,7 +16,7 @@ Use `batch_all(AddLoanCollateral, RollLoan)` to top up then roll.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.roll`](/code/pallets/lending/src/lib.rs#L2188-L2200) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.roll`](/code/pallets/lending/src/lib.rs#L2559-L2568) |
 
 ## Parameters
 
@@ -65,17 +65,14 @@ result = sub.execute_tool("roll_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.roll` — [`pallets/lending/src/lib.rs#L2197`](/code/pallets/lending/src/lib.rs#L2188-L2200):
+`Lending.roll` — [`pallets/lending/src/lib.rs#L2565`](/code/pallets/lending/src/lib.rs#L2559-L2568):
 
 ```rust
 #[pallet::call_index(8)]
-// Alias close until a reference-hardware re-measure (H2). Roll charges
-// interest and rewrites the expiry queue but does no AMM trade; close is
-// a safe upper bound. Plus worst-case expiry mid-list walk DbWeight
+// Interest may forfeit-search before the roll body; charge both legs
+// (skeptic fid:d283c021). Plus worst-case expiry mid-list walk DbWeight
 // (skeptic fid:98821ef3). Do not invent local execution-time numerics.
-#[pallet::weight(
-    T::WeightInfo::roll().saturating_add(Pallet::<T>::expiry_insert_weight())
-)]
+#[pallet::weight(Pallet::<T>::roll_with_interest_forfeit_weight())]
 #[transactional]
 pub fn roll(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
     let owner = ensure_signed(origin)?;

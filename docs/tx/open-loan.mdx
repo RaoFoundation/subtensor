@@ -45,7 +45,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L1977-L2011), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L2014-L2045) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open`](/code/pallets/lending/src/lib.rs#L2353-L2385), [`Lending.open_exact`](/code/pallets/lending/src/lib.rs#L2388-L2418) |
 
 ## Parameters
 
@@ -106,7 +106,7 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open` — [`pallets/lending/src/lib.rs#L1987`](/code/pallets/lending/src/lib.rs#L1977-L2011):
+`Lending.open` — [`pallets/lending/src/lib.rs#L2361`](/code/pallets/lending/src/lib.rs#L2353-L2385):
 
 ```rust
 #[pallet::call_index(0)]
@@ -114,11 +114,9 @@ result = sub.execute_tool("open_loan", {...}, wallet)
 // locks). Charge the componentwise max of both measured benchmarks
 // (Skeptic fid:75297abf). Plus worst-case expiry mid-list walk
 // (skeptic fid:98821ef3 / 600d74dc) — DbWeight only, no invented time.
-#[pallet::weight(
-    T::WeightInfo::open()
-        .max(T::WeightInfo::open_long())
-        .saturating_add(Pallet::<T>::expiry_insert_weight())
-)]
+// Increase path runs interest-exhaustion forfeit search before sizing
+// (skeptic fid:46fef61e).
+#[pallet::weight(Pallet::<T>::open_with_interest_forfeit_weight())]
 pub fn open(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -146,13 +144,12 @@ pub fn open(
 }
 ```
 
-`Lending.open_exact` — [`pallets/lending/src/lib.rs#L2018`](/code/pallets/lending/src/lib.rs#L2014-L2045):
+`Lending.open_exact` — [`pallets/lending/src/lib.rs#L2391`](/code/pallets/lending/src/lib.rs#L2388-L2418):
 
 ```rust
 #[pallet::call_index(1)]
-#[pallet::weight(
-    T::WeightInfo::open_exact().saturating_add(Pallet::<T>::expiry_insert_weight())
-)]
+// Increase path may forfeit-search before sizing (skeptic fid:46fef61e).
+#[pallet::weight(Pallet::<T>::open_exact_with_interest_forfeit_weight())]
 pub fn open_exact(
     origin: OriginFor<T>,
     netuid: NetUid,
