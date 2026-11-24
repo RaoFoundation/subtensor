@@ -13,8 +13,8 @@ on:
   workflow_dispatch:
     inputs:
       base_ref:
-        description: "Optional reviewed baseline ref for separating unrelated live drift"
-        required: false
+        description: "Required reviewed baseline ref for separating unrelated live drift"
+        required: true
         type: string
 
 permissions:
@@ -56,6 +56,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -64,24 +65,20 @@ jobs:
           cache-dependency-path: sudo/package-lock.json
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --prefix sudo
-      - name: Read the reviewed baseline parameter file when it exists
-        if: github.event_name == 'pull_request' || inputs.base_ref != ''
-        run: |
-          base_file="$RUNNER_TEMP/${NETWORK}-base.toml"
-          if ! git show "${BASE_REF}:sudo/${NETWORK}.toml" > "$base_file" 2>/dev/null; then
-            rm -f "$base_file"
-            echo "No baseline exists yet for ${NETWORK} at ${BASE_REF}; this comparison cannot infer drift."
-          fi
+      - name: Read the exact reviewed baseline and source files
+        run: bash sudo/baseline.sh >> "$GITHUB_ENV"
         env:
           NETWORK: ${{ matrix.network }}
-          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || inputs.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || inputs.base_ref }}
+          OUTPUT_DIR: ${{ runner.temp }}
       - name: Compare reviewed values with live state and encode only
         run: |
-          args=(--output-dir "$RUNNER_TEMP/${NETWORK}-proposal")
-          if [ -f "$RUNNER_TEMP/${NETWORK}-base.toml" ]; then
-            args+=(--base-file "$RUNNER_TEMP/${NETWORK}-base.toml")
+          args=(--file "$SOURCE_FILE" --output-dir "$RUNNER_TEMP/${NETWORK}-proposal")
+          if [ -s "$BASE_FILE" ]; then
+            args+=(--base-file "$BASE_FILE")
           fi
-          node sudo/diff.js "${NETWORK}" "${args[@]}"
+          node sudo/diff.js "${NETWORK}" "${args[@]}" --source-commit "$SOURCE_COMMIT" --base-commit "$BASE_COMMIT"
         env:
           NETWORK: ${{ matrix.network }}
       - name: Publish the proposal in the workflow summary

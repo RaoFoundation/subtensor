@@ -134,11 +134,12 @@ function compare(desired, chain, baseline = null) {
   return {
     values: normalize(desired),
     chainValues: normalize(chain),
+    reviewed: Boolean(baseline),
     unchanged: entries.filter((entry) => equalValue(entry.desired, entry.chain)),
     changed: entries.filter((entry) => !equalValue(entry.desired, entry.chain) &&
       (!baseline || !equalValue(entry.desired, entry.baseline))),
-    drift: entries.filter((entry) => baseline && !equalValue(entry.desired, entry.chain) &&
-      equalValue(entry.desired, entry.baseline)),
+    drift: entries.filter((entry) => !equalValue(entry.desired, entry.chain) &&
+      (!baseline || equalValue(entry.desired, entry.baseline))),
   };
 }
 
@@ -173,6 +174,12 @@ function setterCalls(diff, api) {
     if (!changes.has(id)) changes.set(id, entry);
   }
   return [...changes.values()].map((entry) => {
+    // A grouped call writes every member. Do not let an unedited live drift
+    // enter the call under the guise of a single reviewed member edit.
+    const members = entry.group ? diff.drift.filter((item) => item.group === entry.group) : [];
+    if (members.length) {
+      throw new Error(`Grouped proposal ${entry.group} also contains unrelated member drift: ${members.map((item) => item.key).join(", ")}; reconcile every member first`);
+    }
     const builder = api.tx[apiName(entry.callPallet)]?.[setterName(entry.call)];
     if (typeof builder !== "function") {
       throw new Error(`Live metadata does not contain ${entry.callPallet}.${entry.call}`);
@@ -182,6 +189,19 @@ function setterCalls(diff, api) {
       throw new Error(`Malformed live metadata for ${entry.callPallet}.${entry.call}`);
     }
     const args = entry.args(normalize(entry.desired), normalize(diff.values || Object.fromEntries(diff.changed.map((item) => [item.key, item.desired]))));
+    const affected = entry.group ? storagePlan().filter((item) => item.group === entry.group).map((item) => ({
+      key: item.key,
+      live: normalize(diff.chainValues[item.key]),
+      proposed: normalize(diff.values[item.key]),
+      storage: [item.pallet, item.item],
+      setter: `${item.callPallet}.${item.call}`,
+    })) : [{
+      key: entry.key,
+      live: normalize(entry.chain),
+      proposed: normalize(entry.desired),
+      storage: [entry.pallet, entry.item],
+      setter: `${entry.callPallet}.${entry.call}`,
+    }];
     const numeric = numericArgs(args);
     const snakeArgs = Object.fromEntries(builder.meta.fields.map((field, i) => [
       field.name.toString(),
@@ -190,11 +210,12 @@ function setterCalls(diff, api) {
     // Compose through the live registry; this validates both call existence
     // and SCALE argument types. It does not sign or submit an extrinsic.
     const call = builder(args);
-    return { key: entry.key, target: `${entry.callPallet}.${entry.call}`, args, snakeArgs, call };
+    return { key: entry.key, target: `${entry.callPallet}.${entry.call}`, args, snakeArgs, affected, call };
   });
 }
 
 function encodeProposal(diff, api) {
+  if (diff.changed.length && !diff.reviewed) return null;
   const calls = setterCalls(diff, api);
   if (!calls.length) return null;
   const batch = api.tx.utility.batchAll(calls.map(({ call }) => call));
@@ -227,8 +248,8 @@ function encodeProposal(diff, api) {
         },
       },
     },
-    setters: calls.map(({ key, target, args, snakeArgs, call }) => ({
-      key, target, args, btcliArgs: snakeArgs, callData: call.method.toHex(), callHash: call.method.hash.toHex(),
+    setters: calls.map(({ key, target, args, snakeArgs, affected, call }) => ({
+      key, target, args, btcliArgs: snakeArgs, affected, callData: call.method.toHex(), callHash: call.method.hash.toHex(),
     })),
   };
 }

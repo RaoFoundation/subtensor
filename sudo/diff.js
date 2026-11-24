@@ -10,9 +10,9 @@ const { writeProposal } = require("./lib/proposal");
 const { createKeyMulti, encodeAddress, sortAddresses } = require("@polkadot/util-crypto");
 
 function argumentsOf(argv) {
-  const options = { file: null, baseFile: null, outputDir: null, ws: null };
+  const options = { file: null, baseFile: null, outputDir: null, ws: null, sourceCommit: null, baseCommit: null };
   for (let i = 0; i < argv.length; i++) {
-    const key = { "--file": "file", "--base-file": "baseFile", "--output-dir": "outputDir", "--ws": "ws" }[argv[i]];
+    const key = { "--file": "file", "--base-file": "baseFile", "--output-dir": "outputDir", "--ws": "ws", "--source-commit": "sourceCommit", "--base-commit": "baseCommit" }[argv[i]];
     if (!key || i + 1 >= argv.length) throw new Error(`Invalid argument: ${argv[i]}`);
     options[key] = argv[++i];
   }
@@ -22,7 +22,7 @@ function argumentsOf(argv) {
 async function main() {
   const [network, ...argv] = process.argv.slice(2);
   const options = argumentsOf(argv);
-  if (!network) throw new Error("Usage: node diff.js <network> [--file FILE --base-file FILE --output-dir DIR --ws URL]");
+  if (!network) throw new Error("Usage: node diff.js <network> [--file FILE --base-file FILE --output-dir DIR --ws URL --source-commit SHA --base-commit SHA]");
   const root = __dirname;
   const file = path.resolve(options.file || path.join(root, `${network}.toml`));
   const baseFile = options.baseFile ? path.resolve(options.baseFile) : null;
@@ -55,11 +55,18 @@ async function main() {
         if (derived !== sudoKey) throw new Error("Triumvirate configuration does not derive the live sudo key");
       }
     }
-    return { diff, encoded, context: { ...context, sudoKey } };
+    return { diff, encoded, reviewed: Boolean(baseline), context: { ...context, sudoKey } };
   });
   const outputDir = path.resolve(options.outputDir || root);
-  writeProposal(result.diff, result.encoded, network, result.context, outputDir, { file, baseFile });
-  console.log(`${network}: ${result.diff.changed.length} proposed value change(s), ${result.diff.drift.length} unrelated drift item(s), ${result.diff.unchanged.length} already correct.`);
+  const provenance = options.sourceCommit ? {
+    sourceCommit: options.sourceCommit,
+    baseCommit: options.baseCommit,
+    sourceSha256: require("node:crypto").createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
+    baseSha256: baseFile ? require("node:crypto").createHash("sha256").update(fs.readFileSync(baseFile)).digest("hex") : null,
+  } : null;
+  writeProposal(result.diff, result.encoded, network, result.context, outputDir, { file, baseFile, provenance });
+  console.log(`${network}: ${result.encoded ? result.diff.changed.length : 0} proposed value change(s), ${result.diff.drift.length} unrelated drift item(s), ${result.diff.unchanged.length} already correct.`);
+  if (!result.reviewed) console.log("No exact reviewed baseline; mismatches are unclassified live drift and the report contains no call data.");
   for (const entry of result.diff.changed) console.log(`CHANGE ${entry.key}: ${JSON.stringify(entry.chain)} -> ${JSON.stringify(entry.desired)}`);
   for (const entry of result.diff.drift) console.log(`DRIFT ${entry.key}: file ${JSON.stringify(entry.desired)}, live ${JSON.stringify(entry.chain)} (not proposed)`);
   if (result.encoded) console.log(`Validated encoded call ${result.encoded.callHash}; proposal written to ${outputDir}`);

@@ -22,7 +22,7 @@ value = { bits = "1288490" }
 
 Do not substitute a decimal fraction for raw bits. Integers are quoted so 64-bit and 128-bit values do not lose precision. Enum variants are strings. An absent optional account is represented as `{ none = true }` because TOML has no null value.
 
-Each table names its exact allowed setter. The loader rejects missing, unknown, or substituted tables and setters. The `basket_claim_dust` table is one atomic four-argument call, so changing any member writes all four members shown in the file.
+Each table names its exact allowed setter. The loader rejects missing, unknown, or substituted tables and setters. The `basket_claim_dust` table is one atomic four-argument call, so changing any member writes all four members shown in the file. Every member is displayed and old-value checked. A grouped edit mixed with unrelated member drift is rejected rather than silently writing the drifted member.
 
 ## Scope
 
@@ -66,13 +66,13 @@ node sudo/diff.js mainnet \
   --output-dir /tmp/sudo-mainnet-proposal
 ```
 
-Values already equal to live state are skipped. A value edited from its base is proposed. A value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. Without `--base-file`, every live/file difference is treated as proposed and no drift is inferred. The first PR that introduces a network file therefore cannot infer drift; subsequent PRs use the base-branch file.
+Values already equal to live state are skipped. A value edited from its base is proposed. A value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. An exact reviewed baseline is required for call data: without `--base-file`, every live/file mismatch is reported as unclassified drift and the output contains no call data. CI resolves the exact PR base commit, the commit before a main push, or a required manual-dispatch baseline ref. For this first PR only, an unchanged initial export can be its own baseline, yielding a zero-change report; an edited initial file remains report-only. The proposal records source/baseline commits and file SHA-256 hashes.
 
 Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapped in `Sudo.sudo`. The tool resolves calls and argument types from live metadata and SCALE round-trips each setter and the complete outer call before writing call data.
 
 ## CI and application
 
-`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch may name a baseline ref to distinguish unrelated drift. It runs offline tests, then performs read-only comparisons for all three networks. JSON and Markdown artifacts include the finalized-block context, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
+`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch must name a reviewed baseline ref to distinguish unrelated drift. It runs offline tests, then performs read-only comparisons for all three networks. JSON and Markdown artifacts include the finalized-block context, source/baseline provenance, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
 
 **Mainnet is proposal-only. CI never signs or submits an extrinsic.**
 
@@ -80,15 +80,16 @@ Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapp
 
 ## Mainnet triumvirate review
 
-A changed mainnet proposal includes `mainnet-args.json` and `mainnet-countersign.py`. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`.
+A changed mainnet proposal contains data-only JSON/Markdown artifacts and `mainnet-args.json`. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
 
-On a trusted signer machine, install the repository SDK and inspect the JSON and Markdown artifacts. From the artifact directory:
+On a trusted signer machine, install the repository SDK and inspect the JSON and Markdown artifacts. In a **separately reviewed repository checkout**, rerun the diff from the exact recorded source and baseline commits and independently confirm the call hash. Then run the checked-in verifier against the downloaded data-only artifact:
 
 ```bash
-SUDO_WALLET=<WALLET> python3 mainnet-countersign.py mainnet-proposal.json
+SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/mainnet-proposal.json \
+  --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>
 ```
 
-The script first recomposes the call with the SDK against live metadata, verifies the signer-set derivation, call hash, and proposed old values, then invokes the standard `btcli call Sudo.sudo --args-file ... --multisig-account-mode legacy` approval flow. It contains no keys and does not accept seed material. Each signer independently reviews the decoded calls and hash before allowing `btcli` to use their own local wallet. The first approval creates the pending multisig operation; the final required approval executes it.
+Never execute a verifier downloaded from an artifact. The checked-in script recomposes the call with the SDK against live metadata, verifies the signer-set derivation, independently supplied call hash, and every affected old value, then invokes the standard `btcli call Sudo.sudo --args-file ... --multisig-account-mode legacy` approval flow. It contains no keys and does not accept seed material. Each signer independently reviews the decoded calls and hash before allowing `btcli` to use their own local wallet. The first approval creates the pending multisig operation; the final required approval executes it.
 
 The runtime-upgrade `SudoUncheckedSetCode` proxy cannot apply arbitrary parameter calls. Do not reuse a proposal after a runtime upgrade or out-of-band change; regenerate and review it instead.
 

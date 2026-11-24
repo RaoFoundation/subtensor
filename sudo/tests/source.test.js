@@ -36,7 +36,7 @@ test("every setter exists as an ensure_root function in the checked-in pallet", 
 test("CLI rejects a baseline file for the wrong network", () => {
   const { argumentsOf } = require("../diff");
   assert.deepEqual(argumentsOf(["--file", "desired.toml", "--base-file", "base.toml"]), {
-    file: "desired.toml", baseFile: "base.toml", outputDir: null, ws: null,
+    file: "desired.toml", baseFile: "base.toml", outputDir: null, ws: null, sourceCommit: null, baseCommit: null,
   });
   assert.throws(() => argumentsOf(["--unknown"]), /Invalid argument/);
 });

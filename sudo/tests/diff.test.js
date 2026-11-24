@@ -121,11 +121,13 @@ test("skips unchanged values and proposes only deliberate file edits", () => {
   assert.deepEqual(diff.drift.map((entry) => entry.key), ["tx_rate_limit"]);
 });
 
-test("without a base file, differing values are proposed and no drift is inferred", () => {
+test("without a base file, mismatches are unclassified drift and produce no call", () => {
   const { values } = fixture();
   const diff = compare({ ...values, subnet_limit: "161" }, values);
+  assert.equal(diff.reviewed, false);
   assert.deepEqual(diff.changed.map((entry) => entry.key), ["subnet_limit"]);
-  assert.equal(diff.drift.length, 0);
+  assert.deepEqual(diff.drift.map((entry) => entry.key), ["subnet_limit"]);
+  assert.equal(encodeProposal(diff, fakeApi()), null);
 });
 
 test("grouped basket dust is one atomic call using all four fields", () => {
@@ -137,6 +139,17 @@ test("grouped basket dust is one atomic call using all four fields", () => {
   assert.equal(dust.length, 1);
   assert.deepEqual(dust[0].args, { rowCapRao: "1", rowBps: "10", sliceRao: "1", forfeitCapRao: "1" });
   assert.deepEqual(dust[0].btcliArgs, { row_cap_rao: 1, row_bps: 10, slice_rao: 1, forfeit_cap_rao: 1 });
+  assert.deepEqual(dust[0].affected.map((entry) => entry.key), [
+    "basket_claim_dust.row_cap_rao", "basket_claim_dust.row_bps",
+    "basket_claim_dust.slice_rao", "basket_claim_dust.forfeit_cap_rao",
+  ]);
+});
+
+test("a grouped proposal rejects unrelated member drift", () => {
+  const { values } = fixture();
+  const chain = { ...values, "basket_claim_dust.row_cap_rao": "999" };
+  const diff = compare({ ...values, "basket_claim_dust.row_bps": "10" }, chain, values);
+  assert.throws(() => encodeProposal(diff, fakeApi()), /unrelated member drift.*row_cap_rao/);
 });
 
 test("composes batch and sudo, validates round-trip, and emits snake-case btcli args", () => {
