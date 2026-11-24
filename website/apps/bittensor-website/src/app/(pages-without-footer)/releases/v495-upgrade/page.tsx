@@ -1074,6 +1074,12 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               this call.
             </li>
             <li>
+              A claim inside a multisig has no fee cap. Its <code>max_weight</code> must be at
+              least the weight that the claim reserves. That was the fixed 2,093 ms. Now it is
+              the weight of the fund, which is lower for the funds of today. Take{' '}
+              <code>max_weight</code> from a current fee quote.
+            </li>
+            <li>
               If you did not update for V494, also add its calls, storage items, events, and
               errors.
             </li>
