@@ -2661,7 +2661,9 @@ pub mod pallet {
         /// Worst-case expiry settle under constrained impact search.
         /// Takes the max of short [`WeightInfo::settle`] and long
         /// [`WeightInfo::settle_long`] so collectors cover both sides'
-        /// nested AMM search work (skeptic fid:13d1d6a8 / 2d40f9ac).
+        /// nested AMM search work, including the long combined-residual
+        /// sale that reuses the precomputed impact cap (no second search;
+        /// skeptic fid:13d1d6a8 / 2d40f9ac / 468a71b2).
         pub(crate) fn settle_with_buyback_search_weight() -> Weight {
             T::WeightInfo::settle().max(T::WeightInfo::settle_long())
         }
@@ -6679,59 +6681,67 @@ pub mod pallet {
                     let mut repay = raised.min(principal);
                     let mut sold_escrow = position.escrow_alpha.saturating_sub(escrow_left);
                     let mut sold_coll = position.collateral.saturating_sub(coll_left);
-                    let alpha_left = escrow_left.saturating_add(coll_left);
-                    // Residual progress: only verified dust → terminal; other
-                    // quote errors defer; impact-fit sale size must be > 0
-                    // (skeptic fid:6088994c / ca547fa3 / b5aaf680).
-                    let can_progress = if alpha_left == 0 {
-                        false
-                    } else {
+                    let mut alpha_left = escrow_left.saturating_add(coll_left);
+                    // Classify residual once: sellable+cap, verified dust, or
+                    // other Err. Reuse the cap for the combined sale so the
+                    // fallback is not a second unbounded search
+                    // (skeptic fid:5e401aab / 468a71b2 / 6088994c).
+                    let mut residual_cap = 0u64;
+                    let mut residual_sellable = false;
+                    if alpha_left > 0 {
                         match T::Pool::quote_sell(netuid, alpha_left.into()) {
                             Ok(r) if r.to_u64() > 0 => {
-                                Self::max_forced_sell_alpha(netuid, alpha_left, force_market)? > 0
+                                residual_sellable = true;
+                                residual_cap =
+                                    Self::max_forced_sell_alpha(netuid, alpha_left, force_market)?;
                             }
-                            Ok(_) => false,
-                            Err(e) if T::Pool::quote_may_round_to_zero(&e) => false,
+                            Ok(_) => {}
+                            Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
                             Err(e) => return Err(e),
                         }
-                    };
+                    }
+                    let can_progress = residual_sellable && residual_cap > 0;
                     // Split sales rounded to zero while combined α still
-                    // quotes: try one impact-capped combined residual sale.
+                    // quotes: one impact-capped combined sale with the
+                    // already-computed cap (skeptic fid:ca547fa3 / 468a71b2).
                     if repay == 0 && can_progress {
-                        let cap = Self::max_forced_sell_alpha(netuid, alpha_left, force_market)?;
-                        if cap > 0 {
-                            match T::Pool::forced_sell_into_escrow(
-                                &escrow,
-                                &custody,
-                                &escrow,
-                                netuid,
-                                cap.into(),
-                                0u64.into(),
-                                skip_flow,
-                            ) {
-                                Ok(out) if out.to_u64() > 0 => {
-                                    raised = Self::add(raised, out.to_u64())?;
-                                    sold_alpha = Self::add(sold_alpha, cap)?;
-                                    let from_escrow = cap.min(escrow_left);
-                                    escrow_left = escrow_left.saturating_sub(from_escrow);
-                                    coll_left =
-                                        coll_left.saturating_sub(cap.saturating_sub(from_escrow));
-                                    sold_escrow = position.escrow_alpha.saturating_sub(escrow_left);
-                                    sold_coll = position.collateral.saturating_sub(coll_left);
-                                    repay = raised.min(principal);
-                                    if enforce_realized_slippage {
-                                        Self::ensure_realized_sell_within_slippage(
-                                            netuid, raised, sold_alpha,
-                                        )?;
-                                    }
+                        match T::Pool::forced_sell_into_escrow(
+                            &escrow,
+                            &custody,
+                            &escrow,
+                            netuid,
+                            residual_cap.into(),
+                            0u64.into(),
+                            skip_flow,
+                        ) {
+                            Ok(out) if out.to_u64() > 0 => {
+                                raised = Self::add(raised, out.to_u64())?;
+                                sold_alpha = Self::add(sold_alpha, residual_cap)?;
+                                let from_escrow = residual_cap.min(escrow_left);
+                                escrow_left = escrow_left.saturating_sub(from_escrow);
+                                coll_left = coll_left
+                                    .saturating_sub(residual_cap.saturating_sub(from_escrow));
+                                sold_escrow = position.escrow_alpha.saturating_sub(escrow_left);
+                                sold_coll = position.collateral.saturating_sub(coll_left);
+                                repay = raised.min(principal);
+                                alpha_left = escrow_left.saturating_add(coll_left);
+                                if enforce_realized_slippage {
+                                    Self::ensure_realized_sell_within_slippage(
+                                        netuid, raised, sold_alpha,
+                                    )?;
                                 }
-                                Ok(_) => {}
-                                Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
-                                Err(e) => return Err(e),
                             }
+                            Ok(_) => {}
+                            Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
+                            Err(e) => return Err(e),
                         }
                     }
-                    if repay < principal && can_progress && repay > 0 {
+                    // Positive repay with leftover α: persist and keep
+                    // collateral for retry when impact room is exhausted —
+                    // never burn sellable α (skeptic fid:5e401aab). When
+                    // α is gone but repay < P, fall through to terminal
+                    // write-off of the underwater remainder.
+                    if repay < principal && repay > 0 && alpha_left > 0 {
                         let slice_lift_tao = Self::scale_part(position.lift_tao, repay, principal);
                         let slice_lift_alpha =
                             Self::scale_part(position.lift_alpha, repay, principal);
@@ -6795,6 +6805,24 @@ pub mod pallet {
                                 .saturating_add(u128::from(sold_alpha));
                         });
                         return Ok(false);
+                    }
+                    // Zero repay + still-sellable leftover with no impact room
+                    // (or a no-op combined sale): defer — do not burn collateral
+                    // that can still raise TAO next block (skeptic fid:5e401aab).
+                    if repay == 0 && alpha_left > 0 && residual_sellable && residual_cap == 0 {
+                        return Err(Error::<T>::SettlementPriceOutsideEmaBand.into());
+                    }
+                    if repay == 0 && alpha_left > 0 && can_progress {
+                        // Combined sale was attempted above and raised nothing
+                        // while the residual still quotes — defer, not burn.
+                        match T::Pool::quote_sell(netuid, alpha_left.into()) {
+                            Ok(r) if r.to_u64() > 0 => {
+                                return Err(Error::<T>::SettlementPriceOutsideEmaBand.into());
+                            }
+                            Ok(_) => {}
+                            Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
+                            Err(e) => return Err(e),
+                        }
                     }
                     let surplus_tao = raised.saturating_sub(repay);
                     if repay > 0 {
@@ -9365,53 +9393,57 @@ pub mod pallet {
                                 }
                             }
                         }
-                        let alpha_left = escrow_left.saturating_add(coll_left);
-                        let can_progress = if alpha_left == 0 {
-                            false
-                        } else {
+                        let mut alpha_left = escrow_left.saturating_add(coll_left);
+                        let mut residual_cap = 0u64;
+                        let mut residual_dust = alpha_left == 0;
+                        let mut residual_sellable = false;
+                        if alpha_left > 0 {
                             match T::Pool::quote_sell(netuid, alpha_left.into()) {
                                 Ok(r) if r.to_u64() > 0 => {
-                                    Self::max_forced_sell_alpha(netuid, alpha_left, force_market)?
-                                        > 0
+                                    residual_sellable = true;
+                                    residual_cap = Self::max_forced_sell_alpha(
+                                        netuid,
+                                        alpha_left,
+                                        force_market,
+                                    )?;
                                 }
-                                Ok(_) => false,
-                                Err(e) if T::Pool::quote_may_round_to_zero(&e) => false,
+                                Ok(_) => residual_dust = true,
+                                Err(e) if T::Pool::quote_may_round_to_zero(&e) => {
+                                    residual_dust = true;
+                                }
                                 Err(e) => return Err(e),
                             }
-                        };
-                        // Combined residual sale when split fills raised 0
-                        // (skeptic fid:ca547fa3 / 6088994c). Before impact
-                        // accounting so sold_alpha / raised stay consistent.
+                        }
+                        let can_progress = residual_sellable && residual_cap > 0;
+                        // Combined residual sale when split fills raised 0 —
+                        // reuse residual_cap (skeptic fid:ca547fa3 / 468a71b2).
                         if raised == 0 && can_progress {
-                            let cap =
-                                Self::max_forced_sell_alpha(netuid, alpha_left, force_market)?;
-                            if cap > 0 {
-                                match T::Pool::forced_sell_into_escrow(
-                                    &escrow,
-                                    &custody,
-                                    &escrow,
-                                    netuid,
-                                    cap.into(),
-                                    0u64.into(),
-                                    skip_flow,
-                                ) {
-                                    Ok(out) if out.to_u64() > 0 => {
-                                        raised = Self::add(raised, out.to_u64())?;
-                                        sold_alpha = Self::add(sold_alpha, cap)?;
-                                        let from_escrow = cap.min(escrow_left);
-                                        escrow_left = escrow_left.saturating_sub(from_escrow);
-                                        coll_left = coll_left
-                                            .saturating_sub(cap.saturating_sub(from_escrow));
-                                        if realized_guard {
-                                            Self::ensure_realized_sell_within_slippage(
-                                                netuid, raised, sold_alpha,
-                                            )?;
-                                        }
+                            match T::Pool::forced_sell_into_escrow(
+                                &escrow,
+                                &custody,
+                                &escrow,
+                                netuid,
+                                residual_cap.into(),
+                                0u64.into(),
+                                skip_flow,
+                            ) {
+                                Ok(out) if out.to_u64() > 0 => {
+                                    raised = Self::add(raised, out.to_u64())?;
+                                    sold_alpha = Self::add(sold_alpha, residual_cap)?;
+                                    let from_escrow = residual_cap.min(escrow_left);
+                                    escrow_left = escrow_left.saturating_sub(from_escrow);
+                                    coll_left = coll_left
+                                        .saturating_sub(residual_cap.saturating_sub(from_escrow));
+                                    alpha_left = escrow_left.saturating_add(coll_left);
+                                    if realized_guard {
+                                        Self::ensure_realized_sell_within_slippage(
+                                            netuid, raised, sold_alpha,
+                                        )?;
                                     }
-                                    Ok(_) => {}
-                                    Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
-                                    Err(e) => return Err(e),
                                 }
+                                Ok(_) => {}
+                                Err(e) if T::Pool::quote_may_round_to_zero(&e) => {}
+                                Err(e) => return Err(e),
                             }
                         }
                         let impact_fair = if sold_alpha > 0 {
@@ -9430,11 +9462,28 @@ pub mod pallet {
                             impact_fair,
                             impact_realized,
                         )?;
-                        // Impact-capped partial while leftover α can still
-                        // raise TAO. Unsellable dust → InsufficientEscrow on
-                        // the solvent path (forfeit handles terminal write-off).
+                        // Partial while raised > 0 and leftover α remains.
+                        // Dust / empty → InsufficientEscrow (forfeit).
+                        // Impact-blocked sellable with raised==0 → defer
+                        // (skeptic fid:5e401aab).
                         if raised < principal {
-                            ensure!(can_progress && raised > 0, Error::<T>::InsufficientEscrow);
+                            if raised == 0 {
+                                if residual_dust || alpha_left == 0 {
+                                    return Err(Error::<T>::InsufficientEscrow.into());
+                                }
+                                if residual_sellable && residual_cap == 0 {
+                                    return Err(Error::<T>::SettlementPriceOutsideEmaBand.into());
+                                }
+                                if can_progress {
+                                    return Err(Error::<T>::SettlementPriceOutsideEmaBand.into());
+                                }
+                                return Err(Error::<T>::InsufficientEscrow.into());
+                            }
+                            if alpha_left == 0 {
+                                // Sold everything still short of P — solvent
+                                // path cannot clear without forfeit.
+                                return Err(Error::<T>::InsufficientEscrow.into());
+                            }
                             let repay = raised;
                             let slice_lift_tao =
                                 Self::scale_part(position.lift_tao, repay, principal);
