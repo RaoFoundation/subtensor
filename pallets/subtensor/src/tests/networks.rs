@@ -1850,6 +1850,29 @@ fn prune_selects_network_with_lowest_price() {
 }
 
 #[test]
+fn prune_ranks_by_slow_dereg_price_not_emission_moving_price() {
+    new_test_ext(0).execute_with(|| {
+        let n1 = add_dynamic_network(&U256::from(20), &U256::from(10));
+        let n2 = add_dynamic_network(&U256::from(40), &U256::from(30));
+        let n3 = add_dynamic_network(&U256::from(60), &U256::from(50));
+        System::set_block_number(SubtensorModule::get_network_immunity_period() + 10);
+
+        // Emission EMA says n1 is cheapest; the slow dereg price says n2.
+        SubnetMovingPrice::<Test>::insert(n1, I96F32::from_num(0.1));
+        SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(0.9));
+        SubnetMovingPrice::<Test>::insert(n3, I96F32::from_num(0.5));
+        set_mock_dereg_price(n1, U64F64::from_num(0.8));
+        set_mock_dereg_price(n2, U64F64::from_num(0.2));
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(n2));
+
+        // n3 has no dereg sample yet and falls back to its emission moving price.
+        assert_eq!(SubtensorModule::dereg_rank_price(n3), U64F64::from_num(0.5));
+        set_mock_dereg_price(n2, U64F64::from_num(0.6));
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(n3));
+    });
+}
+
+#[test]
 fn prune_ignores_immune_network_even_if_lower_price() {
     new_test_ext(0).execute_with(|| {
         // create mature network n1 first

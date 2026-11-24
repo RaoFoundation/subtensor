@@ -1,4 +1,5 @@
 use super::*;
+use pallet_lending::LendingInterface;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::NetUid;
 
@@ -59,6 +60,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         for netuid in netuids.iter().copied() {
             if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
                 Self::update_moving_price(netuid);
+                T::Lending::update_dereg_moving_price(netuid);
             }
         }
         for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {

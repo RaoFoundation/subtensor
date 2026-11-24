@@ -58,10 +58,10 @@ pub enum ProxyType {
     Lock,
     /// Spend gamma deposits only (`spend_gamma`).
     GammaSpend,
-    /// Operate Lift lending only: open / close / repay / roll / raise /
-    /// warm_reference, plus Utility batch wrappers of those calls. No
-    /// transfers, staking, or root lending knobs. Appended at the end so
-    /// existing ProxyType indices stay stable.
+    /// Operate synthetic shorts only: open / increase / close a short, add or
+    /// withdraw collateral, and poke, plus Utility batch wrappers of those
+    /// calls. No transfers, staking, or root lending knobs. Appended at the
+    /// end so existing ProxyType indices stay stable.
     Lending,
 }
 

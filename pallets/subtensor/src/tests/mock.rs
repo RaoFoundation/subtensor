@@ -588,6 +588,16 @@ thread_local! {
         const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
     /// Optional hotkey treated as the lending custody hotkey (flow-exclusion tests).
     static MOCK_CUSTODY_HOTKEY: Cell<Option<U256>> = const { Cell::new(None) };
+    /// Injected `dereg_moving_price` per subnet. Cleared in `new_test_ext`.
+    static MOCK_DEREG_PRICES: RefCell<sp_std::collections::btree_map::BTreeMap<NetUid, U64F64>> =
+        const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
+}
+
+/// Inject the slow dereg-ranking price lending reports for `netuid`.
+pub fn set_mock_dereg_price(netuid: NetUid, price: U64F64) {
+    MOCK_DEREG_PRICES.with(|m| {
+        m.borrow_mut().insert(netuid, price);
+    });
 }
 
 /// Set how many lending positions `coldkey` reports to coldkey-swap admission.
@@ -646,6 +656,9 @@ impl pallet_lending::LendingInterface<U256> for MockLending {
     }
     fn is_custody_hotkey(hotkey: &U256) -> bool {
         MOCK_CUSTODY_HOTKEY.with(|c| c.get() == Some(*hotkey))
+    }
+    fn dereg_moving_price(netuid: NetUid) -> Option<U64F64> {
+        MOCK_DEREG_PRICES.with(|m| m.borrow().get(&netuid).copied())
     }
 }
 
@@ -897,6 +910,7 @@ pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
     ProtectedOwnerAccounts::set(Vec::new());
     init_logs_for_tests();
     clear_mock_lending_positions();
+    MOCK_DEREG_PRICES.with(|m| m.borrow_mut().clear());
     set_mock_custody_hotkey(None);
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()

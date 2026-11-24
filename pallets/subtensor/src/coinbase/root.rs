@@ -18,6 +18,7 @@
 use super::*;
 use crate::staking::BasketFlushWork;
 use crate::weights::WeightInfo;
+use pallet_lending::LendingInterface;
 use safe_math::*;
 use substrate_fixed::types::{I64F64, U64F64};
 use subtensor_runtime_common::{NetUid, TaoBalance, Token};
@@ -391,6 +392,15 @@ impl<T: Config> Pallet<T> {
         LastRateLimitedBlock::<T>::remove(rate_limit_key);
     }
 
+    /// Price that ranks `netuid` for pruning: lending's slow moving average of
+    /// raw spot (shorts may push it down, but only through sustained
+    /// pressure). Falls back to the emission moving price before its first
+    /// sample.
+    pub fn dereg_rank_price(netuid: NetUid) -> U64F64 {
+        T::Lending::dereg_moving_price(netuid)
+            .unwrap_or_else(|| Self::get_moving_alpha_price(netuid))
+    }
+
     pub fn get_network_to_prune() -> Option<NetUid> {
         let current_block: u64 = Self::get_current_block_as_u64();
 
@@ -410,7 +420,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let price: U64F64 = Self::get_moving_alpha_price(netuid);
+            let price: U64F64 = Self::dereg_rank_price(netuid);
 
             // If tie on price, earliest registration wins.
             if price < candidate_price

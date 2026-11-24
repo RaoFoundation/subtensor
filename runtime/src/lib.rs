@@ -1537,28 +1537,17 @@ impl pallet_crowdloan::Config for Runtime {
     type MaxContributors = MaxContributors;
 }
 
-// Lending (Jacob v5.1 lift / escrow).
-// Economic knobs (max_loan_duration, max_settlement_deferral, young_short
-// window, minimum_loan_value, …) live in LiftParams / LiftParamsStore — not
-// as Config constants (μ Shorting 101821).
+// Lending (synthetic-mint shorts). Economic knobs live in `SynthParams` /
+// `SynthParamsStore` — not as Config constants (μ Shorting 101821).
 parameter_types! {
     pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
-    // Spec §6: weekly coupon collection. 100 was a fork-test remnant (~20 min);
-    // 50_400 ≈ 7 days at 12 s blocks. Snapshotted onto positions at open.
-    pub const LendingInterestPeriod: BlockNumber = 50_400;
+    // SPEC P15: accrue per block, charge every 360 blocks (~72 min).
+    pub const LendingInterestPeriod: BlockNumber = 360;
     pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
-    pub const LendingReferenceWarmup: BlockNumber = 7_200; // ~24h
     pub const LendingMaxPositionsPerSubnet: u32 = 10_000;
     pub const LendingMaxTotalPositions: u32 = 1_000_000;
-    // ~20 min at 12 s blocks: defer failed expiry settles without stalling the queue.
-    pub const LendingExpiryRetryDelay: BlockNumber = 100;
-    // Same bound for failed interest collections (Auditor fid:2aff7381).
+    // ~20 min at 12 s blocks for failed interest collections (Auditor fid:2aff7381).
     pub const LendingInterestRetryDelay: BlockNumber = 100;
-    /// Next-block retry after a partial forced unwind / impact-budget hit.
-    pub const LendingForcedSettlementRetryDelay: BlockNumber = 1;
-    /// Hard compile-time cap on expiry settles per `on_initialize` (weight safety).
-    /// Live LiftParams.max_expiry_settlements_per_block must be ≤ this.
-    pub const LendingMaxExpirySettlementsPerBlock: u32 = 16;
 }
 
 impl pallet_lending::Config for Runtime {
@@ -1566,13 +1555,9 @@ impl pallet_lending::Config for Runtime {
     type PalletId = LendingPalletId;
     type InterestPeriod = LendingInterestPeriod;
     type BlocksPerYear = LendingBlocksPerYear;
-    type ReferenceWarmup = LendingReferenceWarmup;
     type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
     type MaxTotalPositions = LendingMaxTotalPositions;
-    type ExpiryRetryDelay = LendingExpiryRetryDelay;
     type InterestRetryDelay = LendingInterestRetryDelay;
-    type ForcedSettlementRetryDelay = LendingForcedSettlementRetryDelay;
-    type MaxExpirySettlementsPerBlock = LendingMaxExpirySettlementsPerBlock;
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
 }
 
@@ -1916,38 +1901,10 @@ type Migrations = (
     // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
     // one-shot marker.
     pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
-    // Lending: one-shot warm of References/G_ema for live subnets, widen LiftParams
-    // with ema_band_bps, drop the stored Position hotkey and its indexes, then
-    // append terms_version / interest cadence snapshots for versioned loan rules.
-    // Registered here (not the pallet hook) so try-runtime executes pre/post-upgrade
-    // validation against real network state.
-    pallet_lending::migrations::WarmReferencesMigration<Runtime>,
-    pallet_lending::migrations::LiftParamsEmaBandMigration<Runtime>,
-    // Split apr_bps and append root-settable duration / min-loan / settle knobs.
-    pallet_lending::migrations::LiftParamsEconomicMigration<Runtime>,
-    // Append expiry_max_slippage_bps (default 200) for expiry AMM MEV bound.
-    pallet_lending::migrations::LiftParamsExpirySlippageMigration<Runtime>,
-    // Append thin_blend_tao (default 3000 τ) for continuous thin→full floor/LTV.
-    pallet_lending::migrations::LiftParamsThinBlendMigration<Runtime>,
-    // Launch defaults: short APR 20%, LTV 33%, Cap_short ≈ 2× Cap_long.
-    pallet_lending::migrations::LiftParamsLaunchDefaultsMigration<Runtime>,
-    // Append forced_min_buyback_bps (default 100 = 1% of remaining principal).
-    pallet_lending::migrations::LiftParamsForcedMinBuybackMigration<Runtime>,
-    // Append short_book_max_pool_alpha_bps (15%) and revert 2× Cap_short split.
-    pallet_lending::migrations::LiftParamsShortBookAlphaMigration<Runtime>,
-    // Utilization short APR curve + long_book_max_pool_tao_bps (15%).
-    pallet_lending::migrations::LiftParamsUtilAprLongBookMigration<Runtime>,
-    pallet_lending::migrations::DropPositionHotkeyMigration<Runtime>,
-    pallet_lending::migrations::PositionTermsVersionMigration<Runtime>,
-    pallet_lending::migrations::ClearInvariantBaselineMigration<Runtime>,
-    pallet_lending::migrations::ResetN24ShortfallCountersMigration<Runtime>,
-    // v5.8: append LiftBook.short_sold_alpha for net-long emission.
-    pallet_lending::migrations::LiftBookShortSoldMigration<Runtime>,
-    // Hard 30-day LiftParams.max_loan_duration: rewrite live rows to terms v2, rebuild
-    // expiry queues, clear stale band-deferral stamps (mainnet has none).
-    pallet_lending::migrations::PositionMaxDurationMigration<Runtime>,
-    // Bound DueTail rebuild (was unbounded in on_runtime_upgrade; audit M2).
-    pallet_lending::migrations::RebuildDueTailMigration<Runtime>,
+    // Lending: drop every lift-era item and install SynthParams defaults with
+    // synthetic shorts disabled until root enables them. DeregMovingPrice seeds
+    // at spot on the first block.
+    pallet_lending::migrations::MigrateToSynthShortsV1<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2965,111 +2922,27 @@ impl_runtime_apis! {
     }
 
     impl pallet_lending_runtime_api::LendingRuntimeApi<Block, AccountId> for Runtime {
-        fn quote_open(
+        fn quote_open_short(
             netuid: u16,
-            side: pallet_lending::Side,
-            collateral: u64,
-        ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
-            pallet_lending::Pallet::<Runtime>::quote_open(netuid.into(), side, collateral)
+            mint: u64,
+        ) -> Result<pallet_lending::ShortOpenQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_open_short(netuid.into(), mint)
         }
 
-        fn quote_open_for(
+        fn quote_close_short(
             owner: AccountId,
             netuid: u16,
-            side: pallet_lending::Side,
-            collateral: u64,
-            source_hotkey: Option<AccountId>,
-        ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
-            pallet_lending::Pallet::<Runtime>::quote_open_for(
-                &owner,
-                netuid.into(),
-                side,
-                collateral,
-                source_hotkey.as_ref(),
-            )
+            alpha: u64,
+        ) -> Result<pallet_lending::ShortCloseQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_close_short(&owner, netuid.into(), alpha)
         }
 
-        fn quote_open_exact_for(
-            owner: AccountId,
-            netuid: u16,
-            side: pallet_lending::Side,
-            collateral: u64,
-            source_hotkey: Option<AccountId>,
-            principal: u64,
-        ) -> Result<pallet_lending::OpeningQuote, sp_runtime::DispatchError> {
-            pallet_lending::Pallet::<Runtime>::quote_open_exact_for(
-                &owner,
-                netuid.into(),
-                side,
-                collateral,
-                source_hotkey.as_ref(),
-                principal,
-            )
-        }
-
-        fn quote_close(
-            owner: AccountId,
-            netuid: u16,
-            hotkey: Option<AccountId>,
-            repay_from_wallet: bool,
-        ) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
-            pallet_lending::Pallet::<Runtime>::quote_close(
-                &owner,
-                netuid.into(),
-                hotkey.as_ref(),
-                repay_from_wallet,
-            )
-        }
-
-        fn quote_repay(
-            owner: AccountId,
-            netuid: u16,
-            hotkey: Option<AccountId>,
-            principal_part: u64,
-            repay_from_wallet: bool,
-        ) -> Result<pallet_lending::ClosingQuote, sp_runtime::DispatchError> {
-            pallet_lending::Pallet::<Runtime>::quote_repay(
-                &owner,
-                netuid.into(),
-                hotkey.as_ref(),
-                principal_part,
-                repay_from_wallet,
-            )
-        }
-
-        fn quote_raise(
-            owner: AccountId,
-            netuid: u16,
-            hotkey: AccountId,
-            amount: Option<u64>,
-            collateral: Option<u64>,
-            sell: Option<u64>,
-        ) -> Result<pallet_lending::RaiseQuote, sp_runtime::DispatchError> {
-            pallet_lending::Pallet::<Runtime>::quote_raise(
-                &owner,
-                netuid.into(),
-                &hotkey,
-                amount,
-                collateral,
-                sell,
-            )
-        }
-
-        fn lending_stats(netuid: u16) -> pallet_lending::LendingStats {
-            pallet_lending::Pallet::<Runtime>::lending_stats(netuid.into())
-        }
-
-        fn lending_stats_global() -> pallet_lending::LendingStats {
-            pallet_lending::Pallet::<Runtime>::lending_stats_global()
+        fn short_health(owner: AccountId, netuid: u16) -> Option<pallet_lending::ShortHealth> {
+            pallet_lending::Pallet::<Runtime>::short_health(&owner, netuid.into())
         }
 
         fn current_terms_version() -> u16 {
-            let v = pallet_lending::CurrentTermsVersion::<Runtime>::get();
-            if v == 0 {
-                pallet_lending::TERMS_VERSION_V2
-            } else {
-                v
-            }
+            pallet_lending::TERMS_VERSION
         }
     }
 
