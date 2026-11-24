@@ -2188,7 +2188,10 @@ pub mod pallet {
                 .consumed()
                 .saturating_add(T::WeightInfo::update_reference().saturating_mul(n))
                 .saturating_add(T::DbWeight::get().reads_writes(2, 2))
-                .saturating_add(Weight::from_parts(0, Self::EXPIRY_SCALAR_PROOF.saturating_mul(2)))
+                .saturating_add(Weight::from_parts(
+                    0,
+                    Self::EXPIRY_SCALAR_PROOF.saturating_mul(2),
+                ))
         }
 
         fn on_finalize(now: BlockNumberFor<T>) {
@@ -7526,7 +7529,10 @@ pub mod pallet {
             // Reserve the full empty-book cleanup up front so a near-empty
             // meter cannot clear ten keys after a one-write charge
             // (skeptic fid:a9fb69a7).
-            if meter.try_consume(Self::empty_book_cleanup_weight()).is_err() {
+            if meter
+                .try_consume(Self::empty_book_cleanup_weight())
+                .is_err()
+            {
                 return;
             }
             if TotalPositions::<T>::get() == 0 {
@@ -7694,7 +7700,10 @@ pub mod pallet {
                         Self::resume_expiry_collect(at, last_done);
                         return 0;
                     }
-                    if meter.try_consume(Self::settle_with_buyback_search_weight()).is_err() {
+                    if meter
+                        .try_consume(Self::settle_with_buyback_search_weight())
+                        .is_err()
+                    {
                         // Row was fetched under peek weight; resume from
                         // last_done so this key is retried (iter_prefix_from
                         // is exclusive of the cursor) — unless the prior
@@ -7916,7 +7925,10 @@ pub mod pallet {
                         NextExpiryRetry::<T>::put(at);
                         return 0;
                     }
-                    if meter.try_consume(Self::settle_with_buyback_search_weight()).is_err() {
+                    if meter
+                        .try_consume(Self::settle_with_buyback_search_weight())
+                        .is_err()
+                    {
                         if let Some(done) = last_done {
                             ExpiryRetryCursor::<T>::put(done);
                         }
@@ -8270,7 +8282,10 @@ pub mod pallet {
             };
             let phase = DissolutionPhase::<T>::get(netuid);
             if phase == 0 {
-                if meter.try_consume(Self::settle_with_buyback_search_weight()).is_err() {
+                if meter
+                    .try_consume(Self::settle_with_buyback_search_weight())
+                    .is_err()
+                {
                     return false;
                 }
                 // §13.2.2: read live pot after phase-0 basket → root sales.
