@@ -119,10 +119,23 @@ def _hotkey_claim_bound_ref_time(units: int, queued: int) -> int:
     )
 
 
+# Runtime ``ROOT_CLAIM_HOTKEY_COUNTS``: a transaction counts a fund at most two times. It
+# counts one time and keeps the count; the first transaction of a block can count twice.
+_HOTKEY_CLAIM_COUNTS = 2
+# Runtime ``ROOT_CLAIM_HOTKEY_COUNT_READS``: reads of the kept count and of the
+# same-transaction guard that one declaration covers.
+_HOTKEY_CLAIM_COUNT_READS = 10
+
+
 def _hotkey_claim_sizing_ref_time(rows: int, queued: int) -> int:
-    """``Pallet::root_claim_hotkey_sizing_weight(rows, queued)`` ref_time: the reads that
-    count the fund before dispatch."""
-    return (rows + queued + 4) * _ROCKSDB_READ_PS
+    """``Pallet::root_claim_hotkey_sizing_weight(rows, queued)`` ref_time. One count of the
+    fund reads each stored row and each queued credit, and probes the end of both maps.
+    The declaration has ``_HOTKEY_CLAIM_COUNTS`` counts, the reads that find the kept count
+    again, and the one write that keeps it."""
+    count = rows + queued + 2
+    return (
+        _HOTKEY_CLAIM_COUNTS * count + _HOTKEY_CLAIM_COUNT_READS
+    ) * _ROCKSDB_READ_PS + _ROCKSDB_WRITE_PS
 
 
 def root_claim_hotkey_declared_ref_time(rows: int = 0, queued: int = 0, new_rows: int = 0) -> int:

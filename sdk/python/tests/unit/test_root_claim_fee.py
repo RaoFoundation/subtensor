@@ -84,7 +84,7 @@ def test_single_hotkey_admission_covers_full_subnet_limit_plus_root_basket():
 # for the fund-sized single-hotkey declaration: the single-hotkey rows are for a validator
 # without a fund, which declares the smallest envelope (a spec 495 node returns this call
 # weight plus 75_000_000 for its transaction extensions). The smallest envelope includes
-# the debt settlement bound of 32_375_000_000. The charged fee
+# the debt settlement bound of 32_375_000_000 and two counts of the fund. The charged fee
 # stays fixed at the four-unit allowance. The 60_000_000 ref_time gap between the node
 # weight and the SDK's declared model is the folded dispatch-extension weight, which the
 # fee wrapper does not discount.
@@ -92,11 +92,11 @@ _EXTENSION_REF_TIME = 60_000_000
 #: Marks a single-hotkey claim in ``_NODE_QUOTES``: it has no fixed limit to declare.
 _HOTKEY_CLAIM = "claim_root_with_hotkey"
 _NODE_QUOTES = [
-    ("claim_root_with_hotkey", 66_829_612_996, 8_224_263, [_HOTKEY_CLAIM]),
+    ("claim_root_with_hotkey", 67_379_612_996, 8_224_263, [_HOTKEY_CLAIM]),
     ("claim_root", 2_476_947_290_768, 8_224_263, [fees._MAX_ROOT_CLAIM_WORK]),
     (
         "batch_all[claim_root_with_hotkey, claim_root]",
-        2_543_909_505_134,
+        2_544_459_505_134,
         16_481_677,
         [_HOTKEY_CLAIM, fees._MAX_ROOT_CLAIM_WORK],
     ),
@@ -135,8 +135,9 @@ def test_charged_allowance_is_the_same_for_both_claim_paths():
     assert charged == fees.root_claim_charged_ref_time(fees._MAX_ROOT_CLAIM_HOTKEY_WORK)
     assert charged == fees._claim_ref_time(4, 24, 4)
     assert fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK) == 8_209_263
-    # A single-hotkey claim reserves less than a coldkey-wide claim, also at its ceiling.
-    assert fees.root_claim_hotkey_fee_discount_ref_time(rows=fees._MAX_ROOT_CLAIM_HOTKEY_WORK) < (
+    # A single-hotkey claim reserves less than a coldkey-wide claim, also for a fund with a
+    # row and a queued credit on each of 128 subnets.
+    assert fees.root_claim_hotkey_fee_discount_ref_time(rows=129, queued=128) < (
         fees.root_claim_fee_discount_ref_time(fees._MAX_ROOT_CLAIM_WORK)
     )
 
@@ -145,12 +146,19 @@ def test_single_hotkey_declared_weight_follows_the_fund_size():
     """Runtime 495 sizes the single-hotkey declaration from the validator's fund."""
     floor = fees.root_claim_hotkey_declared_ref_time()
     ceiling = fees.root_claim_hotkey_declared_ref_time(rows=257, queued=257)
-    assert floor == 66_769_612_996
-    assert ceiling == 2_464_236_331_766
+    assert floor == 67_319_612_996
+    assert ceiling == 2_477_436_331_766
     # Each declaration includes the debt settlement bound: 259 reads and 259 writes.
     assert fees._DEBT_SETTLEMENT_BOUND_REF_TIME == 259 * (25_000_000 + 100_000_000)
-    assert floor - fees._DEBT_SETTLEMENT_BOUND_REF_TIME == 34_394_612_996
-    assert ceiling - fees._DEBT_SETTLEMENT_BOUND_REF_TIME == 2_431_861_331_766
+    # Each declaration includes two counts of the fund, ten reads of the kept count and of
+    # the guard, and the write that keeps the count. One count reads each row, each queued
+    # credit, and the end of both maps.
+    assert fees._hotkey_claim_sizing_ref_time(4, 4) == 30 * 25_000_000 + 100_000_000
+    assert fees._hotkey_claim_sizing_ref_time(257, 257) == 1_042 * 25_000_000 + 100_000_000
+    # Without the two parts above, the floor and the ceiling are the values of the claim
+    # work alone.
+    assert floor - fees._DEBT_SETTLEMENT_BOUND_REF_TIME - 850_000_000 == 34_094_612_996
+    assert ceiling - fees._DEBT_SETTLEMENT_BOUND_REF_TIME - 26_150_000_000 == 2_418_911_331_766
 
     full_fund = fees.root_claim_hotkey_declared_ref_time(rows=129)
     full_fund_and_queue = fees.root_claim_hotkey_declared_ref_time(rows=129, queued=128)
