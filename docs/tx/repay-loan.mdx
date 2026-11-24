@@ -17,7 +17,7 @@ On fork / clone chains without a live MEV decryptor, submit with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.repay`](/code/pallets/lending/src/lib.rs#L2139-L2165) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.repay`](/code/pallets/lending/src/lib.rs#L2515-L2542) |
 
 ## Parameters
 
@@ -76,13 +76,14 @@ result = sub.execute_tool("repay_loan", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.repay` — [`pallets/lending/src/lib.rs#L2144`](/code/pallets/lending/src/lib.rs#L2139-L2165):
+`Lending.repay` — [`pallets/lending/src/lib.rs#L2521`](/code/pallets/lending/src/lib.rs#L2515-L2542):
 
 ```rust
 #[pallet::call_index(6)]
-// Full repay delegates to `do_close`; charge the heavier of the two measured
-// paths so the close-path R/W budget is never undercharged (Auditor fid:424daaa1).
-#[pallet::weight(T::WeightInfo::close().max(T::WeightInfo::repay()))]
+// Full repay delegates to `do_close`; charge the heavier of close/repay
+// including interest-exhaustion forfeit search (Auditor fid:424daaa1,
+// skeptic fid:d3ef3feb).
+#[pallet::weight(Pallet::<T>::repay_with_interest_forfeit_weight())]
 #[transactional]
 pub fn repay(
     origin: OriginFor<T>,
