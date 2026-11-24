@@ -378,7 +378,7 @@ impl<T: Config> Pallet<T> {
             Self::emission_weight_to_fixed(Self::default_validator_emission()),
             Self::get_tao_weight(),
             U96F32::saturating_from_num(Self::get_subnet_tao(NetUid::ROOT)),
-            U96F32::saturating_from_num(Self::get_alpha_issuance(netuid)),
+            U96F32::saturating_from_num(Self::alpha_issuance_for_schedule(netuid)),
         )
     }
 

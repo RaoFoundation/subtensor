@@ -590,6 +590,47 @@ impl LendingPoolInterface<Account> for MockPool {
         ((u128::from(x) * u128::from(t) / u128::from(y.saturating_add(t))) as u64).into()
     }
 
+    fn mint_and_sell(
+        netuid: NetUid,
+        custody_cold: &Account,
+        custody_hot: &Account,
+        mint: AlphaBalance,
+        min_tao_out: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        mint_alpha(custody_cold, custody_hot, netuid, mint.to_u64());
+        set_alpha_out(alpha_out().saturating_add(mint.to_u64()));
+        let t = Self::sell_alpha(custody_cold, custody_hot, netuid, mint, 0u64.into(), false)?;
+        ensure!(t >= min_tao_out, "slippage");
+        Ok(t)
+    }
+
+    fn buy_and_burn(
+        netuid: NetUid,
+        custody_cold: &Account,
+        custody_hot: &Account,
+        alpha_wanted: AlphaBalance,
+        max_tao_in: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        let y = u128::from(pool_tao());
+        let x = u128::from(pool_alpha());
+        let a = u128::from(alpha_wanted.to_u64());
+        ensure!(a < x, "insufficient pool alpha");
+        // Constant-product exact-out, rounded up.
+        let t = (a * y).div_ceil(x - a) as u64;
+        ensure!(t <= max_tao_in.to_u64(), "slippage");
+        let bought = Self::buy_alpha(
+            custody_cold,
+            custody_hot,
+            netuid,
+            t.into(),
+            u64::MAX.into(),
+            false,
+        )?;
+        ensure!(bought >= alpha_wanted, "slippage");
+        Self::destroy_custody_alpha(custody_cold, custody_hot, netuid, bought)?;
+        Ok(t.into())
+    }
+
     fn lift_and_debit(
         netuid: NetUid,
         g_numer: u64,

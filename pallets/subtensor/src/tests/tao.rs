@@ -699,3 +699,98 @@ fn test_terminal_settle_short_tao_when_recovery_and_refund_below_ed_after_intere
         assert_eq!(Balances::total_balance(&vault), 0.into());
     });
 }
+
+/// Synthetic short round trip on the live AMM: mint-and-sell pays custody TAO
+/// and records outflow; buy-and-burn buys at least the requested alpha with the
+/// least TAO that quotes it, destroys every bought unit, and records inflow.
+#[test]
+fn test_mint_and_sell_then_buy_and_burn_round_trip() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        let custody_cold = U256::from(70);
+        let custody_hot = U256::from(71);
+        add_network(netuid, 1, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        SubtokenEnabled::<Test>::insert(netuid, true);
+        SubnetTaoFlow::<Test>::insert(netuid, 0i64);
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, 1_000_000_000_000u64.into());
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&custody_cold, ed);
+        let alpha_out = SubnetAlphaOut::<Test>::get(netuid);
+        let stake = || {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &custody_hot,
+                &custody_cold,
+                netuid,
+            )
+        };
+
+        let mint = AlphaBalance::from(10_000_000_000u64);
+        let proceeds = <SubtensorModule as LendingPoolInterface<U256>>::mint_and_sell(
+            netuid,
+            &custody_cold,
+            &custody_hot,
+            mint,
+            TaoBalance::from(1u64),
+        )
+        .expect("mint and sell must fill on a deep pool");
+        assert!(!proceeds.is_zero());
+        assert_eq!(Balances::total_balance(&custody_cold), ed + proceeds);
+        assert_eq!(stake(), AlphaBalance::ZERO);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out);
+        let flow_after_sell = SubnetTaoFlow::<Test>::get(netuid);
+        assert!(flow_after_sell < 0, "short sale must record TAO outflow");
+
+        assert_noop!(
+            <SubtensorModule as LendingPoolInterface<U256>>::mint_and_sell(
+                netuid,
+                &custody_cold,
+                &custody_hot,
+                mint,
+                TaoBalance::from(u64::MAX),
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+
+        let buyback = AlphaBalance::from(5_000_000_000u64);
+        let spent = <SubtensorModule as LendingPoolInterface<U256>>::buy_and_burn(
+            netuid,
+            &custody_cold,
+            &custody_hot,
+            buyback,
+            proceeds,
+        )
+        .expect("buyback within proceeds must fill");
+        assert!(!spent.is_zero() && spent <= proceeds);
+        let short_by_one =
+            <SubtensorModule as LendingPoolInterface<U256>>::quote_buy(netuid, spent - 1u64.into())
+                .expect("smaller buy still quotes");
+        assert!(
+            short_by_one < buyback,
+            "spent must be the least TAO that buys `buyback`"
+        );
+        assert_eq!(
+            Balances::total_balance(&custody_cold),
+            ed + proceeds - spent
+        );
+        assert_eq!(stake(), AlphaBalance::ZERO);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out);
+        assert!(SubnetTaoFlow::<Test>::get(netuid) > flow_after_sell);
+
+        assert_noop!(
+            <SubtensorModule as LendingPoolInterface<U256>>::buy_and_burn(
+                netuid,
+                &custody_cold,
+                &custody_hot,
+                buyback,
+                TaoBalance::from(1u64),
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+    });
+}

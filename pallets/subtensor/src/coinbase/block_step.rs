@@ -86,7 +86,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
     /// weight vector: changing the validator share must not move TAO-in,
     /// alpha-in, the pool cap or root's payout.
     pub fn root_proportion(netuid: NetUid) -> U96F32 {
-        let alpha_issuance = U96F32::from_num(Self::get_alpha_issuance(netuid));
+        let alpha_issuance = U96F32::from_num(Self::alpha_issuance_for_schedule(netuid));
         let root_tao: U96F32 = U96F32::from_num(Self::get_subnet_tao(NetUid::ROOT));
         let weighted_root_tao: U96F32 = root_tao.saturating_mul(Self::get_tao_weight());
 

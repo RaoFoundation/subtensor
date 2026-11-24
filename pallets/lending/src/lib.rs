@@ -187,6 +187,29 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
         delta_tao: TaoBalance,
     ) -> AlphaBalance;
 
+    /// Synthetic short open: mint `mint_alpha` onto custody stake
+    /// (`SubnetAlphaOut` grows) and sell it into the pool for custody TAO.
+    /// Records TAO flow so the short moves emission. Fails below `min_tao_out`.
+    /// Returns the sale proceeds.
+    fn mint_and_sell(
+        netuid: NetUid,
+        custody_cold: &AccountId,
+        custody_hot: &AccountId,
+        mint_alpha: AlphaBalance,
+        min_tao_out: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError>;
+
+    /// Synthetic short exit: buy at least `alpha` from the pool with custody
+    /// TAO (at most `max_tao_in`) and burn every bought unit (`SubnetAlphaOut`
+    /// shrinks). Returns the TAO spent.
+    fn buy_and_burn(
+        netuid: NetUid,
+        custody_cold: &AccountId,
+        custody_hot: &AccountId,
+        alpha: AlphaBalance,
+        max_tao_in: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError>;
+
     /// Lift `g = numer/denom` from the pool, debit SubnetTAO/AlphaIn/TotalStake,
     /// and credit the returned legs into lending custody.
     fn lift_and_debit(
@@ -420,6 +443,14 @@ pub trait LendingInterface<AccountId> {
     fn emission_reserve_offsets(netuid: NetUid) -> (u64, u64, u64, u64, u64) {
         let _ = netuid;
         (0, 0, 0, 0, 0)
+    }
+    /// `(synthetic_outstanding, residual_alpha)` on `netuid`: minted short
+    /// alpha not yet bought back, and alpha the book holds outside any
+    /// position. Both are excluded from the issuance that drives the alpha
+    /// emission schedule and root proportion.
+    fn synthetic_and_residual(netuid: NetUid) -> (u64, u64) {
+        let _ = netuid;
+        (0, 0)
     }
 }
 

@@ -12,7 +12,7 @@ use sp_core::Get;
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
-use subtensor_swap_interface::{K_NEUTRAL_WEIGHT_ACCURACY, Order, SwapHandler, SwapResult};
+use subtensor_swap_interface::{Order, SwapHandler, SwapResult};
 
 #[derive(Clone, Copy)]
 enum StakeTransferPurpose {
@@ -51,53 +51,25 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Spot price used for subnet emission's moving EMA ([`SubnetMovingPrice`]).
+    /// Alpha issuance that drives the emission schedule and root proportion:
+    /// [`Self::get_alpha_issuance`] minus lending's synthetic short alpha still
+    /// outstanding and its residual alpha, so minting shorts cannot advance the
+    /// halving schedule or dilute root.
     ///
-    /// **Net-long (Jacob v5.8):** restore only unmatched long alpha. Shorts keep
-    /// moving emission (live TAO), lone longs cannot raise it above the no-long
-    /// counterfactual, and an equal long+short hedge leaves emission ≈ spot.
-    /// Uses live TAO (`y* = SubnetTAO`) and:
-    /// `add_back = max(0, held_alpha + escrow_alpha − short_sold_alpha)`,
-    /// `x* = SubnetAlphaIn + add_back`.
-    ///
-    /// When `add_back == 0` (no loans, shorts-only, or fully hedged longs) this
-    /// is byte-identical to live AMM spot. Trading spot and
-    /// [`SubnetFastMovingPrice`] stay on the live AMM either way. Including
-    /// `held_alpha` (the long lift leg) with `escrow_alpha` is required for lone
-    /// longs: adding only escrow would leave a residual pump from parked lift
-    /// alpha. Do **not** add `held_tao` / `escrow_tao` — that would undo shorts.
+    /// Call sites: `get_subnet_terms` (alpha emission per block),
+    /// `root_proportion`, and `baseline_root_emission_share`.
+    pub fn alpha_issuance_for_schedule(netuid: NetUid) -> AlphaBalance {
+        let (synthetic, residual) = T::Lending::synthetic_and_residual(netuid);
+        Self::get_alpha_issuance(netuid)
+            .saturating_sub(synthetic.into())
+            .saturating_sub(residual.into())
+    }
+
+    /// Spot price fed to subnet emission's moving EMA ([`SubnetMovingPrice`]).
+    /// Synthetic shorts sell real alpha into the pool, so live spot already
+    /// carries their effect.
     pub fn emission_alpha_price(netuid: NetUid) -> U64F64 {
-        let spot = T::SwapInterface::current_alpha_price(netuid.into());
-        let (_held_tao, held_alpha, _escrow_tao, escrow_alpha, short_sold_alpha) =
-            T::Lending::emission_reserve_offsets(netuid);
-        let long_alpha = held_alpha.saturating_add(escrow_alpha);
-        let add_back = long_alpha.saturating_sub(short_sold_alpha);
-        // Net-long fast path: no unmatched long alpha ⇒ emission == live spot
-        // (covers no-loan, shorts-only, and equal hedges).
-        if add_back == 0 {
-            return spot;
-        }
-
-        let y = u64::from(SubnetTAO::<T>::get(netuid));
-        let x = u64::from(SubnetAlphaIn::<T>::get(netuid));
-        // Do NOT add held_tao / escrow_tao: that would undo shorts.
-        let y_star = y;
-        let x_star = x.saturating_add(add_back);
-        if x_star == 0 {
-            return U64F64::saturating_from_num(0);
-        }
-
-        // Same formula as Balancer::calculate_price: p = (w_base/w_quote)·(y/x).
-        let w_quote = T::SwapInterface::balancer_quote_weight(netuid.into());
-        let w_base = K_NEUTRAL_WEIGHT_ACCURACY.saturating_sub(w_quote);
-        if w_quote == 0 {
-            return U64F64::saturating_from_num(0);
-        }
-        let w1 = U64F64::saturating_from_num(w_base);
-        let w2 = U64F64::saturating_from_num(w_quote);
-        let y_fixed = U64F64::saturating_from_num(y_star);
-        let x_fixed = U64F64::saturating_from_num(x_star);
-        w1.safe_div(w2).saturating_mul(y_fixed.safe_div(x_fixed))
+        T::SwapInterface::current_alpha_price(netuid.into())
     }
 
     pub fn update_moving_price(netuid: NetUid) {
@@ -126,9 +98,6 @@ impl<T: Config> Pallet<T> {
         // Because alpha = b / (b + h), where b and h > 0, alpha < 1, so 1 - alpha > 0.
         // We can use unsigned type here: U96F32
         let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
-        // Emission EMA tracks the net-long counterfactual (see `emission_alpha_price`):
-        // unmatched longs cannot pump emission share; shorts still can dump it;
-        // equal hedges leave emission ≈ spot.
         let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
             Self::emission_alpha_price(netuid).min(U64F64::saturating_from_num(1.0)),
         ));

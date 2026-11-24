@@ -1,8 +1,10 @@
-//! Lift / readd / custody adapter for escrowed lending (Jacob v5.1).
+//! Pool / custody adapter for lending.
 //!
-//! No assets are minted by reserve extraction. Lift pulls proportional Balancer
-//! legs and debits `SubnetTAO` / `SubnetAlphaIn` / `TotalStake`; readd reverses
-//! that. Forced buy/sell move custody legs through the AMM into escrow.
+//! Synthetic shorts: `mint_and_sell` mints alpha onto custody stake and sells
+//! it into the AMM; `buy_and_burn` buys it back with custody TAO and destroys
+//! it. Both trade through the ordinary stake paths, so TAO flow records and the
+//! short moves emission. The lift / readd / forced-trade methods remain until
+//! the lending pallet's callers migrate off them.
 use super::*;
 use frame_support::{
     traits::tokens::{Fortitude, Preservation, fungible::Inspect},
@@ -247,6 +249,73 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         delta_tao: TaoBalance,
     ) -> AlphaBalance {
         T::SwapInterface::quote_buy_on(tao_reserve, alpha_reserve, quote_weight_parts, delta_tao)
+    }
+
+    #[transactional]
+    fn mint_and_sell(
+        netuid: NetUid,
+        custody_cold: &T::AccountId,
+        custody_hot: &T::AccountId,
+        mint_alpha: AlphaBalance,
+        min_tao_out: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(!mint_alpha.is_zero(), Error::<T>::AmountTooLow);
+        ensure!(
+            mint_alpha.to_u64() <= i64::MAX as u64
+                && Self::try_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    custody_hot,
+                    netuid,
+                    mint_alpha
+                ),
+            Error::<T>::NotEnoughStakeToWithdraw
+        );
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            custody_hot,
+            custody_cold,
+            netuid,
+            mint_alpha,
+        );
+        SubnetAlphaOut::<T>::mutate(netuid, |out| *out = out.saturating_add(mint_alpha));
+        let tao = <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::sell_alpha(
+            custody_cold,
+            custody_hot,
+            netuid,
+            mint_alpha,
+            TaoBalance::ZERO,
+            false,
+        )?;
+        ensure!(tao >= min_tao_out, Error::<T>::SlippageTooHigh);
+        Ok(tao)
+    }
+
+    #[transactional]
+    fn buy_and_burn(
+        netuid: NetUid,
+        custody_cold: &T::AccountId,
+        custody_hot: &T::AccountId,
+        alpha: AlphaBalance,
+        max_tao_in: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        ensure!(!alpha.is_zero(), Error::<T>::AmountTooLow);
+        let tao = Self::tao_for_exact_alpha(netuid, alpha, max_tao_in)?;
+        let bought =
+            <Self as subtensor_swap_interface::OrderSwapInterface<T::AccountId>>::buy_alpha(
+                custody_cold,
+                custody_hot,
+                netuid,
+                tao,
+                u64::MAX.into(),
+                false,
+            )?;
+        ensure!(bought >= alpha, Error::<T>::SlippageTooHigh);
+        <Self as LendingPoolInterface<T::AccountId>>::destroy_custody_alpha(
+            custody_cold,
+            custody_hot,
+            netuid,
+            bought,
+        )?;
+        Ok(tao)
     }
 
     #[transactional]
@@ -616,6 +685,49 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Smallest TAO input, at most `max_tao_in`, whose buy quote yields at least
+    /// `alpha`. Grows from the constant-product estimate because skewed Balancer
+    /// weights can need more, then bisects down.
+    fn tao_for_exact_alpha(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        max_tao_in: TaoBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        let want = alpha.to_u64();
+        let x = SubnetAlphaIn::<T>::get(netuid).to_u64();
+        let y = SubnetTAO::<T>::get(netuid).to_u64();
+        ensure!(want < x, Error::<T>::InsufficientLiquidity);
+        let cap = max_tao_in
+            .min(<Self as LendingPoolInterface<T::AccountId>>::max_buy_input(
+                netuid,
+            ))
+            .to_u64();
+        let fills = |tao: u64| {
+            <Self as LendingPoolInterface<T::AccountId>>::quote_buy(netuid, tao.into())
+                .is_ok_and(|out| out >= alpha)
+        };
+        let estimate = u128::from(want)
+            .saturating_mul(u128::from(y))
+            .checked_div(u128::from(x.saturating_sub(want)))
+            .unwrap_or(u128::MAX)
+            .saturating_add(1);
+        let mut hi = u64::try_from(estimate).unwrap_or(u64::MAX).min(cap);
+        while !fills(hi) {
+            ensure!(hi < cap, Error::<T>::SlippageTooHigh);
+            hi = hi.saturating_mul(2).min(cap);
+        }
+        let mut lo = 0u64;
+        while hi.saturating_sub(lo) > 1 {
+            let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+            if fills(mid) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        Ok(hi.into())
+    }
+
     fn resolve_lending_credit_or_recycle_dust(
         to: &T::AccountId,
         credit: crate::coinbase::tao::CreditOf<T>,
