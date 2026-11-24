@@ -795,7 +795,9 @@ await client.submit_call(raw, owner_wallet)`} />
             in the new storage item <code>BasketRowsCountedAt</code>. The fee logic, a batch, and
             a proxy read that count; they do not count the fund again. Only the first
             transaction of a block counts two times, so the reserved weight has two counts: 13 ms
-            for a fund with 129 rows and 128 queued credits.
+            for a fund with 129 rows and 128 queued credits. The chain keeps a count only for a
+            validator whose fund has a row or a queued credit. A claim that names an account
+            without a fund writes no record.
           </p>
           <h3 className={styles.subtitle_small}>Waiting credits: less work, the same result</h3>
           <p>
