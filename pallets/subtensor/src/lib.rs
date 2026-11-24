@@ -135,6 +135,10 @@ pub const ROOT_CLAIM_HOTKEY_COUNTS: u32 = 2;
 /// each. A claim in a batch in a proxy makes nine of these reads. Only two of them go to
 /// the database: the first read of the kept count, and the read of the guard. The others
 /// find the kept count in the storage overlay of the block, also in a deeper nest.
+///
+/// A hotkey without a fund has no kept count. Each computation of its weight then reads
+/// that there is no kept count and probes the end of each map of the fund. Its weight has
+/// those reads this number of times.
 pub const ROOT_CLAIM_HOTKEY_COUNT_READS: u32 = 10;
 /// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
@@ -3677,7 +3681,8 @@ pub mod pallet {
     /// times in one transaction: by the block executive, by the fee logic, and by each
     /// batch or proxy that holds the call. The first of them counts the fund and writes
     /// this record. The others, and the claim, read it. A record of an earlier
-    /// transaction has no effect.
+    /// transaction has no effect. Only a hotkey whose fund has a row or a queued credit
+    /// gets a record, so the map has at most one entry for each fund.
     #[pallet::storage]
     pub type BasketRowsCountedAt<T: Config> = StorageMap<
         _,

@@ -703,6 +703,12 @@ mod tests {
                 SubtensorModule::root_claim_hotkey_sizing_weight(0, 20),
                 <Runtime as frame_system::Config>::DbWeight::get().reads_writes(2 * 22 + 10, 1)
             );
+            // A hotkey without a fund has no kept count: ten times one read and the two
+            // ends, and no write.
+            assert_eq!(
+                SubtensorModule::root_claim_hotkey_sizing_weight(0, 0),
+                <Runtime as frame_system::Config>::DbWeight::get().reads(10 * 3)
+            );
             let first = Runtime::fee_weight_discount(&call, &info);
 
             // Put 20 more credits in the queue behind the kept count. No transaction can

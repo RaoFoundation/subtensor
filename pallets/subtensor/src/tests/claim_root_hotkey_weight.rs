@@ -1119,6 +1119,12 @@ fn weight_of_a_claim_covers_the_counts_of_the_fund() {
             SubtensorModule::root_claim_hotkey_sizing_weight(257, 257),
             db.reads_writes(2 * (514 + ends) + 10, 1)
         );
+        // A hotkey without a fund has no kept count. Each of the ten computations reads
+        // that there is none and probes the end of each map. Nothing is written.
+        assert_eq!(
+            SubtensorModule::root_claim_hotkey_sizing_weight(0, 0),
+            db.reads(10 * (1 + ends))
+        );
     });
 
     // A claim on a real fund, run two times on equal states: once as the work alone, and
@@ -1146,6 +1152,77 @@ fn weight_of_a_claim_covers_the_counts_of_the_fund() {
         let counts = SubtensorModule::root_claim_hotkey_sizing_weight(6, 3);
         assert_eq!(reported, work_alone.saturating_add(counts));
         assert!(reported.all_lte(declared_before));
+    });
+}
+
+/// A claim can name any account as its hotkey. A hotkey without a fund gets no kept
+/// count, so claims cannot fill the storage with records for accounts that have no fund.
+/// The count of an empty fund is made again for each computation, and the claim reports
+/// those reads.
+#[test]
+fn hotkey_without_a_fund_keeps_no_count() {
+    // The work of a claim on an account without a fund, without the counts.
+    let work_alone = new_test_ext(1).execute_with(|| {
+        let outcome =
+            SubtensorModule::root_claim_for_hotkey(&U256::from(7001), &U256::from(1001), false)
+                .expect("the claim runs");
+        assert_eq!(outcome.tao, 0);
+        SubtensorModule::root_claim_actual_weight(1, 0, &outcome)
+    });
+    new_test_ext(1).execute_with(|| {
+        let claimant = U256::from(1001);
+        let funded = U256::from(1002);
+        let work = raw_fund(funded, 3, 2);
+        let empty: Vec<U256> = (7001..7004).map(U256::from).collect();
+
+        enter_transaction(5);
+        reset_root_claim_fund_counts();
+        for hotkey in empty.iter() {
+            // The declaration is the smallest one, and each computation counts again.
+            assert_eq!(
+                declared(*hotkey),
+                SubtensorModule::root_claim_hotkey_min_declared_weight()
+            );
+            assert_eq!(
+                declared(*hotkey),
+                SubtensorModule::root_claim_hotkey_min_declared_weight()
+            );
+            assert_eq!(
+                SubtensorModule::root_claim_hotkey_work(hotkey),
+                Some(RootClaimHotkeyWork::default())
+            );
+        }
+        assert_eq!(root_claim_fund_counts(), 9);
+        assert_eq!(BasketRowsCountedAt::<Test>::iter().count(), 0);
+
+        // The claim runs, reports the reads of its counts, and leaves no record.
+        let reported = claim(claimant, empty[0]);
+        let counts = SubtensorModule::root_claim_hotkey_sizing_weight(0, 0);
+        assert_eq!(reported, work_alone.saturating_add(counts));
+        assert!(reported.all_lte(declared(empty[0])));
+        assert_eq!(BasketRowsCountedAt::<Test>::iter().count(), 0);
+
+        // A batch that stops at its first call runs none of its claims. Their weights
+        // were computed before that: only the hotkey with a fund has a record.
+        let mut calls = vec![RuntimeCall::SubtensorModule(
+            crate::Call::claim_root_with_hotkey { hotkey: funded },
+        )];
+        calls.extend(empty.iter().map(|hotkey| claim_call(*hotkey)));
+        calls.insert(
+            0,
+            RuntimeCall::System(frame_system::Call::set_heap_pages { pages: 1 }),
+        );
+        let batch = RuntimeCall::Utility(pallet_utility::Call::batch { calls });
+        let _ = batch.get_dispatch_info();
+        assert_ok!(batch.dispatch(RuntimeOrigin::signed(claimant)));
+        assert!(System::events().iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::Utility(pallet_utility::Event::BatchInterrupted { index: 0, .. })
+        )));
+        assert_eq!(
+            BasketRowsCountedAt::<Test>::iter().collect::<Vec<_>>(),
+            vec![(funded, (this_transaction(5).0, 5, Some(work)))]
+        );
     });
 }
 

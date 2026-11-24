@@ -1259,6 +1259,11 @@ impl<T: Config> Pallet<T> {
     /// a transaction, except through a `swap_basket` buy or a hotkey swap, and a claim
     /// after one of those is refused ([`Self::basket_rows_opened_in_current_transaction`]).
     ///
+    /// A hotkey without a fund gets no kept count. A claim can name any account, and a
+    /// record for each named account would let a caller grow the state. The count of an
+    /// empty fund is only the probe of each map, so each computation makes it again
+    /// ([`Self::root_claim_hotkey_sizing_weight`] has those reads).
+    ///
     /// Outside a user transaction each call counts the fund, and nothing is written: in
     /// the transaction pool, for a fee quote, and in block hooks. The block executive
     /// also computes the weight of the first transaction of a block there, before it
@@ -1274,7 +1279,9 @@ impl<T: Config> Pallet<T> {
             return work;
         }
         let work = Self::count_root_claim_hotkey_work(hotkey);
-        BasketRowsCountedAt::<T>::insert(hotkey, (block, index, work));
+        if work != Some(RootClaimHotkeyWork::default()) {
+            BasketRowsCountedAt::<T>::insert(hotkey, (block, index, work));
+        }
         work
     }
 
@@ -1367,6 +1374,11 @@ impl<T: Config> Pallet<T> {
     /// is one for each read of a claim inside three wrapper calls. A deeper nest reads
     /// only the overlay more often.
     ///
+    /// A hotkey without a fund has no kept count (see [`Self::root_claim_hotkey_work`]).
+    /// Each computation of its weight looks for a kept count and probes the end of each
+    /// map. The weight has these reads [`crate::ROOT_CLAIM_HOTKEY_COUNT_READS`] times,
+    /// and no write.
+    ///
     /// The claim declares this weight, and it reports it after dispatch
     /// ([`Pallet::claim_root_with_hotkey`]).
     pub fn root_claim_hotkey_sizing_weight(rows: u32, queued: u32) -> Weight {
@@ -1375,6 +1387,12 @@ impl<T: Config> Pallet<T> {
         } else {
             2
         };
+        if rows == 0 && queued == 0 {
+            return T::DbWeight::get().reads(
+                u64::from(crate::ROOT_CLAIM_HOTKEY_COUNT_READS)
+                    .saturating_mul(probes.saturating_add(1)),
+            );
+        }
         let count = u64::from(rows)
             .saturating_add(u64::from(queued))
             .saturating_add(probes);
