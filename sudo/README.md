@@ -80,16 +80,17 @@ Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapp
 
 ## Mainnet triumvirate review
 
-A changed mainnet proposal contains data-only JSON/Markdown artifacts and `mainnet-args.json`. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
+A changed mainnet proposal contains data-only JSON/Markdown artifacts, decoded call and old-to-new fields, and a ready-to-copy countersign command. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
 
 On a trusted signer machine, install the repository SDK and inspect the JSON and Markdown artifacts. In a **separately reviewed repository checkout**, rerun the diff from the exact recorded source and baseline commits and independently confirm the call hash. Then run the checked-in verifier against the downloaded data-only artifact:
 
 ```bash
-SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/mainnet-proposal.json \
+SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/downloaded/mainnet-proposal.json \
+  /path/to/independently-reproduced/mainnet-proposal.json \
   --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>
 ```
 
-Never execute a verifier downloaded from an artifact. The checked-in script recomposes the call with the SDK against live metadata, verifies the signer-set derivation, independently supplied call hash, and every affected old value, then invokes the standard `btcli call Sudo.sudo --args-file ... --multisig-account-mode legacy` approval flow. It contains no keys and does not accept seed material. Each signer independently reviews the decoded calls and hash before allowing `btcli` to use their own local wallet. The first approval creates the pending multisig operation; the final required approval executes it.
+Never execute a verifier downloaded from an artifact. Supply the downloaded artifact and the independently reproduced proposal as separate files. The checked-in script requires their calls, decoded call, call data, hash, signers, and exact source/baseline provenance to agree. It recomposes the independently reproduced call with the SDK against live metadata and maps the authenticated batch through `verify-proposal.js`, which uses the checked-in setter/storage allowlist. Omitted or extra grouped members, substituted storage entries, and unknown setters are rejected. Expected old values come only from the independently reproduced proposal and are rechecked against live state before the standard `btcli call Sudo.sudo --args-file ... --multisig-account-mode legacy` approval flow. It contains no keys and does not accept seed material. Each signer independently reviews the decoded calls and hash before allowing `btcli` to use their own local wallet. The first approval creates the pending multisig operation; the final required approval executes it.
 
 The runtime-upgrade `SudoUncheckedSetCode` proxy cannot apply arbitrary parameter calls. Do not reuse a proposal after a runtime upgrade or out-of-band change; regenerate and review it instead.
 

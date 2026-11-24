@@ -44,7 +44,7 @@ function signerConfiguration() {
 }
 
 function signerCommand(network) {
-  return `SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/${network}-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>`;
+  return `SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/downloaded/${network}-proposal.json /path/to/independently-reproduced/${network}-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>`;
 }
 
 function renderMarkdown(proposal, file, network) {
@@ -93,10 +93,10 @@ function renderMarkdown(proposal, file, network) {
     "```", "",
     "## Triumvirate countersigning", "",
     `The checked-in verifier derives the ${proposal.signers.threshold}-of-${proposal.signers.signatories.length} legacy multisig and verifies it against live \`Sudo.Key\`.`,
-    "It recomposes the call from the data-only proposal, verifies the independently supplied call hash and every affected old value, and uses the repository's standard `btcli` multisig approval path.", "",
-    "Run the checked-in script from a separately reviewed repository checkout on your own trusted signer machine. Do not execute any script downloaded from an artifact. Replace `<WALLET>` with your own local member wallet and `<INDEPENDENTLY_VERIFIED_HASH>` with the freshly reproduced hash. No key is included here.", "",
+    "It recomposes the call from the independently reproduced data-only proposal, maps the authenticated batch through the checked-in setter/storage allowlist, verifies every affected old value against live state, and uses the repository's standard `btcli` multisig approval path.", "",
+    "Run the checked-in script from a separately reviewed repository checkout on your own trusted signer machine. Do not execute any script downloaded from an artifact. Supply both the downloaded artifact and the independently reproduced proposal as separate files. Replace `<WALLET>` with your own local member wallet and `<INDEPENDENTLY_VERIFIED_HASH>` with the freshly reproduced hash. No key is included here.", "",
     "```bash", signerCommand(network), "```", "",
-    "The verifier checks the independently supplied hash against the artifact and recomposed call. After the first approval, the CLI discovers the pending timepoint. The final approval executes the batch.", "",
+    "The verifier checks the independently supplied hash against both proposals and the recomposed call. It derives the complete affected storage set from the authenticated calls, rejects omitted grouped members, and takes expected old values only from the independently reproduced proposal before checking them on chain. After the first approval, the CLI discovers the pending timepoint. The final approval executes the batch.", "",
     "**Do not reuse this artifact after a runtime upgrade or out-of-band change without regenerating it.**", "",
     "### Individual command templates", "",
   );

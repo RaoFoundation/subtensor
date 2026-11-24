@@ -15,6 +15,7 @@ const context = {
   blockHash: `0x${"11".repeat(32)}`,
   genesisHash: `0x${"22".repeat(32)}`,
   specVersion: 495,
+  sudoKey: "test-only-sudo-key",
 };
 const liveValues = loadParams(fs.readFileSync(path.join(__dirname, "..", "mainnet.toml"), "utf8")).values;
 
@@ -65,6 +66,9 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
     provenance: { sourceCommit: "abc", baseCommit: "def", sourceSha256: "123", baseSha256: "456" },
   });
   const markdown = fs.readFileSync(path.join(output, "mainnet-proposal.md"), "utf8");
+  const artifact = path.join(output, "mainnet-proposal.json");
+  const reproduced = path.join(output, "reproduced-mainnet-proposal.json");
+  fs.copyFileSync(artifact, reproduced);
   const script = fs.readFileSync(path.join(__dirname, "..", "countersign.py"), "utf8");
   assert.equal(proposal.diff.proposed[0].live, "160");
   assert.equal(proposal.diff.proposed[0].proposed, "161");
@@ -75,7 +79,7 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   assert.match(markdown, /Reviewed baseline commit: `def`/);
   assert.match(markdown, /Source SHA-256: `123`/);
   assert.match(markdown, /Baseline SHA-256: `456`/);
-  assert.match(markdown, /python3 sudo\/countersign.py \/path\/to\/mainnet-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>/);
+  assert.match(markdown, /python3 sudo\/countersign.py \/path\/to\/downloaded\/mainnet-proposal.json \/path\/to\/independently-reproduced\/mainnet-proposal.json --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>/);
   assert.equal(fs.existsSync(path.join(output, "mainnet-countersign.py")), false);
   assert.equal(fs.readdirSync(output).some((name) => name.endsWith(".py") || name.endsWith(".sh")), false);
   assert.equal(proposal.btcli_args.call.Utility.batch_all.calls.length, 1);
@@ -86,25 +90,126 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   assert.doesNotMatch(script, /Pass --wallet/);
   const parse = spawnSync("python3", ["-c", "import ast, sys; ast.parse(open(sys.argv[1]).read())", path.join(__dirname, "..", "countersign.py")]);
   assert.equal(parse.status, 0);
-  const wallet = spawnSync("python3", [path.join(__dirname, "..", "countersign.py"), path.join(output, "mainnet-proposal.json"), "--expected-call-hash", proposal.call_hash], {
-    env: { ...process.env, SUDO_WALLET: "" },
-  });
+  function offlineVerifier(first, second, hash) {
+    return spawnSync("python3", [
+      path.join(__dirname, "countersign_driver.py"),
+      path.join(__dirname, "..", "countersign.py"),
+      first, second, "--expected-call-hash", hash,
+    ], { env: { ...process.env, SUDO_WALLET: "test-only-wallet" }, timeout: 10000 });
+  }
+  const valid = offlineVerifier(artifact, reproduced, proposal.call_hash);
+  assert.equal(valid.status, 1);
+  assert.match(valid.stderr.toString(), /offline test reached live verification or btcli/);
+  const wallet = spawnSync("python3", [
+    path.join(__dirname, "..", "countersign.py"), artifact, reproduced,
+    "--expected-call-hash", proposal.call_hash,
+  ], { env: { ...process.env, SUDO_WALLET: "" } });
   assert.notEqual(wallet.status, 0);
   assert.match(wallet.stderr.toString(), /SUDO_WALLET/);
-  const wrongHash = spawnSync("python3", [path.join(__dirname, "..", "countersign.py"), path.join(output, "mainnet-proposal.json"), "--expected-call-hash", `0x${"44".repeat(32)}`], {
-    env: { ...process.env, SUDO_WALLET: "test-only-wallet" },
-  });
+  const wrongHash = offlineVerifier(artifact, reproduced, `0x${"44".repeat(32)}`);
   assert.notEqual(wrongHash.status, 0);
   assert.match(wrongHash.stderr.toString(), /independently reproduced hash/);
   const unreviewed = { ...proposal, provenance: { ...proposal.provenance, baseCommit: null } };
   fs.writeFileSync(path.join(output, "unreviewed.json"), JSON.stringify(unreviewed));
-  const noBaseline = spawnSync("python3", [path.join(__dirname, "..", "countersign.py"), path.join(output, "unreviewed.json"), "--expected-call-hash", proposal.call_hash], {
-    env: { ...process.env, SUDO_WALLET: "test-only-wallet" },
-  });
+  const noBaseline = offlineVerifier(path.join(output, "unreviewed.json"), reproduced, proposal.call_hash);
   assert.notEqual(noBaseline.status, 0);
   assert.match(noBaseline.stderr.toString(), /no exact reviewed baseline/);
+  const samePath = offlineVerifier(artifact, artifact, proposal.call_hash);
+  assert.match(samePath.stderr.toString(), /must be a separate file/);
+  for (const [name, mutate, message] of [
+    ["old-value", (value) => { value.diff.proposed[0].live = "999"; }, /Artifact old values differ/],
+    ["storage", (value) => { value.diff.proposed[0].storage[1] = "DefaultTake"; }, /Artifact old values differ/],
+    ["calls", (value) => {
+      value.btcli_args.call.Utility.batch_all.calls[0].AdminUtils.sudo_set_subnet_limit.max_subnets = 999;
+    }, /Artifact calls differ/],
+    ["provenance", (value) => { value.provenance.sourceCommit = "tampered"; }, /provenance differs/],
+    ["signers", (value) => { value.signers.threshold = 3; }, /signers differ/],
+    ["call-data", (value) => { value.call_data = "0xdeadbeef"; }, /call data differs/],
+    ["decoded-call", (value) => { value.decoded_call = {}; }, /decoded call differs/],
+    ["sudo-key", (value) => { value.sudoKey = "substituted"; }, /sudo key differs/],
+  ]) {
+    const changed = JSON.parse(JSON.stringify(proposal));
+    mutate(changed);
+    const file = path.join(output, `tampered-${name}.json`);
+    fs.writeFileSync(file, JSON.stringify(changed));
+    const result = offlineVerifier(file, reproduced, proposal.call_hash);
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr.toString(), message, name);
+  }
+  const unknown = JSON.parse(JSON.stringify(proposal));
+  unknown.btcli_args.call.Utility.batch_all.calls = [{ Sudo: { set_key: { new: "attacker" } } }];
+  unknown.diff.proposed = [{ key: "not-allowed", live: "1", proposed: "2", storage: ["Sudo", "Key"], setter: "Sudo.set_key" }];
+  fs.writeFileSync(reproduced, JSON.stringify(unknown));
+  fs.copyFileSync(reproduced, path.join(output, "unknown-artifact.json"));
+  const rejected = offlineVerifier(path.join(output, "unknown-artifact.json"), reproduced, proposal.call_hash);
+  assert.match(rejected.stderr.toString(), /not in the reviewed allowlist/);
 });
 
+test("an omitted grouped artifact member is rejected against the independent proposal", (t) => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-group-verifier-test-"));
+  t.after(() => fs.rmSync(output, { recursive: true, force: true }));
+  const group = require("../lib/params").groups.basket_claim_dust;
+  const changed = { ...liveValues, "basket_claim_dust.row_bps": "500" };
+  const affected = Object.entries(group.storage).map(([key, storage], index) => ({
+    key: `basket_claim_dust.${key}`,
+    live: liveValues[`basket_claim_dust.${key}`],
+    proposed: [1, 500, 1, 1][index].toString(),
+    storage,
+    setter: "AdminUtils.sudo_set_basket_claim_dust",
+  }));
+  const btcliArgs = { call: { Utility: { batch_all: { calls: [{ AdminUtils: { sudo_set_basket_claim_dust: {
+    row_cap_rao: 1, row_bps: 500, slice_rao: 1, forfeit_cap_rao: 1,
+  } } }] } } } };
+  const proposal = {
+    network: "mainnet",
+    provenance: { sourceCommit: "abc", baseCommit: "def" },
+    signers: {
+      threshold: 2,
+      signatories: JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", ".github/scripts/deploy/sudo-signatories.json"), "utf8")).signatories,
+    },
+    sudoKey: "test-only-sudo-key",
+    call_data: "0x00",
+    call_hash: `0x${"33".repeat(32)}`,
+    decoded_call: {},
+    btcli_args: btcliArgs,
+    diff: { reviewed: true, proposed: affected, drift: [] },
+  };
+  const reproduced = path.join(output, "reproduced.json");
+  const artifact = path.join(output, "artifact.json");
+  fs.writeFileSync(reproduced, JSON.stringify(proposal));
+  const omitted = JSON.parse(JSON.stringify(proposal));
+  omitted.diff.proposed.splice(1, 1);
+  fs.writeFileSync(artifact, JSON.stringify(omitted));
+  const result = spawnSync("python3", [
+    path.join(__dirname, "countersign_driver.py"),
+    path.join(__dirname, "..", "countersign.py"),
+    artifact, reproduced, "--expected-call-hash", proposal.call_hash,
+  ], { env: { ...process.env, SUDO_WALLET: "test-only-wallet" }, timeout: 10000 });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr.toString(), /Artifact old values differ/);
+
+  fs.copyFileSync(reproduced, artifact);
+  fs.copyFileSync(reproduced, path.join(output, "second-reproduction.json"));
+  const valid = spawnSync("python3", [
+    path.join(__dirname, "countersign_driver.py"),
+    path.join(__dirname, "..", "countersign.py"),
+    artifact, path.join(output, "second-reproduction.json"), "--expected-call-hash", proposal.call_hash,
+  ], { env: { ...process.env, SUDO_WALLET: "test-only-wallet" }, timeout: 10000 });
+  assert.match(valid.stderr.toString(), /offline test reached live verification or btcli/);
+
+  const mismatched = JSON.parse(JSON.stringify(proposal));
+  mismatched.diff.proposed = mismatched.diff.proposed.slice(1);
+  fs.writeFileSync(reproduced, JSON.stringify(mismatched));
+  const other = path.join(output, "other-reproduction.json");
+  fs.writeFileSync(other, JSON.stringify(mismatched));
+  const wrongMapping = spawnSync("python3", [
+    path.join(__dirname, "countersign_driver.py"),
+    path.join(__dirname, "..", "countersign.py"),
+    reproduced, other, "--expected-call-hash", proposal.call_hash,
+  ], { env: { ...process.env, SUDO_WALLET: "test-only-wallet" }, timeout: 10000 });
+  assert.notEqual(wrongMapping.status, 0);
+  assert.match(wrongMapping.stderr.toString(), /Affected storage differs from the reviewed setter mapping/);
+});
 test("non-mainnet proposals skip countersigning and explain the disabled apply TODO", (t) => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-devnet-test-"));
   t.after(() => fs.rmSync(output, { recursive: true, force: true }));
