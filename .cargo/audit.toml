@@ -81,36 +81,4 @@ ignore = [
     # libsqlite3-sys to >=0.39 requires moving Frontier off sqlx 0.8.6.
     # https://rustsec.org/advisories/RUSTSEC-2026-0459.html
     "RUSTSEC-2026-0459",
-    # RUSTSEC-2026-0566/0569/0571 (added 2026-11-19): wasmtime 8.0.1 WASI/http
-    # empty-write heap growth and get_module_export panic. Same sc-executor pin
-    # as 0269/0316/0424; the node never exposes WASI filesystem/http to runtime
-    # Wasm. Fix needs wasmtime >=36 / >=48; revisit on the next polkadot-sdk bump.
-    "RUSTSEC-2026-0566",
-    "RUSTSEC-2026-0569",
-    "RUSTSEC-2026-0571",
-    # RUSTSEC-2026-0487/0489/0490/0491/0504/0505/0511/0512/0514/0530/0531/0532/
-    # 0549/0550/0551 (added 2026-11-23): additional hickory-proto /
-    # hickory-resolver DNSSEC / parser issues on the same libp2p-dns pin
-    # (0.24.4 / 0.25.2) already covered by workflow ignores for 0118/0119.
-    # No fixed upgrade for most; 0.26.2 fixes a subset but needs an SDK
-    # networking bump. Default network backend is litep2p. Operators may select
-    # libp2p; peer auth is Noise (not DNSSEC) and DNS resolution feeds dial
-    # addresses only — not a consensus or key-material trust boundary. Revisit
-    # on the next networking bump. Kept here (not in cargo-audit.yml) so the
-    # workflow ignore list stays aligned with main for these IDs.
-    "RUSTSEC-2026-0487",
-    "RUSTSEC-2026-0489",
-    "RUSTSEC-2026-0490",
-    "RUSTSEC-2026-0491",
-    "RUSTSEC-2026-0504",
-    "RUSTSEC-2026-0505",
-    "RUSTSEC-2026-0511",
-    "RUSTSEC-2026-0512",
-    "RUSTSEC-2026-0514",
-    "RUSTSEC-2026-0530",
-    "RUSTSEC-2026-0531",
-    "RUSTSEC-2026-0532",
-    "RUSTSEC-2026-0549",
-    "RUSTSEC-2026-0550",
-    "RUSTSEC-2026-0551",
 ]

@@ -507,14 +507,19 @@ mod benchmarks {
         let position = Positions::<T>::get(&caller, netuid).expect("fixture opened a long");
         let principal_before = position.principal;
         let expires_at = position.expires_at;
-        // Two dust-sized legs: quote(1) → 0 TAO, quote(2) → >0 against x=100,y=51.
+        // Two dust-sized legs: quote(1) → 0 TAO, quote(2) → >0 against a
+        // scaled x=100·10^9 / y=51·10^9 pool. Reserves (and the subnet
+        // free balance seeded with them) stay well above the runtime ED
+        // of 500 so the real unstake can pay out (skeptic fid:aa20fa99).
         Positions::<T>::mutate(&caller, netuid, |maybe| {
             if let Some(p) = maybe {
                 p.escrow_alpha = 1;
                 p.collateral = 1;
             }
         });
-        T::Pool::benchmark_seed_pool(netuid, 51, 100);
+        const POOL_X: u64 = 100_000_000_000;
+        const POOL_Y: u64 = 51_000_000_000;
+        T::Pool::benchmark_seed_pool(netuid, POOL_Y, POOL_X);
         assert!(
             matches!(
                 T::Pool::quote_sell(netuid, 1u64.into()),
