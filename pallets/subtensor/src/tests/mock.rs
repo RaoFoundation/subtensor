@@ -56,6 +56,7 @@ use frame_support::{
 use frame_system as system;
 use frame_system::{EnsureRoot, RawOrigin, limits};
 use pallet_commitments::pallet::Pallet as CommitmentsPallet;
+use pallet_lending::LendingInterface;
 use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_utility as pallet_utility;
 use scale_info::TypeInfo;
@@ -73,7 +74,6 @@ use sp_std::{
 };
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
-use pallet_lending::LendingInterface;
 use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -646,9 +646,8 @@ impl pallet_lending::LendingInterface<U256> for TestLending {
         pallet_lending::Pallet::<Test>::custody_accounts(netuid)
     }
     fn has_positions(owner: &U256) -> bool {
-        let injected = MOCK_LENDING_POSITIONS.with(|m| {
-            m.borrow().get(owner).copied().unwrap_or(0) > 0
-        });
+        let injected =
+            MOCK_LENDING_POSITIONS.with(|m| m.borrow().get(owner).copied().unwrap_or(0) > 0);
         injected || pallet_lending::Pallet::<Test>::has_positions(owner)
     }
     fn count_positions_bounded(owner: &U256, limit: u32) -> u32 {

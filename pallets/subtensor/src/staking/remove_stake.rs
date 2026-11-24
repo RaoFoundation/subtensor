@@ -954,19 +954,22 @@ impl<T: Config> Pallet<T> {
         // distributed by largest-remainder.
         let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid);
         let pot_u64: u64 = pot_tao.into();
-        let rate = status.dissolution_price_bits.map(U64F64::from_bits).unwrap_or_else(|| {
-            // Tests that skip `start_dissolution` still pay α × (T / all_α).
-            let all = total_alpha_value_u128.max(1);
-            U64F64::from_bits(
-                sp_runtime::helpers_128bit::multiply_by_rational_with_rounding(
-                    u128::from(pot_u64),
-                    1u128 << 64,
-                    all,
-                    sp_runtime::Rounding::Down,
+        let rate = status
+            .dissolution_price_bits
+            .map(U64F64::from_bits)
+            .unwrap_or_else(|| {
+                // Tests that skip `start_dissolution` still pay α × (T / all_α).
+                let all = total_alpha_value_u128.max(1);
+                U64F64::from_bits(
+                    sp_runtime::helpers_128bit::multiply_by_rational_with_rounding(
+                        u128::from(pot_u64),
+                        1u128 << 64,
+                        all,
+                        sp_runtime::Rounding::Down,
+                    )
+                    .unwrap_or(0),
                 )
-                .unwrap_or(0),
-            )
-        });
+            });
 
         if pot_u64 > 0 && !stakers.is_empty() {
             let mut transfer_map = BTreeMap::<T::AccountId, TaoBalance>::new();
@@ -985,8 +988,8 @@ impl<T: Config> Pallet<T> {
             }
 
             for (cold, amount) in transfer_map.iter() {
-                distributed_tao_value_u128 = distributed_tao_value_u128
-                    .saturating_add(amount.to_u128().unwrap_or(0_u128));
+                distributed_tao_value_u128 =
+                    distributed_tao_value_u128.saturating_add(amount.to_u128().unwrap_or(0_u128));
                 let _ = Self::transfer_tao_from_subnet(netuid, cold, *amount);
             }
         }

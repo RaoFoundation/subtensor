@@ -33,8 +33,7 @@ fn dissolve_with_short_pays_stakers_at_frozen_r_and_recycles_leftover() {
         enable_lending_on_subnet(net);
 
         let short_cold = U256::from(301);
-        let quote = LendingPallet::<Test>::quote_open_short(net, SHORT_MINT)
-            .expect("open quote");
+        let quote = LendingPallet::<Test>::quote_open_short(net, SHORT_MINT).expect("open quote");
         let stake_in = TaoBalance::from(quote.required_collateral)
             .saturating_add(TaoBalance::from(quote.deposit))
             .saturating_add(ExistentialDeposit::get());
@@ -65,10 +64,9 @@ fn dissolve_with_short_pays_stakers_at_frozen_r_and_recycles_leftover() {
             .price;
         run_dissolve_cleanup_to_completion();
 
-        let expected_staker = (U64F64::saturating_from_num(stake)
-            .saturating_mul(rate))
-        .floor()
-        .saturating_to_num::<u64>();
+        let expected_staker = (U64F64::saturating_from_num(stake).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
 
         let staker_gain =
             SubtensorModule::get_coldkey_balance(&s_cold).saturating_sub(staker_before.into());

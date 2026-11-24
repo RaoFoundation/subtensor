@@ -1787,16 +1787,12 @@ fn random_state_solvency_property_i8() {
                     pos.funds()
                 );
                 if pos.zone_minted > 0 {
-                    assert!(
-                        owed >= pos.zone_proceeds,
-                        "zone settles at proceeds"
-                    );
+                    assert!(owed >= pos.zone_proceeds, "zone settles at proceeds");
                 }
                 let older = pos.minted.saturating_sub(pos.zone_minted);
-                let qr = (U64F64::saturating_from_num(older)
-                    .saturating_mul(rate))
-                .ceil()
-                .saturating_to_num::<u64>()
+                let qr = (U64F64::saturating_from_num(older).saturating_mul(rate))
+                    .ceil()
+                    .saturating_to_num::<u64>()
                     + pos.zone_proceeds;
                 assert!(
                     qr <= pos.collateral.saturating_add(pos.proceeds),
@@ -1818,8 +1814,8 @@ fn random_state_solvency_property_i8() {
             }
             let reserve = ResidualReserve::<Test>::get(netuid());
             assert!(
-                owed_sum.saturating_add(reserve) <=
-                    Positions::<Test>::iter()
+                owed_sum.saturating_add(reserve)
+                    <= Positions::<Test>::iter()
                         .map(|(_, _, p)| p.funds())
                         .sum::<u64>()
                         .saturating_add(reserve),
@@ -1844,8 +1840,7 @@ fn adapter_issuance_reconciliation_forced_close_retire_default() {
                 burned_alpha(),
             )
         };
-        let reconcile =
-            || assert_eq!(issuance(), base_issuance() + track().1 + track().2);
+        let reconcile = || assert_eq!(issuance(), base_issuance() + track().1 + track().2);
 
         assert_ok!(open(1, MINT, COLLATERAL));
         reconcile();

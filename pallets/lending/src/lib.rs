@@ -938,9 +938,7 @@ pub mod pallet {
             let retires = Self::retire_residuals(RESIDUAL_RETIRES_PER_BLOCK, &params);
             let due_budget = T::WeightInfo::charge_interest()
                 .saturating_mul(u64::from(MAX_DUE_CHARGES_PER_BLOCK))
-                .saturating_add(
-                    T::DbWeight::get().reads_writes(u64::from(MAX_EMPTY_DUE_BUMPS), 0),
-                );
+                .saturating_add(T::DbWeight::get().reads_writes(u64::from(MAX_EMPTY_DUE_BUMPS), 0));
             let mut due_meter = WeightMeter::with_limit(due_budget);
             Self::collect_due(now, &mut due_meter);
             weight

@@ -484,13 +484,11 @@ fn dissolve_two_stakers_pro_rata_distribution() {
             .price;
         run_dissolve_cleanup_to_completion();
 
-        let rate_tao =
-            |alpha: u64| -> u64 {
-                (U64F64::saturating_from_num(alpha)
-                    .saturating_mul(rate))
+        let rate_tao = |alpha: u64| -> u64 {
+            (U64F64::saturating_from_num(alpha).saturating_mul(rate))
                 .floor()
                 .saturating_to_num::<u64>()
-            };
+        };
         let expected1 = rate_tao(a1);
         let expected2 = rate_tao(a2);
 
