@@ -21,16 +21,6 @@ use crate::{
     pallet::balancer::{ACCURACY, BalancerError},
 };
 
-/// `floor(a * b / c)` in u128, saturating the result into u64.
-fn mul_div_floor(a: u64, b: u64, c: u64) -> u64 {
-    if c == 0 {
-        return 0;
-    }
-    let product = u128::from(a).saturating_mul(u128::from(b));
-    let quot = product.checked_div(u128::from(c)).unwrap_or(0);
-    u64::try_from(quot).unwrap_or(u64::MAX)
-}
-
 impl<T: Config> Pallet<T> {
     pub fn current_price(netuid: NetUid) -> U64F64 {
         match T::SubnetInfo::mechanism(netuid.into()) {

@@ -1356,22 +1356,9 @@ fn destroy_alpha_out_multiple_stakers_pro_rata() {
         // 7. Run the (now credit-to-coldkey) logic
         destroy_alpha_in_out_stakes_full_pipeline_for_test(netuid);
 
-        // 8. Expected τ shares via largest remainder
-        let prod1 = (tao_pot as u128) * a1;
-        let prod2 = (tao_pot as u128) * a2;
-        let mut s1_share = (prod1 / atotal) as u64;
-        let mut s2_share = (prod2 / atotal) as u64;
-        let distributed = s1_share + s2_share;
-        if distributed < tao_pot {
-            // Assign leftover to larger remainder
-            let r1 = prod1 % atotal;
-            let r2 = prod2 % atotal;
-            if r1 >= r2 {
-                s1_share += 1;
-            } else {
-                s2_share += 1;
-            }
-        }
+        // 8. Expected τ shares at rate r = pot / Σα (floor; leftover recycled).
+        let s1_share = ((tao_pot as u128) * a1 / atotal) as u64;
+        let s2_share = ((tao_pot as u128) * a2 / atotal) as u64;
 
         // 9. Cold-key balances must have increased accordingly
         assert_eq!(
@@ -1550,25 +1537,14 @@ fn destroy_alpha_out_many_stakers_complex_distribution() {
         }
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
-        // ── 5) expected τ share per pallet algorithm (incl. remainder) ─────
+        // ── 5) expected τ share at r = pot / Σα (floor; leftover recycled) ─
 
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::ZERO);
         SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::ZERO);
         let mut share = [0u64; N];
-        let mut rem = [0u128; N];
-        let mut paid: u128 = 0;
 
         for i in 0..N {
-            let prod = tao_pot as u128 * alpha[i];
-            share[i] = (prod / alpha_sum) as u64;
-            rem[i] = prod % alpha_sum;
-            paid += share[i] as u128;
-        }
-        let leftover = tao_pot as u128 - paid;
-        let mut idx: Vec<_> = (0..N).collect();
-        idx.sort_by_key(|i| core::cmp::Reverse(rem[*i]));
-        for i in 0..leftover as usize {
-            share[idx[i]] += 1;
+            share[i] = (tao_pot as u128 * alpha[i] / alpha_sum) as u64;
         }
 
         // ── 5b) expected owner refund with price-aware emission deduction ───

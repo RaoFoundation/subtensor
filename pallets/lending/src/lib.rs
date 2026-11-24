@@ -936,21 +936,17 @@ pub mod pallet {
             }
             let steps = Self::exhaust_deleverage_queue(&params);
             let retires = Self::retire_residuals(RESIDUAL_RETIRES_PER_BLOCK, &params);
-            let mut due_weight = Weight::zero();
-            {
-                let due_budget = T::WeightInfo::charge_interest()
-                    .saturating_mul(u64::from(MAX_DUE_CHARGES_PER_BLOCK))
-                    .saturating_add(
-                        T::DbWeight::get().reads_writes(u64::from(MAX_EMPTY_DUE_BUMPS), 0),
-                    );
-                let mut due_meter = WeightMeter::with_limit(due_budget);
-                Self::collect_due(now, &mut due_meter);
-                due_weight = due_meter.consumed();
-            }
+            let due_budget = T::WeightInfo::charge_interest()
+                .saturating_mul(u64::from(MAX_DUE_CHARGES_PER_BLOCK))
+                .saturating_add(
+                    T::DbWeight::get().reads_writes(u64::from(MAX_EMPTY_DUE_BUMPS), 0),
+                );
+            let mut due_meter = WeightMeter::with_limit(due_budget);
+            Self::collect_due(now, &mut due_meter);
             weight
                 .saturating_add(T::WeightInfo::deleverage_step().saturating_mul(u64::from(steps)))
                 .saturating_add(T::WeightInfo::retire_residual().saturating_mul(u64::from(retires)))
-                .saturating_add(due_weight)
+                .saturating_add(due_meter.consumed())
         }
 
         fn on_finalize(_now: BlockNumberFor<T>) {

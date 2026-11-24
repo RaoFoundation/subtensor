@@ -596,7 +596,7 @@ impl<T: Config> Pallet<T> {
             return false;
         };
 
-        let Some(mut distributed_tao_value_u128) = status.subnet_distributed_tao else {
+        let Some(_distributed_tao_value_u128) = status.subnet_distributed_tao else {
             log::warn!("DissolveCleanupStatus.subnet_distributed_tao not set");
             return false;
         };
@@ -696,8 +696,6 @@ impl<T: Config> Pallet<T> {
                 Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
 
             let paid = refund.min(transferrable);
-            distributed_tao_value_u128 =
-                distributed_tao_value_u128.saturating_add(paid.into());
             // Leftover pot after rate-based payouts is recycled below — never
             // folded into the owner lock refund (SPEC P12).
             // We do our best effort to refund owner to as full amount of refund as possible, but
