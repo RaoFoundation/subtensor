@@ -658,3 +658,94 @@ def test_cli_overwrite_preserves_existing_group_identity(local_state, stored_mod
     )
     assert result.exit_code == 0, result.output or str(result.exception)
     assert config.get_multisig("treasury")["account_mode"] == (stored_mode or "legacy")
+
+
+@pytest.mark.parametrize(
+    ("pending", "expected", "can_sign"),
+    [
+        (None, None, True),
+        ({"height": 88, "index": 3}, None, False),
+        (None, {"height": 88, "index": 3}, False),
+        ({"height": 89, "index": 3}, {"height": 88, "index": 3}, False),
+        ({"height": 88, "index": 3}, {"height": 88, "index": 3}, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transport_pins_multisig_opening_and_approval(pending, expected, can_sign):
+    from bittensor._transport.interface import SubstrateConnection
+
+    codec = Mock()
+    codec.call_hash.return_value = b"\x01" * 32
+    connection = SimpleNamespace(
+        _runtimes=SimpleNamespace(codec_at=AsyncMock(return_value=codec)),
+        query=AsyncMock(return_value={"when": pending} if pending else None),
+        create_signed_extrinsic=AsyncMock(),
+        ss58_format=42,
+    )
+    account = multisig_account([ALICE, BOB], 2)
+
+    async def approve():
+        return await SubstrateConnection.create_multisig_extrinsic(
+            connection,
+            b"inner",
+            dev_wallet().coldkey,
+            account,
+            max_weight={"ref_time": 1, "proof_size": 0},
+            expected_timepoint=expected,
+        )
+
+    if can_sign:
+        await approve()
+        assert codec.compose_call.call_args.args[2]["maybe_timepoint"] == expected
+        connection.create_signed_extrinsic.assert_awaited_once()
+    else:
+        with pytest.raises(ValueError, match="refusing to sign"):
+            await approve()
+        connection.create_signed_extrinsic.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("wrapper_version", "signing_version", "expected_result"),
+    [(497, 497, "reject"), (496, 497, "reject"), (496, 496, "sign")],
+)
+@pytest.mark.asyncio
+async def test_reviewed_spec_is_enforced_by_multisig_payload_codec(
+    monkeypatch, wrapper_version, signing_version, expected_result
+):
+    from bittensor._transport import interface
+    from bittensor._transport.contract import CallBytes
+
+    wrapper = Mock(spec_version=wrapper_version)
+    wrapper.call_hash.return_value = bytes(32)
+    wrapper.compose_call.return_value = CallBytes(data=b"outer", spec_version=wrapper_version)
+    signing = Mock(spec_version=signing_version)
+    connection = interface.SubstrateConnection("ws://unused.invalid")
+    connection._runtimes = SimpleNamespace(codec_at=AsyncMock(side_effect=[wrapper, signing]))
+    connection._nonces = SimpleNamespace(next_for=AsyncMock(return_value=0), release=Mock())
+    connection.query = AsyncMock(return_value=None)
+    connection.genesis_hash = AsyncMock(return_value="0x" + "00" * 32)
+    sign = AsyncMock(return_value="test receipt")
+    monkeypatch.setattr(interface, "_sign_and_assemble", sign)
+
+    async def approve():
+        return await connection.create_multisig_extrinsic(
+            CallBytes(data=b"identical reviewed call bytes", spec_version=496),
+            dev_wallet().coldkey,
+            multisig_account([ALICE, BOB], 2),
+            max_weight={"ref_time": 1, "proof_size": 0},
+            expected_timepoint=None,
+            expected_spec_version=496,
+        )
+
+    if expected_result == "reject":
+        with pytest.raises(ValueError, match="runtime specVersion 497 differs from reviewed 496"):
+            await approve()
+        sign.assert_not_awaited()
+        if wrapper_version == 496:
+            connection._nonces.release.assert_called_once_with(
+                dev_wallet().coldkey.ss58_address, 0, 1
+            )
+    else:
+        assert await approve() == "test receipt"
+        assert sign.await_args.args[0].spec_version == 496
+        connection._nonces.release.assert_not_called()

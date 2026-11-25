@@ -1,0 +1,12 @@
+{
+  "name": "subtensor-sudo-params",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "@polkadot/api": "^16",
+    "smol-toml": "^1.6.0"
+  }
+}
