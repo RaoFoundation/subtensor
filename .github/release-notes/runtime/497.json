@@ -1,0 +1,12 @@
+{
+  "kind": "runtime",
+  "spec_version": 497,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v497-upgrade/page.tsx",
+  "public_path": "/releases/v497-upgrade",
+  "audiences": [
+    "node operators",
+    "wallets and indexers",
+    "sudo signers"
+  ],
+  "summary": "V497 raises the runtime spec version from 496 to 497 and keeps transaction version 2. Relative to V496 there are no new runtime calls, storage migrations, or parameter changes. After activation, refresh runtime metadata, rebuild older signing payloads, and regenerate pending root parameter proposals before approving. The paired Python release publishes bittensor 11.3.7 with the V496 signing safeguards and a version-only bittensor-core 0.1.14."
+}

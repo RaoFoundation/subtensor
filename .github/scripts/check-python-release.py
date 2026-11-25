@@ -5,13 +5,19 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import io
 import json
 import re
+import subprocess
 import sys
+import tarfile
 from collections.abc import Callable
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -324,6 +330,142 @@ def check_release(
     return verified
 
 
+# Compare shipped inputs to the actual stable sources, not the PR parent or
+# the uploader's workflow commit (manual publication can build another ref).
+CORE_SOURCES = (
+    "sdk/bittensor-core/src/",
+    "sdk/bittensor-core-py/src/",
+    "primitives/hashed/src/",
+    "support/macros/src/",
+    "vendor/fips204/src/",
+    "vendor/w3f-bls/src/",
+)
+CORE_MANIFESTS = ("sdk/bittensor-core/Cargo.toml", "sdk/bittensor-core-py/Cargo.toml")
+
+
+def download_sdist(entry: dict[str, Any]) -> bytes:
+    url = entry.get("url")
+    if (
+        not isinstance(url, str)
+        or urlsplit(url).netloc != "files.pythonhosted.org"
+        or urlsplit(url).scheme != "https"
+    ):
+        raise ApiError("invalid PyPI source distribution URL")
+    with urlopen(url, timeout=30) as response:
+        data = response.read(MAX_RESPONSE_SIZE + 1)
+    if (
+        len(data) > MAX_RESPONSE_SIZE
+        or hashlib.sha256(data).hexdigest() != entry["digests"]["sha256"]
+    ):
+        raise ApiError("PyPI source distribution size or digest mismatch")
+    return data
+
+
+def source_matches(data: bytes, filename: str, *, sdk: bool) -> bool:
+    import tomllib
+
+    prefix = "sdk/python/" if sdk else ""
+    roots = ("bittensor/",) if sdk else CORE_SOURCES
+    sources = (
+        subprocess.check_output(
+            ["git", "ls-files", "-z", "--", *(prefix + path for path in roots)]
+        )
+        .decode()
+        .split("\0")
+    )
+    local = {
+        path.removeprefix(prefix): Path(path).read_bytes() for path in sources if path
+    }
+
+    def manifest(data: bytes, path: str) -> dict[str, Any]:
+        value = tomllib.loads(data.decode())
+        if path.endswith("Cargo.toml"):
+            # Maturin can add this metadata to the bindings manifest.
+            value["package"].pop("readme", None)
+        elif sdk:
+            value["project"]["version"] = value["project"]["version"].removesuffix(
+                ".dev0"
+            )
+            # The stable SDK build strips only the monorepo source override.
+            value["tool"].get("uv", {}).pop("sources", None)
+            if not value["tool"].get("uv"):
+                value["tool"].pop("uv", None)
+        else:
+            # Maturin relocates the Python manifest to the sdist root.
+            value["tool"]["maturin"].pop("manifest-path", None)
+        return value
+
+    manifests = ("pyproject.toml",) if sdk else ("pyproject.toml", *CORE_MANIFESTS)
+    root = filename.removesuffix(".tar.gz") + "/"
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+        published = {}
+        for member in archive:
+            if not member.name.startswith(root):
+                continue
+            path = member.name.removeprefix(root)
+            if not member.isfile() or not (path.startswith(roots) or path in manifests):
+                continue
+            if path in published or member.size > MAX_RESPONSE_SIZE:
+                raise ApiError("invalid member in PyPI source distribution")
+            with archive.extractfile(member) as stream:
+                published[path] = stream.read()
+    for path in manifests:
+        current = (
+            "sdk/bittensor-core-py/pyproject.toml"
+            if not sdk and path == "pyproject.toml"
+            else prefix + path
+        )
+        if path not in published or manifest(published.pop(path), path) != manifest(
+            Path(current).read_bytes(), path
+        ):
+            return False
+    return local == published
+
+
+def check_source(
+    *,
+    sdk_version: str,
+    core_version: str,
+    repository: str,
+    workflows: tuple[str, ...],
+    environment: str,
+    base_url: str,
+) -> str:
+    if not all(VERSION_RE.fullmatch(v) for v in (sdk_version, core_version)):
+        raise ValueError("Python versions must be stable X.Y.Z versions")
+    get_json = lru_cache(maxsize=None)(fetch_json)
+    sdk = get_json(f"{base_url}/pypi/bittensor/{sdk_version}/json")
+    core = get_json(f"{base_url}/pypi/bittensor-core/{core_version}/json")
+    if sdk is None and core is None:
+        return "Both Python versions are available for a new release."
+    if sdk is None or core is None:
+        raise IncompleteRelease(
+            "the paired release needs two unused versions; one is already on PyPI"
+        )
+
+    check_release(
+        sdk_version=sdk_version,
+        core_version=core_version,
+        repository=repository,
+        workflows=workflows,
+        environment=environment,
+        base_url=base_url,
+        get_json=get_json,
+    )
+    for metadata, package, filename, is_sdk in (
+        (sdk, "bittensor", f"bittensor-{sdk_version}.tar.gz", True),
+        (core, "bittensor-core", f"bittensor_core-{core_version}.tar.gz", False),
+    ):
+        entry = _release_files(metadata, package=package)[filename]
+        if not source_matches(download_sdist(entry), filename, sdk=is_sdk):
+            raise IncompleteRelease(
+                f"shipped {package} sources differ from PyPI; bump both Python package versions and add release notes"
+            )
+    return (
+        "Shipped Python sources match the published pair; no new Python release needed."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sdk-version", required=True)
@@ -337,9 +479,15 @@ def main() -> int:
     )
     parser.add_argument("--environment", default="mainnet")
     parser.add_argument("--base-url", default="https://pypi.org")
+    parser.add_argument(
+        "--check-source",
+        action="store_true",
+        help="Require a fresh pair or verify the published pair matches this checkout.",
+    )
     arguments = parser.parse_args()
     try:
-        verified = check_release(
+        check = check_source if arguments.check_source else check_release
+        verified = check(
             sdk_version=arguments.sdk_version,
             core_version=arguments.core_version,
             repository=arguments.repository,
@@ -350,10 +498,20 @@ def main() -> int:
     except IncompleteRelease as error:
         print(f"Python release incomplete: {error}", file=sys.stderr)
         return 1
-    except (ApiError, ValueError) as error:
+    except (
+        ApiError,
+        ValueError,
+        OSError,
+        tarfile.TarError,
+        subprocess.CalledProcessError,
+    ) as error:
         print(f"could not verify Python release: {error}", file=sys.stderr)
         return 2
-    print(f"verified {len(verified)} attested Python release files")
+    print(
+        verified
+        if arguments.check_source
+        else f"verified {len(verified)} attested Python release files"
+    )
     return 0
 
 
