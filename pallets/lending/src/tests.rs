@@ -1674,6 +1674,31 @@ fn migration_refuses_to_clear_nonempty_positions() {
         ));
         assert!(sp_io::storage::get(&k).is_some());
         assert!(Enabled::<Test>::get());
+        // V2 must not clear StrandedCustody / deleverage maps either.
+        crate::migrations::migrate_deleverage_value_types_v2::<Test>();
+        assert!(!HasMigrationRun::<Test>::get(
+            crate::migrations::deleverage_value_types_v2_key()
+        ));
+    });
+}
+
+#[test]
+fn dissolution_refreshes_prune_floor_excluding_dissolving_net() {
+    run(|| {
+        // Floor 0.9: netuid at 1.0 is in zone (≤ 1.25 × 0.9).
+        set_other_rank(0.9);
+        assert!(Lending::in_prune_zone(netuid(), &params()));
+        let before = PruneFloor::<Test>::get().expect("floor").1;
+        assert_eq!(before, U64F64::from_num(0.9));
+        // Dissolve the floor-setter; refresh excludes it so floor rises.
+        assert_ok!(Lending::start_dissolution(other()));
+        let floor = PruneFloor::<Test>::get().expect("floor").1;
+        assert_eq!(
+            floor,
+            Lending::prune_rank_price(netuid()),
+            "dissolving peer must leave the prune floor"
+        );
+        assert!(floor > before);
     });
 }
 

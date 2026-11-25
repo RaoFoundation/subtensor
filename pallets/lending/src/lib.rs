@@ -1031,15 +1031,22 @@ pub mod pallet {
                 weight = weight.saturating_add(twap_tick_w);
             }
             // Publish this block's prune-zone floor from the same live set so
-            // open/increase stay O(1). Charge immune + rank/moving per subnet.
-            Self::refresh_prune_floor(now, &subnets);
-            weight = weight.saturating_add(
-                db.reads_writes(subnets.len().saturating_mul(3) as u64, 1)
-                    .saturating_add(Weight::from_parts(
-                        0,
-                        (U64F64::max_encoded_len() as u64).saturating_mul(2),
-                    )),
-            );
+            // open/increase stay O(1). Skip while disabled (opens cannot run).
+            if Enabled::<T>::get() {
+                Self::refresh_prune_floor(now, &subnets);
+                // Per subnet: immune, dissolution, ring generation, rank or
+                // moving-price fallback (≤6 reads) + U64F64/gen proof.
+                let n = subnets.len() as u64;
+                let proof = (U64F64::max_encoded_len() as u64)
+                    .saturating_add(u32::max_encoded_len() as u64)
+                    .saturating_mul(n)
+                    .saturating_add(U64F64::max_encoded_len() as u64);
+                weight = weight.saturating_add(
+                    db.reads(n.saturating_mul(6).saturating_add(1))
+                        .saturating_add(db.writes(1))
+                        .saturating_add(Weight::from_parts(0, proof)),
+                );
+            }
             if close_interval {
                 weight = weight.saturating_add(
                     T::WeightInfo::twap_sample().saturating_mul(subnets.len() as u64),
@@ -1457,11 +1464,13 @@ pub mod pallet {
             Self::refresh_prune_floor(now, &T::Pool::live_subnets());
         }
 
-        /// Publish this block's lowest non-immune prune rank for O(1) zone checks.
+        /// Publish this block's lowest non-immune, non-dissolving prune rank
+        /// for O(1) zone checks. Dissolving nets are excluded so the cache
+        /// stays coherent with deregistration eligibility.
         fn refresh_prune_floor(now: BlockNumberFor<T>, subnets: &[NetUid]) {
             let mut floor: Option<U64F64> = None;
             for &netuid in subnets {
-                if T::Pool::prune_immune(netuid) {
+                if T::Pool::prune_immune(netuid) || Dissolutions::<T>::contains_key(netuid) {
                     continue;
                 }
                 let price = Self::prune_rank_price(netuid);
@@ -2134,47 +2143,54 @@ pub mod pallet {
         }
 
         /// Walk up to [`MAX_DELEVERAGE_STEPS_PER_BLOCK`] keys of `from`'s
-        /// subnet, reserving one read per key and a cursor write before each
-        /// park. Returns `Ok(true)` when past the subnet, `Ok(false)` when the
-        /// page cap parked mid-subnet (caller may continue), `Err(())` when
-        /// the meter is exhausted.
+        /// subnet. Reserves the cursor write before the page and each
+        /// iterator advance (including the boundary / exhaustion probe)
+        /// before `next()`, with proof for visited keys. Returns `Ok(true)`
+        /// when past the subnet, `Ok(false)` on page cap, `Err(())` when the
+        /// meter is exhausted (cursor already parked on the last reserved
+        /// write).
         fn advance_cursor_past_subnet(
             from: &(NetUid, T::AccountId),
             meter: &mut WeightMeter,
         ) -> Result<bool, ()> {
             let netuid = from.0;
-            let key_w = T::DbWeight::get().reads(1);
-            let cursor_w = T::DbWeight::get().writes(1);
+            let key_proof = (NetUid::max_encoded_len() as u64)
+                .saturating_add(T::AccountId::max_encoded_len() as u64);
+            let key_w = T::DbWeight::get()
+                .reads(1)
+                .saturating_add(Weight::from_parts(0, key_proof));
+            let cursor_w = T::DbWeight::get()
+                .writes(1)
+                .saturating_add(Weight::from_parts(0, key_proof));
+            // Reserve the cursor write before any page work so a mid-page
+            // meter miss never writes unbudgeted.
+            meter.try_consume(cursor_w).map_err(|_| ())?;
             let mut walked = 1u32;
             let mut last = from.clone();
-            for (n, owner) in DeleverageQueue::<T>::iter_keys_from(
+            let mut iter = DeleverageQueue::<T>::iter_keys_from(
                 DeleverageQueue::<T>::hashed_key_for(from.0, &from.1),
-            ) {
-                if n != netuid {
-                    break;
-                }
+            );
+            loop {
                 if meter.try_consume(key_w).is_err() {
-                    let _ = meter.try_consume(cursor_w);
                     DeleverageCursor::<T>::put(last);
                     return Err(());
                 }
-                walked = walked.saturating_add(1);
-                last = (n, owner);
-                if walked >= MAX_DELEVERAGE_STEPS_PER_BLOCK {
-                    if meter.try_consume(cursor_w).is_err() {
-                        DeleverageCursor::<T>::put(last);
-                        return Err(());
+                match iter.next() {
+                    Some((n, owner)) if n == netuid => {
+                        walked = walked.saturating_add(1);
+                        last = (n, owner);
+                        if walked >= MAX_DELEVERAGE_STEPS_PER_BLOCK {
+                            DeleverageCursor::<T>::put(last);
+                            return Ok(false);
+                        }
                     }
-                    DeleverageCursor::<T>::put(last);
-                    return Ok(false);
+                    Some(_) | None => {
+                        // Boundary probe or end of map — already charged.
+                        DeleverageCursor::<T>::put(last);
+                        return Ok(true);
+                    }
                 }
             }
-            if meter.try_consume(cursor_w).is_err() {
-                DeleverageCursor::<T>::put(last);
-                return Err(());
-            }
-            DeleverageCursor::<T>::put(last);
-            Ok(true)
         }
 
         /// Run paced buy-backs until a full queue pass makes no progress, the
@@ -3018,13 +3034,17 @@ pub mod pallet {
 
         pub fn start_dissolution(netuid: NetUid) -> DispatchResult {
             Self::ensure_not_dissolving(netuid)?;
+            let now = frame_system::Pallet::<T>::block_number();
             Dissolutions::<T>::insert(
                 netuid,
                 Dissolution {
-                    frozen_at: frame_system::Pallet::<T>::block_number(),
+                    frozen_at: now,
                     price: Self::dissolution_rate(netuid),
                 },
             );
+            // Drop the dissolving net from this block's prune floor so signed
+            // opens stay coherent with deregistration eligibility.
+            Self::refresh_prune_floor(now, &T::Pool::live_subnets());
             Ok(())
         }
 

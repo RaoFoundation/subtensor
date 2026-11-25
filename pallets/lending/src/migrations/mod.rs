@@ -202,14 +202,28 @@ pub fn deleverage_value_types_v2_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
 
 /// Drop deleverage / stranded maps that changed value type. Safe when empty
 /// (asserted under try-runtime); clears leftover bytes from earlier encodings.
+///
+/// Gated on [`migrate_to_synth_shorts_v1`] having stamped: if lift-era
+/// custody is still present (v1 refused), this migration must not clear
+/// `StrandedCustody` / deleverage maps either.
 pub fn migrate_deleverage_value_types_v2<T: Config>() -> Weight {
     let key = deleverage_value_types_v2_key();
     let db = T::DbWeight::get();
-    let mut weight = db.reads(1);
+    let mut weight = db.reads(2);
     if HasMigrationRun::<T>::get(&key) {
         return weight;
     }
+    if !HasMigrationRun::<T>::get(synth_shorts_v1_key()) {
+        // Lift→synth cutover incomplete; leave value-type maps untouched.
+        return weight;
+    }
     let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
+    weight = weight.saturating_add(db.reads(2));
+    if retired_prefix_nonempty(pallet, "Positions")
+        || retired_prefix_nonempty(pallet, "EscrowOwner")
+    {
+        return weight;
+    }
     for item in DELEVERAGE_VALUE_TYPE_ITEMS {
         let prefix = storage_prefix(pallet, item.as_bytes());
         let removed = unhashed::clear_prefix(&prefix, None, None);
@@ -231,12 +245,22 @@ impl<T: Config> OnRuntimeUpgrade for MigrateDeleverageValueTypesV2<T> {
     fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
         // Documented assert-empty guard: these maps must be empty (or already
         // stamped) before the value-type cutover; otherwise clear_prefix drops
-        // live deleverage state.
+        // live deleverage state. Also requires the synth-shorts v1 stamp so
+        // lift-era custody cannot be stranded by a partial cutover.
         let key = deleverage_value_types_v2_key();
         if HasMigrationRun::<T>::get(&key) {
             return Ok(true.encode());
         }
+        ensure!(
+            HasMigrationRun::<T>::get(synth_shorts_v1_key()),
+            "synth-shorts v1 must complete before deleverage value-type v2"
+        );
         let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
+        ensure!(
+            !retired_prefix_nonempty(pallet, "Positions")
+                && !retired_prefix_nonempty(pallet, "EscrowOwner"),
+            "lift-era Positions/EscrowOwner must be empty before v2 migration"
+        );
         for item in DELEVERAGE_VALUE_TYPE_ITEMS {
             let prefix = storage_prefix(pallet, item.as_bytes());
             let key_buf = prefix.to_vec();
