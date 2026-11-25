@@ -160,13 +160,19 @@ btcli gamma list
 
 [`transfer-gamma`](/docs/tx/transfer-gamma) sends an exact amount to another
 coldkey. It comes from the signer's balance, or from its deposit at
-`--origin-hotkey`, and goes to the deposit the receiver already holds at
+`--origin-hotkey`, and goes to the receiver's deposit at
 `--destination-hotkey`, which that hotkey can spend at once and which keeps its
-daily spend cap. Without it, the gamma goes to the receiver's balance, which no
-key can spend until the receiver's coldkey deposits it, so name a deposit when
-the receiver has one. A transfer never opens a deposit, so a receiver who wants top-ups at a key
-opens one there first, with `deposit` or `mint`. Sending to a hotkey's address
-puts the gamma in a balance only that address's key can move.
+daily spend cap. A hotkey with no deposit opens one for the receiver with no
+cap, unless a coldkey other than the receiver owns that hotkey. Without
+`--destination-hotkey`, the gamma goes to the receiver's balance, which no key can spend until the receiver's coldkey
+deposits it. Sending to a hotkey's address puts the gamma in a balance only
+that address's key can move.
+
+Another coldkey can open a deposit for a coldkey only while it holds fewer than
+32 on the subnet, its own included, so others never take more than half of its
+64, and not while its coldkey swap is announced or disputed, or while it is the
+destination of one. Sending to a
+deposit that is already open, or to a balance, is not limited.
 
 ```bash
 btcli gamma transfer --netuid 1 --dest-coldkey THEIR_COLDKEY --origin-hotkey API_KEY \

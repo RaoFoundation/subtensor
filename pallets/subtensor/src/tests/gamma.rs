@@ -2264,13 +2264,14 @@ fn transfer_gamma_refusals() {
             transfer(netuid, alice, bob, GAMMA, Some(HOTKEY + 1), None),
             Error::<Test>::GammaDepositDoesNotExist
         );
-        // The destination deposit must exist and be the destination's.
-        assert_noop!(
-            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 101)),
-            Error::<Test>::GammaDepositDoesNotExist
-        );
+        // The destination deposit must be the destination's, and only a hotkey's owner opens one
+        // there.
         assert_noop!(
             transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY)),
+            Error::<Test>::NonAssociatedColdKey
+        );
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 1)),
             Error::<Test>::NonAssociatedColdKey
         );
         // The same source and destination.
@@ -2291,6 +2292,150 @@ fn transfer_gamma_refusals() {
         assert_noop!(
             transfer(netuid, bob, alice, 1, None, None),
             Error::<Test>::AmountTooLow
+        );
+    });
+}
+
+#[test]
+fn transfer_gamma_opens_the_destination_deposit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob) = (COLDKEY, COLDKEY + 100);
+        mint(netuid, alice, HOTKEY, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, 3 * GAMMA));
+
+        // For another coldkey, with no daily spend cap.
+        System::reset_events();
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            GAMMA,
+            None,
+            Some(HOTKEY + 101)
+        ));
+        let opened = deposit(netuid, HOTKEY + 101);
+        assert_eq!(opened.coldkey, U256::from(bob));
+        assert_eq!(opened.balance, GAMMA.into());
+        assert_eq!(SubtensorModule::gamma_cap(&opened), None);
+        assert_eq!(
+            gamma_events(),
+            vec![Event::GammaTransferred {
+                netuid,
+                origin_coldkey: U256::from(alice),
+                destination_coldkey: U256::from(bob),
+                origin_hotkey: None,
+                destination_hotkey: Some(U256::from(HOTKEY + 101)),
+                amount: GAMMA.into()
+            }]
+        );
+
+        // For the signer, from its deposit and from its balance.
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            alice,
+            GAMMA,
+            Some(HOTKEY),
+            Some(HOTKEY + 1)
+        ));
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            alice,
+            GAMMA,
+            None,
+            Some(HOTKEY + 2)
+        ));
+        assert_eq!(deposit(netuid, HOTKEY + 1).balance, GAMMA.into());
+        assert_eq!(deposit(netuid, HOTKEY + 2).balance, GAMMA.into());
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn transfer_gamma_opens_at_most_half_of_a_coldkeys_deposits_for_it() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob) = (COLDKEY, COLDKEY + 100);
+        mint(netuid, alice, HOTKEY, 10 * TAO);
+        mint(netuid, bob, HOTKEY + 100, TAO);
+        let third_party = MAX_THIRD_PARTY_GAMMA_DEPOSITS as u64;
+        assert_ok!(withdraw(netuid, alice, HOTKEY, (third_party + 2) * GAMMA));
+        for hotkey in HOTKEY + 101..HOTKEY + 100 + third_party {
+            assert_ok!(transfer(netuid, alice, bob, GAMMA, None, Some(hotkey)));
+        }
+        let listed = || ColdkeyGammaHotkeys::<Test>::get(netuid, U256::from(bob)).len();
+        assert_eq!(listed(), MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize);
+
+        // Another coldkey opens no more, but still tops up what is open.
+        let next = HOTKEY + 100 + third_party;
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(next)),
+            Error::<Test>::TooManyGammaDeposits
+        );
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            GAMMA,
+            None,
+            Some(HOTKEY + 101)
+        ));
+
+        // The coldkey itself still opens its own, and others again once it closes some.
+        assert_ok!(withdraw(netuid, bob, HOTKEY + 100, GAMMA));
+        assert_ok!(deposit_to(netuid, bob, next, GAMMA));
+        assert_eq!(listed(), MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize + 1);
+        for hotkey in [HOTKEY + 102, HOTKEY + 103] {
+            assert_ok!(withdraw(netuid, bob, hotkey, GAMMA));
+        }
+        assert_ok!(transfer(netuid, alice, bob, GAMMA, None, Some(next + 1)));
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn transfer_gamma_opens_no_deposit_for_a_coldkey_in_a_swap() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob, carol) = (COLDKEY, COLDKEY + 100, COLDKEY + 200);
+        mint(netuid, alice, HOTKEY, TAO);
+        mint(netuid, bob, HOTKEY + 100, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, 2 * GAMMA));
+        add_balance_to_coldkey_account(
+            &U256::from(bob),
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+            RuntimeOrigin::signed(U256::from(bob)),
+            U256::from(carol),
+        ));
+
+        // Neither the announcer nor its revealed destination gets a new deposit.
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 101)),
+            Error::<Test>::ColdkeySwapAnnounced
+        );
+        assert_noop!(
+            transfer(netuid, alice, carol, GAMMA, None, Some(HOTKEY + 201)),
+            Error::<Test>::ColdkeySwapDestinationReserved
+        );
+        // What is already open, and a balance, still receive.
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            GAMMA,
+            None,
+            Some(HOTKEY + 100)
+        ));
+        assert_ok!(transfer(netuid, alice, bob, GAMMA, None, None));
+
+        ColdkeySwapDisputes::<Test>::insert(U256::from(bob), System::block_number());
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 101)),
+            Error::<Test>::ColdkeySwapDisputed
         );
     });
 }

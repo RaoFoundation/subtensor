@@ -653,14 +653,16 @@ class TestDepositPreviews:
          ({"origin_hotkey_ss58": BOB_HOT}, True),
          ({"destination_hotkey_ss58": BOB_HOT}, False),
          ({"destination_hotkey_ss58": ALICE_HOT}, True),
+         ({"destination_hotkey_ss58": BOB}, False),
          ({"destination_hotkey_ss58": ALICE}, True),
          ({"dest_coldkey_ss58": SIGNER}, True)],
         ids=["balance", "short", "own-deposit", "foreign-deposit", "receivers-deposit",
-             "not-receivers-deposit", "no-deposit", "same"],
+             "not-receivers-deposit", "opens-deposit", "hotkey-owned-by-another", "same"],
     )  # fmt: skip
     @pytest.mark.asyncio
     async def test_transfer_sends_from_own_and_to_the_receivers(self, args, blocked):
         sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "Owner", [ALICE], SIGNER)
         sub.seed("SubtensorModule", "GammaBalances", [1, SIGNER], RAO)
         sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=RAO))
         sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit(coldkey=BOB))

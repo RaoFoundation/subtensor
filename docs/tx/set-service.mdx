@@ -15,7 +15,7 @@ service.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service`](/code/pallets/subtensor/src/macros/dispatches.rs#L3352-L3361) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_service`](/code/pallets/subtensor/src/macros/dispatches.rs#L3354-L3363) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("set_service", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_service` — [`pallets/subtensor/src/macros/dispatches.rs#L3354`](/code/pallets/subtensor/src/macros/dispatches.rs#L3352-L3361):
+`SubtensorModule.set_service` — [`pallets/subtensor/src/macros/dispatches.rs#L3356`](/code/pallets/subtensor/src/macros/dispatches.rs#L3354-L3363):
 
 ```rust
 #[pallet::call_index(169)]

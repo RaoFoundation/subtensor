@@ -686,7 +686,7 @@ class SubtensorModule:
 
     @staticmethod
     def transfer_gamma(destination_coldkey: 'AccountId32', origin_hotkey: 'Any', destination_hotkey: 'Any', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
-        "Sends exactly `amount` gamma on `netuid` from the signer's balance, or its deposit at `origin_hotkey`, to `destination_coldkey`'s balance, or the deposit it already holds at `destination_hotkey`: at least 0.1 gamma, leaving none or at least as much. A transfer that empties a source deposit closes it."
+        "Sends exactly `amount` gamma on `netuid` from the signer's balance, or its deposit at `origin_hotkey`, to `destination_coldkey`'s balance, or its deposit at `destination_hotkey`: at least 0.1 gamma, leaving none or at least as much. A deposit that does not exist opens with no daily spend cap; another coldkey can open one only while the destination holds fewer than 32 on the subnet, its own included, and has no coldkey swap underway. A transfer that empties a source deposit closes it."
         return Call('SubtensorModule', 'transfer_gamma', {'destination_coldkey': destination_coldkey, 'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod

@@ -233,7 +233,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 190): ErrorInfo('SubtensorModule', 'HotkeyOwnerPolicyViolation', "An ownership change would weaken a protected account's authorization."),
     (7, 191): ErrorInfo('SubtensorModule', 'TaoUsdPriceUnavailable', 'Minting gamma needs a TAO/USD feed at most 300 blocks old.'),
     (7, 192): ErrorInfo('SubtensorModule', 'GammaDisabled', 'Gamma minting is disabled network-wide or on this subnet.'),
-    (7, 193): ErrorInfo('SubtensorModule', 'TooManyGammaDeposits', 'The coldkey would hold more than 64 gamma deposits on this subnet.'),
+    (7, 193): ErrorInfo('SubtensorModule', 'TooManyGammaDeposits', 'The coldkey would hold more than 64 gamma deposits on this subnet, or another coldkey would open one for it while it holds 32 or more.'),
     (7, 194): ErrorInfo('SubtensorModule', 'GammaDepositDoesNotExist', 'The hotkey holds no gamma deposit on this subnet.'),
     (7, 195): ErrorInfo('SubtensorModule', 'GammaDepositNotEmpty', 'A gamma deposit with a balance cannot be closed.'),
     (7, 196): ErrorInfo('SubtensorModule', 'GammaDepositSpenderMismatch', 'Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.'),

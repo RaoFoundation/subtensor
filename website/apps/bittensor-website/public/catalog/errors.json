@@ -897,8 +897,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 494,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L494",
+          "line": 495,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L495",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1292,7 +1292,7 @@
     },
     "ColdkeySwapAnnounced": {
       "code": "disabled",
-      "description": "The coldkey has a pending swap announcement, so all but a small allow-list of extrinsics are blocked until the swap completes or is cleared. Check status with `btcli wallet swap-check`, then finish with `btcli wallet swap-coldkey` or clear via `btcli tx clear-coldkey-swap-announcement`.",
+      "description": "The coldkey has a pending swap announcement, so all but a small allow-list of extrinsics are blocked until the swap completes or is cleared. Check status with `btcli wallet swap-check`, then finish with `btcli wallet swap-coldkey` or clear via `btcli tx clear-coldkey-swap-announcement`. A gamma transfer that would open a deposit for such a coldkey fails the same way; send to its balance or an open deposit.",
       "docs_url": "/docs/errors/chain/ColdkeySwapAnnounced",
       "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapAnnounced/content.md",
       "pallets": [
@@ -1382,7 +1382,7 @@
     },
     "ColdkeySwapDisputed": {
       "code": "disabled",
-      "description": "All extrinsics from this coldkey are blocked because its pending coldkey swap is under dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; the dispute must be resolved by root before the account can transact.",
+      "description": "All extrinsics from this coldkey are blocked because its pending coldkey swap is under dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; the dispute must be resolved by root before the account can transact. A gamma transfer that would open a deposit for such a coldkey fails the same way; send to its balance or an open deposit.",
       "docs_url": "/docs/errors/chain/ColdkeySwapDisputed",
       "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapDisputed/content.md",
       "pallets": [
@@ -2056,8 +2056,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 496,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L496",
+          "line": 497,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L497",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2416,8 +2416,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 491,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L491",
+          "line": 492,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L492",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2434,8 +2434,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 485,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L485",
+          "line": 486,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L486",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2452,8 +2452,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 479,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L479",
+          "line": 480,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L480",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2470,8 +2470,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 481,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L481",
+          "line": 482,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L482",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2488,8 +2488,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 483,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L483",
+          "line": 484,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L484",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2524,8 +2524,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 498,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L498",
+          "line": 499,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L499",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2542,8 +2542,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 505,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L505",
+          "line": 506,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L506",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2560,8 +2560,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 501,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L501",
+          "line": 502,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L502",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2920,8 +2920,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 489,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L489",
+          "line": 490,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L490",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4827,8 +4827,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 487,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L487",
+          "line": 488,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L488",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4845,8 +4845,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 509,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L509",
+          "line": 510,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L510",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5879,8 +5879,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 507,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L507",
+          "line": 508,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L508",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -6499,7 +6499,7 @@
     },
     "TooManyGammaDeposits": {
       "code": "limit_exceeded",
-      "description": "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one with `close_gamma_deposit`, then retry.",
+      "description": "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or by a coldkey swap into it, or another coldkey's transfer would open one for it while it holds 32 or more. Move gamma into an existing deposit, or close an empty one with `close_gamma_deposit`, then retry.",
       "docs_url": "/docs/errors/chain/TooManyGammaDeposits",
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyGammaDeposits/content.md",
       "pallets": [
@@ -6509,8 +6509,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 477,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L477",
+          "line": 478,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L478",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -6527,8 +6527,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 503,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L503",
+          "line": 504,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L504",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -6689,8 +6689,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 511,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L511",
+          "line": 512,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L512",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

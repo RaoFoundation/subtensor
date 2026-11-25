@@ -78,6 +78,31 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Refuses another coldkey opening a deposit for `coldkey` on `netuid` once its list there
+    /// holds [`crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS`], or while its coldkey swap is announced or
+    /// disputed, or it is reserved as a swap destination. During a swap the coldkey cannot close
+    /// deposits, and more of them could make the swap too heavy to execute.
+    fn ensure_third_party_gamma_deposit_can_open(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            !ColdkeySwapDisputes::<T>::contains_key(coldkey),
+            Error::<T>::ColdkeySwapDisputed
+        );
+        ensure!(
+            !ColdkeySwapAnnouncements::<T>::contains_key(coldkey),
+            Error::<T>::ColdkeySwapAnnounced
+        );
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(coldkey)?;
+        ensure!(
+            ColdkeyGammaHotkeys::<T>::decode_len(netuid, coldkey).unwrap_or_default()
+                < crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize,
+            Error::<T>::TooManyGammaDeposits
+        );
+        Ok(())
+    }
+
     /// Closes a deposit and drops its hotkey from its coldkey's list.
     fn remove_gamma_deposit(netuid: NetUid, hotkey: &T::AccountId, coldkey: &T::AccountId) {
         GammaDeposits::<T>::remove(netuid, hotkey);
@@ -737,8 +762,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Sends exactly `amount` from the signer's balance, or its deposit at `origin_hotkey`, to
-    /// `destination_coldkey`'s balance, or the deposit it holds at `destination_hotkey`. A
-    /// transfer never opens a deposit. Emptying a source deposit closes it.
+    /// `destination_coldkey`'s balance, or its deposit at `destination_hotkey`, opening one with
+    /// no daily spend cap if there is none. Emptying a source deposit closes it.
     pub fn do_transfer_gamma(
         origin: OriginFor<T>,
         destination_coldkey: T::AccountId,
@@ -758,7 +783,16 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AmountTooLow
         );
         if let Some(hotkey) = &destination_hotkey {
-            Self::own_gamma_deposit(netuid, hotkey, &destination_coldkey)?;
+            match GammaDeposits::<T>::get(netuid, hotkey) {
+                Some(deposit) => ensure!(
+                    deposit.coldkey == destination_coldkey,
+                    Error::<T>::NonAssociatedColdKey
+                ),
+                None if coldkey != destination_coldkey => {
+                    Self::ensure_third_party_gamma_deposit_can_open(netuid, &destination_coldkey)?
+                }
+                None => {}
+            }
         }
         let closes = match &origin_hotkey {
             Some(hotkey) => {

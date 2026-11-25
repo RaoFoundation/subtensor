@@ -300,6 +300,11 @@ pub const MAX_COLDKEY_COLLATERAL_HOTKEYS: u32 = 32;
 /// Maximum number of gamma deposits one coldkey holds on a single subnet.
 pub const MAX_GAMMA_DEPOSITS: u32 = 64;
 
+/// Longest list of deposits on one subnet that other coldkeys may leave behind on a coldkey
+/// by opening deposits for it through transfers. Half of [`MAX_GAMMA_DEPOSITS`], so the
+/// coldkey keeps as many for its own.
+pub const MAX_THIRD_PARTY_GAMMA_DEPOSITS: u32 = MAX_GAMMA_DEPOSITS / 2;
+
 /// Maximum number of gamma deposits one coldkey swap admits, counting both coldkeys.
 pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
 

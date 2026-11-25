@@ -895,9 +895,9 @@
         "pallet": "SubtensorModule",
         "call": "commit_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3405,
-        "end_line": 3413,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3403-L3413",
+        "line": 3407,
+        "end_line": 3415,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3405-L3415",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -984,9 +984,9 @@
         "pallet": "SubtensorModule",
         "call": "commit_timelocked_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3443,
-        "end_line": 3461,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3441-L3461",
+        "line": 3445,
+        "end_line": 3463,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3443-L3463",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3475,9 +3475,9 @@
         "pallet": "SubtensorModule",
         "call": "reveal_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3418,
-        "end_line": 3438,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3416-L3438",
+        "line": 3420,
+        "end_line": 3440,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3418-L3440",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4751,9 +4751,9 @@
         "pallet": "SubtensorModule",
         "call": "set_mech_weight_delegate",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3366,
-        "end_line": 3373,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3364-L3373",
+        "line": 3368,
+        "end_line": 3375,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3366-L3375",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5095,9 +5095,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3354,
-        "end_line": 3361,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3352-L3361",
+        "line": 3356,
+        "end_line": 3363,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3354-L3363",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5513,18 +5513,18 @@
         "pallet": "SubtensorModule",
         "call": "set_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3378,
-        "end_line": 3400,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3376-L3400",
+        "line": 3380,
+        "end_line": 3402,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3378-L3402",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "commit_timelocked_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3443,
-        "end_line": 3461,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3441-L3461",
+        "line": 3445,
+        "end_line": 3463,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3443-L3463",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -6237,7 +6237,7 @@
   {
     "name": "transfer_gamma",
     "summary": "Send gamma on a subnet to another coldkey.",
-    "description": "Send gamma on a subnet to another coldkey.\n\nSends exactly `amount_gamma` from your gamma balance, or your deposit at\n`origin_hotkey_ss58`, to the gamma balance of `dest_coldkey_ss58`, or\nthe deposit it already holds at `destination_hotkey_ss58`. The amount is\nat least 0.1 gamma, leaving none or at least as much. A\ntransfer never opens a deposit, and one that empties your deposit closes it.",
+    "description": "Send gamma on a subnet to another coldkey.\n\nSends exactly `amount_gamma` from your gamma balance, or your deposit at\n`origin_hotkey_ss58`, to the gamma balance of `dest_coldkey_ss58`, or\nits deposit at `destination_hotkey_ss58`, opening one with no daily spend\ncap if there is none. The amount is at least 0.1 gamma, leaving none or at\nleast as much. A transfer that empties your deposit closes it.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -6278,7 +6278,7 @@
         },
         "destination_hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey of the receiver's existing deposit to credit, which that hotkey spends under the deposit's daily spend cap. Omit to credit its balance, which its coldkey must deposit first."
+          "description": "Hotkey of the receiver's deposit to credit, which that hotkey spends under the deposit's daily spend cap, or opens with none. Omit to credit its balance, which its coldkey must deposit first."
         }
       },
       "required": [
@@ -6296,9 +6296,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_gamma",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3330,
-        "end_line": 3346,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3328-L3346",
+        "line": 3332,
+        "end_line": 3348,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3330-L3348",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

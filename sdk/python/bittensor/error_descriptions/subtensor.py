@@ -234,7 +234,8 @@ DESCRIPTIONS: dict[str, str] = {
         "The coldkey has a pending swap announcement, so all but a small allow-list of "
         "extrinsics are blocked until the swap completes or is cleared. Check status with "
         "`btcli wallet swap-check`, then finish with `btcli wallet swap-coldkey` or clear "
-        "via `btcli tx clear-coldkey-swap-announcement`."
+        "via `btcli tx clear-coldkey-swap-announcement`. A gamma transfer that would open a "
+        "deposit for such a coldkey fails the same way; send to its balance or an open deposit."
     ),
     "ColdkeySwapAnnouncementNotFound": (
         "`swap_coldkey_announced`, `dispute_coldkey_swap`, or `clear_coldkey_swap_announcement` "
@@ -250,7 +251,8 @@ DESCRIPTIONS: dict[str, str] = {
     "ColdkeySwapDisputed": (
         "All extrinsics from this coldkey are blocked because its pending coldkey swap is under "
         "dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; the dispute must be "
-        "resolved by root before the account can transact."
+        "resolved by root before the account can transact. A gamma transfer that would open a "
+        "deposit for such a coldkey fails the same way; send to its balance or an open deposit."
     ),
     "ColdkeySwapReannouncedTooEarly": (
         "`announce_coldkey_swap` was called again before the reannouncement delay after the "
@@ -1091,8 +1093,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "TooManyGammaDeposits": (
         "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "
-        "by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one "
-        "with `close_gamma_deposit`, then retry."
+        "by a coldkey swap into it, or another coldkey's transfer would open one for it while it "
+        "holds 32 or more. Move gamma into an existing deposit, or close an empty one with "
+        "`close_gamma_deposit`, then retry."
     ),
     "GammaDepositDoesNotExist": (
         "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with "

@@ -4169,8 +4169,16 @@ mod pallet_benchmarks {
         let from =
             seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS, 1_000_000_000, None)
                 .remove(0);
-        let to =
-            seed_gamma_deposits::<T>(netuid, &destination, 1, 1, 1_000_000_000, None).remove(0);
+        // Opens a deposit for another coldkey, which holds as many as others may open for it.
+        seed_gamma_deposits::<T>(
+            netuid,
+            &destination,
+            1,
+            MAX_THIRD_PARTY_GAMMA_DEPOSITS - 1,
+            1_000_000_000,
+            None,
+        );
+        let to: T::AccountId = account("gamma_to", 0, 1);
         let amount = GammaBalance::from(1_000_000_000_u64);
 
         #[extrinsic_call]
@@ -4186,7 +4194,7 @@ mod pallet_benchmarks {
         assert!(!GammaDeposits::<T>::contains_key(netuid, &from));
         assert_eq!(
             GammaDeposits::<T>::get(netuid, &to).map(|deposit| deposit.balance),
-            Some(GammaBalance::from(2_000_000_000_u64))
+            Some(amount)
         );
     }
 

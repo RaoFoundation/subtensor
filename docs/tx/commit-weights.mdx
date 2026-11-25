@@ -16,7 +16,7 @@ commit-reveal setting.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085), [`SubtensorModule.commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3441-L3461) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085), [`SubtensorModule.commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3443-L3463) |
 
 ## Parameters
 
@@ -98,7 +98,7 @@ pub fn commit_timelocked_mechanism_weights(
 
 Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L508).
 
-`SubtensorModule.commit_timelocked_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3443`](/code/pallets/subtensor/src/macros/dispatches.rs#L3441-L3461):
+`SubtensorModule.commit_timelocked_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3445`](/code/pallets/subtensor/src/macros/dispatches.rs#L3443-L3463):
 
 ```rust
 #[pallet::call_index(174)]

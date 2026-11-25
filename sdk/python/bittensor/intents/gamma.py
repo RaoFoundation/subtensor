@@ -89,15 +89,18 @@ async def _deposit(substrate, netuid: int, hotkey_ss58: str) -> Optional[dict]:
     return await substrate.query(*st.SubtensorModule.GammaDeposits, [netuid, hotkey_ss58])
 
 
-async def _new_deposit_blocks(substrate, hotkey_ss58: str, signer: str) -> list[str]:
-    """Match runtime Owner.try_get: a stored zero account is still an owner."""
+async def _new_deposit_blocks(substrate, hotkey_ss58: str, coldkey: str) -> list[str]:
+    """What stops ``coldkey`` holding a new deposit at ``hotkey_ss58``.
+
+    Matches runtime Owner.try_get: a stored zero account is still an owner.
+    """
     block_hash = await substrate.block_hash()
     if not await substrate.storage_exists(
         *st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash
     ):
         return []
     owner = await substrate.query(*st.SubtensorModule.Owner, [hotkey_ss58], block_hash=block_hash)
-    if bytes(ss58_decode(str(owner))) != bytes(ss58_decode(signer)):
+    if bytes(ss58_decode(str(owner))) != bytes(ss58_decode(coldkey)):
         return [
             f"the hotkey {hotkey_ss58} belongs to another coldkey; "
             "use your own or an unassociated hotkey"
@@ -752,9 +755,9 @@ class TransferGamma(Intent):
 
     Sends exactly ``amount_gamma`` from your gamma balance, or your deposit at
     ``origin_hotkey_ss58``, to the gamma balance of ``dest_coldkey_ss58``, or
-    the deposit it already holds at ``destination_hotkey_ss58``. The amount is
-    at least 0.1 gamma, leaving none or at least as much. A
-    transfer never opens a deposit, and one that empties your deposit closes it.
+    its deposit at ``destination_hotkey_ss58``, opening one with no daily spend
+    cap if there is none. The amount is at least 0.1 gamma, leaving none or at
+    least as much. A transfer that empties your deposit closes it.
     """
 
     op = "transfer_gamma"
@@ -771,9 +774,9 @@ class TransferGamma(Intent):
     destination_hotkey_ss58: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Hotkey of the receiver's existing deposit to credit, which that hotkey "
-            "spends under the deposit's daily spend cap. Omit to credit its balance, which its "
-            "coldkey must deposit first."
+            "help": "Hotkey of the receiver's deposit to credit, which that hotkey spends under "
+            "the deposit's daily spend cap, or opens with none. Omit to credit its balance, "
+            "which its coldkey must deposit first."
         },
     )
 
@@ -813,9 +816,8 @@ class TransferGamma(Intent):
         if self.destination_hotkey_ss58 is not None:
             destination = await _deposit(substrate, self.netuid, self.destination_hotkey_ss58)
             if destination is None:
-                blocks.append(
-                    f"there is no gamma deposit at {self.destination_hotkey_ss58} on this "
-                    "subnet; a transfer never opens one"
+                blocks += await _new_deposit_blocks(
+                    substrate, self.destination_hotkey_ss58, self.dest_coldkey_ss58
                 )
             elif str(destination["coldkey"]) != self.dest_coldkey_ss58:
                 blocks.append(
