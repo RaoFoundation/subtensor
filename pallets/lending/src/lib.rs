@@ -976,9 +976,13 @@ pub mod pallet {
                 .is_some_and(|r| r == 0);
             let subnets = T::Pool::live_subnets();
             // Enumeration scans `NetworksAdded`; each dynamic-pool tick reads
-            // mechanism + both reserves + balancer + TwapRing and writes the ring.
+            // mechanism + both reserves + balancer + TwapRing and writes the
+            // ring. Charge a fixed CPU/proof envelope for ring processing even
+            // on non-rollover ticks (interval mean / sample push).
             weight = weight.saturating_add(db.reads(subnets.len().saturating_add(1) as u64));
-            let twap_tick_w = db.reads_writes(5, 1);
+            let twap_tick_w = db
+                .reads_writes(5, 1)
+                .saturating_add(Weight::from_parts(25_000_000, 2_048));
             for netuid in subnets.iter() {
                 Self::twap_tick(*netuid, now, &params, close_interval);
                 weight = weight.saturating_add(twap_tick_w);
@@ -1123,7 +1127,13 @@ pub mod pallet {
         }
 
         #[pallet::call_index(6)]
-        #[pallet::weight(T::WeightInfo::set_enabled())]
+        #[pallet::weight({
+            // Re-enable enumerates live subnets and clears RankRing + RankPrice.
+            let n = T::Pool::live_subnets().len() as u64;
+            T::WeightInfo::set_enabled()
+                .saturating_add(T::DbWeight::get().reads(n.saturating_add(2)))
+                .saturating_add(T::DbWeight::get().writes(n.saturating_mul(2).saturating_add(1)))
+        })]
         pub fn set_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;
             let was = Enabled::<T>::get();
