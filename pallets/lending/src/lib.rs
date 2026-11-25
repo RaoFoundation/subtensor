@@ -1474,12 +1474,12 @@ pub mod pallet {
             // trie path. 512 B covers a depth-16 path of 32-byte nodes with
             // margin; value sizes come from MaxEncodedLen of the real keys
             // (immunity stamp, dissolution, rank gen/price, mechanism, EMA).
+            // NetworkImmunityPeriod is a shared StorageValue; charging it once
+            // per subnet is intentional over-reservation, not a measured path.
             const TRIE_PATH_OVERHEAD: u64 = 512;
             let per_subnet_value = (u64::max_encoded_len() as u64) // NetworkRegisteredAt
                 .saturating_add(u64::max_encoded_len() as u64) // NetworkImmunityPeriod
-                .saturating_add(
-                    Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64,
-                )
+                .saturating_add(Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
                 .saturating_add(u32::max_encoded_len() as u64) // RankRingGeneration
                 .saturating_add(u32::max_encoded_len() as u64) // RankGeneration
                 .saturating_add(U64F64::max_encoded_len() as u64) // RankPrice
