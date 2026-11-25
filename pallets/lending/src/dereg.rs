@@ -148,13 +148,13 @@ impl<T: Config> Pallet<T> {
         );
         PoolTaoEma::<T>::insert(netuid, ema);
         // Uncapped slow EMA of spot for notional / interest (never the
-        // emission EMA's 1.0-capped feed).
+        // emission EMA's 1.0-capped feed). Seed from the first spot sample
+        // rather than leaving `None` so callers do not fall back to spot.
         let spot = T::Pool::current_alpha_price(netuid);
-        let notional = ema_price_step(
-            NotionalEma::<T>::get(netuid),
-            spot,
-            u64::from(params.tao_ema_blocks),
-        );
+        let notional = match NotionalEma::<T>::get(netuid) {
+            Some(prev) => ema_price_step(Some(prev), spot, u64::from(params.tao_ema_blocks)),
+            None => spot,
+        };
         NotionalEma::<T>::insert(netuid, notional);
         if !Enabled::<T>::get() {
             return;

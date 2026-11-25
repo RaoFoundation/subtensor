@@ -1906,6 +1906,10 @@ type Migrations = (
     // synthetic shorts disabled until root enables them. DeregMovingPrice seeds
     // at spot on the first block.
     pallet_lending::migrations::MigrateToSynthShortsV1<Runtime>,
+    // Lending: clear DeleverageQueue / DeleverageBudget / StrandedCustody after
+    // their value-type changes (seq+cutoff budget, owner due/refund record).
+    // try-runtime asserts the maps are empty before the cutover.
+    pallet_lending::migrations::MigrateDeleverageValueTypesV2<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

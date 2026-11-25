@@ -338,6 +338,10 @@ pub const BLOCK_NET_MINT_CLEAR_PER_BLOCK: u32 = 64;
 pub const RESIDUAL_RETIRES_PER_BLOCK: u32 = 4;
 /// Empty `Due` buckets skipped per idle pass before yielding.
 pub const MAX_EMPTY_DUE_BUMPS: u32 = 64;
+/// Constant upper bound on live subnets for extrinsic weight (matches
+/// subtensor's default `SubnetLimit`). Weight must not enumerate storage
+/// before the origin check.
+pub const MAX_LIVE_SUBNETS_FOR_WEIGHT: u64 = 128;
 /// Rules version stamped on new positions.
 pub const TERMS_VERSION: u16 = 2;
 /// Bisection depth for fee-free inversions over `u64`.
@@ -634,6 +638,20 @@ pub struct ShortHealth {
     pub deleveraging: bool,
 }
 
+/// Closed custody that still holds TAO after a failed settle or default.
+/// Sweep pays `due` into the pot and refunds `refund` to `owner`.
+#[freeze_struct("cab344b74979e531")]
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq,
+)]
+pub struct StrandedRecord<AccountId> {
+    pub owner: AccountId,
+    /// TAO owed to the subnet pot (dissolution due). Zero on a failed default.
+    pub due: u64,
+    /// TAO refundable to `owner` (`funds − due + deposit` at failure).
+    pub refund: u64,
+}
+
 /// Reserves plus Balancer quote weight, for hypothetical pricing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PoolState {
@@ -735,12 +753,19 @@ pub mod pallet {
     /// Separate from the emission [`SubnetMovingPrice`] which caps the feed at 1.0.
     #[pallet::storage]
     pub type NotionalEma<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
-    /// Closed custody coldkeys that still hold TAO after a failed settle.
-    /// Value is the recorded stranded amount (funds + deposit) at failure.
-    /// Root [`sweep_stranded_funds`] may recover only up to this amount.
+    /// Closed custody coldkeys that still hold TAO after a failed settle or
+    /// default. Root [`sweep_stranded_funds`] pays `due` to the pot and
+    /// refunds the owner portion.
     #[pallet::storage]
-    pub type StrandedCustody<T: Config> =
-        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+    pub type StrandedCustody<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        StrandedRecord<T::AccountId>,
+        OptionQuery,
+    >;
     /// Positions in [`ShortState::Deleveraging`], by subnet. Value is the
     /// monotonic admission sequence used for O(1) cohort checks (I9).
     #[pallet::storage]
@@ -980,9 +1005,11 @@ pub mod pallet {
             // ring. Charge a fixed CPU/proof envelope for ring processing even
             // on non-rollover ticks (interval mean / sample push).
             weight = weight.saturating_add(db.reads(subnets.len().saturating_add(1) as u64));
+            // Proof covers a full TWAP ring read/write (~168 samples).
+            let twap_proof = TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64;
             let twap_tick_w = db
                 .reads_writes(5, 1)
-                .saturating_add(Weight::from_parts(25_000_000, 2_048));
+                .saturating_add(Weight::from_parts(25_000_000, twap_proof));
             for netuid in subnets.iter() {
                 Self::twap_tick(*netuid, now, &params, close_interval);
                 weight = weight.saturating_add(twap_tick_w);
@@ -993,9 +1020,9 @@ pub mod pallet {
                 );
             }
             // Meter deleverage against ≤10% of max block weight with a hard
-            // step cap, and stop as soon as a pass makes no progress (H2).
-            // When `BlockWeights` is unset (unit tests with `()`), fall back
-            // to the hard cap alone so hooks still run.
+            // step cap. Skips no-progress entries and stops after a full pass
+            // with no progress (H2 / MEDIUM 1). When `BlockWeights` is unset
+            // (unit tests with `()`), fall back to the hard cap alone.
             let step_w = T::WeightInfo::deleverage_step();
             let max_block = <T as frame_system::Config>::BlockWeights::get().max_block;
             let ten_pct =
@@ -1009,6 +1036,12 @@ pub mod pallet {
             let mut deleverage_meter = WeightMeter::with_limit(deleverage_budget);
             let _steps = Self::exhaust_deleverage_queue(&params, &mut deleverage_meter);
             let retires = Self::retire_residuals(RESIDUAL_RETIRES_PER_BLOCK, &params);
+            // Empty residual scan still reads the cursor / map head.
+            let residual_w = if retires == 0 {
+                db.reads(1)
+            } else {
+                T::WeightInfo::retire_residual().saturating_mul(u64::from(retires))
+            };
             let due_budget = T::WeightInfo::charge_interest()
                 .saturating_mul(u64::from(MAX_DUE_CHARGES_PER_BLOCK))
                 .saturating_add(T::DbWeight::get().reads_writes(u64::from(MAX_EMPTY_DUE_BUMPS), 0));
@@ -1016,7 +1049,7 @@ pub mod pallet {
             Self::collect_due(now, &mut due_meter);
             weight
                 .saturating_add(deleverage_meter.consumed())
-                .saturating_add(T::WeightInfo::retire_residual().saturating_mul(u64::from(retires)))
+                .saturating_add(residual_w)
                 .saturating_add(due_meter.consumed())
         }
 
@@ -1128,11 +1161,17 @@ pub mod pallet {
 
         #[pallet::call_index(6)]
         #[pallet::weight({
-            // Re-enable enumerates live subnets and clears RankRing + RankPrice.
-            let n = T::Pool::live_subnets().len() as u64;
+            // Constant bound: do not enumerate subnets in the weight function
+            // (that runs before the origin check). Proof covers RankRing clears.
+            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
+            let ring_proof = (dereg::RankState::max_encoded_len() as u64).saturating_mul(n);
             T::WeightInfo::set_enabled()
-                .saturating_add(T::DbWeight::get().reads(n.saturating_add(2)))
-                .saturating_add(T::DbWeight::get().writes(n.saturating_mul(2).saturating_add(1)))
+                .saturating_add(T::DbWeight::get().reads(2))
+                .saturating_add(T::DbWeight::get().reads_writes(
+                    n.saturating_add(1),
+                    n.saturating_mul(2).saturating_add(1),
+                ))
+                .saturating_add(Weight::from_parts(0, ring_proof))
         })]
         pub fn set_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;
@@ -1973,6 +2012,21 @@ pub mod pallet {
             // Always remove the position and advance the queue regardless of burn outcomes.
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(residual));
             ResidualAlpha::<T>::mutate(netuid, |r| *r = r.saturating_add(residual));
+            if !burns_ok {
+                // Leftover free TAO on custody is refundable to the owner.
+                let left = T::Pool::free_tao(&pos.custody).to_u64();
+                if left > 0 {
+                    StrandedCustody::<T>::insert(
+                        netuid,
+                        &pos.custody,
+                        StrandedRecord {
+                            owner: owner.clone(),
+                            due: 0,
+                            refund: left,
+                        },
+                    );
+                }
+            }
             Self::remove_position(owner, netuid, pos);
             Self::refresh_breaker(netuid, &SynthParamsStore::<T>::get());
             if burns_ok {
@@ -1989,23 +2043,66 @@ pub mod pallet {
             }
         }
 
-        /// Run paced buy-backs until a queue pass makes no progress, the hard
-        /// step cap is hit, or `meter` is exhausted.
+        /// Next queue key after the cursor, or the first key when wrapping /
+        /// starting. `None` only when the queue is empty.
+        fn peek_next_deleverage_key() -> Option<(NetUid, T::AccountId)> {
+            let after_cursor = match DeleverageCursor::<T>::get() {
+                Some((netuid, owner)) => DeleverageQueue::<T>::iter_keys_from(
+                    DeleverageQueue::<T>::hashed_key_for(netuid, &owner),
+                )
+                .next(),
+                None => None,
+            };
+            after_cursor.or_else(|| DeleverageQueue::<T>::iter_keys().next())
+        }
+
+        /// Run paced buy-backs until a full queue pass makes no progress, the
+        /// hard step cap is hit, or `meter` is exhausted. No-progress entries
+        /// (paused subnet, post-cutoff joiner, zero share) are skipped so they
+        /// cannot starve healthy subnets (MEDIUM 1).
         pub(crate) fn exhaust_deleverage_queue(
             params: &SynthParams,
             meter: &mut WeightMeter,
         ) -> u32 {
             let step_w = T::WeightInfo::deleverage_step();
+            // Queue key + position + pause/budget reads charged on every
+            // attempt, including no-progress skips.
+            let skip_w = T::DbWeight::get().reads(4);
             let mut total = 0u32;
+            let mut pass_progressed = false;
+            let mut pass_start: Option<(NetUid, T::AccountId)> = None;
             while total < MAX_DELEVERAGE_STEPS_PER_BLOCK {
-                if meter.try_consume(step_w).is_err() {
+                let Some(next) = Self::peek_next_deleverage_key() else {
+                    break;
+                };
+                // If the recorded pass-start left the queue, start a new mark.
+                if let Some((netuid, owner)) = pass_start.as_ref()
+                    && !DeleverageQueue::<T>::contains_key(netuid, owner)
+                {
+                    pass_start = None;
+                }
+                if pass_start.as_ref() == Some(&next) {
+                    // Wrapped to the start of this pass.
+                    if !pass_progressed {
+                        break;
+                    }
+                    pass_progressed = false;
+                }
+                if pass_start.is_none() {
+                    pass_start = Some(next);
+                }
+                // Always charge the probe; upgrade to a full step on progress.
+                if meter.try_consume(skip_w).is_err() {
                     break;
                 }
-                let batch = 1u32;
-                let (attempted, progressed) = Self::process_deleverage_queue(batch, params);
-                total = total.saturating_add(attempted);
-                if attempted == 0 || progressed == 0 {
+                let (attempted, progressed) = Self::process_deleverage_queue(1, params);
+                if attempted == 0 {
                     break;
+                }
+                total = total.saturating_add(attempted);
+                if progressed > 0 {
+                    let _ = meter.try_consume(step_w.saturating_sub(skip_w));
+                    pass_progressed = true;
                 }
             }
             total
@@ -2137,37 +2234,55 @@ pub mod pallet {
             Self::mul_price(minted, Self::notional_price(netuid), false)
         }
 
-        /// Root recovery: move stranded free TAO on `who` into the pot (or burn).
-        /// Only the subnet's residual reserve (excess over the book) or a
-        /// custody recorded in [`StrandedCustody`] may be swept — never an
+        /// Root recovery of stranded free TAO on `who`.
+        ///
+        /// The subnet residual reserve (excess over the book) pays entirely
+        /// into the pot. A custody in [`StrandedCustody`] pays `due` into the
+        /// pot and refunds `refund` to the recorded owner — never an
         /// arbitrary EOA or another subnet's accounts.
         pub fn do_sweep_stranded(netuid: NetUid, who: &T::AccountId) -> DispatchResult {
             let reserve = Self::reserve_account(netuid);
             let free = T::Pool::free_tao(who).to_u64();
-            let (amount, clear_stranded) = if *who == reserve {
+            if *who == reserve {
+                let amount = free.saturating_sub(ResidualReserve::<T>::get(netuid));
+                ensure!(amount > 0, Error::<T>::ZeroAmount);
+                if T::Pool::subnet_pot_account(netuid).is_some() {
+                    let _ = T::Pool::pay_into_pot(who, netuid, amount.into())?;
+                } else {
+                    T::Pool::burn_interest_tao(who, amount.into())?;
+                }
+                return Ok(());
+            }
+            let record =
+                StrandedCustody::<T>::get(netuid, who).ok_or(Error::<T>::OwnerNotAllowed)?;
+            ensure!(
+                !EscrowOwner::<T>::contains_key(netuid, who),
+                Error::<T>::PositionExists
+            );
+            let want = record.due.saturating_add(record.refund);
+            ensure!(want > 0, Error::<T>::ZeroAmount);
+            ensure!(free > 0, Error::<T>::ZeroAmount);
+            let (due_pay, refund_pay) = if free >= want {
+                (record.due, record.refund)
+            } else {
+                // Prefer the pot leg when free balance is short.
+                let due_pay = record.due.min(free);
                 (
-                    free.saturating_sub(ResidualReserve::<T>::get(netuid)),
-                    false,
+                    due_pay,
+                    free.saturating_sub(due_pay).min(record.refund),
                 )
-            } else {
-                let cap =
-                    StrandedCustody::<T>::get(netuid, who).ok_or(Error::<T>::OwnerNotAllowed)?;
-                ensure!(
-                    !EscrowOwner::<T>::contains_key(netuid, who),
-                    Error::<T>::PositionExists
-                );
-                (free.min(cap), true)
             };
-            ensure!(amount > 0, Error::<T>::ZeroAmount);
-            if T::Pool::subnet_pot_account(netuid).is_some() {
-                // `pay_into_pot` already books the pot reserve.
-                let _ = T::Pool::pay_into_pot(who, netuid, amount.into())?;
-            } else {
-                T::Pool::burn_interest_tao(who, amount.into())?;
+            if due_pay > 0 {
+                if T::Pool::subnet_pot_account(netuid).is_some() {
+                    let _ = T::Pool::pay_into_pot(who, netuid, due_pay.into())?;
+                } else {
+                    T::Pool::burn_interest_tao(who, due_pay.into())?;
+                }
             }
-            if clear_stranded {
-                StrandedCustody::<T>::remove(netuid, who);
+            if refund_pay > 0 {
+                let _ = T::Pool::refund_dissolution_tao(who, &record.owner, refund_pay.into())?;
             }
+            StrandedCustody::<T>::remove(netuid, who);
             Ok(())
         }
 
@@ -2823,11 +2938,18 @@ pub mod pallet {
                     });
                 }
                 Err(_) => {
-                    // TAO stays on custody; record a subnet-bound stranded
-                    // amount so root sweep cannot debit unrelated accounts.
-                    let stranded = pos.funds().saturating_add(pos.deposit);
-                    if stranded > 0 {
-                        StrandedCustody::<T>::insert(netuid, &pos.custody, stranded);
+                    // TAO stays on custody; record pot due + owner refund so
+                    // root sweep cannot debit unrelated accounts.
+                    if due > 0 || refund > 0 {
+                        StrandedCustody::<T>::insert(
+                            netuid,
+                            &pos.custody,
+                            StrandedRecord {
+                                owner: owner.clone(),
+                                due,
+                                refund,
+                            },
+                        );
                     }
                     SyntheticOutstanding::<T>::mutate(netuid, |s| {
                         *s = s.saturating_sub(pos.minted)
@@ -2849,6 +2971,7 @@ pub mod pallet {
             RankRing::<T>::remove(netuid);
             RankPrice::<T>::remove(netuid);
             PoolTaoEma::<T>::remove(netuid);
+            NotionalEma::<T>::remove(netuid);
             Ok(())
         }
 
@@ -3204,6 +3327,7 @@ pub mod pallet {
             RankRing::<T>::remove(netuid);
             RankPrice::<T>::remove(netuid);
             PoolTaoEma::<T>::remove(netuid);
+            NotionalEma::<T>::remove(netuid);
         }
         fn update_dereg_moving_price(netuid: NetUid) {
             Self::update_dereg_moving_price(netuid)

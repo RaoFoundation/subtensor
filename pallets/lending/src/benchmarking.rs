@@ -149,9 +149,20 @@ mod benchmarks {
         let caller: T::AccountId = whitelisted_caller();
         seed::<T>(&caller);
         let custody = Pallet::<T>::position_account(&caller, netuid(), 1u32.into());
-        let stranded = COLLATERAL / 10;
-        T::Pool::benchmark_mint_tao(&custody, stranded);
-        StrandedCustody::<T>::insert(netuid(), &custody, stranded);
+        let due = COLLATERAL / 20;
+        let refund = COLLATERAL / 20;
+        T::Pool::benchmark_mint_tao(&custody, due.saturating_add(refund));
+        // Pot path: `pay_into_pot` must run for the due leg.
+        assert!(T::Pool::subnet_pot_account(netuid()).is_some());
+        StrandedCustody::<T>::insert(
+            netuid(),
+            &custody,
+            StrandedRecord {
+                owner: caller.clone(),
+                due,
+                refund,
+            },
+        );
         #[extrinsic_call]
         sweep_stranded_funds(RawOrigin::Root, netuid(), custody.clone());
         assert!(StrandedCustody::<T>::get(netuid(), &custody).is_none());

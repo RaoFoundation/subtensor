@@ -1869,6 +1869,46 @@ fn prune_ranks_by_slow_dereg_price_not_emission_moving_price() {
     });
 }
 
+/// `get_network_to_prune` and lending `in_prune_zone` share the same warm /
+/// unwarm rank fallback, so a mixed set stays consistent.
+#[test]
+fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
+    new_test_ext(0).execute_with(|| {
+        let n1 = add_dynamic_network(&U256::from(21), &U256::from(11));
+        let n2 = add_dynamic_network(&U256::from(41), &U256::from(31));
+        let n3 = add_dynamic_network(&U256::from(61), &U256::from(51));
+        System::set_block_number(SubtensorModule::get_network_immunity_period() + 10);
+
+        pallet_lending::Enabled::<Test>::put(true);
+        let params = pallet_lending::SynthParams::default();
+        pallet_lending::SynthParamsStore::<Test>::put(params);
+
+        // Warm n1 (low), unwarm n2 (mid moving fallback), warm n3 (high).
+        SubnetMovingPrice::<Test>::insert(n1, I96F32::from_num(0.5));
+        SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(0.25));
+        SubnetMovingPrice::<Test>::insert(n3, I96F32::from_num(0.9));
+        pallet_lending::RankPrice::<Test>::insert(n1, U64F64::from_num(0.1));
+        pallet_lending::RankPrice::<Test>::insert(n3, U64F64::from_num(0.8));
+        // n2 stays without RankPrice so both paths fall back to moving price.
+
+        for n in [n1, n2, n3] {
+            assert_eq!(
+                SubtensorModule::dereg_rank_price(n),
+                pallet_lending::Pallet::<Test>::prune_rank_price(n),
+                "warm/unwarm fallback must match on {n:?}"
+            );
+        }
+
+        let pruned = SubtensorModule::get_network_to_prune().expect("candidate");
+        assert_eq!(pruned, n1, "lowest warm rank wins over unwarm fallback");
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(pruned, &params));
+        // Far above the floor: warm high-rank subnet stays outside the zone.
+        assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n3, &params));
+        // Unwarm mid-price is above the warm floor under default zone_bps.
+        assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n2, &params));
+    });
+}
+
 #[test]
 fn prune_ignores_immune_network_even_if_lower_price() {
     new_test_ext(0).execute_with(|| {

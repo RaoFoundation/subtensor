@@ -162,3 +162,83 @@ impl<T: Config> OnRuntimeUpgrade for MigrateToSynthShortsV1<T> {
         Pallet::<T>::do_try_state()
     }
 }
+
+/// Items whose value type changed when paced deleverage grew a sequence /
+/// cutoff budget and stranded custody gained an owner split. Cleared once so
+/// old encodings cannot decode as the new types.
+pub const DELEVERAGE_VALUE_TYPE_ITEMS: &[&str] = &[
+    "DeleverageQueue",
+    "DeleverageBudget",
+    "DeleverageCursor",
+    "DeleverageFilled",
+    "NextDeleverageSeq",
+    "DeleveragingMinted",
+    "StrandedCustody",
+];
+
+pub fn deleverage_value_types_v2_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
+    BoundedVec::truncate_from(b"migrate_deleverage_value_types_v2".to_vec())
+}
+
+/// Drop deleverage / stranded maps that changed value type. Safe when empty
+/// (asserted under try-runtime); clears leftover bytes from earlier encodings.
+pub fn migrate_deleverage_value_types_v2<T: Config>() -> Weight {
+    let key = deleverage_value_types_v2_key();
+    let db = T::DbWeight::get();
+    let mut weight = db.reads(1);
+    if HasMigrationRun::<T>::get(&key) {
+        return weight;
+    }
+    let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
+    for item in DELEVERAGE_VALUE_TYPE_ITEMS {
+        let prefix = storage_prefix(pallet, item.as_bytes());
+        let removed = unhashed::clear_prefix(&prefix, None, None);
+        let n = u64::from(removed.loops.max(1));
+        weight = weight.saturating_add(db.reads_writes(n, n));
+    }
+    HasMigrationRun::<T>::insert(&key, true);
+    weight.saturating_add(db.writes(1))
+}
+
+pub struct MigrateDeleverageValueTypesV2<T: Config>(PhantomData<T>);
+
+impl<T: Config> OnRuntimeUpgrade for MigrateDeleverageValueTypesV2<T> {
+    fn on_runtime_upgrade() -> Weight {
+        migrate_deleverage_value_types_v2::<T>()
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
+        // Documented assert-empty guard: these maps must be empty (or already
+        // stamped) before the value-type cutover; otherwise clear_prefix drops
+        // live deleverage state.
+        let key = deleverage_value_types_v2_key();
+        if HasMigrationRun::<T>::get(&key) {
+            return Ok(true.encode());
+        }
+        let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
+        for item in DELEVERAGE_VALUE_TYPE_ITEMS {
+            let prefix = storage_prefix(pallet, item.as_bytes());
+            let mut key_buf = prefix.to_vec();
+            if let Some(next) = sp_io::storage::next_key(&key_buf) {
+                ensure!(
+                    !next.starts_with(&prefix),
+                    "deleverage value-type maps must be empty before v2 migration"
+                );
+            }
+            let _ = key_buf;
+        }
+        Ok(false.encode())
+    }
+
+    #[cfg(feature = "try-runtime")]
+    fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+        let _already: bool =
+            Decode::decode(&mut &state[..]).map_err(|_| "pre_upgrade state must decode")?;
+        ensure!(
+            HasMigrationRun::<T>::get(deleverage_value_types_v2_key()),
+            "deleverage value-type migration must be stamped"
+        );
+        Ok(())
+    }
+}

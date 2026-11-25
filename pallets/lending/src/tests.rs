@@ -313,6 +313,9 @@ impl LendingPoolInterface<Account> for MockPool {
         Ok((t.into(), bought.into()))
     }
     fn burn_interest_tao(account: &Account, amount: TaoBalance) -> DispatchResult {
+        if read::<bool>(b"test/fail_burn") {
+            return Err("forced burn fail".into());
+        }
         Self::transfer_tao(account, &burn_account(), amount)
     }
     fn subnet_pot_account(_: NetUid) -> Option<Account> {
@@ -2011,7 +2014,8 @@ fn settle_failure_skips_position_and_advances() {
         );
         // Drained custody still records the book's stranded amount for sweep.
         assert!(
-            StrandedCustody::<Test>::iter_prefix(netuid()).any(|(_, amt)| amt > 0),
+            StrandedCustody::<Test>::iter_prefix(netuid())
+                .any(|(_, r)| r.due > 0 || r.refund > 0),
             "failed settle must record stranded custody"
         );
     });
@@ -2026,17 +2030,30 @@ fn sweep_stranded_rejects_unrelated_accounts() {
             Lending::sweep_stranded_funds(RuntimeOrigin::root(), netuid(), stranger),
             Error::<Test>::OwnerNotAllowed
         );
-        let custody = Lending::position_account(&account(1), netuid(), 10);
-        mint_tao(&custody, 50_000);
-        StrandedCustody::<Test>::insert(netuid(), &custody, 50_000);
+        let owner = account(1);
+        let custody = Lending::position_account(&owner, netuid(), 10);
+        let due = 20_000u64;
+        let refund = 30_000u64;
+        mint_tao(&custody, due + refund);
+        StrandedCustody::<Test>::insert(
+            netuid(),
+            &custody,
+            StrandedRecord {
+                owner: owner.clone(),
+                due,
+                refund,
+            },
+        );
         let pot_before = pot();
+        let owner_before = tao(&owner);
         assert_ok!(Lending::sweep_stranded_funds(
             RuntimeOrigin::root(),
             netuid(),
             custody.clone()
         ));
         assert!(StrandedCustody::<Test>::get(netuid(), &custody).is_none());
-        assert_eq!(pot(), pot_before + 50_000);
+        assert_eq!(pot(), pot_before + due);
+        assert_eq!(tao(&owner), owner_before + refund);
         assert_eq!(tao(&custody), 0);
     });
 }
@@ -2162,10 +2179,11 @@ fn prune_zone_ignores_unwarm_zero_rank_price() {
     });
 }
 
-/// H2: forced-close exhaustion meters against weight, stops on no-progress,
-/// and the default open deposit is the spec's 0.1 TAO.
+/// H2 / MEDIUM 1: stalled queue entries (post-cutoff joiners) must not starve
+/// forced closes — healthy cohort positions still progress at full pace in
+/// the same block. Default open deposit remains 0.1 TAO.
 #[test]
-fn deleverage_exhaust_stops_on_no_progress_and_default_deposit() {
+fn deleverage_skips_stalled_and_progresses_healthy_same_block() {
     run(|| {
         assert_eq!(
             SynthParams::default().deposit,
@@ -2175,25 +2193,104 @@ fn deleverage_exhaust_stops_on_no_progress_and_default_deposit() {
         const _: () = assert!(MAX_DELEVERAGE_STEPS_PER_BLOCK <= 32);
 
         assert_ok!(open(1, MINT, COLLATERAL));
+        assert_ok!(open(2, MINT, COLLATERAL));
         force_deleverage(1);
-        // Seed TWAP at the pre-pump spot, then raise spot so buy-backs pause.
-        let samples = params().twap_samples;
-        seed_twap_samples(netuid(), samples, 1.0);
-        SynthParamsStore::<Test>::mutate(|p| p.pause_bps = 10_000);
-        set_pool(POOL * 2, POOL / 2);
-        assert!(Lending::buybacks_paused(netuid(), &params()));
+        force_deleverage(2);
+        let now = System::block_number();
+        let cutoff = NextDeleverageSeq::<Test>::get(netuid());
+        let book = DeleveragingMinted::<Test>::get(netuid());
+        // Wide pace so both cohort shares clear in one block; lock cutoff now.
+        SynthParamsStore::<Test>::mutate(|p| p.pace_bps_per_block = 10_000);
+        DeleverageBudget::<Test>::insert(netuid(), (now, u64::MAX / 4, book, cutoff));
 
+        for who in 10u8..14 {
+            assert_ok!(open(who, MINT, COLLATERAL));
+            force_deleverage(who);
+            let seq = DeleverageQueue::<Test>::get(netuid(), account(who)).expect("queued");
+            assert!(seq > cutoff, "late joiner must be post-cutoff");
+        }
+        // Ensure at least one stalled key sorts before a healthy one so the
+        // old break-on-first-stall bug would have blocked progress.
+        let keys: Vec<_> = DeleverageQueue::<Test>::iter_keys()
+            .filter(|(n, _)| *n == netuid())
+            .collect();
+        let first_stalled = keys.iter().find(|(_, o)| {
+            matches!(DeleverageQueue::<Test>::get(netuid(), o), Some(seq) if seq > cutoff)
+        });
+        let first_healthy = keys.iter().find(|(_, o)| {
+            matches!(DeleverageQueue::<Test>::get(netuid(), o), Some(seq) if seq <= cutoff)
+        });
+        assert!(first_stalled.is_some() && first_healthy.is_some());
+
+        let before_1 = position(1).minted;
+        let before_2 = position(2).minted;
         let step_w = <Test as Config>::WeightInfo::deleverage_step();
         let mut meter = WeightMeter::with_limit(step_w.saturating_mul(64));
         let attempted = Lending::exhaust_deleverage_queue(&params(), &mut meter);
-        assert_eq!(
-            attempted, 1,
-            "must stop after the first no-progress attempt"
-        );
         assert!(
-            Positions::<Test>::contains_key(account(1), netuid()),
-            "position remains while buy-backs are paused"
+            attempted >= 6,
+            "must visit stalled entries and both healthy ones; got {attempted}"
         );
+        let progressed = |who: u8, before: u64| {
+            match Positions::<Test>::get(account(who), netuid()) {
+                Some(p) => p.minted < before,
+                None => true, // fully closed / defaulted counts as progress
+            }
+        };
+        assert!(
+            progressed(1, before_1) && progressed(2, before_2),
+            "healthy positions must progress at full pace in the same block"
+        );
+        let stepped: Vec<_> = events()
+            .iter()
+            .filter_map(|e| match e {
+                Event::DeleverageStep { who, .. } => Some(who.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            stepped.contains(&account(1)) && stepped.contains(&account(2)),
+            "both healthy cohort positions must step in this block"
+        );
+    });
+}
+
+#[test]
+fn failed_default_writes_stranded_custody_for_owner_refund() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let pos = position(1);
+        write(b"test/fail_burn", true);
+        Lending::default_position(&account(1), netuid(), &pos);
+        write(b"test/fail_burn", false);
+        let stranded = StrandedCustody::<Test>::get(netuid(), &pos.custody)
+            .expect("failed default must record stranded custody");
+        assert_eq!(stranded.owner, account(1));
+        assert_eq!(stranded.due, 0);
+        assert!(stranded.refund > 0, "owner refund records leftover free TAO");
+        assert!(!Positions::<Test>::contains_key(account(1), netuid()));
+    });
+}
+
+#[test]
+fn notional_ema_clears_on_register_and_seeds_from_first_price() {
+    run(|| {
+        NotionalEma::<Test>::insert(netuid(), U64F64::from_num(9.0));
+        Lending::on_subnet_registered(netuid());
+        assert_eq!(NotionalEma::<Test>::get(netuid()), None);
+        set_pool(POOL * 2, POOL);
+        let spot = MockPool::current_alpha_price(netuid());
+        Lending::update_dereg_moving_price(netuid());
+        assert_eq!(
+            NotionalEma::<Test>::get(netuid()),
+            Some(spot),
+            "first tick seeds NotionalEma from spot"
+        );
+        set_pool(POOL * 3, POOL);
+        Lending::update_dereg_moving_price(netuid());
+        let after = NotionalEma::<Test>::get(netuid()).expect("ema");
+        assert!(after > spot, "later ticks move the EMA");
+        assert_ne!(after, MockPool::current_alpha_price(netuid()));
     });
 }
 
