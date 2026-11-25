@@ -37,7 +37,9 @@ from tests.harness.samples import (
 def substrate() -> FakeSubstrate:
     fake = FakeSubstrate()
     fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
-    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", EMISSION_WEIGHTS_INFO)
+    fake.seed_runtime(
+        "SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", EMISSION_WEIGHTS_INFO
+    )
     return fake
 
 

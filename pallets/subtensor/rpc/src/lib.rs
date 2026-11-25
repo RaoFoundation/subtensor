@@ -583,6 +583,7 @@ where
         }
     }
 
+    #[allow(deprecated)]
     fn get_subnet_emission_weights(
         &self,
         netuid: NetUid,

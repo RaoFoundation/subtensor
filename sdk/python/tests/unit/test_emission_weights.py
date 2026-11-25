@@ -444,7 +444,9 @@ RATE_LIMIT_KEY = {"OwnerHyperparamUpdate": [1, "EmissionWeights"]}
 
 def _client() -> tuple[Client, FakeSubstrate]:
     fake = FakeSubstrate()
-    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", EMISSION_WEIGHTS_INFO)
+    fake.seed_runtime(
+        "SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", EMISSION_WEIGHTS_INFO
+    )
     fake.seed("SubtensorModule", "TaoWeight", [], TAO_WEIGHT)
     fake.seed("SubtensorModule", "SubnetTAO", [0], ROOT_TAO)
     fake.seed("SubtensorModule", "SubnetAlphaIn", [1], 0)
@@ -615,7 +617,7 @@ def test_intent_plan_blocks_a_call_built_on_another_split(monkeypatch):
 
     async def build_then_root_changes(self, substrate, wallet):
         call = await build(self, substrate, wallet)
-        fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", changed)
+        fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", changed)
         return call
 
     monkeypatch.setattr(SetSubnetEmissionWeights, "build", build_then_root_changes)
@@ -630,7 +632,7 @@ def test_intent_plan_blocks_a_call_built_on_another_split(monkeypatch):
 
 def test_intent_plan_names_a_missing_subnet():
     client, fake = _client()
-    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", None)
+    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", None)
     intent = SetSubnetEmissionWeights(netuid=9, slots=["owner"], values=["10%"], renormalize=True)
     plan = asyncio.run(client.plan(intent, dev_wallet()))
     assert not plan.ok and "subnet 9 does not exist" in plan.violations[0]
@@ -675,9 +677,13 @@ GAMMA_WEIGHTS = ew.merge(
 
 
 def _seed_gamma_share(fake: FakeSubstrate) -> None:
-    info = dict(EMISSION_WEIGHTS_INFO, weights=GAMMA_WEIGHTS, validator=GAMMA_WEIGHTS[ew.VALIDATOR])
-    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", info)
-    fake.seed("SubtensorModule", "SubnetGammaEmission", [1], [(2, GAMMA_SHARE)])
+    info = dict(
+        EMISSION_WEIGHTS_INFO,
+        weights=GAMMA_WEIGHTS,
+        validator=GAMMA_WEIGHTS[ew.VALIDATOR],
+        gamma_shares=[(2, GAMMA_SHARE)],
+    )
+    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", info)
     fake.seed("SubtensorModule", "SubnetGammaEmissionWhitelisted", [2], True)
     fake.seed("SubtensorModule", "SubnetGammaEnabled", [2], True)
 
@@ -924,7 +930,7 @@ def test_cli_show_reports_a_capped_root_share_and_a_closed_window(emission_cli):
         root_baseline_share=ew.parse_share("6%"),
         root_share=low[ew.VALIDATOR],
     )
-    emission_cli.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", capped)
+    emission_cli.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", capped)
     emission_cli.seed("SubtensorModule", "LastRateLimitedBlock", [RATE_LIMIT_KEY], 90)
     human = invoke("subnets", "emission", "show", "--netuid", "1")
     assert human.exit_code == 0, human.output
@@ -948,7 +954,7 @@ def test_cli_show_reports_a_capped_root_share_and_a_closed_window(emission_cli):
 
 
 def test_cli_show_missing_subnet_exits_1(emission_cli):
-    emission_cli.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", None)
+    emission_cli.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", None)
     result = invoke("--json", "subnets", "emission", "show", "--netuid", "7")
     assert result.exit_code == 1
     assert _stderr_json(result)["error"] == "subnet 7 does not exist or has no emission vector"

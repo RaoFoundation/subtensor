@@ -165,14 +165,12 @@ class SetSubnetEmissionWeights(Intent):
         if self.netuid == 0:
             return None  # the runtime API answers for the root subnet, which has no vector
         return await substrate.runtime_call(
-            *api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [self.netuid]
+            *api.SubnetInfoRuntimeApi.get_subnet_emission_weights_v2, [self.netuid]
         )
 
-    async def _gamma_shares(self, substrate) -> tuple[dict[int, int], dict[int, int]]:
+    def _gamma_shares(self, current: Optional[dict]) -> tuple[dict[int, int], dict[int, int]]:
         """The subnet's gamma shares by target netuid, now and after this change."""
-        shares = await gamma_emission_shares(
-            lambda item, keys: substrate.query(*item, keys), self.netuid
-        )
+        shares = gamma_emission_shares(current) if current else {}
         return shares, ew.merge_gamma(shares, self.gamma)
 
     async def _gamma_rules(self, substrate) -> tuple[dict[int, bool], bool]:
@@ -198,9 +196,8 @@ class SetSubnetEmissionWeights(Intent):
         return calls.AdminUtils.sudo_set_subnet_emission_weights_v2(self.netuid, split)
 
     async def build(self, substrate, wallet: Any):
-        current, (_, gamma) = await asyncio.gather(
-            self._current(substrate), self._gamma_shares(substrate)
-        )
+        current = await self._current(substrate)
+        _, gamma = self._gamma_shares(current)
         return await substrate.compose(
             self._call(self._merged(current, sum(gamma.values())), gamma)
         )
@@ -220,7 +217,6 @@ class SetSubnetEmissionWeights(Intent):
             last_change,
             block,
             owner,
-            (gamma_before, gamma_after),
             (gamma_targets, leased),
         ) = await asyncio.gather(
             root_preservation_inputs(query, self.netuid),
@@ -230,9 +226,9 @@ class SetSubnetEmissionWeights(Intent):
             ),
             substrate.block_number(),
             substrate.query(*st.SubtensorModule.SubnetOwner, [self.netuid]),
-            self._gamma_shares(substrate),
             self._gamma_rules(substrate),
         )
+        gamma_before, gamma_after = self._gamma_shares(current)
         rate_limit_blocks = await emission_weights_rate_limit_blocks(query)
         return {
             "current": current,

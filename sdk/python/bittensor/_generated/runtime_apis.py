@@ -170,6 +170,7 @@ class SubnetInfoRuntimeApi:
     get_block_emission = Method('SubnetInfoRuntimeApi', 'get_block_emission')
     get_subnet_hyperparams_v3 = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3')
     get_subnet_emission_weights = Method('SubnetInfoRuntimeApi', 'get_subnet_emission_weights')
+    get_subnet_emission_weights_v2 = Method('SubnetInfoRuntimeApi', 'get_subnet_emission_weights_v2')
 
 class SubnetRegistrationRuntimeApi:
     get_network_registration_cost = Method('SubnetRegistrationRuntimeApi', 'get_network_registration_cost')

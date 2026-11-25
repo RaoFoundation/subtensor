@@ -53,8 +53,8 @@ use pallet_subtensor::rpc_info::{
     show_subnet::SubnetState,
     stake_info::{StakeAvailability, StakeInfo},
     subnet_info::{
-        SubnetEmissionWeightsInfo, SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3,
-        SubnetInfo, SubnetInfov2,
+        SubnetEmissionWeightsInfo, SubnetEmissionWeightsInfoV2, SubnetHyperparams,
+        SubnetHyperparamsV2, SubnetHyperparamsV3, SubnetInfo, SubnetInfov2,
     },
 };
 use pallet_subtensor::{CommitmentsInterface, ProxyInterface};
@@ -2604,7 +2604,7 @@ impl_runtime_apis! {
         }
     }
 
-    #[api_version(3)]
+    #[api_version(4)]
     impl subtensor_custom_rpc_runtime_api::SubnetInfoRuntimeApi<Block> for Runtime {
         fn get_subnet_info(netuid: NetUid) -> Option<SubnetInfo<AccountId32>> {
             SubtensorModule::get_subnet_info(netuid)
@@ -2694,8 +2694,13 @@ impl_runtime_apis! {
             }
         }
 
+        #[allow(deprecated)]
         fn get_subnet_emission_weights(netuid: NetUid) -> Option<SubnetEmissionWeightsInfo> {
             SubtensorModule::get_subnet_emission_weights_info(netuid)
+        }
+
+        fn get_subnet_emission_weights_v2(netuid: NetUid) -> Option<SubnetEmissionWeightsInfoV2> {
+            SubtensorModule::get_subnet_emission_weights_info_v2(netuid)
         }
     }
 
