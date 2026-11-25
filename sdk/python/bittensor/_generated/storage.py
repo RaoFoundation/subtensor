@@ -563,6 +563,8 @@ class Lending:
     TwapRing = Item('Lending', 'TwapRing', 'TwapState')
     RankRing = Item('Lending', 'RankRing', 'RankState')
     RankPrice = Item('Lending', 'RankPrice', 'FixedU128')
+    RankGeneration = Item('Lending', 'RankGeneration', 'u32')
+    RankRingGeneration = Item('Lending', 'RankRingGeneration', 'u32')
     PoolTaoEma = Item('Lending', 'PoolTaoEma', 'u64')
     NotionalEma = Item('Lending', 'NotionalEma', 'FixedU128')
     PruneFloor = Item('Lending', 'PruneFloor', '(u32, FixedU128)')
