@@ -1890,6 +1890,8 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
         pallet_lending::RankPrice::<Test>::insert(n1, U64F64::from_num(0.1));
         pallet_lending::RankPrice::<Test>::insert(n3, U64F64::from_num(0.8));
         // n2 stays without RankPrice so both paths fall back to moving price.
+        // Publish this block's prune floor (signed path is O(1) against it).
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
 
         for n in [n1, n2, n3] {
             assert_eq!(

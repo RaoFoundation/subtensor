@@ -24,7 +24,7 @@ subnet; grow it with `increase_short`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L1103-L1126) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L1110-L1131) |
 
 ## Parameters
 
@@ -81,19 +81,17 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_short` — [`pallets/lending/src/lib.rs#L1117`](/code/pallets/lending/src/lib.rs#L1103-L1126):
+`Lending.open_short` — [`pallets/lending/src/lib.rs#L1122`](/code/pallets/lending/src/lib.rs#L1110-L1131):
 
 ```rust
 #[pallet::call_index(0)]
 #[pallet::weight({
-    // Hot path: cached [`PruneFloor`] + this subnet's rank/moving.
-    // Fallback (missing floor) rescans up to the NetUid ceiling so a
-    // lowered SubnetLimit cannot undercount live nets.
-    let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
+    // O(1): this block's cached [`PruneFloor`] plus this subnet's
+    // rank/moving/immune. Floor refresh is paid in `on_initialize`.
     let proof = (U64F64::max_encoded_len() as u64).saturating_mul(2);
     T::WeightInfo::open_short().saturating_add(
         T::DbWeight::get()
-            .reads(n.saturating_mul(3).saturating_add(2))
+            .reads(4)
             .saturating_add(Weight::from_parts(0, proof)),
     )
 })]

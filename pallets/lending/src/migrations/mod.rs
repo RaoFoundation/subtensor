@@ -99,12 +99,23 @@ pub(crate) fn retired_keys_left<T: Config>() -> u32 {
         .fold(0, u32::saturating_add)
 }
 
+/// `true` when a retired prefix still has at least one key.
+fn retired_prefix_nonempty(pallet: &[u8], item: &str) -> bool {
+    let prefix = storage_prefix(pallet, item.as_bytes());
+    let key_buf = prefix.to_vec();
+    match sp_io::storage::next_key(&key_buf) {
+        Some(next) => next.starts_with(&prefix),
+        None => false,
+    }
+}
+
 /// Drop every lift-era storage item, then install [`SynthParams`] defaults
 /// with [`Enabled`] off until root turns synthetic shorts on. Keeps
 /// [`PalletHotkey`] and [`HasMigrationRun`]. Idempotent.
 ///
-/// Lift-era positions are not unwound: their custody balances stay on the
-/// custody accounts. Run only where no lift-era position is open.
+/// Lift-era positions are not unwound. Refuses to run (and does not stamp)
+/// when `Positions` or `EscrowOwner` still hold keys, so custody records
+/// cannot be erased while funds remain.
 pub fn migrate_to_synth_shorts_v1<T: Config>() -> Weight {
     let key = synth_shorts_v1_key();
     let db = T::DbWeight::get();
@@ -113,6 +124,14 @@ pub fn migrate_to_synth_shorts_v1<T: Config>() -> Weight {
         return weight;
     }
     let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
+    // Probe live custody maps before any deletion.
+    weight = weight.saturating_add(db.reads(2));
+    if retired_prefix_nonempty(pallet, "Positions")
+        || retired_prefix_nonempty(pallet, "EscrowOwner")
+    {
+        // Leave unstamped so a later upgrade can retry after positions close.
+        return weight;
+    }
     for item in RETIRED_ITEMS {
         let prefix = storage_prefix(pallet, item.as_bytes());
         let removed = unhashed::clear_prefix(&prefix, None, None);
@@ -137,7 +156,16 @@ impl<T: Config> OnRuntimeUpgrade for MigrateToSynthShortsV1<T> {
 
     #[cfg(feature = "try-runtime")]
     fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
-        Ok(HasMigrationRun::<T>::get(synth_shorts_v1_key()).encode())
+        let already = HasMigrationRun::<T>::get(synth_shorts_v1_key());
+        if !already {
+            let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
+            ensure!(
+                !retired_prefix_nonempty(pallet, "Positions")
+                    && !retired_prefix_nonempty(pallet, "EscrowOwner"),
+                "lift-era Positions/EscrowOwner must be empty before synth-shorts migration"
+            );
+        }
+        Ok(already.encode())
     }
 
     #[cfg(feature = "try-runtime")]

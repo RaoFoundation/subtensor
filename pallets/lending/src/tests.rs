@@ -141,9 +141,10 @@ fn set_residual(r: u64) {
 }
 fn set_other_rank(price: f64) {
     RankPrice::<Test>::insert(other(), U64F64::from_num(price));
+    RankRingGeneration::<Test>::insert(other(), RankGeneration::<Test>::get());
     // Rank mutations in tests are mid-block; production refreshes the floor
-    // only in on_initialize, so clear the cache here.
-    PruneFloor::<Test>::kill();
+    // only in on_initialize, so republish here.
+    Lending::refresh_prune_floor_for_test();
 }
 
 fn seed_twap_samples(netuid: NetUid, samples: u32, price: f64) {
@@ -161,7 +162,8 @@ fn seed_rank_from_ema(netuid: NetUid, price: f64) {
     RankRing::<Test>::insert(netuid, state);
     // Simulate a fully-warmed ring: publish the first SMA so rank_price() is non-zero.
     RankPrice::<Test>::insert(netuid, U64F64::from_num(price));
-    PruneFloor::<Test>::kill();
+    RankRingGeneration::<Test>::insert(netuid, RankGeneration::<Test>::get());
+    Lending::refresh_prune_floor_for_test();
 }
 
 pub struct MockPool;
@@ -685,6 +687,7 @@ fn coverage_reference_is_max_of_ema_spot_and_rank_sma() {
         assert!(at_ema.required_collateral > at_spot.required_collateral * 2);
         set_ema(1.0);
         RankPrice::<Test>::insert(netuid(), U64F64::from_num(2.0));
+        RankRingGeneration::<Test>::insert(netuid(), RankGeneration::<Test>::get());
         let at_rank = Lending::quote_open_short(netuid(), MINT).unwrap();
         assert_eq!(at_rank.required_collateral, at_ema.required_collateral);
     });
@@ -1631,7 +1634,6 @@ fn migration_clears_retired_storage_and_installs_defaults() {
         for item in [
             "Lifts",
             "LiftParamsStore",
-            "Positions",
             "Expiry",
             "DeregMovingPrice",
             "OpenImpactAnchor",
@@ -1640,7 +1642,7 @@ fn migration_clears_retired_storage_and_installs_defaults() {
             k.extend_from_slice(&[1, 2, 3]);
             sp_io::storage::set(&k, &[9, 9]);
         }
-        assert!(crate::migrations::retired_keys_left::<Test>() >= 6);
+        assert!(crate::migrations::retired_keys_left::<Test>() >= 5);
         Enabled::<Test>::put(true);
         SynthParamsStore::<Test>::mutate(|p| p.stress_bps = MIN_STRESS_BPS);
         assert_ok!(Lending::initialize_custody());
@@ -1653,6 +1655,24 @@ fn migration_clears_retired_storage_and_installs_defaults() {
         // Idempotent: a second run leaves root's later choices alone.
         Enabled::<Test>::put(true);
         crate::migrations::migrate_to_synth_shorts_v1::<Test>();
+        assert!(Enabled::<Test>::get());
+    });
+}
+
+#[test]
+fn migration_refuses_to_clear_nonempty_positions() {
+    new_test_ext().execute_with(|| {
+        let pallet = b"Lending";
+        let mut k = frame_support::storage::storage_prefix(pallet, b"Positions").to_vec();
+        k.extend_from_slice(&[1, 2, 3]);
+        sp_io::storage::set(&k, &[9, 9]);
+        Enabled::<Test>::put(true);
+        crate::migrations::migrate_to_synth_shorts_v1::<Test>();
+        // Refused: stamp not set, Positions key still present, Enabled unchanged.
+        assert!(!HasMigrationRun::<Test>::get(
+            crate::migrations::synth_shorts_v1_key()
+        ));
+        assert!(sp_io::storage::get(&k).is_some());
         assert!(Enabled::<Test>::get());
     });
 }
@@ -2137,12 +2157,17 @@ fn empty_rank_ring_warms_and_disable_returns_none() {
             "disabled: dark regardless of stored RankPrice"
         );
 
-        // Re-enable clears rings so they warm from real samples again.
+        // Re-enable bumps RankGeneration so stale rings read as dark.
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
-        assert_eq!(rank(), None, "re-enable resets RankPrice");
-        assert!(
-            RankRing::<Test>::get(netuid()).is_none(),
-            "re-enable clears RankRing"
+        assert_eq!(
+            rank(),
+            None,
+            "re-enable invalidates RankPrice by generation"
+        );
+        assert_ne!(
+            RankRingGeneration::<Test>::get(netuid()),
+            RankGeneration::<Test>::get(),
+            "re-enable leaves ring generation behind the new epoch"
         );
 
         set_ema(0.0);
@@ -2165,7 +2190,9 @@ fn prune_zone_ignores_unwarm_zero_rank_price() {
         // Without the fallback, `rank_price` would read as 0 and set floor=0.
         RankRing::<Test>::remove(other());
         RankPrice::<Test>::remove(other());
+        RankRingGeneration::<Test>::remove(other());
         write(&key(b"test/ema", other()), U64F64::from_num(1.0));
+        Lending::refresh_prune_floor_for_test();
 
         assert_eq!(
             Lending::rank_price(other()),

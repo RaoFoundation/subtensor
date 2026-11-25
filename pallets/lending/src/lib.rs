@@ -751,6 +751,13 @@ pub mod pallet {
     /// Current dereg-ranking SMA; changes once per SMA day.
     #[pallet::storage]
     pub type RankPrice<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
+    /// Bumped on each re-enable so stale rings are ignored without an
+    /// O(subnets) clear (weight stays inside the block ceiling).
+    #[pallet::storage]
+    pub type RankGeneration<T: Config> = StorageValue<_, u32, ValueQuery>;
+    /// Generation under which this subnet's ring / price were last written.
+    #[pallet::storage]
+    pub type RankRingGeneration<T: Config> = StorageMap<_, Identity, NetUid, u32, ValueQuery>;
     /// EMA of pool TAO (`T_ema`, P12).
     #[pallet::storage]
     pub type PoolTaoEma<T: Config> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
@@ -1102,14 +1109,12 @@ pub mod pallet {
         /// must be non-zero.
         #[pallet::call_index(0)]
         #[pallet::weight({
-            // Hot path: cached [`PruneFloor`] + this subnet's rank/moving.
-            // Fallback (missing floor) rescans up to the NetUid ceiling so a
-            // lowered SubnetLimit cannot undercount live nets.
-            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
+            // O(1): this block's cached [`PruneFloor`] plus this subnet's
+            // rank/moving/immune. Floor refresh is paid in `on_initialize`.
             let proof = (U64F64::max_encoded_len() as u64).saturating_mul(2);
             T::WeightInfo::open_short().saturating_add(
                 T::DbWeight::get()
-                    .reads(n.saturating_mul(3).saturating_add(2))
+                    .reads(4)
                     .saturating_add(Weight::from_parts(0, proof)),
             )
         })]
@@ -1129,11 +1134,10 @@ pub mod pallet {
         /// `min_tao_out` must be non-zero when `extra_mint` is.
         #[pallet::call_index(1)]
         #[pallet::weight({
-            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
             let proof = (U64F64::max_encoded_len() as u64).saturating_mul(2);
             T::WeightInfo::increase_short().saturating_add(
                 T::DbWeight::get()
-                    .reads(n.saturating_mul(3).saturating_add(2))
+                    .reads(4)
                     .saturating_add(Weight::from_parts(0, proof)),
             )
         })]
@@ -1200,29 +1204,18 @@ pub mod pallet {
 
         #[pallet::call_index(6)]
         #[pallet::weight({
-            // Governance can lower SubnetLimit below the live count without
-            // pruning those nets, so price clears against the NetUid ceiling.
-            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
-            let ring_proof = (dereg::RankState::max_encoded_len() as u64).saturating_mul(n);
-            T::WeightInfo::set_enabled()
-                .saturating_add(T::DbWeight::get().reads(2))
-                .saturating_add(T::DbWeight::get().reads_writes(
-                    n.saturating_add(1),
-                    n.saturating_mul(2).saturating_add(1),
-                ))
-                .saturating_add(Weight::from_parts(0, ring_proof))
+            // O(1): flip Enabled and bump [`RankGeneration`]. Stale rings are
+            // ignored until they warm under the new generation.
+            T::WeightInfo::set_enabled().saturating_add(T::DbWeight::get().reads_writes(2, 2))
         })]
         pub fn set_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;
             let was = Enabled::<T>::get();
             Enabled::<T>::put(enabled);
-            // Re-enable clears ranking so rings warm from real samples, not a
-            // stale or capped seed.
+            // Re-enable invalidates ranking by generation so rings warm from
+            // real samples without an O(subnets) storage sweep.
             if enabled && !was {
-                for netuid in T::Pool::live_subnets() {
-                    RankRing::<T>::remove(netuid);
-                    RankPrice::<T>::remove(netuid);
-                }
+                RankGeneration::<T>::mutate(|g| *g = g.saturating_add(1));
             }
             Self::deposit_event(Event::EnabledSet { enabled });
             Ok(())
@@ -1438,14 +1431,30 @@ pub mod pallet {
         /// when the ring has not published a full window so coverage does not
         /// treat an absent SMA as a floor of zero.
         pub fn rank_price(netuid: NetUid) -> U64F64 {
-            RankPrice::<T>::get(netuid).unwrap_or_default()
+            Self::active_rank_price(netuid).unwrap_or_default()
+        }
+
+        /// Published [`RankPrice`] only when the ring's generation matches
+        /// [`RankGeneration`] (re-enable invalidates without an O(n) clear).
+        pub(crate) fn active_rank_price(netuid: NetUid) -> Option<U64F64> {
+            if RankRingGeneration::<T>::get(netuid) != RankGeneration::<T>::get() {
+                return None;
+            }
+            RankPrice::<T>::get(netuid)
         }
 
         /// Same fallback as subtensor's [`dereg_rank_price`]: published
         /// [`RankPrice`], else the emission moving price. Used for prune-zone
         /// so unwarm rings cannot drag the floor to zero.
         pub fn prune_rank_price(netuid: NetUid) -> U64F64 {
-            RankPrice::<T>::get(netuid).unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
+            Self::active_rank_price(netuid).unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
+        }
+
+        /// Test helper: republish [`PruneFloor`] for the current block.
+        #[cfg(test)]
+        pub(crate) fn refresh_prune_floor_for_test() {
+            let now = frame_system::Pallet::<T>::block_number();
+            Self::refresh_prune_floor(now, &T::Pool::live_subnets());
         }
 
         /// Publish this block's lowest non-immune prune rank for O(1) zone checks.
@@ -1469,25 +1478,21 @@ pub mod pallet {
         }
 
         /// The subnet's prune rank is within `zone_bps` of the lowest
-        /// non-immune prune rank, so it is a prune candidate (P16). Matches
-        /// subtensor's prune selection fallback. Uses the block's cached floor
-        /// when present; otherwise computes it once.
+        /// non-immune prune rank, so it is a prune candidate (P16). Uses the
+        /// block's cached floor from `on_initialize`; without it the signed
+        /// path stays out of zone (no unbounded rescan).
         pub fn in_prune_zone(netuid: NetUid, params: &SynthParams) -> bool {
             if T::Pool::prune_immune(netuid) {
                 return false;
             }
             let own = Self::prune_rank_price(netuid);
             let now = frame_system::Pallet::<T>::block_number();
-            let floor = match PruneFloor::<T>::get() {
-                Some((at, floor)) if at == now => floor,
-                _ => {
-                    let subnets = T::Pool::live_subnets();
-                    Self::refresh_prune_floor(now, &subnets);
-                    PruneFloor::<T>::get()
-                        .map(|(_, floor)| floor)
-                        .unwrap_or(own)
-                }
+            let Some((at, floor)) = PruneFloor::<T>::get() else {
+                return false;
             };
+            if at != now {
+                return false;
+            }
             own <= Self::scale_price(floor, u128::from(params.zone_bps))
         }
 
@@ -2128,11 +2133,18 @@ pub mod pallet {
             after_cursor.or_else(|| DeleverageQueue::<T>::iter_keys().next())
         }
 
-        /// Park the cursor on the last queued key for `from`'s subnet so the
-        /// next peek resumes at the following subnet. Starts at `from`
-        /// inclusive. Returns how many keys were walked (lookahead metering).
-        fn advance_cursor_past_subnet(from: &(NetUid, T::AccountId)) -> u32 {
+        /// Walk up to [`MAX_DELEVERAGE_STEPS_PER_BLOCK`] keys of `from`'s
+        /// subnet, reserving one read per key and a cursor write before each
+        /// park. Returns `Ok(true)` when past the subnet, `Ok(false)` when the
+        /// page cap parked mid-subnet (caller may continue), `Err(())` when
+        /// the meter is exhausted.
+        fn advance_cursor_past_subnet(
+            from: &(NetUid, T::AccountId),
+            meter: &mut WeightMeter,
+        ) -> Result<bool, ()> {
             let netuid = from.0;
+            let key_w = T::DbWeight::get().reads(1);
+            let cursor_w = T::DbWeight::get().writes(1);
             let mut walked = 1u32;
             let mut last = from.clone();
             for (n, owner) in DeleverageQueue::<T>::iter_keys_from(
@@ -2141,18 +2153,34 @@ pub mod pallet {
                 if n != netuid {
                     break;
                 }
+                if meter.try_consume(key_w).is_err() {
+                    let _ = meter.try_consume(cursor_w);
+                    DeleverageCursor::<T>::put(last);
+                    return Err(());
+                }
                 walked = walked.saturating_add(1);
                 last = (n, owner);
+                if walked >= MAX_DELEVERAGE_STEPS_PER_BLOCK {
+                    if meter.try_consume(cursor_w).is_err() {
+                        DeleverageCursor::<T>::put(last);
+                        return Err(());
+                    }
+                    DeleverageCursor::<T>::put(last);
+                    return Ok(false);
+                }
+            }
+            if meter.try_consume(cursor_w).is_err() {
+                DeleverageCursor::<T>::put(last);
+                return Err(());
             }
             DeleverageCursor::<T>::put(last);
-            walked
+            Ok(true)
         }
 
         /// Run paced buy-backs until a full queue pass makes no progress, the
         /// hard step cap is hit, or `meter` is exhausted. Paused subnets are
-        /// jumped in one cheap skip so a flood of paused keys cannot spend the
-        /// full step budget; other no-progress entries are still stepped past
-        /// one at a time.
+        /// skipped in metered pages so a flood of paused keys cannot spend
+        /// the full step budget or overrun the hook weight.
         pub(crate) fn exhaust_deleverage_queue(
             params: &SynthParams,
             meter: &mut WeightMeter,
@@ -2160,18 +2188,17 @@ pub mod pallet {
             let step_w = T::WeightInfo::deleverage_step();
             let peek_w = T::DbWeight::get().reads(2);
             // Pause check: TwapRing + spot (+ params already loaded).
-            let pause_skip_w = T::DbWeight::get()
+            let pause_check_w = T::DbWeight::get()
                 .reads(2)
                 .saturating_add(Weight::from_parts(
                     0,
                     TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64,
                 ));
-            let lookahead_read = T::DbWeight::get().reads(1);
             let mut total = 0u32;
             let mut pass_progressed = false;
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
-            // Subnets already pause-skipped this block (one check each).
-            let mut paused_skipped: alloc::vec::Vec<NetUid> = alloc::vec::Vec::new();
+            // `true` = paused (keep paging), `false` = active.
+            let mut pause_state: alloc::vec::Vec<(NetUid, bool)> = alloc::vec::Vec::new();
             while total < MAX_DELEVERAGE_STEPS_PER_BLOCK {
                 if meter.try_consume(peek_w).is_err() {
                     break;
@@ -2193,19 +2220,33 @@ pub mod pallet {
                 if pass_start.is_none() {
                     pass_start = Some(next.clone());
                 }
-                let (netuid, _) = &next;
-                if !paused_skipped.contains(netuid) {
-                    if meter.try_consume(pause_skip_w).is_err() {
-                        break;
+                let netuid = next.0;
+                let paused = match pause_state
+                    .iter()
+                    .find(|(n, _)| *n == netuid)
+                    .map(|(_, p)| *p)
+                {
+                    Some(p) => p,
+                    None => {
+                        if meter.try_consume(pause_check_w).is_err() {
+                            break;
+                        }
+                        let p = Self::buybacks_paused(netuid, params);
+                        pause_state.push((netuid, p));
+                        p
                     }
-                    if Self::buybacks_paused(*netuid, params) {
-                        paused_skipped.push(*netuid);
-                        let walked = Self::advance_cursor_past_subnet(&next);
-                        let walk_w = lookahead_read.saturating_mul(u64::from(walked.max(1)));
-                        let _ = meter.try_consume(walk_w);
-                        continue;
+                };
+                if paused {
+                    match Self::advance_cursor_past_subnet(&next, meter) {
+                        Ok(true) => continue,
+                        Ok(false) => {
+                            // Count a skip page against the step cap so a
+                            // huge paused prefix cannot spin forever.
+                            total = total.saturating_add(1);
+                            continue;
+                        }
+                        Err(()) => break,
                     }
-                    paused_skipped.push(*netuid);
                 }
                 if meter.try_consume(step_w.saturating_sub(peek_w)).is_err() {
                     break;
@@ -3474,6 +3515,7 @@ pub mod pallet {
             TwapRing::<T>::remove(netuid);
             RankRing::<T>::remove(netuid);
             RankPrice::<T>::remove(netuid);
+            RankRingGeneration::<T>::remove(netuid);
             PoolTaoEma::<T>::remove(netuid);
             NotionalEma::<T>::remove(netuid);
         }
@@ -3484,7 +3526,7 @@ pub mod pallet {
             if !Enabled::<T>::get() {
                 return None;
             }
-            RankPrice::<T>::get(netuid)
+            Self::active_rank_price(netuid)
         }
         fn synthetic_and_residual(netuid: NetUid) -> (u64, u64) {
             (

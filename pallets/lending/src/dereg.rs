@@ -159,15 +159,24 @@ impl<T: Config> Pallet<T> {
         if !Enabled::<T>::get() {
             return;
         }
-        let mut state = RankRing::<T>::get(netuid).unwrap_or_default();
+        let epoch = RankGeneration::<T>::get();
+        let mut state = if RankRingGeneration::<T>::get(netuid) == epoch {
+            RankRing::<T>::get(netuid).unwrap_or_default()
+        } else {
+            // Stale under a prior enable generation: warm from empty.
+            RankPrice::<T>::remove(netuid);
+            RankRingGeneration::<T>::insert(netuid, epoch);
+            RankState::default()
+        };
         if let Some(sma) = rank_step(&mut state, spot, params.rank_days, params.rank_day_blocks) {
             RankPrice::<T>::insert(netuid, sma);
         }
         RankRing::<T>::insert(netuid, state);
+        RankRingGeneration::<T>::insert(netuid, epoch);
     }
 
     pub fn dereg_moving_price(netuid: NetUid) -> Option<U64F64> {
-        RankPrice::<T>::get(netuid)
+        Self::active_rank_price(netuid)
     }
 }
 
