@@ -1473,12 +1473,15 @@ pub mod pallet {
         }
 
         /// Worst-case weight to refresh the prune floor over `n` live subnets
-        /// (warm-generation moving-price fallback + per-key trie proof).
+        /// (warm-generation moving-price fallback + conservative trie witness).
         pub fn prune_floor_refresh_weight(n: u64) -> Weight {
             let db = T::DbWeight::get();
+            // 1 KiB per key bounds immunity / dissolution / rank / moving-price
+            // trie witnesses without relying on a 64-byte undercount.
+            const PROOF_PER_KEY: u64 = 1024;
             let proof = n
                 .saturating_mul(8)
-                .saturating_mul(64)
+                .saturating_mul(PROOF_PER_KEY)
                 .saturating_add(U64F64::max_encoded_len() as u64)
                 .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64)
                 .saturating_add(u32::max_encoded_len() as u64);
@@ -2229,20 +2232,23 @@ pub mod pallet {
             meter: &mut WeightMeter,
         ) -> u32 {
             let step_w = T::WeightInfo::deleverage_step();
+            let db = T::DbWeight::get();
             // Worst-case lookahead: cursor read, suffix probe, wrap-to-start
             // probe, plus the pass-marker existence check — with key proof.
             let key_proof = (NetUid::max_encoded_len() as u64)
                 .saturating_add(T::AccountId::max_encoded_len() as u64);
-            let peek_w = T::DbWeight::get()
+            let peek_w = db
                 .reads(4)
                 .saturating_add(Weight::from_parts(0, key_proof.saturating_mul(2)));
-            // Pause check: TwapRing + spot (+ params already loaded).
-            let pause_check_w = T::DbWeight::get()
-                .reads(2)
-                .saturating_add(Weight::from_parts(
-                    0,
-                    TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64,
-                ));
+            // Initial cursor read (reserved before `DeleverageCursor::get`).
+            let cursor_read_w = db.reads(1).saturating_add(Weight::from_parts(0, key_proof));
+            // Pause check worst case: TwapRing + spot path (mechanism, both
+            // reserves, balancer) and trie witnesses for those keys.
+            let pause_check_w = db.reads(5).saturating_add(Weight::from_parts(
+                0,
+                (TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64)
+                    .saturating_add(1024u64.saturating_mul(4)),
+            ));
             let mut total = 0u32;
             let mut pass_progressed = false;
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
@@ -2251,6 +2257,9 @@ pub mod pallet {
             // If the cursor already sits mid-subnet, resolve that subnet's
             // pause before the first active attempt so a paused mid-pass
             // cannot burn a full step.
+            if meter.try_consume(cursor_read_w).is_err() {
+                return 0;
+            }
             if let Some((cursor_net, cursor_owner)) = DeleverageCursor::<T>::get() {
                 if meter.try_consume(pause_check_w).is_err() {
                     return 0;
@@ -3092,13 +3101,11 @@ pub mod pallet {
                     price: Self::dissolution_rate(netuid),
                 },
             );
-            // Skip the floor scan while disabled (opens cannot run). When
-            // enabled, refresh so the O(1) zone cache excludes this net.
-            // Declaring the SubnetLimit-bounded surcharge on
-            // `register_network` needs an approved fee-baseline update.
-            if Enabled::<T>::get() {
-                Self::refresh_prune_floor(now, &T::Pool::live_subnets());
-            }
+            // O(1): invalidate the floor. Signed registration can reach here
+            // without a SubnetLimit surcharge (fee baseline protected), so do
+            // not rescan. Fail-closed `in_prune_zone` covers opens until the
+            // next metered `on_initialize` / `set_enabled` refresh.
+            PruneFloor::<T>::kill();
             Ok(())
         }
 

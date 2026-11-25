@@ -1936,11 +1936,16 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
             &params
         ));
 
-        // Dissolution of the floor-setter excludes it from the lending floor.
+        // Dissolution O(1)-invalidates the floor; fail-closed keeps candidates
+        // in zone until the next metered refresh.
         assert_ok!(pallet_lending::Pallet::<Test>::start_dissolution(n4));
         assert!(
+            pallet_lending::PruneFloor::<Test>::get().is_none(),
+            "dissolution must kill the cached floor without a full rescan"
+        );
+        assert!(
             pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
-            "after dissolving the floor-setter, n1 must be in zone"
+            "missing floor fails closed (in zone)"
         );
 
         // Disable / re-enable: generation bump + floor refresh keep agreement.

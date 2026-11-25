@@ -1706,15 +1706,26 @@ fn migration_refuses_to_clear_nonempty_positions_try_runtime() {
 }
 
 #[test]
-fn dissolution_refreshes_prune_floor_excluding_dissolving_net() {
+fn dissolution_invalidates_prune_floor_in_constant_time() {
     run(|| {
         // Floor 0.9: netuid at 1.0 is in zone (≤ 1.25 × 0.9).
         set_other_rank(0.9);
         assert!(Lending::in_prune_zone(netuid(), &params()));
         let before = PruneFloor::<Test>::get().expect("floor").2;
         assert_eq!(before, U64F64::from_num(0.9));
-        // Enabled dissolution refreshes the floor and excludes the dissolving net.
+        // O(1) invalidate — no uncharged full-subnet scan on the
+        // registration → dissolve path. Fail-closed until next refresh.
         assert_ok!(Lending::start_dissolution(other()));
+        assert!(
+            PruneFloor::<Test>::get().is_none(),
+            "dissolution must kill the cached floor"
+        );
+        assert!(
+            Lending::in_prune_zone(netuid(), &params()),
+            "missing floor fails closed (in zone)"
+        );
+        // Next metered refresh excludes the dissolving net.
+        Lending::refresh_prune_floor_for_test();
         let (_at, epoch, floor) = PruneFloor::<Test>::get().expect("floor");
         assert_eq!(epoch, RankGeneration::<Test>::get());
         assert_eq!(
@@ -1723,22 +1734,6 @@ fn dissolution_refreshes_prune_floor_excluding_dissolving_net() {
             "dissolving peer must leave the prune floor"
         );
         assert!(floor > before);
-    });
-}
-
-#[test]
-fn dissolution_skips_floor_refresh_while_disabled() {
-    run(|| {
-        set_other_rank(0.9);
-        let before = PruneFloor::<Test>::get().expect("floor");
-        // Bypass set_enabled so the floor stays; only the Enabled flag flips.
-        Enabled::<Test>::put(false);
-        assert_ok!(Lending::start_dissolution(other()));
-        assert_eq!(
-            PruneFloor::<Test>::get().expect("floor"),
-            before,
-            "disabled dissolution must not rescan or rewrite the floor"
-        );
     });
 }
 
