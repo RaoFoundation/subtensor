@@ -14,7 +14,9 @@ function alternatives(value, key) {
     return [value === "SpotOnly" ? "StrictestEmaAndSpot" : "SpotOnly"];
   }
   const step = (n) => BigInt(n) > 0n ? (BigInt(n) - 1n).toString() : "1";
-  if (value && typeof value === "object" && "bits" in value) return [{ bits: step(value.bits) }];
+  if (value && typeof value === "object" && "bits" in value) {
+    return [{ bits: key === "tao_flow_cutoff" ? (value.bits === "-1" ? "0" : "-1") : step(value.bits) }];
+  }
   if (typeof value === "string" && /^\d+$/.test(value)) return [step(value)];
   throw new Error(`No alternate metadata test value for ${key}`);
 }

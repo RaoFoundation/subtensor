@@ -71,7 +71,7 @@ def normalize(value):
         return {key: normalize(item) for key, item in value.items()}
     if isinstance(value, list):
         return [normalize(item) for item in value]
-    if isinstance(value, str) and value.isdecimal():
+    if isinstance(value, str) and re.fullmatch(r"-?[0-9]+", value):
         return int(value)
     return value
 

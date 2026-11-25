@@ -244,3 +244,16 @@ test("valid SCALE bytes with the wrong value are refused", () => {
   const old = { ...values, gamma_enabled: true };
   assert.throws(() => encodeProposal(compare(values, old, old), api), /Decoded arguments differ/);
 });
+
+test("signed cutoff bits round-trip and don't block unrelated changes", () => {
+  const { values, toml } = fixture();
+  const signed = loadParams(toml.replace(/(\[tao_flow_cutoff\][^\[]*?value = )"\d+"/,
+    '$1{ bits = "-1" }')).values;
+  assert.deepEqual(signed.tao_flow_cutoff, { bits: "-1" });
+  assert.deepEqual(normalize({ bits: "-170141183460469231731687303715884105728" }),
+    { bits: "-170141183460469231731687303715884105728" });
+  const proposal = encodeProposal(compare(signed, values, values), fakeApi());
+  assert.deepEqual(proposal.setters[0].btcliArgs.flow_cutoff, { bits: -1 });
+  const unrelated = encodeProposal(compare({ ...signed, subnet_limit: "160" }, signed, signed), fakeApi());
+  assert.deepEqual(unrelated.setters.map(({ key }) => key), ["subnet_limit"]);
+});

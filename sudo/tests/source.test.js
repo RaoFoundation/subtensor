@@ -46,3 +46,9 @@ test("all group fields have the matching call argument", () => {
     assert.equal(group.callArguments.length, Object.keys(group.storage).length, name);
   }
 });
+
+test("only successive runs for the same PR share a cancellation group", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", "..", ".github", "workflows", "sudo-params.yml"), "utf8");
+  assert.match(workflow, /group:.*format\('pr-\{0\}', github.event.pull_request.number\).*format\('run-\{0\}', github.run_id\)/);
+  assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
+});

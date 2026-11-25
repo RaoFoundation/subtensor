@@ -72,7 +72,7 @@ function normalize(value) {
   if (value === null || typeof value !== "object") return value;
   if (!Array.isArray(value) && Object.keys(value).length === 1 && "bits" in value) {
     const bits = typeof value.bits === "number" || typeof value.bits === "bigint" ? value.bits.toString() : value.bits;
-    if (typeof bits !== "string" || !/^(0x[0-9a-fA-F]+|[0-9]+)$/.test(bits)) {
+    if (typeof bits !== "string" || !/^(0x[0-9a-fA-F]+|-?[0-9]+)$/.test(bits)) {
       throw new Error(`Invalid fixed-point bits: ${bits}`);
     }
     if (typeof value.bits === "number" && !Number.isSafeInteger(value.bits)) throw new Error("Unsafe fixed-point bits");
