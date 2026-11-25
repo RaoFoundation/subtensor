@@ -23,6 +23,15 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v497',
+    date: 'Proposed',
+    title: 'Runtime and Python SDK',
+    summary:
+      'Raises the runtime spec to 497 without changing calls or parameters relative to V496. ' +
+      'Python SDK 11.3.7 ships the V496 sudo signing safeguards.',
+    href: '/releases/v497-upgrade',
+  },
+  {
     tag: 'v496',
     date: 'Proposed',
     title: 'Root Parameters and Short-Only Lending',
