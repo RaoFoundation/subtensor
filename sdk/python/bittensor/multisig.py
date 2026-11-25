@@ -305,6 +305,8 @@ class Multisig:
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = False,
         shielded: bool | None = None,
+        expected_timepoint=...,
+        expected_spec_version: int | None = None,
     ):
         """Approve ``call`` as one signatory; executes it once the threshold is met.
 
@@ -329,6 +331,11 @@ class Multisig:
             from .shielding import registration_shield_default
 
             shielded = await registration_shield_default(self._client._substrate, composed)
+        if (expected_timepoint is not ... or expected_spec_version is not None) and shielded:
+            raise ValueError("Pinned multisig approvals must be submitted unshielded")
+        guard = {} if expected_timepoint is ... else {"expected_timepoint": expected_timepoint}
+        if expected_spec_version is not None:
+            guard["expected_spec_version"] = expected_spec_version
         as_multi = await self._preflight_funds(composed, wallet, signer, shielded=bool(shielded))
         keypair = resolve_signer(wallet, signer)
         if not shielded:
@@ -338,6 +345,7 @@ class Multisig:
                 self._account,
                 wait_for_inclusion=wait_for_inclusion,
                 wait_for_finalization=wait_for_finalization,
+                **guard,
             )
         return await self._client._executor._submit_encrypted_call(
             as_multi,
