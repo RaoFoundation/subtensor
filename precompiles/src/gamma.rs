@@ -426,6 +426,19 @@ mod tests {
                 .prepare_test(caller, address(), quote_input(&hotkey, &recipient, TAO))
                 .with_static_call(true)
                 .execute_error(ExitError::Other("NonAssociatedColdKey".into()));
+            pallet_subtensor::ColdkeySwapAnnouncements::<Runtime>::insert(
+                &other,
+                (1, H256::zero()),
+            );
+            precompiles
+                .prepare_test(caller, address(), quote_input(&hotkey, &other, TAO))
+                .with_static_call(true)
+                .execute_error(ExitError::Other("ColdkeySwapAnnounced".into()));
+            precompiles
+                .prepare_test(caller, address(), mint_input(&hotkey, &other, TAO, 0))
+                .execute_error(ExitError::Other(
+                    "dispatch execution failed: ColdkeySwapAnnounced".into(),
+                ));
             precompiles
                 .prepare_test(caller, address(), mint_input(&hotkey, &recipient, TAO, 0))
                 .execute_error(ExitError::Other(

@@ -97,8 +97,8 @@ impl<T: Config> Pallet<T> {
         Ok((alpha_amount, value, gamma))
     }
 
-    /// Fails as crediting `gamma` to `coldkey`'s deposit at `hotkey` would in an on-behalf mint,
-    /// changing nothing.
+    /// Fails as crediting `gamma` to `coldkey`'s deposit at `hotkey` would in an on-behalf mint
+    /// for another account, changing nothing.
     pub fn sim_credit_gamma(
         netuid: NetUid,
         coldkey: &T::AccountId,
@@ -106,9 +106,9 @@ impl<T: Config> Pallet<T> {
         gamma: GammaBalance,
     ) -> DispatchResult {
         with_transaction(|| {
-            TransactionOutcome::Rollback(
-                Self::credit_gamma(netuid, coldkey, hotkey, gamma, None).map(|_| ()),
-            )
+            TransactionOutcome::Rollback(Self::ensure_gamma_recipient(coldkey).and_then(|()| {
+                Self::credit_gamma(netuid, coldkey, hotkey, gamma, None).map(|_| ())
+            }))
         })
     }
 }

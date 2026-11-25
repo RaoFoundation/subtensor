@@ -214,6 +214,22 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Refuses crediting another account's coldkey while it has a coldkey swap announced or
+    /// disputed, or is reserved as a swap destination: deposits opened for it then could block
+    /// the swap or change what it carries over.
+    pub(crate) fn ensure_gamma_recipient(coldkey: &T::AccountId) -> DispatchResult {
+        ensure!(
+            !ColdkeySwapDisputes::<T>::contains_key(coldkey),
+            Error::<T>::ColdkeySwapDisputed
+        );
+        ensure!(
+            !ColdkeySwapAnnouncements::<T>::contains_key(coldkey),
+            Error::<T>::ColdkeySwapAnnounced
+        );
+        Self::ensure_account_not_reserved_as_coldkey_swap_destination(coldkey)?;
+        Ok(())
+    }
+
     /// The AMM price limits of gamma emission trades on `netuid`: a sale floor
     /// [`crate::GAMMA_EMISSION_MAX_SLIPPAGE_BPS`] below the higher of its fast moving and spot
     /// prices, and a purchase ceiling as far above the lower.
@@ -339,6 +355,9 @@ impl<T: Config> Pallet<T> {
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let payer = ensure_signed(origin)?;
+        if let Some(recipient) = recipient.as_ref().filter(|recipient| **recipient != payer) {
+            Self::ensure_gamma_recipient(recipient)?;
+        }
         let coldkey = recipient.unwrap_or_else(|| payer.clone());
         Self::ensure_gamma_mintable(netuid)?;
         ensure!(
@@ -380,6 +399,9 @@ impl<T: Config> Pallet<T> {
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let signer = ensure_signed(origin.clone())?;
+        if let Some(recipient) = recipient.as_ref().filter(|recipient| **recipient != signer) {
+            Self::ensure_gamma_recipient(recipient)?;
+        }
         let coldkey = recipient.unwrap_or(signer);
         Self::ensure_gamma_mintable(netuid)?;
         let mark = Self::gamma_mark(netuid);

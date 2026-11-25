@@ -118,7 +118,13 @@ belong to it and keeps its cap. They fail as the mints above do, including with
 hotkey's deposit belongs to another coldkey or its staking owner is another
 coldkey, and with
 [`TooManyGammaDeposits`](/docs/errors/chain/TooManyGammaDeposits) when the
-named coldkey already holds 64 deposits on the subnet. The
+named coldkey already holds 64 deposits on the subnet. Minting on behalf of
+another coldkey also fails with
+[`ColdkeySwapAnnounced`](/docs/errors/chain/ColdkeySwapAnnounced) or
+[`ColdkeySwapDisputed`](/docs/errors/chain/ColdkeySwapDisputed) while it has a
+coldkey swap announced or disputed, and with
+[`ColdkeySwapDestinationReserved`](/docs/errors/chain/ColdkeySwapDestinationReserved)
+while it is a swap's reserved destination. The
 `GammaMinted` event names the credited coldkey.
 
 EVM contracts and accounts mint on behalf through the
@@ -275,7 +281,9 @@ btcli query tao-usd-price
 - Spent gamma pays the service nothing on chain: the burned alpha's value
   accrues to the subnet's alpha holders.
 - Anyone can open deposits for a coldkey by minting on its behalf, up to its 64
-  per subnet.
+  per subnet. Such mints are refused while the coldkey has a coldkey swap
+  announced or disputed, or is reserved as a swap's destination. Deposits opened
+  before an announcement stay; move or close them before announcing a swap.
 - While a coldkey swap is announced, the coldkey's gamma calls are refused, but
   its deposits' hotkeys keep spending.
 - A hotkey swap moves the coldkey's deposit at the old hotkey on each subnet it

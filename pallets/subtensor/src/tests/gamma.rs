@@ -1373,6 +1373,108 @@ fn mint_gamma_on_behalf_refusals() {
     });
 }
 
+/// Announces a V2 coldkey swap from `old` to `new`, which reserves `new`; returns the block it
+/// can execute at.
+fn announce_coldkey_swap(old: U256, new: U256) -> u64 {
+    add_balance_to_coldkey_account(
+        &old,
+        ExistentialDeposit::get() + SubtensorModule::get_key_swap_cost(),
+    );
+    assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+        RuntimeOrigin::signed(old),
+        new,
+    ));
+    ColdkeySwapAnnouncements::<Test>::get(old).unwrap().0
+}
+
+/// An on-behalf mint, with TAO or stake, and its quote all refuse `recipient` with `error`.
+fn assert_on_behalf_refused(
+    netuid: NetUid,
+    recipient: u64,
+    stake: AlphaBalance,
+    error: Error<Test>,
+) {
+    let error: DispatchError = error.into();
+    assert_noop!(mint_on_behalf(netuid, recipient, HOTKEY + 3, TAO, 0), error);
+    assert_noop!(
+        mint_with_stake_on_behalf(netuid, recipient, HOTKEY + 3, stake, 0),
+        error
+    );
+    let quote = SubtensorModule::sim_mint_gamma(netuid, TAO.into())
+        .unwrap()
+        .2;
+    assert_eq!(
+        SubtensorModule::sim_credit_gamma(
+            netuid,
+            &U256::from(recipient),
+            &U256::from(HOTKEY + 3),
+            quote
+        ),
+        Err(error)
+    );
+}
+
+// PROTECTED_REGRESSION: on-behalf gamma mints must not open deposits for a coldkey with an
+// announced swap or for its reserved destination; 64 such dust deposits blocked the swap with
+// TooManyGammaDeposits, and one at the destination changed what the swap carried over.
+// PROTECTED_REGRESSION: changes require explicit human approval.
+#[test]
+fn on_behalf_mints_refuse_a_coldkey_swap_in_flight() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let stake = stake_payer(netuid, 10 * TAO);
+        let (old, new) = (500, 501);
+        let when = announce_coldkey_swap(U256::from(old), U256::from(new));
+
+        assert_on_behalf_refused(netuid, old, stake, Error::<Test>::ColdkeySwapAnnounced);
+        assert_on_behalf_refused(
+            netuid,
+            new,
+            stake,
+            Error::<Test>::ColdkeySwapDestinationReserved,
+        );
+
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(U256::from(old)),
+            U256::from(new),
+        ));
+    });
+}
+
+#[test]
+fn on_behalf_mints_refuse_a_disputed_coldkey() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let stake = stake_payer(netuid, 10 * TAO);
+        for disputed_at in [1, 0] {
+            ColdkeySwapDisputes::<Test>::insert(U256::from(COLDKEY), disputed_at);
+            assert_on_behalf_refused(netuid, COLDKEY, stake, Error::<Test>::ColdkeySwapDisputed);
+        }
+    });
+}
+
+#[test]
+fn a_reserved_destination_still_mints_into_its_own_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let new = U256::from(PAYER);
+        announce_coldkey_swap(U256::from(500), new);
+        add_balance_to_coldkey_account(&new, (3 * TAO).into());
+
+        assert_ok!(mint_on_behalf(netuid, PAYER, HOTKEY + 3, TAO, 0));
+        assert_ok!(SubtensorModule::mint_gamma(
+            RuntimeOrigin::signed(new),
+            U256::from(HOTKEY + 3),
+            netuid,
+            TAO.into(),
+            GammaBalance::ZERO,
+            None,
+        ));
+        assert_eq!(deposit(netuid, HOTKEY + 3).coldkey, new);
+    });
+}
+
 // =============================================================================
 // Deposits
 // =============================================================================
