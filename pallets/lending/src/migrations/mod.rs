@@ -219,14 +219,13 @@ impl<T: Config> OnRuntimeUpgrade for MigrateDeleverageValueTypesV2<T> {
         let pallet = <Pallet<T> as PalletInfoAccess>::name().as_bytes();
         for item in DELEVERAGE_VALUE_TYPE_ITEMS {
             let prefix = storage_prefix(pallet, item.as_bytes());
-            let mut key_buf = prefix.to_vec();
+            let key_buf = prefix.to_vec();
             if let Some(next) = sp_io::storage::next_key(&key_buf) {
                 ensure!(
                     !next.starts_with(&prefix),
                     "deleverage value-type maps must be empty before v2 migration"
                 );
             }
-            let _ = key_buf;
         }
         Ok(false.encode())
     }
