@@ -15,6 +15,7 @@ mod dispatches {
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     use crate::swap::swap_coldkey::ColdkeySwapPolicyImportMode;
+    use pallet_lending::LendingInterface;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -1060,7 +1061,13 @@ mod dispatches {
 
         /// User register a new subnetwork
         #[pallet::call_index(59)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
+        #[pallet::weight({
+            <T as crate::pallet::Config>::WeightInfo::register_network()
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2))
+                // Capacity prune → `start_dissolution` may refresh the lending
+                // prune floor (SubnetLimit-bounded).
+                .saturating_add(T::Lending::prune_floor_refresh_weight())
+        })]
         pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_register_network(origin, &hotkey, 1, None)
         }
@@ -1241,7 +1248,11 @@ mod dispatches {
 
         /// User register a new subnetwork
         #[pallet::call_index(79)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity().saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2)))]
+        #[pallet::weight({
+            <T as crate::pallet::Config>::WeightInfo::register_network_with_identity()
+                .saturating_add(Pallet::<T>::hotkey_owner_policy_weight().saturating_mul(2))
+                .saturating_add(T::Lending::prune_floor_refresh_weight())
+        })]
         pub fn register_network_with_identity(
             origin: OriginFor<T>,
             hotkey: T::AccountId,

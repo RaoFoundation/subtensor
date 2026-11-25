@@ -10,7 +10,7 @@ share plus `SynthParams.withdraw_buffer_days` of interest (7 by default).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.withdraw_collateral`](/code/pallets/lending/src/lib.rs#L1180-L1190) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.withdraw_collateral`](/code/pallets/lending/src/lib.rs#L1172-L1182) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("withdraw_short_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.withdraw_collateral` — [`pallets/lending/src/lib.rs#L1183`](/code/pallets/lending/src/lib.rs#L1180-L1190):
+`Lending.withdraw_collateral` — [`pallets/lending/src/lib.rs#L1175`](/code/pallets/lending/src/lib.rs#L1172-L1182):
 
 ```rust
 #[pallet::call_index(3)]

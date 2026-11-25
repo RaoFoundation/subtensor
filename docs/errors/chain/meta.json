@@ -346,7 +346,6 @@
     "PriceConditionNotMet",
     "PriceLimitExceeded",
     "ProportionOverflow",
-    "PruneFloorUnavailable",
     "PulseVerificationError",
     "RandomSubjectTooLong",
     "RecycleEmissionMustBeZero",

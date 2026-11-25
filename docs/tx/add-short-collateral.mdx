@@ -9,7 +9,7 @@ Works while lending is disabled and while the position deleverages.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L1170-L1176) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L1162-L1168) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("add_short_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L1173`](/code/pallets/lending/src/lib.rs#L1170-L1176):
+`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L1165`](/code/pallets/lending/src/lib.rs#L1162-L1168):
 
 ```rust
 #[pallet::call_index(2)]

@@ -9,6 +9,7 @@ codec = { workspace = true, features = ["derive"] }
 frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
 frame-system.workspace = true
+log.workspace = true
 scale-info.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
@@ -30,6 +31,7 @@ std = [
     "frame-benchmarking?/std",
     "frame-support/std",
     "frame-system/std",
+    "log/std",
     "scale-info/std",
     "sp-runtime/std",
     "substrate-fixed/std",

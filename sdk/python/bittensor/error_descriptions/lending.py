@@ -79,8 +79,4 @@ DESCRIPTIONS: dict[str, str] = {
     "OwnerNotAllowed": (
         "The owner has a pending coldkey swap. Shorts cannot open or grow until it completes."
     ),
-    "PruneFloorUnavailable": (
-        "Lending has no prune-zone floor for this block (mid-block enable or dissolution "
-        "cleared the cache). Wait one block for the hook to republish, then retry."
-    ),
 }

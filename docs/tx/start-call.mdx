@@ -16,7 +16,7 @@ so run it as soon as the delay allows.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.start_call`](/code/pallets/subtensor/src/macros/dispatches.rs#L1734-L1739) |
+| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.start_call`](/code/pallets/subtensor/src/macros/dispatches.rs#L1745-L1750) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("start_call", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.start_call` — [`pallets/subtensor/src/macros/dispatches.rs#L1736`](/code/pallets/subtensor/src/macros/dispatches.rs#L1734-L1739):
+`SubtensorModule.start_call` — [`pallets/subtensor/src/macros/dispatches.rs#L1747`](/code/pallets/subtensor/src/macros/dispatches.rs#L1745-L1750):
 
 ```rust
 #[pallet::call_index(92)]

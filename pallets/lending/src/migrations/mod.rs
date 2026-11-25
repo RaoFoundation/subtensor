@@ -130,7 +130,24 @@ pub fn migrate_to_synth_shorts_v1<T: Config>() -> Weight {
         || retired_prefix_nonempty(pallet, "EscrowOwner")
     {
         // Leave unstamped so a later upgrade can retry after positions close.
-        return weight;
+        // Do not silently cut over: new Positions accessors cannot decode
+        // lift-era records. try-runtime refuses the upgrade; production logs.
+        log::error!(
+            target: "runtime::lending",
+            "migrate_to_synth_shorts_v1 refused: Positions/EscrowOwner still nonempty; \
+             close lift-era positions before upgrading"
+        );
+        #[cfg(feature = "try-runtime")]
+        {
+            panic!(
+                "migrate_to_synth_shorts_v1: lift-era Positions/EscrowOwner must be empty \
+                 before synth-shorts cutover"
+            );
+        }
+        #[cfg(not(feature = "try-runtime"))]
+        {
+            return weight;
+        }
     }
     for item in RETIRED_ITEMS {
         let prefix = storage_prefix(pallet, item.as_bytes());

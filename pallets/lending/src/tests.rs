@@ -446,7 +446,7 @@ fn step_block() {
 }
 
 /// Advance the block number without the full hook path, but keep
-/// [`PruneFloor`] coherent so opens/increases still pass `ensure_can_grow`.
+/// [`PruneFloor`] coherent so zone checks stay current when tests skip the full hook path.
 fn set_block(n: u64) {
     System::set_block_number(n);
     if Enabled::<Test>::get() {
@@ -1669,6 +1669,7 @@ fn migration_clears_retired_storage_and_installs_defaults() {
 }
 
 #[test]
+#[cfg(not(feature = "try-runtime"))]
 fn migration_refuses_to_clear_nonempty_positions() {
     new_test_ext().execute_with(|| {
         let pallet = b"Lending";
@@ -1692,30 +1693,30 @@ fn migration_refuses_to_clear_nonempty_positions() {
 }
 
 #[test]
-fn dissolution_invalidates_prune_floor_without_rescan() {
+#[cfg(feature = "try-runtime")]
+#[should_panic(expected = "lift-era Positions/EscrowOwner must be empty")]
+fn migration_refuses_to_clear_nonempty_positions_try_runtime() {
+    new_test_ext().execute_with(|| {
+        let pallet = b"Lending";
+        let mut k = frame_support::storage::storage_prefix(pallet, b"Positions").to_vec();
+        k.extend_from_slice(&[1, 2, 3]);
+        sp_io::storage::set(&k, &[9, 9]);
+        crate::migrations::migrate_to_synth_shorts_v1::<Test>();
+    });
+}
+
+#[test]
+fn dissolution_refreshes_prune_floor_excluding_dissolving_net() {
     run(|| {
         // Floor 0.9: netuid at 1.0 is in zone (≤ 1.25 × 0.9).
         set_other_rank(0.9);
         assert!(Lending::in_prune_zone(netuid(), &params()));
-        let before = PruneFloor::<Test>::get().expect("floor").1;
+        let before = PruneFloor::<Test>::get().expect("floor").2;
         assert_eq!(before, U64F64::from_num(0.9));
-        // Dissolve invalidates the floor in O(1) — no uncharged full scan.
+        // Enabled dissolution refreshes the floor and excludes the dissolving net.
         assert_ok!(Lending::start_dissolution(other()));
-        assert!(
-            PruneFloor::<Test>::get().is_none(),
-            "dissolution must kill the cached floor"
-        );
-        assert!(
-            !Lending::in_prune_zone(netuid(), &params()),
-            "absent floor keeps signed path out of zone"
-        );
-        assert_err!(
-            open(1, MINT, COLLATERAL),
-            Error::<Test>::PruneFloorUnavailable
-        );
-        // Next hook republishes without the dissolving net.
-        Lending::refresh_prune_floor_for_test();
-        let floor = PruneFloor::<Test>::get().expect("floor").1;
+        let (_at, epoch, floor) = PruneFloor::<Test>::get().expect("floor");
+        assert_eq!(epoch, RankGeneration::<Test>::get());
         assert_eq!(
             floor,
             Lending::prune_rank_price(netuid()),
@@ -1725,22 +1726,64 @@ fn dissolution_invalidates_prune_floor_without_rescan() {
     });
 }
 
-/// Mid-block re-enable must not admit risk against a missing/stale floor.
 #[test]
-fn same_block_enable_refuses_open_without_fresh_floor() {
+fn dissolution_skips_floor_refresh_while_disabled() {
     run(|| {
+        set_other_rank(0.9);
+        let before = PruneFloor::<Test>::get().expect("floor");
+        // Bypass set_enabled so the floor stays; only the Enabled flag flips.
+        Enabled::<Test>::put(false);
+        assert_ok!(Lending::start_dissolution(other()));
+        assert_eq!(
+            PruneFloor::<Test>::get().expect("floor"),
+            before,
+            "disabled dissolution must not rescan or rewrite the floor"
+        );
+    });
+}
+
+/// Mid-block enable refreshes the floor so the real prune target is tagged.
+#[test]
+fn same_block_enable_and_open_tags_prune_target() {
+    run(|| {
+        // Moving-price floor: other() at 0.1, netuid at 1.0. After re-enable
+        // RankPrice is dark (generation bump), so the floor uses these EMAs.
+        set_ema(1.0);
+        write(&key(b"test/ema", other()), U64F64::from_num(0.1));
+        set_other_rank(0.1);
+        assert!(!Lending::in_prune_zone(netuid(), &params()));
+        assert!(Lending::in_prune_zone(other(), &params()));
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), false));
+        // Re-enable in this block republishes a generation-tagged floor.
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
-        assert!(
-            PruneFloor::<Test>::get().is_none(),
-            "re-enable kills the floor until the next hook"
+        let (at, epoch, floor) = PruneFloor::<Test>::get().expect("floor after enable");
+        assert_eq!(at, System::block_number());
+        assert_eq!(epoch, RankGeneration::<Test>::get());
+        assert_eq!(
+            floor,
+            U64F64::from_num(0.1),
+            "enable refresh must use the live moving-price floor"
         );
-        assert_err!(
-            open(1, MINT, COLLATERAL),
-            Error::<Test>::PruneFloorUnavailable
+        assert!(Lending::in_prune_zone(other(), &params()));
+        assert!(!Lending::in_prune_zone(netuid(), &params()));
+        // Open on the prune target must be zone-tagged in the same block.
+        seed_twap_samples(other(), MIN_HEALTH_TWAP_SAMPLES, 0.1);
+        NotionalEma::<Test>::insert(other(), U64F64::from_num(0.1));
+        let owner = account(1);
+        mint_tao(&owner, COLLATERAL + DEPOSIT);
+        assert_ok!(Lending::open_short(
+            RuntimeOrigin::signed(owner.clone()),
+            other(),
+            MINT,
+            COLLATERAL,
+            1
+        ));
+        let pos = Positions::<Test>::get(&owner, other()).expect("position");
+        assert_eq!(
+            pos.zone_minted, MINT,
+            "same-block enable must tag the prune target"
         );
-        Lending::refresh_prune_floor_for_test();
-        assert_ok!(open(1, MINT, COLLATERAL));
+        assert_eq!(pos.zone_proceeds, pos.proceeds);
     });
 }
 

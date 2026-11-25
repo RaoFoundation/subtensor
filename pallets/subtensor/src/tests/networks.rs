@@ -1870,30 +1870,39 @@ fn prune_ranks_by_slow_dereg_price_not_emission_moving_price() {
 }
 
 /// `get_network_to_prune` and lending `in_prune_zone` share the same warm /
-/// unwarm rank fallback, so a mixed set stays consistent.
+/// unwarm rank fallback, so a mixed set stays consistent across registration,
+/// immunity expiry, dissolution, and disable/re-enable.
 #[test]
 fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
     new_test_ext(0).execute_with(|| {
         let n1 = add_dynamic_network(&U256::from(21), &U256::from(11));
         let n2 = add_dynamic_network(&U256::from(41), &U256::from(31));
         let n3 = add_dynamic_network(&U256::from(61), &U256::from(51));
-        System::set_block_number(SubtensorModule::get_network_immunity_period() + 10);
+        let imm = SubtensorModule::get_network_immunity_period();
+        // Mature n1–n3, then register n4 so it is still immune.
+        System::set_block_number(imm + 10);
+        let n4 = add_dynamic_network(&U256::from(81), &U256::from(71));
 
         pallet_lending::Enabled::<Test>::put(true);
         let params = pallet_lending::SynthParams::default();
         pallet_lending::SynthParamsStore::<Test>::put(params);
 
         // Warm n1 (low), unwarm n2 (mid moving fallback), warm n3 (high).
+        // n4 is immune with an even lower price and must be ignored.
         SubnetMovingPrice::<Test>::insert(n1, I96F32::from_num(0.5));
         SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(0.25));
         SubnetMovingPrice::<Test>::insert(n3, I96F32::from_num(0.9));
+        SubnetMovingPrice::<Test>::insert(n4, I96F32::from_num(0.01));
         pallet_lending::RankPrice::<Test>::insert(n1, U64F64::from_num(0.1));
         pallet_lending::RankPrice::<Test>::insert(n3, U64F64::from_num(0.8));
-        // n2 stays without RankPrice so both paths fall back to moving price.
-        // Publish this block's prune floor (signed path is O(1) against it).
+        pallet_lending::RankPrice::<Test>::insert(n4, U64F64::from_num(0.01));
+        let epoch = pallet_lending::RankGeneration::<Test>::get();
+        for n in [n1, n3, n4] {
+            pallet_lending::RankRingGeneration::<Test>::insert(n, epoch);
+        }
         let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
 
-        for n in [n1, n2, n3] {
+        for n in [n1, n2, n3, n4] {
             assert_eq!(
                 SubtensorModule::dereg_rank_price(n),
                 pallet_lending::Pallet::<Test>::prune_rank_price(n),
@@ -1901,15 +1910,52 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
             );
         }
 
+        assert!(SubtensorModule::is_network_prune_immune(n4));
+        assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n4, &params));
+
         let pruned = SubtensorModule::get_network_to_prune().expect("candidate");
-        assert_eq!(pruned, n1, "lowest warm rank wins over unwarm fallback");
+        assert_eq!(pruned, n1, "lowest warm rank wins over unwarm / immune");
         assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
             pruned, &params
         ));
-        // Far above the floor: warm high-rank subnet stays outside the zone.
         assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n3, &params));
-        // Unwarm mid-price is above the warm floor under default zone_bps.
         assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n2, &params));
+
+        // Immunity expiry: n4 becomes the prune target.
+        System::set_block_number(
+            NetworkRegisteredAt::<Test>::get(n4)
+                .saturating_add(imm)
+                .saturating_add(1),
+        );
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+        assert!(!SubtensorModule::is_network_prune_immune(n4));
+        let pruned_after = SubtensorModule::get_network_to_prune().expect("candidate");
+        assert_eq!(pruned_after, n4, "post-immunity low rank wins");
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
+            pruned_after,
+            &params
+        ));
+
+        // Dissolution of the floor-setter excludes it from the lending floor.
+        assert_ok!(pallet_lending::Pallet::<Test>::start_dissolution(n4));
+        assert!(
+            pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
+            "after dissolving the floor-setter, n1 must be in zone"
+        );
+
+        // Disable / re-enable: generation bump + floor refresh keep agreement.
+        assert_ok!(pallet_lending::Pallet::<Test>::set_enabled(
+            RuntimeOrigin::root(),
+            false
+        ));
+        assert_ok!(pallet_lending::Pallet::<Test>::set_enabled(
+            RuntimeOrigin::root(),
+            true
+        ));
+        let pruned_re = SubtensorModule::get_network_to_prune().expect("candidate");
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
+            pruned_re, &params
+        ));
     });
 }
 

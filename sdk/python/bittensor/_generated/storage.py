@@ -567,7 +567,7 @@ class Lending:
     RankRingGeneration = Item('Lending', 'RankRingGeneration', 'u32')
     PoolTaoEma = Item('Lending', 'PoolTaoEma', 'u64')
     NotionalEma = Item('Lending', 'NotionalEma', 'FixedU128')
-    PruneFloor = Item('Lending', 'PruneFloor', '(u32, FixedU128)')
+    PruneFloor = Item('Lending', 'PruneFloor', '(u32, u32, FixedU128)')
     StrandedCustody = Item('Lending', 'StrandedCustody', 'StrandedRecord')
     DeleverageQueue = Item('Lending', 'DeleverageQueue', 'u64')
     NextDeleverageSeq = Item('Lending', 'NextDeleverageSeq', 'u64')

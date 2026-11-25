@@ -238,8 +238,15 @@ pub trait LendingInterface<AccountId> {
     /// Re-key positions from `old` to `new` without moving custody funds.
     fn on_coldkey_swap(old: &AccountId, new: &AccountId) -> DispatchResult;
     /// Freeze the subnet's shorts and snapshot the settlement rate `r` (P12).
-    /// Call before the pool is touched.
+    /// Call before the pool is touched. When lending is enabled this refreshes
+    /// the prune floor; callers that reach here from signed registration must
+    /// declare [`Self::prune_floor_refresh_weight`].
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
+    /// Declared weight for a prune-floor refresh bounded by `SubnetLimit`.
+    /// Added to registration / dissolve dispatch weights.
+    fn prune_floor_refresh_weight() -> Weight {
+        Weight::zero()
+    }
     /// Settle every short at `r` (zone alpha at its proceeds) into the staker
     /// pot and add the residual reserve. Runs after the dissolution alpha
     /// count and before stakers are paid. Returns `true` when done.
@@ -765,10 +772,11 @@ pub mod pallet {
     /// Separate from the emission [`SubnetMovingPrice`] which caps the feed at 1.0.
     #[pallet::storage]
     pub type NotionalEma<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
-    /// Lowest non-immune prune rank for the tagged block (P16). Refreshed in
-    /// `on_initialize` so signed opens/increases pay O(1) for the zone check.
+    /// Lowest non-immune prune rank for the tagged block (P16). Tuple is
+    /// `(block, RankGeneration, floor)`. Refreshed in `on_initialize` and on
+    /// mid-block enable so signed opens/increases pay O(1) for the zone check.
     #[pallet::storage]
-    pub type PruneFloor<T: Config> = StorageValue<_, (BlockNumberFor<T>, U64F64), OptionQuery>;
+    pub type PruneFloor<T: Config> = StorageValue<_, (BlockNumberFor<T>, u32, U64F64), OptionQuery>;
     /// Closed custody coldkeys that still hold TAO after a failed settle or
     /// default. Root [`sweep_stranded_funds`] pays `due` to the pot and
     /// refunds the owner portion.
@@ -991,9 +999,6 @@ pub mod pallet {
         InsufficientFunds,
         /// The owner is mid coldkey swap.
         OwnerNotAllowed,
-        /// No prune-zone floor for this block (e.g. mid-block enable or
-        /// dissolution invalidated the cache). Wait for the next block hook.
-        PruneFloorUnavailable,
     }
 
     #[pallet::hooks]
@@ -1037,21 +1042,8 @@ pub mod pallet {
             // open/increase stay O(1). Skip while disabled (opens cannot run).
             if Enabled::<T>::get() {
                 Self::refresh_prune_floor(now, &subnets);
-                // Worst-case warm-generation fallback per subnet: registration
-                // + immunity, dissolution, both generation tags, RankPrice miss,
-                // SubnetMechanism, SubnetMovingPrice (± shared RankGeneration /
-                // block). Proof: 8 keys × 64-byte trie nodes + floor value.
-                let n = subnets.len() as u64;
-                let proof = n
-                    .saturating_mul(8)
-                    .saturating_mul(64)
-                    .saturating_add(U64F64::max_encoded_len() as u64)
-                    .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64);
-                weight = weight.saturating_add(
-                    db.reads(n.saturating_mul(8).saturating_add(2))
-                        .saturating_add(db.writes(1))
-                        .saturating_add(Weight::from_parts(0, proof)),
-                );
+                weight =
+                    weight.saturating_add(Self::prune_floor_refresh_weight(subnets.len() as u64));
             }
             if close_interval {
                 weight = weight.saturating_add(
@@ -1217,20 +1209,27 @@ pub mod pallet {
 
         #[pallet::call_index(6)]
         #[pallet::weight({
-            // O(1): flip Enabled and bump [`RankGeneration`]. Stale rings are
-            // ignored until they warm under the new generation.
-            T::WeightInfo::set_enabled().saturating_add(T::DbWeight::get().reads_writes(2, 2))
+            // Flip Enabled, bump generation, and (on enable) refresh the prune
+            // floor under a SubnetLimit-bounded envelope so same-block opens
+            // see a current floor.
+            let n = T::Pool::subnet_limit().max(1);
+            T::WeightInfo::set_enabled()
+                .saturating_add(T::DbWeight::get().reads_writes(3, 3))
+                .saturating_add(Pallet::<T>::prune_floor_refresh_weight(n))
         })]
         pub fn set_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;
             let was = Enabled::<T>::get();
             Enabled::<T>::put(enabled);
             // Re-enable invalidates ranking by generation so rings warm from
-            // real samples without an O(subnets) storage sweep. Drop the
-            // prune floor too: a mid-block enable must not admit risk against
-            // a stale or absent floor (opens wait for the next hook).
+            // real samples without an O(subnets) ring sweep. Republish the
+            // prune floor in this call so same-block opens tag correctly.
             if enabled && !was {
                 RankGeneration::<T>::mutate(|g| *g = g.saturating_add(1));
+                let now = frame_system::Pallet::<T>::block_number();
+                Self::refresh_prune_floor(now, &T::Pool::live_subnets());
+            }
+            if !enabled {
                 PruneFloor::<T>::kill();
             }
             Self::deposit_event(Event::EnabledSet { enabled });
@@ -1337,14 +1336,6 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
             Self::ensure_tradeable(netuid)?;
-            // Zone tagging needs this block's floor. Mid-block enable or
-            // dissolution kill the cache; refuse until `on_initialize`
-            // republishes so prune candidates cannot open unmarked.
-            let now = frame_system::Pallet::<T>::block_number();
-            ensure!(
-                PruneFloor::<T>::get().is_some_and(|(at, _)| at == now),
-                Error::<T>::PruneFloorUnavailable
-            );
             ensure!(
                 TwapRing::<T>::get(netuid).samples.len() as u32 >= MIN_HEALTH_TWAP_SAMPLES,
                 Error::<T>::YoungSubnet
@@ -1481,10 +1472,27 @@ pub mod pallet {
             Self::refresh_prune_floor(now, &T::Pool::live_subnets());
         }
 
+        /// Worst-case weight to refresh the prune floor over `n` live subnets
+        /// (warm-generation moving-price fallback + per-key trie proof).
+        pub fn prune_floor_refresh_weight(n: u64) -> Weight {
+            let db = T::DbWeight::get();
+            let proof = n
+                .saturating_mul(8)
+                .saturating_mul(64)
+                .saturating_add(U64F64::max_encoded_len() as u64)
+                .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64)
+                .saturating_add(u32::max_encoded_len() as u64);
+            db.reads(n.saturating_mul(8).saturating_add(2))
+                .saturating_add(db.writes(1))
+                .saturating_add(Weight::from_parts(0, proof))
+        }
+
         /// Publish this block's lowest non-immune, non-dissolving prune rank
         /// for O(1) zone checks. Dissolving nets are excluded so the cache
-        /// stays coherent with deregistration eligibility.
+        /// stays coherent with deregistration eligibility. Tags the floor with
+        /// the current [`RankGeneration`].
         fn refresh_prune_floor(now: BlockNumberFor<T>, subnets: &[NetUid]) {
+            let epoch = RankGeneration::<T>::get();
             let mut floor: Option<U64F64> = None;
             for &netuid in subnets {
                 if T::Pool::prune_immune(netuid) || Dissolutions::<T>::contains_key(netuid) {
@@ -1497,7 +1505,7 @@ pub mod pallet {
                 });
             }
             if let Some(floor) = floor {
-                PruneFloor::<T>::put((now, floor));
+                PruneFloor::<T>::put((now, epoch, floor));
             } else {
                 PruneFloor::<T>::kill();
             }
@@ -1505,19 +1513,21 @@ pub mod pallet {
 
         /// The subnet's prune rank is within `zone_bps` of the lowest
         /// non-immune prune rank, so it is a prune candidate (P16). Uses the
-        /// block's cached floor from `on_initialize`; without it the signed
-        /// path stays out of zone (no unbounded rescan).
+        /// block's cached floor from `on_initialize` / `set_enabled`. Missing
+        /// or stale floor (wrong block or RankGeneration) fails closed: treat
+        /// as in-zone so prune candidates cannot open unmarked.
         pub fn in_prune_zone(netuid: NetUid, params: &SynthParams) -> bool {
             if T::Pool::prune_immune(netuid) {
                 return false;
             }
             let own = Self::prune_rank_price(netuid);
             let now = frame_system::Pallet::<T>::block_number();
-            let Some((at, floor)) = PruneFloor::<T>::get() else {
-                return false;
+            let epoch = RankGeneration::<T>::get();
+            let Some((at, floor_epoch, floor)) = PruneFloor::<T>::get() else {
+                return true;
             };
-            if at != now {
-                return false;
+            if at != now || floor_epoch != epoch {
+                return true;
             }
             own <= Self::scale_price(floor, u128::from(params.zone_bps))
         }
@@ -2238,6 +2248,23 @@ pub mod pallet {
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
             // `true` = paused (keep paging), `false` = active.
             let mut pause_state: alloc::vec::Vec<(NetUid, bool)> = alloc::vec::Vec::new();
+            // If the cursor already sits mid-subnet, resolve that subnet's
+            // pause before the first active attempt so a paused mid-pass
+            // cannot burn a full step.
+            if let Some((cursor_net, cursor_owner)) = DeleverageCursor::<T>::get() {
+                if meter.try_consume(pause_check_w).is_err() {
+                    return 0;
+                }
+                let paused = Self::buybacks_paused(cursor_net, params);
+                pause_state.push((cursor_net, paused));
+                if paused {
+                    match Self::advance_cursor_past_subnet(&(cursor_net, cursor_owner), meter) {
+                        Ok(true) => {}
+                        Ok(false) => return 1,
+                        Err(()) => return 0,
+                    }
+                }
+            }
             while total < MAX_DELEVERAGE_STEPS_PER_BLOCK {
                 if meter.try_consume(peek_w).is_err() {
                     break;
@@ -3065,10 +3092,12 @@ pub mod pallet {
                     price: Self::dissolution_rate(netuid),
                 },
             );
-            // O(1): invalidate the floor instead of an uncharged full-subnet
-            // rescan (registration → dissolve reaches here). Opens refuse
-            // until the next `on_initialize` republishes without this net.
-            PruneFloor::<T>::kill();
+            // Skip the floor scan while disabled (opens cannot run). When
+            // enabled, refresh under the SubnetLimit-bounded weight declared
+            // on the registration / dissolve dispatch path.
+            if Enabled::<T>::get() {
+                Self::refresh_prune_floor(now, &T::Pool::live_subnets());
+            }
             Ok(())
         }
 
@@ -3525,6 +3554,9 @@ pub mod pallet {
         }
         fn start_dissolution(netuid: NetUid) -> DispatchResult {
             Self::start_dissolution(netuid)
+        }
+        fn prune_floor_refresh_weight() -> Weight {
+            Self::prune_floor_refresh_weight(T::Pool::subnet_limit().max(1))
         }
         fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             Self::settle_positions_on_dissolution(netuid, meter)
