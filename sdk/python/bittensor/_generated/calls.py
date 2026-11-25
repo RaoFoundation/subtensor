@@ -2018,6 +2018,11 @@ class Lending:
         return Call('Lending', 'set_synth_params', {'params': params})
 
     @staticmethod
+    def sweep_stranded_funds(netuid: 'NetUid', who: 'AccountId32') -> Call:
+        'Root-only recovery for TAO stranded on a custody coldkey or residual reserve after a failed settle/default transfer. Pays into the subnet pot when one exists; otherwise burns.'
+        return Call('Lending', 'sweep_stranded_funds', {'netuid': netuid, 'who': who})
+
+    @staticmethod
     def withdraw_collateral(netuid: 'NetUid', tao: 'u64') -> Call:
         'Withdraw collateral while coverage plus the interest buffer still hold afterwards (P20).'
         return Call('Lending', 'withdraw_collateral', {'netuid': netuid, 'tao': tao})

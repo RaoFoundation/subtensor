@@ -2143,10 +2143,7 @@ fn deleverage_exhaust_stops_on_no_progress_and_default_deposit() {
             100_000_000,
             "default open deposit is 0.1 TAO"
         );
-        assert!(
-            MAX_DELEVERAGE_STEPS_PER_BLOCK <= 32,
-            "hard cap must stay ≤ ~10% of a 4s block"
-        );
+        const _: () = assert!(MAX_DELEVERAGE_STEPS_PER_BLOCK <= 32);
 
         assert_ok!(open(1, MINT, COLLATERAL));
         force_deleverage(1);

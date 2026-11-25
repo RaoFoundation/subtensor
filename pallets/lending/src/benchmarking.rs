@@ -132,6 +132,17 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sweep_stranded() {
+        let who: T::AccountId = whitelisted_caller();
+        seed::<T>(&who);
+        let stranded = COLLATERAL / 10;
+        T::Pool::benchmark_mint_tao(&who, stranded);
+        #[extrinsic_call]
+        sweep_stranded_funds(RawOrigin::Root, netuid(), who.clone());
+        assert_eq!(T::Pool::free_tao(&who), Zero::zero());
+    }
+
+    #[benchmark]
     fn charge_interest() {
         let caller: T::AccountId = whitelisted_caller();
         open_fixture::<T>(&caller);
@@ -158,7 +169,11 @@ mod benchmarks {
                 };
             }
         });
-        DeleverageQueue::<T>::insert(netuid(), &caller, ());
+        let seq = NextDeleverageSeq::<T>::mutate(netuid(), |s| {
+            *s = s.saturating_add(1);
+            *s
+        });
+        DeleverageQueue::<T>::insert(netuid(), &caller, seq);
         DeleveragingMinted::<T>::insert(netuid(), MINT);
         advance::<T>(1);
         let params = SynthParamsStore::<T>::get();
