@@ -1901,7 +1901,9 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
 
         let pruned = SubtensorModule::get_network_to_prune().expect("candidate");
         assert_eq!(pruned, n1, "lowest warm rank wins over unwarm fallback");
-        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(pruned, &params));
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
+            pruned, &params
+        ));
         // Far above the floor: warm high-rank subnet stays outside the zone.
         assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n3, &params));
         // Unwarm mid-price is above the warm floor under default zone_bps.

@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2957,
-        "end_line": 2967,
-        "url": "/code/runtime/src/lib.rs#L2957-L2967",
+        "line": 2961,
+        "end_line": 2971,
+        "url": "/code/runtime/src/lib.rs#L2961-L2971",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -333,9 +333,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_next_epoch_start_block",
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
-        "line": 1328,
-        "end_line": 1342,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1328-L1342",
+        "line": 1330,
+        "end_line": 1344,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1330-L1344",
         "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
@@ -950,9 +950,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_next_epoch_start_block",
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
-        "line": 1328,
-        "end_line": 1342,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1328-L1342",
+        "line": 1330,
+        "end_line": 1344,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1330-L1344",
         "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
@@ -1087,9 +1087,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2761,
-        "end_line": 2763,
-        "url": "/code/runtime/src/lib.rs#L2761-L2763",
+        "line": 2765,
+        "end_line": 2767,
+        "url": "/code/runtime/src/lib.rs#L2765-L2767",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1317,9 +1317,9 @@
         "container": "LendingRuntimeApi",
         "name": "quote_close_short",
         "path": "runtime/src/lib.rs",
-        "line": 2933,
-        "end_line": 2939,
-        "url": "/code/runtime/src/lib.rs#L2933-L2939",
+        "line": 2937,
+        "end_line": 2943,
+        "url": "/code/runtime/src/lib.rs#L2937-L2943",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1340,9 +1340,9 @@
         "container": "LendingRuntimeApi",
         "name": "current_terms_version",
         "path": "runtime/src/lib.rs",
-        "line": 2945,
-        "end_line": 2947,
-        "url": "/code/runtime/src/lib.rs#L2945-L2947",
+        "line": 2949,
+        "end_line": 2951,
+        "url": "/code/runtime/src/lib.rs#L2949-L2951",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1369,9 +1369,9 @@
         "container": "LendingRuntimeApi",
         "name": "quote_open_short",
         "path": "runtime/src/lib.rs",
-        "line": 2926,
-        "end_line": 2931,
-        "url": "/code/runtime/src/lib.rs#L2926-L2931",
+        "line": 2930,
+        "end_line": 2935,
+        "url": "/code/runtime/src/lib.rs#L2930-L2935",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1392,8 +1392,8 @@
         "container": "Lending",
         "name": "Enabled",
         "path": "pallets/lending/src/lib.rs",
-        "line": 658,
-        "url": "/code/pallets/lending/src/lib.rs#L658",
+        "line": 692,
+        "url": "/code/pallets/lending/src/lib.rs#L692",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1401,8 +1401,8 @@
         "container": "Lending",
         "name": "SynthParamsStore",
         "path": "pallets/lending/src/lib.rs",
-        "line": 660,
-        "url": "/code/pallets/lending/src/lib.rs#L660",
+        "line": 694,
+        "url": "/code/pallets/lending/src/lib.rs#L694",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1429,8 +1429,8 @@
         "container": "Lending",
         "name": "Positions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 662,
-        "url": "/code/pallets/lending/src/lib.rs#L662",
+        "line": 696,
+        "url": "/code/pallets/lending/src/lib.rs#L696",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1455,8 +1455,8 @@
         "container": "Lending",
         "name": "OpenByNetuid",
         "path": "pallets/lending/src/lib.rs",
-        "line": 672,
-        "url": "/code/pallets/lending/src/lib.rs#L672",
+        "line": 706,
+        "url": "/code/pallets/lending/src/lib.rs#L706",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1464,8 +1464,8 @@
         "container": "Lending",
         "name": "Positions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 662,
-        "url": "/code/pallets/lending/src/lib.rs#L662",
+        "line": 696,
+        "url": "/code/pallets/lending/src/lib.rs#L696",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1490,8 +1490,8 @@
         "container": "Lending",
         "name": "Positions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 662,
-        "url": "/code/pallets/lending/src/lib.rs#L662",
+        "line": 696,
+        "url": "/code/pallets/lending/src/lib.rs#L696",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1516,8 +1516,8 @@
         "container": "Lending",
         "name": "SyntheticOutstanding",
         "path": "pallets/lending/src/lib.rs",
-        "line": 691,
-        "url": "/code/pallets/lending/src/lib.rs#L691",
+        "line": 725,
+        "url": "/code/pallets/lending/src/lib.rs#L725",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1525,8 +1525,8 @@
         "container": "Lending",
         "name": "DeleveragingMinted",
         "path": "pallets/lending/src/lib.rs",
-        "line": 724,
-        "url": "/code/pallets/lending/src/lib.rs#L724",
+        "line": 779,
+        "url": "/code/pallets/lending/src/lib.rs#L779",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1534,8 +1534,8 @@
         "container": "Lending",
         "name": "ResidualAlpha",
         "path": "pallets/lending/src/lib.rs",
-        "line": 694,
-        "url": "/code/pallets/lending/src/lib.rs#L694",
+        "line": 728,
+        "url": "/code/pallets/lending/src/lib.rs#L728",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1543,8 +1543,8 @@
         "container": "Lending",
         "name": "ResidualReserve",
         "path": "pallets/lending/src/lib.rs",
-        "line": 697,
-        "url": "/code/pallets/lending/src/lib.rs#L697",
+        "line": 731,
+        "url": "/code/pallets/lending/src/lib.rs#L731",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1552,8 +1552,8 @@
         "container": "Lending",
         "name": "BreakerTripped",
         "path": "pallets/lending/src/lib.rs",
-        "line": 700,
-        "url": "/code/pallets/lending/src/lib.rs#L700",
+        "line": 734,
+        "url": "/code/pallets/lending/src/lib.rs#L734",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1561,8 +1561,8 @@
         "container": "Lending",
         "name": "PositionCount",
         "path": "pallets/lending/src/lib.rs",
-        "line": 675,
-        "url": "/code/pallets/lending/src/lib.rs#L675",
+        "line": 709,
+        "url": "/code/pallets/lending/src/lib.rs#L709",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1570,8 +1570,8 @@
         "container": "Lending",
         "name": "Dissolutions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 772,
-        "url": "/code/pallets/lending/src/lib.rs#L772",
+        "line": 829,
+        "url": "/code/pallets/lending/src/lib.rs#L829",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1851,9 +1851,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2765,
-        "end_line": 2767,
-        "url": "/code/runtime/src/lib.rs#L2765-L2767",
+        "line": 2769,
+        "end_line": 2771,
+        "url": "/code/runtime/src/lib.rs#L2769-L2771",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1967,9 +1967,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_next_epoch_start_block",
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
-        "line": 1328,
-        "end_line": 1342,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1328-L1342",
+        "line": 1330,
+        "end_line": 1344,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1330-L1344",
         "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
@@ -2188,9 +2188,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2969,
-        "end_line": 2997,
-        "url": "/code/runtime/src/lib.rs#L2969-L2997",
+        "line": 2973,
+        "end_line": 3001,
+        "url": "/code/runtime/src/lib.rs#L2973-L3001",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2217,9 +2217,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2999,
-        "end_line": 3027,
-        "url": "/code/runtime/src/lib.rs#L2999-L3027",
+        "line": 3003,
+        "end_line": 3031,
+        "url": "/code/runtime/src/lib.rs#L3003-L3031",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2298,9 +2298,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2789,
-        "end_line": 2791,
-        "url": "/code/runtime/src/lib.rs#L2789-L2791",
+        "line": 2793,
+        "end_line": 2795,
+        "url": "/code/runtime/src/lib.rs#L2793-L2795",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2363,9 +2363,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2801,
-        "end_line": 2803,
-        "url": "/code/runtime/src/lib.rs#L2801-L2803",
+        "line": 2805,
+        "end_line": 2807,
+        "url": "/code/runtime/src/lib.rs#L2805-L2807",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3050,9 +3050,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2772,
-        "end_line": 2774,
-        "url": "/code/runtime/src/lib.rs#L2772-L2774",
+        "line": 2776,
+        "end_line": 2778,
+        "url": "/code/runtime/src/lib.rs#L2776-L2778",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3453,9 +3453,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2795,
-        "end_line": 2797,
-        "url": "/code/runtime/src/lib.rs#L2795-L2797",
+        "line": 2799,
+        "end_line": 2801,
+        "url": "/code/runtime/src/lib.rs#L2799-L2801",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

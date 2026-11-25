@@ -2014,8 +2014,7 @@ fn settle_failure_skips_position_and_advances() {
         );
         // Drained custody still records the book's stranded amount for sweep.
         assert!(
-            StrandedCustody::<Test>::iter_prefix(netuid())
-                .any(|(_, r)| r.due > 0 || r.refund > 0),
+            StrandedCustody::<Test>::iter_prefix(netuid()).any(|(_, r)| r.due > 0 || r.refund > 0),
             "failed settle must record stranded custody"
         );
     });
@@ -2214,9 +2213,9 @@ fn deleverage_skips_stalled_and_progresses_healthy_same_block() {
         let keys: Vec<_> = DeleverageQueue::<Test>::iter_keys()
             .filter(|(n, _)| *n == netuid())
             .collect();
-        let first_stalled = keys.iter().find(|(_, o)| {
-            matches!(DeleverageQueue::<Test>::get(netuid(), o), Some(seq) if seq > cutoff)
-        });
+        let first_stalled = keys.iter().find(
+            |(_, o)| matches!(DeleverageQueue::<Test>::get(netuid(), o), Some(seq) if seq > cutoff),
+        );
         let first_healthy = keys.iter().find(|(_, o)| {
             matches!(DeleverageQueue::<Test>::get(netuid(), o), Some(seq) if seq <= cutoff)
         });
@@ -2267,7 +2266,10 @@ fn failed_default_writes_stranded_custody_for_owner_refund() {
             .expect("failed default must record stranded custody");
         assert_eq!(stranded.owner, account(1));
         assert_eq!(stranded.due, 0);
-        assert!(stranded.refund > 0, "owner refund records leftover free TAO");
+        assert!(
+            stranded.refund > 0,
+            "owner refund records leftover free TAO"
+        );
         assert!(!Positions::<Test>::contains_key(account(1), netuid()));
     });
 }

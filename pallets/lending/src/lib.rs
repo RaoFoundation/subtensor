@@ -2267,10 +2267,7 @@ pub mod pallet {
             } else {
                 // Prefer the pot leg when free balance is short.
                 let due_pay = record.due.min(free);
-                (
-                    due_pay,
-                    free.saturating_sub(due_pay).min(record.refund),
-                )
+                (due_pay, free.saturating_sub(due_pay).min(record.refund))
             };
             if due_pay > 0 {
                 if T::Pool::subnet_pot_account(netuid).is_some() {
