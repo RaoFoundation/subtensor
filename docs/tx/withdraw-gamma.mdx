@@ -12,7 +12,7 @@ empties the deposit closes it.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.withdraw_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3308-L3317) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.withdraw_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3313-L3322) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("withdraw_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.withdraw_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3310`](/code/pallets/subtensor/src/macros/dispatches.rs#L3308-L3317):
+`SubtensorModule.withdraw_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3315`](/code/pallets/subtensor/src/macros/dispatches.rs#L3313-L3322):
 
 ```rust
 #[pallet::call_index(176)]
@@ -82,6 +82,6 @@ pub fn withdraw_gamma(
 }
 ```
 
-Delegates to [`do_withdraw_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L687).
+Delegates to [`do_withdraw_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L712).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

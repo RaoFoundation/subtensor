@@ -65,8 +65,8 @@ def address_cli_name(param: str) -> str:
 def ss58_param_help(param: str, *, wallet_default: bool = True) -> str:
     """Help text for an address-typed CLI option (see AppContext.resolve_address).
 
-    ``wallet_default=False`` is for an own-key param that must be given rather than
-    falling back to the wallet (a gamma deposit's hotkey).
+    ``wallet_default=False`` is for an own-key param that never falls back to the
+    wallet (a gamma deposit's hotkey).
     """
     book = "address-book or proxy-book name, "
     if "hotkey" in param:

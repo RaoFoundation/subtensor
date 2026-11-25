@@ -710,7 +710,7 @@ def _gamma_minted_data(result: ExtrinsicResult) -> dict[str, Any]:
     alpha = Balance.from_rao(int(attributes["alpha"]), int(attributes["netuid"]))
     return {
         "minted": {
-            "hotkey_ss58": str(attributes["hotkey"]),
+            "hotkey_ss58": None if attributes["hotkey"] is None else str(attributes["hotkey"]),
             "daily_spend_cap_gamma": None if cap is None else gamma_from_units(cap),
             "alpha_burned": format(alpha.decimal, "f"),
             "tao_value": format(Balance.from_rao(int(attributes["value"])).decimal, "f"),

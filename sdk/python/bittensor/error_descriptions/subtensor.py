@@ -1106,9 +1106,10 @@ DESCRIPTIONS: dict[str, str] = {
         "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it."
     ),
     "GammaDepositDailySpendCapMismatch": (
-        "A mint named a daily spend cap, but the gamma deposit it credits has another. A named "
-        "cap opens a new deposit and must match an existing one's. Mint without naming one, or "
-        "change the deposit's cap with `set_gamma_deposit_daily_spend_cap` first."
+        "A mint named a daily spend cap, but the gamma deposit it credits has another, or it "
+        "credits a balance, which has none. A named cap opens a new deposit and must match an "
+        "existing one's. Mint without naming one, or change the deposit's cap with "
+        "`set_gamma_deposit_daily_spend_cap` first."
     ),
     "NotGammaDepositSpender": (
         "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it."

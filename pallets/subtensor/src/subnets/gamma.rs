@@ -215,6 +215,29 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Credits minted `gamma` to the coldkey's deposit at `hotkey` as [`Self::credit_gamma`]
+    /// does, or to its balance with no `hotkey`, which takes no daily spend cap. Returns the
+    /// deposit's cap.
+    fn credit_minted_gamma(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        hotkey: Option<&T::AccountId>,
+        gamma: GammaBalance,
+        daily_spend_cap: Option<GammaBalance>,
+    ) -> Result<Option<GammaBalance>, DispatchError> {
+        match hotkey {
+            Some(hotkey) => Self::credit_gamma(netuid, coldkey, hotkey, gamma, daily_spend_cap),
+            None => {
+                ensure!(
+                    daily_spend_cap.is_none(),
+                    Error::<T>::GammaDepositDailySpendCapMismatch
+                );
+                Self::credit_gamma_balance(netuid, coldkey, gamma)?;
+                Ok(None)
+            }
+        }
+    }
+
     /// The AMM price limits of gamma emission trades on `netuid`: a sale floor
     /// [`crate::GAMMA_EMISSION_MAX_SLIPPAGE_BPS`] below the higher of its fast moving and spot
     /// prices, and a purchase ceiling as far above the lower.
@@ -328,10 +351,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Buys alpha with `amount` TAO, burns it and credits its gamma to the signer's deposit
-    /// at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it.
+    /// at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, or to
+    /// its balance with no `hotkey`.
     pub fn do_mint_gamma(
         origin: OriginFor<T>,
-        hotkey: T::AccountId,
+        hotkey: Option<T::AccountId>,
         netuid: NetUid,
         amount: TaoBalance,
         min_amount_out: GammaBalance,
@@ -349,7 +373,7 @@ impl<T: Config> Pallet<T> {
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
         let daily_spend_cap =
-            Self::credit_gamma(netuid, &coldkey, &hotkey, gamma, daily_spend_cap)?;
+            Self::credit_minted_gamma(netuid, &coldkey, hotkey.as_ref(), gamma, daily_spend_cap)?;
         Self::deposit_event(Event::GammaMinted {
             netuid,
             coldkey,
@@ -365,11 +389,12 @@ impl<T: Config> Pallet<T> {
 
     /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha`
     /// does, and credits its gamma to the signer's deposit at `destination_hotkey`, which
-    /// must have `daily_spend_cap` when it is given, or opens with it.
+    /// must have `daily_spend_cap` when it is given, or opens with it, or to its balance with
+    /// no `destination_hotkey`.
     pub fn do_mint_gamma_with_stake(
         origin: OriginFor<T>,
         origin_hotkey: T::AccountId,
-        destination_hotkey: T::AccountId,
+        destination_hotkey: Option<T::AccountId>,
         netuid: NetUid,
         alpha_amount: AlphaBalance,
         min_amount_out: GammaBalance,
@@ -381,10 +406,10 @@ impl<T: Config> Pallet<T> {
         let alpha = Self::do_burn_alpha(origin, origin_hotkey, alpha_amount, netuid)?;
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
-        let daily_spend_cap = Self::credit_gamma(
+        let daily_spend_cap = Self::credit_minted_gamma(
             netuid,
             &coldkey,
-            &destination_hotkey,
+            destination_hotkey.as_ref(),
             gamma,
             daily_spend_cap,
         )?;

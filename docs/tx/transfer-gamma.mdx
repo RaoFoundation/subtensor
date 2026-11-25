@@ -13,7 +13,7 @@ transfer never opens a deposit, and one that empties your deposit closes it.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3323-L3341) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3328-L3346) |
 
 ## Parameters
 
@@ -70,7 +70,7 @@ result = sub.execute_tool("transfer_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3325`](/code/pallets/subtensor/src/macros/dispatches.rs#L3323-L3341):
+`SubtensorModule.transfer_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3330`](/code/pallets/subtensor/src/macros/dispatches.rs#L3328-L3346):
 
 ```rust
 #[pallet::call_index(177)]
@@ -94,6 +94,6 @@ pub fn transfer_gamma(
 }
 ```
 
-Delegates to [`do_transfer_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L717).
+Delegates to [`do_transfer_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L742).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

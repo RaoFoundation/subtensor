@@ -71,8 +71,13 @@ class TestAmounts:
     [
         ("mint_gamma", MINT, {"hotkey": BOB_HOT, "netuid": 1, "amount": RAO,
             "min_amount_out": 380 * RAO, "daily_spend_cap": None}),
+        ("mint_gamma", {**MINT, "hotkey_ss58": None}, {"hotkey": None, "netuid": 1,
+            "amount": RAO, "min_amount_out": 380 * RAO, "daily_spend_cap": None}),
         ("mint_gamma_with_stake", MINT_STAKE, {"origin_hotkey": ALICE_HOT,
             "destination_hotkey": BOB_HOT, "netuid": 1, "alpha_amount": RAO,
+            "min_amount_out": 380 * RAO, "daily_spend_cap": None}),
+        ("mint_gamma_with_stake", {**MINT_STAKE, "hotkey_ss58": None}, {"origin_hotkey": ALICE_HOT,
+            "destination_hotkey": None, "netuid": 1, "alpha_amount": RAO,
             "min_amount_out": 380 * RAO, "daily_spend_cap": None}),
         ("move_gamma", {**MOVE, "amount_gamma": "1.5"}, {"origin_hotkey": ALICE_HOT,
             "destination_hotkey": BOB_HOT, "netuid": 1, "amount": 1_500_000_000}),
@@ -349,6 +354,16 @@ class TestMintPreview:
         }
 
     @pytest.mark.asyncio
+    async def test_a_mint_with_no_hotkey_credits_the_balance(self):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaBalances", [1, SIGNER], 2 * RAO)
+        preview = await build("mint_gamma", {**MINT, "hotkey_ss58": None}).preflight(
+            sub, SIGNER, SIGNER
+        )
+        assert ("balance", "holds 2 gamma") in preview.facts
+        assert preview.blocks == []
+
+    @pytest.mark.asyncio
     async def test_another_coldkeys_deposit_blocks(self):
         sub = FakeSubstrate()
         sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit(coldkey=BOB_HOT))
@@ -434,6 +449,13 @@ class TestMintTerms:
     def test_a_setter_names_exactly_one_value(self, op, named):
         with pytest.raises(BittensorError, match="exactly one"):
             build(op, {**DEPOSIT, **named})
+
+    @pytest.mark.parametrize(
+        ("op", "fields"), [("mint_gamma", MINT), ("mint_gamma_with_stake", MINT_STAKE)]
+    )
+    def test_a_balance_takes_no_cap(self, op, fields):
+        with pytest.raises(BittensorError, match="needs the hotkey of a deposit"):
+            build(op, {**fields, "hotkey_ss58": None, "daily_spend_cap_gamma": 1})
 
     @pytest.mark.parametrize(
         ("op", "fields"),
@@ -691,10 +713,10 @@ PAID = {"event": {"module_id": "TransactionPayment", "event_id": "TransactionFee
 APPROVAL = {"event": {"module_id": "Multisig", "event_id": "MultisigApproval"}}
 
 
-def _minted(cap):
+def _minted(cap, hotkey=BOB_HOT):
     attributes = {
         "netuid": 1,
-        "hotkey": BOB_HOT,
+        "hotkey": hotkey,
         "daily_spend_cap": cap,
         "tao": RAO,
         "alpha": RAO // 2,
@@ -714,10 +736,11 @@ MINTED = {"hotkey_ss58": BOB_HOT, "daily_spend_cap_gamma": None, "alpha_burned":
     [
         ([PAID, _minted(None)], MINTED),
         ([_minted(RAO // 2)], {**MINTED, "daily_spend_cap_gamma": "0.5"}),
+        ([_minted(None, hotkey=None)], {**MINTED, "hotkey_ss58": None}),
         ([], None),
         ([PAID, APPROVAL], None),
     ],
-    ids=["minted", "capped", "not-waited", "multisig-pending"],
+    ids=["minted", "capped", "balance", "not-waited", "multisig-pending"],
 )  # fmt: skip
 @pytest.mark.asyncio
 async def test_execute_reports_what_a_mint_credited(wallet, events, minted):
@@ -771,8 +794,6 @@ class TestCli:
 @pytest.mark.parametrize(
     "op",
     [
-        "mint_gamma",
-        "mint_gamma_with_stake",
         "close_gamma_deposit",
         "set_gamma_deposit_daily_spend_cap",
         "deposit_gamma",
@@ -784,6 +805,15 @@ def test_deposit_hotkey_never_defaults_to_the_wallets(fake, op):  # noqa: F811
     argv = argv_from_sample(args, lists="json")
     result = invoke("--json", "--dry-run", "tx", op.replace("_", "-"), *argv)
     assert result.exit_code == 2, result.output
+
+
+@pytest.mark.parametrize("op", ["mint_gamma", "mint_gamma_with_stake"])
+def test_a_mint_with_no_hotkey_credits_the_balance(fake, op):  # noqa: F811
+    args = {k: v for k, v in INTENT_SAMPLES[op].items() if k != "hotkey_ss58"}
+    argv = argv_from_sample(args, lists="json")
+    result = invoke("--json", "--dry-run", "tx", op.replace("_", "-"), *argv)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["args"].get("hotkey_ss58") is None
 
 
 @pytest.mark.parametrize(

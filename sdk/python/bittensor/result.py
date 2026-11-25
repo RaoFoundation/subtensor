@@ -371,8 +371,9 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "the deposit, or close it once its hotkey has spent it"
     ),
     "GammaDepositDailySpendCapMismatch": (
-        "the deposit already has another daily spend cap (`btcli gamma show`); mint without "
-        "`--daily-spend-cap-gamma`, or change it with `btcli gamma set-cap` first"
+        "the deposit already has another daily spend cap (`btcli gamma show`), or the mint "
+        "credits your balance, which has none; mint without `--daily-spend-cap-gamma`, or "
+        "change the deposit's cap with `btcli gamma set-cap` first"
     ),
     "TooManyGammaDeposits": (
         "move gamma into an existing deposit with `btcli gamma move`, or close an empty one "

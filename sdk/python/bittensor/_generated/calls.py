@@ -365,13 +365,13 @@ class SubtensorModule:
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
-    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
-        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
+    def mint_gamma(hotkey: 'Any', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+        "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. With no `hotkey` it credits the signer's balance, which takes no cap. Fails below `min_amount_out` gamma."
         return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
-    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
-        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'Any', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+        "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. With no `destination_hotkey` it credits the signer's balance, which takes no cap. Fails below `min_amount_out` gamma."
         return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
