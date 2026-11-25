@@ -274,6 +274,9 @@ impl LendingPoolInterface<Account> for MockPool {
     fn live_subnets() -> Vec<NetUid> {
         vec![netuid(), other()]
     }
+    fn subnet_limit() -> u64 {
+        128
+    }
     fn mint_and_sell(
         netuid: NetUid,
         custody_cold: &Account,

@@ -116,6 +116,10 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
             .collect()
     }
 
+    fn subnet_limit() -> u64 {
+        u64::from(SubnetLimit::<T>::get())
+    }
+
     #[transactional]
     fn mint_and_sell(
         netuid: NetUid,

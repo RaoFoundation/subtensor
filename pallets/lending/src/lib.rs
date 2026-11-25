@@ -104,6 +104,11 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     }
     /// Non-root live subnets (TWAP sampling and the prune-zone floor).
     fn live_subnets() -> alloc::vec::Vec<NetUid>;
+    /// Upper bound on live subnets for weight (matches registration
+    /// `SubnetLimit`). Defaults to `u16::MAX` when the host has no limit map.
+    fn subnet_limit() -> u64 {
+        u64::from(u16::MAX)
+    }
 
     /// Mint `mint_alpha` onto custody stake and sell it into the pool. The sale
     /// records TAO flow like any other sale. Returns the TAO credited to
@@ -338,10 +343,10 @@ pub const BLOCK_NET_MINT_CLEAR_PER_BLOCK: u32 = 64;
 pub const RESIDUAL_RETIRES_PER_BLOCK: u32 = 4;
 /// Empty `Due` buckets skipped per idle pass before yielding.
 pub const MAX_EMPTY_DUE_BUMPS: u32 = 64;
-/// Constant upper bound on live subnets for extrinsic weight (matches
-/// subtensor's default `SubnetLimit`). Weight must not enumerate storage
-/// before the origin check.
-pub const MAX_LIVE_SUBNETS_FOR_WEIGHT: u64 = 128;
+/// Fallback upper bound on live subnets when the host pool does not expose
+/// [`LendingPoolInterface::subnet_limit`]. Prefer the trait method so weight
+/// tracks governance's actual `SubnetLimit` (`u16` max).
+pub const MAX_LIVE_SUBNETS_FOR_WEIGHT: u64 = u16::MAX as u64;
 /// Rules version stamped on new positions.
 pub const TERMS_VERSION: u16 = 2;
 /// Bisection depth for fee-free inversions over `u64`.
@@ -1036,9 +1041,10 @@ pub mod pallet {
             let mut deleverage_meter = WeightMeter::with_limit(deleverage_budget);
             let _steps = Self::exhaust_deleverage_queue(&params, &mut deleverage_meter);
             let retires = Self::retire_residuals(RESIDUAL_RETIRES_PER_BLOCK, &params);
-            // Empty residual scan still reads the cursor / map head.
+            // Empty residual scan still reads the cursor / map head and may
+            // clear the cursor when the map ends.
             let residual_w = if retires == 0 {
-                db.reads(1)
+                db.reads_writes(2, 1)
             } else {
                 T::WeightInfo::retire_residual().saturating_mul(u64::from(retires))
             };
@@ -1081,7 +1087,12 @@ pub mod pallet {
         /// `collateral` TAO and the deposit from the caller. `min_tao_out`
         /// must be non-zero.
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::open_short())]
+        #[pallet::weight({
+            let n = T::Pool::subnet_limit().max(1);
+            T::WeightInfo::open_short().saturating_add(
+                T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+            )
+        })]
         #[frame_support::transactional]
         pub fn open_short(
             origin: OriginFor<T>,
@@ -1097,7 +1108,12 @@ pub mod pallet {
         /// Mint and sell `extra_mint` more and/or add `extra_collateral`.
         /// `min_tao_out` must be non-zero when `extra_mint` is.
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::increase_short())]
+        #[pallet::weight({
+            let n = T::Pool::subnet_limit().max(1);
+            T::WeightInfo::increase_short().saturating_add(
+                T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+            )
+        })]
         #[frame_support::transactional]
         pub fn increase_short(
             origin: OriginFor<T>,
@@ -1161,12 +1177,12 @@ pub mod pallet {
 
         #[pallet::call_index(6)]
         #[pallet::weight({
-            // Constant bound: do not enumerate subnets in the weight function
-            // (that runs before the origin check). Proof covers RankRing clears.
-            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
+            // O(1) limit read (not an enumeration) so weight tracks governance's
+            // SubnetLimit; proof covers RankRing clears up to that bound.
+            let n = T::Pool::subnet_limit().max(1);
             let ring_proof = (dereg::RankState::max_encoded_len() as u64).saturating_mul(n);
             T::WeightInfo::set_enabled()
-                .saturating_add(T::DbWeight::get().reads(2))
+                .saturating_add(T::DbWeight::get().reads(3))
                 .saturating_add(T::DbWeight::get().reads_writes(
                     n.saturating_add(1),
                     n.saturating_mul(2).saturating_add(1),
@@ -2064,10 +2080,11 @@ pub mod pallet {
             params: &SynthParams,
             meter: &mut WeightMeter,
         ) -> u32 {
+            // Reserve the full step before each attempt. A no-progress path can
+            // still quote, touch the cursor, and attempt a transactional
+            // buy-back; charging only a 4-read probe understates that work and
+            // can let an attempt run when the remaining meter cannot cover it.
             let step_w = T::WeightInfo::deleverage_step();
-            // Queue key + position + pause/budget reads charged on every
-            // attempt, including no-progress skips.
-            let skip_w = T::DbWeight::get().reads(4);
             let mut total = 0u32;
             let mut pass_progressed = false;
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
@@ -2091,8 +2108,7 @@ pub mod pallet {
                 if pass_start.is_none() {
                     pass_start = Some(next);
                 }
-                // Always charge the probe; upgrade to a full step on progress.
-                if meter.try_consume(skip_w).is_err() {
+                if meter.try_consume(step_w).is_err() {
                     break;
                 }
                 let (attempted, progressed) = Self::process_deleverage_queue(1, params);
@@ -2101,7 +2117,6 @@ pub mod pallet {
                 }
                 total = total.saturating_add(attempted);
                 if progressed > 0 {
-                    let _ = meter.try_consume(step_w.saturating_sub(skip_w));
                     pass_progressed = true;
                 }
             }
