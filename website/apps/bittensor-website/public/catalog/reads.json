@@ -1525,8 +1525,8 @@
         "container": "Lending",
         "name": "DeleveragingMinted",
         "path": "pallets/lending/src/lib.rs",
-        "line": 784,
-        "url": "/code/pallets/lending/src/lib.rs#L784",
+        "line": 795,
+        "url": "/code/pallets/lending/src/lib.rs#L795",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1570,8 +1570,8 @@
         "container": "Lending",
         "name": "Dissolutions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 834,
-        "url": "/code/pallets/lending/src/lib.rs#L834",
+        "line": 845,
+        "url": "/code/pallets/lending/src/lib.rs#L845",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

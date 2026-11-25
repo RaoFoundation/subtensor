@@ -507,4 +507,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (34, 19): ErrorInfo('Lending', 'ZeroAmount', ''),
     (34, 20): ErrorInfo('Lending', 'InsufficientFunds', 'Custody funds cannot pay for the requested buy-back or withdrawal.'),
     (34, 21): ErrorInfo('Lending', 'OwnerNotAllowed', 'The owner is mid coldkey swap.'),
+    (34, 22): ErrorInfo('Lending', 'PruneFloorUnavailable', 'No prune-zone floor for this block (e.g. mid-block enable or dissolution invalidated the cache). Wait for the next block hook.'),
 }

@@ -991,6 +991,9 @@ pub mod pallet {
         InsufficientFunds,
         /// The owner is mid coldkey swap.
         OwnerNotAllowed,
+        /// No prune-zone floor for this block (e.g. mid-block enable or
+        /// dissolution invalidated the cache). Wait for the next block hook.
+        PruneFloorUnavailable,
     }
 
     #[pallet::hooks]
@@ -1034,15 +1037,18 @@ pub mod pallet {
             // open/increase stay O(1). Skip while disabled (opens cannot run).
             if Enabled::<T>::get() {
                 Self::refresh_prune_floor(now, &subnets);
-                // Per subnet: immune, dissolution, ring generation, rank or
-                // moving-price fallback (≤6 reads) + U64F64/gen proof.
+                // Worst-case warm-generation fallback per subnet: registration
+                // + immunity, dissolution, both generation tags, RankPrice miss,
+                // SubnetMechanism, SubnetMovingPrice (± shared RankGeneration /
+                // block). Proof: 8 keys × 64-byte trie nodes + floor value.
                 let n = subnets.len() as u64;
-                let proof = (U64F64::max_encoded_len() as u64)
-                    .saturating_add(u32::max_encoded_len() as u64)
-                    .saturating_mul(n)
-                    .saturating_add(U64F64::max_encoded_len() as u64);
+                let proof = n
+                    .saturating_mul(8)
+                    .saturating_mul(64)
+                    .saturating_add(U64F64::max_encoded_len() as u64)
+                    .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64);
                 weight = weight.saturating_add(
-                    db.reads(n.saturating_mul(6).saturating_add(1))
+                    db.reads(n.saturating_mul(8).saturating_add(2))
                         .saturating_add(db.writes(1))
                         .saturating_add(Weight::from_parts(0, proof)),
                 );
@@ -1220,9 +1226,12 @@ pub mod pallet {
             let was = Enabled::<T>::get();
             Enabled::<T>::put(enabled);
             // Re-enable invalidates ranking by generation so rings warm from
-            // real samples without an O(subnets) storage sweep.
+            // real samples without an O(subnets) storage sweep. Drop the
+            // prune floor too: a mid-block enable must not admit risk against
+            // a stale or absent floor (opens wait for the next hook).
             if enabled && !was {
                 RankGeneration::<T>::mutate(|g| *g = g.saturating_add(1));
+                PruneFloor::<T>::kill();
             }
             Self::deposit_event(Event::EnabledSet { enabled });
             Ok(())
@@ -1328,6 +1337,14 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
             Self::ensure_tradeable(netuid)?;
+            // Zone tagging needs this block's floor. Mid-block enable or
+            // dissolution kill the cache; refuse until `on_initialize`
+            // republishes so prune candidates cannot open unmarked.
+            let now = frame_system::Pallet::<T>::block_number();
+            ensure!(
+                PruneFloor::<T>::get().is_some_and(|(at, _)| at == now),
+                Error::<T>::PruneFloorUnavailable
+            );
             ensure!(
                 TwapRing::<T>::get(netuid).samples.len() as u32 >= MIN_HEALTH_TWAP_SAMPLES,
                 Error::<T>::YoungSubnet
@@ -2202,7 +2219,13 @@ pub mod pallet {
             meter: &mut WeightMeter,
         ) -> u32 {
             let step_w = T::WeightInfo::deleverage_step();
-            let peek_w = T::DbWeight::get().reads(2);
+            // Worst-case lookahead: cursor read, suffix probe, wrap-to-start
+            // probe, plus the pass-marker existence check — with key proof.
+            let key_proof = (NetUid::max_encoded_len() as u64)
+                .saturating_add(T::AccountId::max_encoded_len() as u64);
+            let peek_w = T::DbWeight::get()
+                .reads(4)
+                .saturating_add(Weight::from_parts(0, key_proof.saturating_mul(2)));
             // Pause check: TwapRing + spot (+ params already loaded).
             let pause_check_w = T::DbWeight::get()
                 .reads(2)
@@ -3042,9 +3065,10 @@ pub mod pallet {
                     price: Self::dissolution_rate(netuid),
                 },
             );
-            // Drop the dissolving net from this block's prune floor so signed
-            // opens stay coherent with deregistration eligibility.
-            Self::refresh_prune_floor(now, &T::Pool::live_subnets());
+            // O(1): invalidate the floor instead of an uncharged full-subnet
+            // rescan (registration → dissolve reaches here). Opens refuse
+            // until the next `on_initialize` republishes without this net.
+            PruneFloor::<T>::kill();
             Ok(())
         }
 

@@ -561,6 +561,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ZeroAmount": _C.INVALID_ARGUMENT,
     "InsufficientFunds": _C.INSUFFICIENT_BALANCE,
     "OwnerNotAllowed": _C.POLICY_VIOLATION,
+    "PruneFloorUnavailable": _C.DISABLED,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

@@ -13,7 +13,7 @@ of `extra_mint`; omit it to use the simulated sale less
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.increase_short`](/code/pallets/lending/src/lib.rs#L1135-L1154) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.increase_short`](/code/pallets/lending/src/lib.rs#L1148-L1167) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("increase_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.increase_short` — [`pallets/lending/src/lib.rs#L1145`](/code/pallets/lending/src/lib.rs#L1135-L1154):
+`Lending.increase_short` — [`pallets/lending/src/lib.rs#L1158`](/code/pallets/lending/src/lib.rs#L1148-L1167):
 
 ```rust
 #[pallet::call_index(1)]

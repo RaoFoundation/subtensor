@@ -445,6 +445,15 @@ fn step_block() {
     Lending::on_initialize(next);
 }
 
+/// Advance the block number without the full hook path, but keep
+/// [`PruneFloor`] coherent so opens/increases still pass `ensure_can_grow`.
+fn set_block(n: u64) {
+    System::set_block_number(n);
+    if Enabled::<Test>::get() {
+        Lending::refresh_prune_floor_for_test();
+    }
+}
+
 fn events() -> Vec<Event<Test>> {
     System::events()
         .into_iter()
@@ -524,7 +533,7 @@ fn open_close_round_trip_costs_only_rounding_and_refunds_deposit() {
 fn partial_close_and_increase_keep_coverage() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
-        System::set_block_number(11);
+        set_block(11);
         assert_ok!(close(1, MINT / 2));
         assert_eq!(position(1).minted, MINT / 2);
         check_invariants();
@@ -635,7 +644,7 @@ fn whole_book_coverage_is_pro_rata_and_grows_with_the_book() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         let alone = Lending::coverage_cost(netuid(), MINT, &params()).unwrap();
-        System::set_block_number(11);
+        set_block(11);
         assert_ok!(open(2, 5 * MINT, 5 * COLLATERAL));
         // The earlier short now shares a larger book with a steeper stress.
         let shared = Lending::coverage_cost(netuid(), MINT, &params()).unwrap();
@@ -655,7 +664,7 @@ fn whole_book_coverage_is_pro_rata_and_grows_with_the_book() {
 fn unbuyable_book_is_coverage_not_met() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
-        System::set_block_number(11);
+        set_block(11);
         // A pool this small cannot supply the book after the stress pump.
         set_pool(MINT, MINT);
         assert_eq!(Lending::coverage_cost(netuid(), MINT, &params()), None);
@@ -752,7 +761,7 @@ fn net_mint_per_block_spans_accounts_and_nets_burns() {
         assert_ok!(open(2, big, 4 * big));
         Lending::on_finalize(System::block_number());
         assert_eq!(BlockNetMinted::<Test>::iter().count(), 0);
-        System::set_block_number(11);
+        set_block(11);
         assert_eq!(Lending::block_net_minted(netuid()), 0);
         assert_ok!(open(3, big, 4 * big));
     });
@@ -794,7 +803,7 @@ fn dilution_breaker_trips_above_two_percent_and_clears_below_one() {
             netuid: netuid(),
             tripped: true
         }));
-        System::set_block_number(11);
+        set_block(11);
         assert_err!(
             open(2, MINT, COLLATERAL),
             Error::<Test>::DilutionBreakerActive
@@ -848,7 +857,7 @@ fn apr_is_flat_regardless_of_book() {
         assert_eq!(before.apr_bps, 2_000);
         assert_eq!(before.annual_interest, MINT / 5);
         assert_ok!(open(1, 9 * MINT, 9 * COLLATERAL));
-        System::set_block_number(11);
+        set_block(11);
         let after = Lending::quote_open_short(netuid(), MINT).unwrap();
         assert_eq!(after.apr_bps, 2_000);
         assert_eq!(after.annual_interest, MINT / 5);
@@ -914,7 +923,7 @@ fn exhausted_collateral_starts_deleverage() {
         assert_ok!(open(1, MINT, COLLATERAL));
         SynthParamsStore::<Test>::mutate(|p| p.apr_bps = MAX_APR_BPS);
         // 100% APR on 1e12 for 1000 days far exceeds the collateral.
-        System::set_block_number(100_000);
+        set_block(100_000);
         Lending::on_idle(100_000, Weight::MAX);
         let pos = position(1);
         assert_eq!(pos.collateral, 0, "I5: charge capped at collateral");
@@ -1267,7 +1276,7 @@ fn opens_in_the_prune_zone_track_zone_tranche() {
 
         set_other_rank(0.1);
         assert!(!Lending::in_prune_zone(netuid(), &params()));
-        System::set_block_number(11);
+        set_block(11);
         mint_tao(&account(1), COLLATERAL);
         assert_ok!(Lending::increase_short(
             RuntimeOrigin::signed(account(1)),
@@ -1388,7 +1397,7 @@ fn zone_alpha_settles_at_its_proceeds_and_the_rest_at_r() {
         set_other_rank(0.9);
         assert_ok!(open(1, MINT, COLLATERAL));
         set_other_rank(0.1);
-        System::set_block_number(11);
+        set_block(11);
         mint_tao(&account(1), COLLATERAL);
         assert_ok!(Lending::increase_short(
             RuntimeOrigin::signed(account(1)),
@@ -1683,15 +1692,29 @@ fn migration_refuses_to_clear_nonempty_positions() {
 }
 
 #[test]
-fn dissolution_refreshes_prune_floor_excluding_dissolving_net() {
+fn dissolution_invalidates_prune_floor_without_rescan() {
     run(|| {
         // Floor 0.9: netuid at 1.0 is in zone (≤ 1.25 × 0.9).
         set_other_rank(0.9);
         assert!(Lending::in_prune_zone(netuid(), &params()));
         let before = PruneFloor::<Test>::get().expect("floor").1;
         assert_eq!(before, U64F64::from_num(0.9));
-        // Dissolve the floor-setter; refresh excludes it so floor rises.
+        // Dissolve invalidates the floor in O(1) — no uncharged full scan.
         assert_ok!(Lending::start_dissolution(other()));
+        assert!(
+            PruneFloor::<Test>::get().is_none(),
+            "dissolution must kill the cached floor"
+        );
+        assert!(
+            !Lending::in_prune_zone(netuid(), &params()),
+            "absent floor keeps signed path out of zone"
+        );
+        assert_err!(
+            open(1, MINT, COLLATERAL),
+            Error::<Test>::PruneFloorUnavailable
+        );
+        // Next hook republishes without the dissolving net.
+        Lending::refresh_prune_floor_for_test();
         let floor = PruneFloor::<Test>::get().expect("floor").1;
         assert_eq!(
             floor,
@@ -1699,6 +1722,25 @@ fn dissolution_refreshes_prune_floor_excluding_dissolving_net() {
             "dissolving peer must leave the prune floor"
         );
         assert!(floor > before);
+    });
+}
+
+/// Mid-block re-enable must not admit risk against a missing/stale floor.
+#[test]
+fn same_block_enable_refuses_open_without_fresh_floor() {
+    run(|| {
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), false));
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
+        assert!(
+            PruneFloor::<Test>::get().is_none(),
+            "re-enable kills the floor until the next hook"
+        );
+        assert_err!(
+            open(1, MINT, COLLATERAL),
+            Error::<Test>::PruneFloorUnavailable
+        );
+        Lending::refresh_prune_floor_for_test();
+        assert_ok!(open(1, MINT, COLLATERAL));
     });
 }
 
@@ -1796,7 +1838,7 @@ fn dissolution_charges_accrued_interest_first() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         let funds_before = position(1).funds();
-        System::set_block_number(20);
+        set_block(20);
         assert_ok!(Lending::start_dissolution(netuid()));
         let mut meter = WeightMeter::new();
         assert!(Lending::settle_positions_on_dissolution(
@@ -1863,7 +1905,7 @@ fn uncollected_interest_is_tracked_when_collateral_dries() {
     run(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         SynthParamsStore::<Test>::mutate(|p| p.apr_bps = MAX_APR_BPS);
-        System::set_block_number(100_000);
+        set_block(100_000);
         Lending::on_idle(100_000, Weight::MAX);
         let shortfall = UncollectedInterest::<Test>::get(account(1), netuid());
         assert!(shortfall > 0, "shortfall must be recorded");
@@ -1958,7 +2000,7 @@ fn adapter_issuance_reconciliation_forced_close_retire_default() {
         reconcile();
 
         // User close: adapter issuance drops with burned alpha.
-        System::set_block_number(11);
+        set_block(11);
         let before = track();
         assert_ok!(close(1, MINT / 2));
         reconcile();
@@ -2136,7 +2178,7 @@ fn try_state_rejects_stale_net_minted_and_unfunded_residual() {
     new_test_ext().execute_with(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
         // Stale BlockNetMinted tag (I7).
-        System::set_block_number(System::block_number() + 1);
+        set_block(System::block_number() + 1);
         assert!(Lending::do_try_state().is_err(), "I7: stale BlockNetMinted");
 
         // Clear the tag, close the short, then leave residual with no reserve (I8).
