@@ -24,7 +24,7 @@ subnet; grow it with `increase_short`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L1083-L1095) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L1089-L1106) |
 
 ## Parameters
 
@@ -81,11 +81,16 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_short` — [`pallets/lending/src/lib.rs#L1086`](/code/pallets/lending/src/lib.rs#L1083-L1095):
+`Lending.open_short` — [`pallets/lending/src/lib.rs#L1097`](/code/pallets/lending/src/lib.rs#L1089-L1106):
 
 ```rust
 #[pallet::call_index(0)]
-#[pallet::weight(T::WeightInfo::open_short())]
+#[pallet::weight({
+    let n = T::Pool::subnet_limit().max(1);
+    T::WeightInfo::open_short().saturating_add(
+        T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+    )
+})]
 #[frame_support::transactional]
 pub fn open_short(
     origin: OriginFor<T>,

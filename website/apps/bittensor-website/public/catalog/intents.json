@@ -172,9 +172,9 @@
         "pallet": "Lending",
         "call": "add_collateral",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1117,
-        "end_line": 1120,
-        "url": "/code/pallets/lending/src/lib.rs#L1114-L1120",
+        "line": 1133,
+        "end_line": 1136,
+        "url": "/code/pallets/lending/src/lib.rs#L1130-L1136",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -955,9 +955,9 @@
         "pallet": "Lending",
         "call": "close_short",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1142,
-        "end_line": 1150,
-        "url": "/code/pallets/lending/src/lib.rs#L1139-L1150",
+        "line": 1158,
+        "end_line": 1166,
+        "url": "/code/pallets/lending/src/lib.rs#L1155-L1166",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1872,9 +1872,9 @@
         "pallet": "Lending",
         "call": "increase_short",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1102,
-        "end_line": 1111,
-        "url": "/code/pallets/lending/src/lib.rs#L1099-L1111",
+        "line": 1118,
+        "end_line": 1127,
+        "url": "/code/pallets/lending/src/lib.rs#L1110-L1127",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2900,9 +2900,9 @@
         "pallet": "Lending",
         "call": "open_short",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1086,
-        "end_line": 1095,
-        "url": "/code/pallets/lending/src/lib.rs#L1083-L1095",
+        "line": 1097,
+        "end_line": 1106,
+        "url": "/code/pallets/lending/src/lib.rs#L1089-L1106",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2947,9 +2947,9 @@
         "pallet": "Lending",
         "call": "poke",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1157,
-        "end_line": 1160,
-        "url": "/code/pallets/lending/src/lib.rs#L1154-L1160",
+        "line": 1173,
+        "end_line": 1176,
+        "url": "/code/pallets/lending/src/lib.rs#L1170-L1176",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -7115,9 +7115,9 @@
         "pallet": "Lending",
         "call": "withdraw_collateral",
         "path": "pallets/lending/src/lib.rs",
-        "line": 1127,
-        "end_line": 1134,
-        "url": "/code/pallets/lending/src/lib.rs#L1124-L1134",
+        "line": 1143,
+        "end_line": 1150,
+        "url": "/code/pallets/lending/src/lib.rs#L1140-L1150",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

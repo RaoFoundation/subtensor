@@ -1392,8 +1392,8 @@
         "container": "Lending",
         "name": "Enabled",
         "path": "pallets/lending/src/lib.rs",
-        "line": 692,
-        "url": "/code/pallets/lending/src/lib.rs#L692",
+        "line": 697,
+        "url": "/code/pallets/lending/src/lib.rs#L697",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1401,8 +1401,8 @@
         "container": "Lending",
         "name": "SynthParamsStore",
         "path": "pallets/lending/src/lib.rs",
-        "line": 694,
-        "url": "/code/pallets/lending/src/lib.rs#L694",
+        "line": 699,
+        "url": "/code/pallets/lending/src/lib.rs#L699",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1429,8 +1429,8 @@
         "container": "Lending",
         "name": "Positions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 696,
-        "url": "/code/pallets/lending/src/lib.rs#L696",
+        "line": 701,
+        "url": "/code/pallets/lending/src/lib.rs#L701",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1455,8 +1455,8 @@
         "container": "Lending",
         "name": "OpenByNetuid",
         "path": "pallets/lending/src/lib.rs",
-        "line": 706,
-        "url": "/code/pallets/lending/src/lib.rs#L706",
+        "line": 711,
+        "url": "/code/pallets/lending/src/lib.rs#L711",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1464,8 +1464,8 @@
         "container": "Lending",
         "name": "Positions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 696,
-        "url": "/code/pallets/lending/src/lib.rs#L696",
+        "line": 701,
+        "url": "/code/pallets/lending/src/lib.rs#L701",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1490,8 +1490,8 @@
         "container": "Lending",
         "name": "Positions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 696,
-        "url": "/code/pallets/lending/src/lib.rs#L696",
+        "line": 701,
+        "url": "/code/pallets/lending/src/lib.rs#L701",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1516,8 +1516,8 @@
         "container": "Lending",
         "name": "SyntheticOutstanding",
         "path": "pallets/lending/src/lib.rs",
-        "line": 725,
-        "url": "/code/pallets/lending/src/lib.rs#L725",
+        "line": 730,
+        "url": "/code/pallets/lending/src/lib.rs#L730",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1525,8 +1525,8 @@
         "container": "Lending",
         "name": "DeleveragingMinted",
         "path": "pallets/lending/src/lib.rs",
-        "line": 779,
-        "url": "/code/pallets/lending/src/lib.rs#L779",
+        "line": 784,
+        "url": "/code/pallets/lending/src/lib.rs#L784",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1534,8 +1534,8 @@
         "container": "Lending",
         "name": "ResidualAlpha",
         "path": "pallets/lending/src/lib.rs",
-        "line": 728,
-        "url": "/code/pallets/lending/src/lib.rs#L728",
+        "line": 733,
+        "url": "/code/pallets/lending/src/lib.rs#L733",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1543,8 +1543,8 @@
         "container": "Lending",
         "name": "ResidualReserve",
         "path": "pallets/lending/src/lib.rs",
-        "line": 731,
-        "url": "/code/pallets/lending/src/lib.rs#L731",
+        "line": 736,
+        "url": "/code/pallets/lending/src/lib.rs#L736",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1552,8 +1552,8 @@
         "container": "Lending",
         "name": "BreakerTripped",
         "path": "pallets/lending/src/lib.rs",
-        "line": 734,
-        "url": "/code/pallets/lending/src/lib.rs#L734",
+        "line": 739,
+        "url": "/code/pallets/lending/src/lib.rs#L739",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1561,8 +1561,8 @@
         "container": "Lending",
         "name": "PositionCount",
         "path": "pallets/lending/src/lib.rs",
-        "line": 709,
-        "url": "/code/pallets/lending/src/lib.rs#L709",
+        "line": 714,
+        "url": "/code/pallets/lending/src/lib.rs#L714",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1570,8 +1570,8 @@
         "container": "Lending",
         "name": "Dissolutions",
         "path": "pallets/lending/src/lib.rs",
-        "line": 829,
-        "url": "/code/pallets/lending/src/lib.rs#L829",
+        "line": 834,
+        "url": "/code/pallets/lending/src/lib.rs#L834",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
