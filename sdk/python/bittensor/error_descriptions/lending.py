@@ -55,6 +55,11 @@ DESCRIPTIONS: dict[str, str] = {
         "Pool TAO is below SynthParams.min_pool_depth. Wait for a deeper pool or pick "
         "another subnet."
     ),
+    "YoungSubnet": (
+        "The health TWAP ring has fewer than 37 interval samples, so opens and increases "
+        "are blocked until the median has warmed up. Wait for more blocks or pick an older "
+        "subnet."
+    ),
     "WithdrawBufferBreached": (
         "The withdrawal would leave less collateral than SynthParams.withdraw_buffer_days "
         "of interest (7 days by default). Withdraw less."

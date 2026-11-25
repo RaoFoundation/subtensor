@@ -471,6 +471,7 @@
     "WrongGeneration",
     "WrongTimepoint",
     "XCMDecodeFailed",
+    "YoungSubnet",
     "ZeroAmount",
     "ZeroBalanceAfterWithdrawn",
     "ZeroShareInBatch"

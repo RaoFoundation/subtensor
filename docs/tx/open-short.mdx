@@ -24,7 +24,7 @@ subnet; grow it with `increase_short`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L918-L930) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L977-L989) |
 
 ## Parameters
 
@@ -81,7 +81,7 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_short` — [`pallets/lending/src/lib.rs#L921`](/code/pallets/lending/src/lib.rs#L918-L930):
+`Lending.open_short` — [`pallets/lending/src/lib.rs#L980`](/code/pallets/lending/src/lib.rs#L977-L989):
 
 ```rust
 #[pallet::call_index(0)]
