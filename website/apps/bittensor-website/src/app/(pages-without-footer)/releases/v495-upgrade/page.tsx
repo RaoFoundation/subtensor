@@ -42,10 +42,10 @@ export default function Page() {
           <h2 className={styles.subtitle}>Synthetic short lending</h2>
           <p>
             Subnet participants can open <strong>short-only</strong> synthetic positions: borrowed
-            alpha is closed through the AMM without lifting pool liquidity. Economic knobs live in
-            root-settable <code>SynthParams</code> (LTV, APR, stress curve, book share caps, TWAP
-            samples for deleverage). Custody accounts hold collateral and proceeds off the public
-            stake ledger until close, repayment, or subnet dissolution.
+            alpha is sold into the AMM and later bought back. There is no long / lift path. Economic
+            knobs live in root-settable <code>SynthParams</code> (flat APR, stress for coverage,
+            pace, TWAP samples). Custody accounts hold collateral and proceeds off the public stake
+            ledger until close, default, or subnet dissolution.
           </p>
         </section>
 
@@ -54,8 +54,9 @@ export default function Page() {
           <p>
             Spec 495 appends <code>ProxyType::Lending</code> at index <strong>23</strong>. A Lending
             delegate may call only lending user extrinsics (<code>open_short</code>,{' '}
-            <code>close_short</code>, <code>repay_short</code>, and related reads) plus Utility batch
-            wrappers. Transfers and ordinary staking stay denied.
+            <code>close_short</code>, <code>add_collateral</code>, <code>withdraw_collateral</code>,{' '}
+            <code>poke</code>, and related reads) plus Utility batch wrappers. Transfers and ordinary
+            staking stay denied.
           </p>
         </section>
 

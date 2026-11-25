@@ -84,7 +84,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	fn add_collateral() -> Weight { add_collateral_envelope(T::DbWeight::get()) }
 	fn withdraw_collateral() -> Weight { trade_envelope(T::DbWeight::get()) }
 	fn close_short() -> Weight { trade_envelope(T::DbWeight::get()) }
-	fn poke() -> Weight { trade_envelope(T::DbWeight::get()) }
+	/// Interest charge plus a paced buy-back (worst-case poke path).
+	fn poke() -> Weight {
+		charge_envelope(T::DbWeight::get()).saturating_add(trade_envelope(T::DbWeight::get()))
+	}
 	fn set_enabled() -> Weight { set_enabled_envelope(T::DbWeight::get()) }
 	fn set_synth_params() -> Weight { set_params_envelope(T::DbWeight::get()) }
 	fn charge_interest() -> Weight { charge_envelope(T::DbWeight::get()) }
@@ -101,7 +104,9 @@ impl WeightInfo for () {
 	fn add_collateral() -> Weight { add_collateral_envelope(RocksDbWeight::get()) }
 	fn withdraw_collateral() -> Weight { trade_envelope(RocksDbWeight::get()) }
 	fn close_short() -> Weight { trade_envelope(RocksDbWeight::get()) }
-	fn poke() -> Weight { trade_envelope(RocksDbWeight::get()) }
+	fn poke() -> Weight {
+		charge_envelope(RocksDbWeight::get()).saturating_add(trade_envelope(RocksDbWeight::get()))
+	}
 	fn set_enabled() -> Weight { set_enabled_envelope(RocksDbWeight::get()) }
 	fn set_synth_params() -> Weight { set_params_envelope(RocksDbWeight::get()) }
 	fn charge_interest() -> Weight { charge_envelope(RocksDbWeight::get()) }

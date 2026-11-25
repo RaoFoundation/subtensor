@@ -26,7 +26,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // --- 4c. The background beta-index sweep advances one bounded page per block from
         // `on_initialize` (not here), so its work is charged into the hook's weight.
         // --- 5. Update moving prices AFTER using them for emissions.
-        Self::update_moving_prices();
+        let lending_ticks = Self::update_moving_prices();
         // --- 6. Update roop prop AFTER using them for emissions.
         Self::update_root_prop();
         // --- 7. Set pending children on the epoch; but only after the coinbase has been run.
@@ -38,8 +38,8 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             Self::populate_root_coldkey_staking_maps_v2();
         }
 
-        // Return ok.
-        Ok(basket_flush_weight)
+        Ok(basket_flush_weight
+            .saturating_add(Self::lending_dereg_tick_weight().saturating_mul(lending_ticks)))
     }
 
     fn try_set_pending_children(block_number: u64) {
@@ -52,8 +52,11 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             }
         }
     }
-    pub fn update_moving_prices() {
+    /// Advances emission EMAs and lending dereg ticks. Returns how many dynamic
+    /// subnets received a lending dereg/EMA update (for weight charging).
+    pub fn update_moving_prices() -> u64 {
         let netuids = Self::get_all_subnet_netuids();
+        let mut lending_ticks = 0u64;
         // Price anchors protect basket valuation and trading even when a subnet is not
         // currently eligible for emission (for example, registration was disabled). Keep
         // every live dynamic subnet's EMA moving so governance cannot freeze its anchor.
@@ -61,11 +64,19 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
                 Self::update_moving_price(netuid);
                 T::Lending::update_dereg_moving_price(netuid);
+                lending_ticks = lending_ticks.saturating_add(1);
             }
         }
         for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {
             Self::update_gamma_price(netuid);
         }
+        lending_ticks
+    }
+
+    /// Storage work for one lending dereg-price / pool-TAO EMA tick (worst case
+    /// with ranking rollover). Charged into `block_step`'s returned weight.
+    pub(crate) fn lending_dereg_tick_weight() -> Weight {
+        T::DbWeight::get().reads_writes(4, 3)
     }
 
     pub fn update_root_prop() {

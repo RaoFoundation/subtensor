@@ -566,6 +566,7 @@ class Lending:
     DeleveragingMinted = Item('Lending', 'DeleveragingMinted', 'u64')
     DeleverageBudget = Item('Lending', 'DeleverageBudget', '(u32, u64, u64)')
     DeleverageFilled = Item('Lending', 'DeleverageFilled', '(u32, u64, u64)')
+    DeleverageCohort = Item('Lending', 'DeleverageCohort', 'u32')
     DeleverageCursor = Item('Lending', 'DeleverageCursor', '(NetUid, AccountId32)')
     RetireCursor = Item('Lending', 'RetireCursor', 'NetUid')
     Due = Item('Lending', 'Due', '()')

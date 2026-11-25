@@ -544,12 +544,17 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CustodyHotkey
         );
 
-        // Ensure there are no duplicates in the list of children.
+        // Ensure there are no duplicates in the list of children, and no child
+        // is the lending custody hotkey (§14).
         let mut unique_children = Vec::new();
         for (_, child_i) in &children {
             ensure!(
                 !unique_children.contains(child_i),
                 Error::<T>::DuplicateChild
+            );
+            ensure!(
+                !T::Lending::is_custody_hotkey(child_i),
+                Error::<T>::CustodyHotkey
             );
             unique_children.push(child_i.clone());
         }

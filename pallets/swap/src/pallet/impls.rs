@@ -553,11 +553,6 @@ impl<T: Config> SwapHandler for Pallet<T> {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
     }
 
-    fn buy_depth_threshold(netuid: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance {
-        let balancer = SwapBalancer::<T>::get(netuid);
-        TaoBalance::from(balancer.buy_depth_threshold(u64::from(ref_tao), move_bps))
-    }
-
     fn quote_sell_on(
         tao_reserve: TaoBalance,
         alpha_reserve: AlphaBalance,

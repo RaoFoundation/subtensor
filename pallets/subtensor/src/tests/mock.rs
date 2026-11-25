@@ -73,7 +73,7 @@ use sp_std::{
     sync::OnceLock,
 };
 use sp_tracing::tracing_subscriber;
-use substrate_fixed::types::U64F64;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -678,6 +678,9 @@ impl pallet_lending::LendingInterface<U256> for TestLending {
     fn frozen_dissolution_price(netuid: NetUid) -> Option<U64F64> {
         pallet_lending::Pallet::<Test>::frozen_dissolution_price(netuid)
     }
+    fn freeze_dissolution_price(netuid: NetUid) -> Option<U64F64> {
+        pallet_lending::Pallet::<Test>::freeze_dissolution_price(netuid)
+    }
     fn is_lending_custody(hotkey: &U256, coldkey: &U256, netuid: NetUid) -> bool {
         pallet_lending::Pallet::<Test>::is_lending_custody(hotkey, coldkey, netuid)
     }
@@ -707,9 +710,11 @@ pub fn enable_lending_on_subnet(netuid: NetUid) {
     pallet_lending::Enabled::<Test>::put(true);
     pallet_lending::SynthParamsStore::<Test>::put(SynthParams::default());
     assert_ok!(LendingPallet::<Test>::initialize_custody());
-    let spot = U64F64::saturating_from_num(
-        <Test as crate::Config>::SwapInterface::current_alpha_price(netuid),
-    );
+    let spot_f = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
+    let spot = U64F64::saturating_from_num(spot_f);
+    // Notional / interest use the slow EMA only (never spot). Seed it so opens
+    // clear the min-notional gate in tests that don't advance coinbase EMAs.
+    SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(spot_f));
     let mut ring = pallet_lending::TwapState::<u64>::default();
     for _ in 0..MIN_HEALTH_TWAP_SAMPLES {
         let _ = ring.samples.try_push(spot);

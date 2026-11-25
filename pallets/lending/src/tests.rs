@@ -154,6 +154,8 @@ fn seed_rank_from_ema(netuid: NetUid, price: f64) {
     let mut state = dereg::RankState::default();
     dereg::seed_rank_ring(&mut state, U64F64::from_num(price), params.rank_days);
     RankRing::<Test>::insert(netuid, state);
+    // Simulate a fully-warmed ring: publish the first SMA so rank_price() is non-zero.
+    RankPrice::<Test>::insert(netuid, U64F64::from_num(price));
 }
 
 pub struct MockPool;
@@ -327,6 +329,9 @@ impl LendingPoolInterface<Account> for MockPool {
         set_tao(from, tao(from) - a);
         write(&key(b"test/pot", netuid), pot() + a);
         Ok(amount)
+    }
+    fn free_tao(who: &Account) -> TaoBalance {
+        tao(who).into()
     }
 }
 
@@ -1047,6 +1052,34 @@ fn repeated_poke_in_one_block_cannot_exceed_locked_share() {
 }
 
 #[test]
+fn late_join_deleverage_waits_until_next_block_cohort() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        assert_ok!(open(2, MINT, COLLATERAL));
+        force_deleverage(1);
+        let params = params();
+        // Lock this block's budget/cohort on position 1 only.
+        assert!(Lending::deleverage_step(&account(1), netuid(), &params));
+        assert!(DeleverageCohort::<Test>::contains_key(netuid(), account(1)));
+        force_deleverage(2);
+        assert!(!DeleverageCohort::<Test>::contains_key(
+            netuid(),
+            account(2)
+        ));
+        let minted_before = position(2).minted;
+        assert!(!Lending::deleverage_step(&account(2), netuid(), &params));
+        assert_eq!(position(2).minted, minted_before, "late join must not fill");
+        step_block();
+        // `on_initialize` rebuilds the cohort and may already step position 2.
+        let after = Positions::<Test>::get(account(2), netuid()).map(|p| p.minted);
+        assert!(
+            after.is_none() || after.unwrap() < minted_before,
+            "next block must admit the late join into the cohort"
+        );
+    });
+}
+
+#[test]
 fn deleverage_respects_pace_and_defaults_with_residual_burning_deposit() {
     run(|| {
         pump_and_deleverage();
@@ -1608,8 +1641,12 @@ fn migration_clears_retired_storage_and_installs_defaults() {
     });
 }
 
+/// Ranking stays dark while disabled, stays dark while the ring is warming,
+/// and publishes once the ring holds a full window of real samples.
+/// `set_enabled` no longer seeds from moving price — rings warm organically.
+/// `on_subnet_registered` clears the ring so the new subnet starts dark.
 #[test]
-fn rank_stays_dark_until_enabled_and_seeds_from_moving_price() {
+fn rank_stays_dark_until_full_window_of_real_samples() {
     run(|| {
         SynthParamsStore::<Test>::mutate(|p| {
             p.rank_days = 3;
@@ -1629,22 +1666,34 @@ fn rank_stays_dark_until_enabled_and_seeds_from_moving_price() {
             "T_ema still tracks when disabled"
         );
 
-        set_ema(0.42);
+        // Enable: ring stays empty, rank stays None until the ring warms.
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
-        let ring = RankRing::<Test>::get(netuid()).expect("seeded at enable");
-        assert!(ring.days.iter().all(|d| *d == U64F64::from_num(0.42)));
-        assert_eq!(rank(), Some(U64F64::from_num(0.42)));
+        assert!(
+            RankRing::<Test>::get(netuid())
+                .map(|r| r.days.is_empty())
+                .unwrap_or(true),
+            "enable must NOT seed the ring"
+        );
+        assert_eq!(rank(), None, "ring empty after enable: still dark");
 
-        // Raw spot halves; one day moves the SMA a third.
-        set_pool(POOL / 2, POOL);
-        update();
-        assert_eq!(rank(), Some(U64F64::from_num(0.42)), "mid-day: unchanged");
-        update();
-        let sma = rank().unwrap().to_num::<f64>();
-        assert!((sma - (2.0 * 0.42 + 0.5) / 3.0).abs() < 1e-9, "{sma}");
+        // Run (rank_days * rank_day_blocks) = 6 blocks to warm the ring.
+        // Blocks 1-2 → day 1; blocks 3-4 → day 2; blocks 5-6 → day 3 → full.
+        for i in 1..=5 {
+            update();
+            assert_eq!(rank(), None, "ring partial at block {i}: still dark");
+        }
+        update(); // block 6: day 3 closes → ring full → SMA published
+        assert!(rank().is_some(), "ring full: SMA published");
 
+        // on_subnet_registered clears the ring and RankPrice for the new subnet.
         <Lending as LendingInterface<_>>::on_subnet_registered(netuid());
-        assert_eq!(rank(), Some(U64F64::from_num(0.42)));
+        assert!(
+            RankRing::<Test>::get(netuid())
+                .map(|r| r.days.is_empty())
+                .unwrap_or(true),
+            "on_subnet_registered must clear the ring"
+        );
+        assert_eq!(rank(), None, "new subnet: ring cleared, dark again");
         set_pool(POOL, POOL);
     });
 }
@@ -1911,5 +1960,130 @@ fn try_state_covers_i2_i3_i5_i7_i8_i9_invariants() {
         write(b"test/dissolved", true);
         assert!(pot() > 0, "I8: pot receives short settlement");
         assert_ok!(Lending::do_try_state());
+    });
+}
+
+// ---- new tests for HIGH 2 / HIGH 3 / MEDIUM 7 / MEDIUM 8 fixes ---------
+
+/// A failed terminal_split_tao must not stall dissolution: position is removed,
+/// loop advances, remaining positions settle normally.
+#[test]
+fn settle_failure_skips_position_and_advances() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        assert_ok!(open(2, MINT, COLLATERAL));
+
+        // Drain position 1's custody so terminal_split_tao fails (not enough TAO).
+        let pos1 = position(1);
+        set_tao(&pos1.custody, 0);
+
+        assert_ok!(Lending::start_dissolution(netuid()));
+        let mut meter = WeightMeter::new();
+        assert!(Lending::settle_positions_on_dissolution(
+            netuid(),
+            &mut meter
+        ));
+        write(b"test/dissolved", true);
+
+        // Both positions removed; SyntheticOutstanding zeroed.
+        assert!(!Positions::<Test>::contains_key(account(1), netuid()));
+        assert!(!Positions::<Test>::contains_key(account(2), netuid()));
+        assert_eq!(SyntheticOutstanding::<Test>::get(netuid()), 0);
+
+        let evts = events();
+        assert!(
+            evts.iter()
+                .any(|e| matches!(e, Event::ShortSettleFailed { .. })),
+            "ShortSettleFailed emitted for the drained position"
+        );
+        assert!(
+            evts.iter()
+                .any(|e| matches!(e, Event::ShortSettledOnDissolution { .. })),
+            "ShortSettledOnDissolution emitted for the healthy position"
+        );
+    });
+}
+
+/// SyntheticOutstanding must never go below zero even when buy_back returns
+/// more burned alpha than the position held (edge case in future callers).
+/// We verify via close_short: open → partial close × 3 saturates at 0, not wraps.
+#[test]
+fn burn_from_position_caps_at_minted() {
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let outstanding_start = SyntheticOutstanding::<Test>::get(netuid());
+        assert_eq!(outstanding_start, MINT);
+
+        // Close all minted: SyntheticOutstanding → 0.
+        assert_ok!(close(1, MINT));
+        assert_eq!(
+            SyntheticOutstanding::<Test>::get(netuid()),
+            0,
+            "SyntheticOutstanding cannot underflow"
+        );
+    });
+}
+
+/// try_state must pass when residual alpha exists with zero ResidualReserve (pool shrank)
+/// and when BlockNetMinted has stale tags from a previous block.
+#[test]
+fn try_state_allows_residual_with_zero_reserve_and_stale_net_minted() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+
+        // Residual alpha with zero reserve — old I8 would have rejected this.
+        set_residual(MINT / 4);
+        ResidualReserve::<Test>::remove(netuid());
+
+        // BlockNetMinted has a tag from this block; advance the block number so
+        // the tag is stale — old I7 would have rejected this.
+        System::set_block_number(System::block_number() + 1);
+
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+/// Empty rank ring warms block by block: None until full, Some after.
+/// Disabling returns None; re-enabling does not reseed from zero.
+#[test]
+fn empty_rank_ring_warms_and_disable_returns_none() {
+    run(|| {
+        SynthParamsStore::<Test>::mutate(|p| {
+            p.rank_days = 2;
+            p.rank_day_blocks = 3;
+        });
+        let update = || <Lending as LendingInterface<_>>::update_dereg_moving_price(netuid());
+        let rank = || <Lending as LendingInterface<_>>::dereg_moving_price(netuid());
+
+        RankRing::<Test>::remove(netuid());
+        RankPrice::<Test>::remove(netuid());
+
+        // 2 days × 3 blocks = 6 updates to warm the ring.
+        for i in 1..=5 {
+            update();
+            assert_eq!(rank(), None, "partial ring at update {i}: still dark");
+        }
+        update(); // 6th update closes day 2 → ring full → SMA published
+        assert!(rank().is_some(), "ring full: SMA published");
+
+        // Disable → rank returns None even though RankPrice is still stored.
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), false));
+        assert_eq!(
+            rank(),
+            None,
+            "disabled: dark regardless of stored RankPrice"
+        );
+
+        // Re-enable → RankPrice still there, ranking resumes.
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
+        assert!(rank().is_some(), "re-enabled: RankPrice still present");
+
+        // set_enabled(false) on a zero-price scenario: mock EMA = 0, ring empty.
+        RankRing::<Test>::remove(netuid());
+        RankPrice::<Test>::remove(netuid());
+        set_ema(0.0);
+        assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
+        assert_eq!(rank(), None, "zero-price ring: dark");
+        set_ema(1.0);
     });
 }

@@ -58,10 +58,6 @@ pub trait SwapHandler {
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
 
-    /// Threshold TAO depth `y*` such that a fee-free buy of `ref_tao` moves price by
-    /// `move_bps` basis points: `y* = ref / ((1 + bps/10_000)^{w_b} - 1)`.
-    fn buy_depth_threshold(netuid: NetUid, ref_tao: TaoBalance, move_bps: u16) -> TaoBalance;
-
     /// Fee-free sell quote against a hypothetical pool state.
     /// `quote_weight_parts` is `Perquintill::deconstruct()` of the Balancer quote weight.
     /// Returns TAO out for selling `delta_alpha`.

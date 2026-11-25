@@ -5,7 +5,6 @@
 //! through the ordinary stake paths, so TAO flow records and the short moves
 //! emission. Sale proceeds sit on custody coldkeys, outside `SubnetTAO`.
 use super::*;
-use crate::SubnetFastMovingPrice;
 use frame_support::{
     traits::{Imbalance, tokens::fungible::Inspect},
     transactional,
@@ -99,11 +98,15 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         Self::get_moving_alpha_price(netuid)
     }
 
+    /// Slow emission EMA only — never spot (SPEC P5). Interest, day interest
+    /// and min notional use this. Coverage uses
+    /// `max(EMA, spot, SMA30)` via the lending pallet's `reference_price`.
     fn notional_alpha_price(netuid: NetUid) -> U64F64 {
-        let spot = T::SwapInterface::current_alpha_price(netuid.into());
-        SubnetFastMovingPrice::<T>::get(netuid)
-            .unwrap_or(spot)
-            .max(spot)
+        Self::get_moving_alpha_price(netuid)
+    }
+
+    fn free_tao(who: &T::AccountId) -> TaoBalance {
+        Self::get_coldkey_balance(who)
     }
 
     fn live_subnets() -> alloc::vec::Vec<NetUid> {

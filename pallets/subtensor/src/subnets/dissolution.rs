@@ -122,18 +122,35 @@ impl DissolveCleanupPhase {
     }
 }
 
-#[crate::freeze_struct("45f9cde0a765a0fa")]
-#[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
+#[crate::freeze_struct("f176dbf267a6761f")]
+#[derive(Encode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
 pub struct DissolveCleanupStatus {
     pub netuid: NetUid,
     pub phase: DissolveCleanupPhase,
     pub last_key: Option<Vec<u8>>,
     pub subnet_total_alpha_value: Option<u128>,
     pub subnet_distributed_tao: Option<u128>,
-    /// Bits of frozen `r = min(T_flag, T_ema) / all_alpha` captured before
-    /// lending finish clears Dissolutions. Stakers and protocol α pay at this
+    /// Bits of frozen `r = min(T_flag, T_ema) / all_alpha` captured after
+    /// basket conversion completes. Stakers and protocol α pay at this
     /// rate; leftover pot TAO is recycled, never paid out (SPEC P12).
     pub dissolution_price_bits: Option<u128>,
+    /// Cumulative alpha already counted across metered settle-stakes resumes.
+    /// Tracks remaining_alpha for adaptive pot-capped payouts.
+    pub subnet_settled_alpha: Option<u128>,
+}
+
+impl codec::Decode for DissolveCleanupStatus {
+    fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+        Ok(Self {
+            netuid: codec::Decode::decode(input)?,
+            phase: codec::Decode::decode(input)?,
+            last_key: codec::Decode::decode(input)?,
+            subnet_total_alpha_value: codec::Decode::decode(input)?,
+            subnet_distributed_tao: codec::Decode::decode(input)?,
+            dissolution_price_bits: Option::<u128>::decode(input).unwrap_or(None),
+            subnet_settled_alpha: Option::<u128>::decode(input).unwrap_or(None),
+        })
+    }
 }
 
 impl DissolveCleanupStatus {
@@ -145,6 +162,7 @@ impl DissolveCleanupStatus {
             subnet_total_alpha_value: None,
             subnet_distributed_tao: None,
             dissolution_price_bits: None,
+            subnet_settled_alpha: None,
         }
     }
 
@@ -809,6 +827,10 @@ impl<T: Config> Pallet<T> {
                     );
 
                     if done {
+                        // Refreeze `r` after basket sales have changed pool TAO so the
+                        // staker rate reflects post-sale economics (HIGH 1A).
+                        status.dissolution_price_bits =
+                            T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                         status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
                         status.last_key = None;
                     } else {
@@ -852,9 +874,12 @@ impl<T: Config> Pallet<T> {
                     );
                     if done {
                         status.subnet_distributed_tao = Some(0);
-                        // Capture frozen `r` before lending finish clears it.
-                        status.dissolution_price_bits =
-                            T::Lending::frozen_dissolution_price(netuid).map(|p| p.to_bits());
+                        // If basket phase did not set bits (no Dissolutions entry yet),
+                        // freeze now. Prefer existing bits from post-basket freeze.
+                        if status.dissolution_price_bits.is_none() {
+                            status.dissolution_price_bits =
+                                T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
+                        }
                         // §13: settle lending positions on dissolution after
                         // count, before staker payout.
                         status.set_phase(DissolveCleanupPhase::LendingSettle);
@@ -869,7 +894,7 @@ impl<T: Config> Pallet<T> {
                 DissolveCleanupPhase::LendingSettle => {
                     if status.dissolution_price_bits.is_none() {
                         status.dissolution_price_bits =
-                            T::Lending::frozen_dissolution_price(netuid).map(|p| p.to_bits());
+                            T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                     }
                     let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
                     if done {
@@ -1238,5 +1263,53 @@ impl<T: Config> Pallet<T> {
         }
 
         weight
+    }
+}
+
+#[cfg(test)]
+mod decode_compat_tests {
+    use super::{DissolveCleanupPhase, DissolveCleanupStatus};
+    use codec::{Decode, Encode};
+    use subtensor_runtime_common::NetUid;
+
+    /// MEDIUM-HIGH 4: encode only the original five fields (no `dissolution_price_bits`,
+    /// no `subnet_settled_alpha`) and verify that the custom `Decode` impl fills the new
+    /// trailing fields with `None`.
+    #[test]
+    fn dissolve_cleanup_status_backward_compat_decode_without_new_fields() {
+        let netuid = NetUid::from(5u16);
+        // AlphaInOutStakesSettleStakes = discriminant 3
+        let phase = DissolveCleanupPhase::AlphaInOutStakesSettleStakes;
+        let last_key: Option<Vec<u8>> = None;
+        let subnet_total_alpha_value: Option<u128> = Some(42);
+        let subnet_distributed_tao: Option<u128> = Some(7);
+
+        // Manually SCALE-encode only the five legacy fields.
+        let mut old_bytes: Vec<u8> = Vec::new();
+        netuid.encode_to(&mut old_bytes);
+        phase.encode_to(&mut old_bytes);
+        last_key.encode_to(&mut old_bytes);
+        subnet_total_alpha_value.encode_to(&mut old_bytes);
+        subnet_distributed_tao.encode_to(&mut old_bytes);
+
+        let decoded = match DissolveCleanupStatus::decode(&mut &old_bytes[..]) {
+            Ok(status) => status,
+            Err(e) => panic!("5-field legacy decode must succeed: {e:?}"),
+        };
+
+        assert_eq!(decoded.netuid, netuid);
+        assert_eq!(decoded.phase, phase);
+        assert_eq!(decoded.last_key, last_key);
+        assert_eq!(decoded.subnet_total_alpha_value, Some(42));
+        assert_eq!(decoded.subnet_distributed_tao, Some(7));
+        // New trailing fields must default to None when absent from the encoded bytes.
+        assert_eq!(
+            decoded.dissolution_price_bits, None,
+            "dissolution_price_bits should be None"
+        );
+        assert_eq!(
+            decoded.subnet_settled_alpha, None,
+            "subnet_settled_alpha should be None"
+        );
     }
 }

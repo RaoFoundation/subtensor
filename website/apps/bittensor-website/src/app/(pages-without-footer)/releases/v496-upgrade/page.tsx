@@ -5,10 +5,10 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V496 Upgrade — Synth Short Book Caps and Stress APR',
+  title: 'The V496 Upgrade — Short-Only Synthetic Lending',
   description:
-    'V496 keeps synthetic short lending dark-launched and adds pool share caps, stress-based short APR, ' +
-    'TWAP deleverage, and dereg-ranking hooks for dissolution.',
+    'V496 keeps short-only synthetic lending dark-launched: flat APR, whole-book coverage, ' +
+    'TWAP health, paced buy-backs, and dereg settlement at a frozen post-basket rate.',
   alternates: {canonical: '/releases/v496-upgrade'},
 };
 
@@ -19,7 +19,7 @@ export default function Page() {
         <section className={styles.title_section}>
           <h1 className={styles.paper_title}>The V496 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Synth short lending · book share caps · stress APR · TWAP deleverage · dark launch
+            Short-only lending · flat APR · whole-book coverage · TWAP health · dark launch
           </p>
         </section>
 
@@ -35,29 +35,24 @@ export default function Page() {
         </section>
 
         <section className={styles.section}>
-          <h2 className={styles.subtitle}>Book share caps</h2>
+          <h2 className={styles.subtitle}>Short-only synthetic lending</h2>
           <p>
-            Outstanding synthetic short alpha must stay at or below the configured share of pool
-            alpha (<code>SubnetAlphaIn</code>). The gate runs on open and increases; it does not
-            force-close live shorts. Root sets bounds via <code>SynthParams</code>.
+            Positions are synthetic shorts only. There is no long / lift path. Interest is a flat
+            root-settable APR (default 20%), split 50/50 between burn and the residual reserve.
+            Coverage uses whole-book collateral at{' '}
+            <code>max(slow EMA, spot, 30-day ranking SMA)</code>. Health uses a median of interval
+            means (TWAP ring). Forced closes spend the per-block pace budget across the queue.
           </p>
         </section>
 
         <section className={styles.section}>
-          <h2 className={styles.subtitle}>Stress short APR</h2>
+          <h2 className={styles.subtitle}>Dissolution and dereg</h2>
           <p>
-            Short interest scales with utilization and a stress multiplier derived from TWAP vs spot.
-            Root can tune base APR, stress slope, and book caps. Interest accrual checkpoints use
-            the live curve for all open shorts.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.subtitle}>Dissolution and dereg hooks</h2>
-          <p>
-            Lending exposes <code>start_dissolution</code>, metered short settlement into the staker
-            pot, and <code>finish_dissolution</code> for subnet teardown. A 30-day SMA of spot feeds
-            dereg ranking; pool-TAO EMA supports dissolution payout math.
+            On subnet dissolve, basket holdings convert first, then the settlement rate{' '}
+            <code>r = min(T, T_ema) / all_alpha</code> freezes. Shorts settle at <code>r</code>{' '}
+            (zone alpha at its own proceeds). Stakers are paid at most <code>r</code> per alpha,
+            capped by the remaining pot; leftover pot TAO is recycled. Ranking stays dark until
+            lending is enabled and each subnet has a full window of real daily samples.
           </p>
         </section>
 
@@ -66,8 +61,8 @@ export default function Page() {
           <ol className={styles.list}>
             <li>Regenerate chain metadata and signing payloads for spec 496.</li>
             <li>
-              Treat lending as off until root enables it. Expect short APR to move with utilization
-              and stress after enablement.
+              Treat lending as off until root enables it. Read live <code>SynthParamsStore</code>{' '}
+              for APR, stress, pace, and TWAP knobs rather than hard-coding defaults.
             </li>
           </ol>
           <p>

@@ -58,8 +58,10 @@ pub fn mean(values: &[U64F64]) -> U64F64 {
         .unwrap_or_default()
 }
 
-/// Add one block's `spot` to `state`. Returns the new SMA when a day closed or
-/// the ring was seeded.
+/// Add one block's `spot` to `state`. Returns the new SMA only when the ring
+/// holds a full window of real samples (`days.len() == cap`). An empty ring
+/// warms through partial fills before publishing; `seed_rank_ring` pre-fills
+/// the ring for migration and benchmarks.
 pub fn rank_step(
     state: &mut RankState,
     spot: U64F64,
@@ -67,9 +69,6 @@ pub fn rank_step(
     day_blocks: u32,
 ) -> Option<U64F64> {
     let cap = days.clamp(1, MAX_RANK_DAYS) as usize;
-    if state.days.is_empty() {
-        return None;
-    }
     state.day_sum = state.day_sum.saturating_add(spot);
     state.day_blocks = state.day_blocks.saturating_add(1);
     if state.day_blocks < day_blocks.max(1) {
@@ -97,7 +96,12 @@ pub fn rank_step(
             .checked_rem(cap as u32)
             .unwrap_or(0);
     }
-    Some(mean(&state.days))
+    // Only publish once the ring is fully warm with real samples.
+    if state.days.len() == cap {
+        Some(mean(&state.days))
+    } else {
+        None
+    }
 }
 
 /// One EMA step `prev + (value − prev) / window`, seeded at `value`.
@@ -189,5 +193,37 @@ mod tests {
         assert_eq!(ema_step(Some(1_000), 0, 10), 900);
         assert_eq!(ema_step(Some(1_000), 2_000, 4), 1_250);
         assert_eq!(ema_step(Some(1_000), 2_000, 0), 2_000);
+    }
+
+    /// An empty ring warms through partial fills; `rank_step` returns None until
+    /// the ring holds a full window of real daily means, then Some.
+    #[test]
+    fn empty_ring_warms_until_full_then_publishes() {
+        // cap = 3, day_blocks = 2 → 6 updates fill the ring.
+        let mut s = RankState::default();
+        assert!(s.days.is_empty());
+
+        // Day 1: blocks 1-2.
+        assert_eq!(rank_step(&mut s, p(1.0), 3, 2), None, "mid-day 1");
+        let r = rank_step(&mut s, p(1.0), 3, 2);
+        assert_eq!(r, None, "day 1 close: ring not full yet (len=1)");
+        assert_eq!(s.days.len(), 1);
+
+        // Day 2: blocks 3-4.
+        rank_step(&mut s, p(1.0), 3, 2);
+        let r = rank_step(&mut s, p(1.0), 3, 2);
+        assert_eq!(r, None, "day 2 close: ring not full yet (len=2)");
+        assert_eq!(s.days.len(), 2);
+
+        // Day 3: blocks 5-6 → ring full → Some.
+        rank_step(&mut s, p(1.0), 3, 2);
+        let r = rank_step(&mut s, p(1.0), 3, 2);
+        assert_eq!(r, Some(p(1.0)), "day 3 close: ring full, SMA published");
+        assert_eq!(s.days.len(), 3);
+
+        // Subsequent day closes continue publishing (ring wraps).
+        rank_step(&mut s, p(2.0), 3, 2);
+        let r = rank_step(&mut s, p(2.0), 3, 2);
+        assert!(r.is_some(), "subsequent days keep publishing");
     }
 }

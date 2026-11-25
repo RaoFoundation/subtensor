@@ -25,10 +25,10 @@ const releases: Release[] = [
   {
     tag: 'v496',
     date: 'Upcoming',
-    title: 'Synth Short Lending — Book Caps and Stress APR',
+    title: 'Short-Only Synthetic Lending',
     summary:
-      'Runtime spec 496: short-only synthetic lending (dark launch), pool share caps, stress-based ' +
-      'short APR, TWAP deleverage, and dissolution/dereg hooks. Builds on the V495 lending pallet.',
+      'Runtime spec 496: short-only synthetic lending (dark launch), flat APR, whole-book coverage, ' +
+      'TWAP health, paced buy-backs, and post-basket dereg settlement at frozen r.',
     href: '/releases/v496-upgrade',
   },
   {
