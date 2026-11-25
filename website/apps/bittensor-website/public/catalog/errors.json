@@ -419,7 +419,7 @@
     },
     "AmountTooLow": {
       "code": "limit_exceeded",
-      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint came to less than 0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend cap was between 0 and 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
+      "description": "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage, a gamma mint or transfer came to less than 0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a gamma move, deposit, withdrawal or transfer took or left less than 0.1 gamma without emptying its source, or a gamma daily spend cap was between 0 and 0.1 gamma. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount.",
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
@@ -2460,7 +2460,7 @@
     },
     "GammaDepositNotEmpty": {
       "code": "invalid_argument",
-      "description": "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` closes it; once its hotkey has spent it to zero, close it.",
+      "description": "Only an empty gamma deposit can be closed. Moving, withdrawing or sending its whole balance closes it; once its hotkey has spent it to zero, close it.",
       "docs_url": "/docs/errors/chain/GammaDepositNotEmpty",
       "markdown_url": "/llms.mdx/docs/errors/chain/GammaDepositNotEmpty/content.md",
       "pallets": [
@@ -2910,7 +2910,7 @@
     },
     "InsufficientGammaBalance": {
       "code": "insufficient_balance",
-      "description": "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
+      "description": "The spend or transfer is above the gamma deposit's balance, or the transfer is above the coldkey's gamma balance. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now, and `gamma_balances` a coldkey's balances.",
       "docs_url": "/docs/errors/chain/InsufficientGammaBalance",
       "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientGammaBalance/content.md",
       "pallets": [
@@ -3558,7 +3558,7 @@
     },
     "InvalidValue": {
       "code": "invalid_argument",
-      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, or a gamma share naming its own subnet.",
+      "description": "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the same hotkey, a `transfer_gamma` to its own source, or a gamma share naming its own subnet.",
       "docs_url": "/docs/errors/chain/InvalidValue",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidValue/content.md",
       "pallets": [
@@ -4572,7 +4572,7 @@
     },
     "NonAssociatedColdKey": {
       "code": "not_authorized",
-      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes), or the gamma deposit at the hotkey belongs to another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it.",
+      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes), or the gamma deposit at the hotkey belongs to another coldkey, or the deposit a `transfer_gamma` credits does not belong to its destination coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it.",
       "docs_url": "/docs/errors/chain/NonAssociatedColdKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/NonAssociatedColdKey/content.md",
       "pallets": [

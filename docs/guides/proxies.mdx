@@ -52,9 +52,10 @@ Prefer the narrowest type that covers the job:
 * **Any** — everything, including transfers. Avoid: leaking an `Any` proxy is
   exactly as bad as leaking the coldkey.
 * **NonTransfer** — everything *except* balance transfers, stake transfers,
-  coldkey swaps, basket trading, gamma mints, moves, spends and daily spend
-  caps, and `set_service`. Notably it can manage the account's other proxies,
-  which makes it the natural "manager" proxy.
+  coldkey swaps, basket trading, gamma mints, moves, deposits, withdrawals,
+  transfers, spends and daily spend caps, and `set_service`. Notably it can
+  manage the account's other proxies, which makes it the natural "manager"
+  proxy.
 * **Transfer** — balance transfers and stake transfers (`transfer_stake` /
   `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO

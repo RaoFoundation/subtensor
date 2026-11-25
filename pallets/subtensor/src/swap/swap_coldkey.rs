@@ -122,6 +122,12 @@ impl<T: Config> Pallet<T> {
                     .reads_writes(2, 3)
                     .saturating_mul(u64::from(work.gamma_deposits)),
             )
+            // Per subnet: the gamma balance merge.
+            .saturating_add(
+                T::DbWeight::get()
+                    .reads_writes(2, 2)
+                    .saturating_mul(u64::from(TotalNetworks::<T>::get())),
+            )
     }
 
     /// The largest swap one call admits, used as the pre-dispatch envelope.

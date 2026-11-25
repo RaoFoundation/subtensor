@@ -306,8 +306,8 @@ pub const MAX_COLDKEY_SWAP_GAMMA_DEPOSITS: u32 = 128;
 /// Blocks over which a daily spend cap refills in full: one day.
 pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 
-/// Smallest gamma a mint credits, and a spend or move takes, or a move leaves, unless it empties
-/// the deposit: 0.1 gamma.
+/// Smallest gamma a mint or transfer credits, and a spend, move, deposit or withdrawal takes, or
+/// a move, deposit, withdrawal or transfer leaves, unless it empties its source: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
 /// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
@@ -4266,6 +4266,18 @@ pub mod pallet {
             NMapKey<Blake2_128Concat, T::AccountId>,
             NMapKey<Blake2_128Concat, T::AccountId>,
         ),
+        GammaBalance,
+        ValueQuery,
+    >;
+
+    /// DMAP ( netuid, coldkey ) --> gamma | The coldkey's gamma on the subnet held at no hotkey.
+    #[pallet::storage]
+    pub type GammaBalances<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
         GammaBalance,
         ValueQuery,
     >;

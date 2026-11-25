@@ -3288,6 +3288,58 @@ mod dispatches {
             Self::do_spend_gamma(origin, service, netuid, amount)
         }
 
+        /// Moves up to `amount` gamma from the signer's balance on `netuid` to its deposit at
+        /// `hotkey`: the whole balance, or at least 0.1 gamma leaving at least as much. A hotkey
+        /// with no deposit opens one with no daily spend cap.
+        #[pallet::call_index(175)]
+        #[pallet::weight((<T as Config>::WeightInfo::deposit_gamma(), DispatchClass::Normal, Pays::Yes))]
+        pub fn deposit_gamma(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_deposit_gamma(origin, hotkey, netuid, amount)
+        }
+
+        /// Moves up to `amount` gamma from the signer's deposit at `hotkey` to its balance on
+        /// `netuid`: the whole deposit, or at least 0.1 gamma leaving at least as much. A
+        /// withdrawal that empties the deposit closes it.
+        #[pallet::call_index(176)]
+        #[pallet::weight((<T as Config>::WeightInfo::withdraw_gamma(), DispatchClass::Normal, Pays::Yes))]
+        pub fn withdraw_gamma(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_withdraw_gamma(origin, hotkey, netuid, amount)
+        }
+
+        /// Sends exactly `amount` gamma on `netuid` from the signer's balance, or its deposit at
+        /// `origin_hotkey`, to `destination_coldkey`'s balance, or the deposit it already holds at
+        /// `destination_hotkey`: at least 0.1 gamma, leaving none or at least as much. A transfer
+        /// that empties a source deposit closes it.
+        #[pallet::call_index(177)]
+        #[pallet::weight((<T as Config>::WeightInfo::transfer_gamma(), DispatchClass::Normal, Pays::Yes))]
+        pub fn transfer_gamma(
+            origin: OriginFor<T>,
+            destination_coldkey: T::AccountId,
+            origin_hotkey: Option<T::AccountId>,
+            destination_hotkey: Option<T::AccountId>,
+            netuid: NetUid,
+            amount: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_transfer_gamma(
+                origin,
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                amount,
+            )
+        }
+
         /// Sets the service of the coldkey's hotkey on the subnet: the url where it describes its
         /// services. The hotkey must be registered on the subnet with a validator permit, or be
         /// the subnet owner's hotkey signed for by the subnet owner. An empty url removes the

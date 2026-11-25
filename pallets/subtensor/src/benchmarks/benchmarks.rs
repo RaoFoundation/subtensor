@@ -4114,6 +4114,83 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn deposit_gamma() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey: T::AccountId = account("gamma_new", 0, 1);
+        seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
+        let amount = GammaBalance::from(1_000_000_000_u64);
+        GammaBalances::<T>::insert(netuid, &coldkey, amount);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            netuid,
+            amount,
+        );
+
+        assert!(!GammaBalances::<T>::contains_key(netuid, &coldkey));
+        assert!(GammaDeposits::<T>::contains_key(netuid, &hotkey));
+    }
+
+    #[benchmark]
+    fn withdraw_gamma() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey =
+            seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS, 1_000_000_000, None)
+                .remove(0);
+        GammaBalances::<T>::insert(netuid, &coldkey, GammaBalance::from(1_u64));
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            netuid,
+            GammaBalance::MAX,
+        );
+
+        assert!(!GammaDeposits::<T>::contains_key(netuid, &hotkey));
+        assert_eq!(
+            GammaBalances::<T>::get(netuid, &coldkey),
+            GammaBalance::from(1_000_000_001_u64)
+        );
+    }
+
+    #[benchmark]
+    fn transfer_gamma() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let destination: T::AccountId = account("gamma_dest", 0, 1);
+        let from =
+            seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS, 1_000_000_000, None)
+                .remove(0);
+        let to =
+            seed_gamma_deposits::<T>(netuid, &destination, 1, 1, 1_000_000_000, None).remove(0);
+        let amount = GammaBalance::from(1_000_000_000_u64);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            destination.clone(),
+            Some(from.clone()),
+            Some(to.clone()),
+            netuid,
+            amount,
+        );
+
+        assert!(!GammaDeposits::<T>::contains_key(netuid, &from));
+        assert_eq!(
+            GammaDeposits::<T>::get(netuid, &to).map(|deposit| deposit.balance),
+            Some(GammaBalance::from(2_000_000_000_u64))
+        );
+    }
+
+    #[benchmark]
     fn set_service() {
         let netuid = NetUid::from(1);
         let coldkey: T::AccountId = whitelisted_caller();

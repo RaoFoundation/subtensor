@@ -325,6 +325,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'decrease_take', {'hotkey': hotkey, 'take': take})
 
     @staticmethod
+    def deposit_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's balance on `netuid` to its deposit at `hotkey`: the whole balance, or at least 0.1 gamma leaving at least as much. A hotkey with no deposit opens one with no daily spend cap."
+        return Call('SubtensorModule', 'deposit_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
     def disable_voting_power_tracking(netuid: 'NetUid') -> Call:
         'Schedules disabling of voting power tracking for a subnet.  This function can be called by the subnet owner or root. Voting power tracking will continue for 14 days (grace period) after this call, then automatically disable and clear all VotingPower entries for the subnet.  # Arguments * `origin`: The origin of the call, must be subnet owner or root. * `netuid`: The subnet to schedule disabling voting power tracking for.  # Errors * `SubnetNotExist`: If the subnet does not exist. * `NotSubnetOwner`: If the caller is not the subnet owner or root. * `VotingPowerTrackingNotEnabled`: If voting power tracking is not enabled.'
         return Call('SubtensorModule', 'disable_voting_power_tracking', {'netuid': netuid})
@@ -680,6 +685,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'terminate_lease', {'lease_id': lease_id, 'hotkey': hotkey})
 
     @staticmethod
+    def transfer_gamma(destination_coldkey: 'AccountId32', origin_hotkey: 'Any', destination_hotkey: 'Any', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Sends exactly `amount` gamma on `netuid` from the signer's balance, or its deposit at `origin_hotkey`, to `destination_coldkey`'s balance, or the deposit it already holds at `destination_hotkey`: at least 0.1 gamma, leaving none or at least as much. A transfer that empties a source deposit closes it."
+        return Call('SubtensorModule', 'transfer_gamma', {'destination_coldkey': destination_coldkey, 'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
     def transfer_stake(destination_coldkey: 'AccountId32', hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
         'Transfers a specified amount of stake from one coldkey to another, optionally across subnets, while keeping the same hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `hotkey`: The hotkey associated with the stake. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer. `AlphaBalance::MAX` means the live origin position at execution.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet. * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.  # Events May emit a `StakeTransferred` event on success.'
         return Call('SubtensorModule', 'transfer_stake', {'destination_coldkey': destination_coldkey, 'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
@@ -713,6 +723,11 @@ class SubtensorModule:
     def update_symbol(netuid: 'NetUid', symbol: 'Any') -> Call:
         'Updates the symbol for a subnet.  # Arguments * `origin`: The origin of the call, which must be the subnet owner or root. * `netuid`: The unique identifier of the subnet on which the symbol is being set. * `symbol`: The symbol to set for the subnet.  # Errors * `BadOrigin`: The transaction is not signed by the subnet owner or root. * `SubnetNotExists`: The subnet identified by `netuid` does not exist. * `SymbolDoesNotExist`: The symbol is not one of the recognized symbols. * `SymbolAlreadyInUse`: The symbol is already in use by another subnet.  # Events Emits a `SymbolUpdated` event on success.'
         return Call('SubtensorModule', 'update_symbol', {'netuid': netuid, 'symbol': symbol})
+
+    @staticmethod
+    def withdraw_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's deposit at `hotkey` to its balance on `netuid`: the whole deposit, or at least 0.1 gamma leaving at least as much. A withdrawal that empties the deposit closes it."
+        return Call('SubtensorModule', 'withdraw_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
 
 class Utility:

@@ -3,7 +3,8 @@
 //! Gamma is held in [`GammaDeposits`], one per `(netuid, hotkey)`, owned by a coldkey and
 //! spent by its hotkey at services listed on the subnet; [`GammaSpent`] totals what each hotkey
 //! has spent at each service. [`ColdkeyGammaHotkeys`] indexes a coldkey's deposits per subnet so
-//! coldkey swaps move them in a bounded walk.
+//! coldkey swaps move them in a bounded walk. [`GammaBalances`] holds a coldkey's gamma on no
+//! hotkey: it is sent between coldkeys and deposited at a hotkey to be spent.
 
 use frame_support::storage::with_storage_layer;
 use safe_math::*;
@@ -428,14 +429,7 @@ impl<T: Config> Pallet<T> {
         );
         let mut deposit = Self::own_gamma_deposit(netuid, &origin_hotkey, &coldkey)?;
         let amount = amount.min(deposit.balance);
-        let rest = deposit.balance.saturating_sub(amount);
-        ensure!(
-            !amount.is_zero()
-                && (rest.is_zero()
-                    || (amount.to_u64() >= crate::MIN_GAMMA_AMOUNT
-                        && rest.to_u64() >= crate::MIN_GAMMA_AMOUNT)),
-            Error::<T>::AmountTooLow
-        );
+        let rest = Self::ensure_gamma_move_amount(amount, deposit.balance)?;
         let destination = match GammaDeposits::<T>::get(netuid, &destination_hotkey) {
             Some(mut destination) => {
                 ensure!(
@@ -599,6 +593,182 @@ impl<T: Config> Pallet<T> {
         Ok(deposit)
     }
 
+    /// What taking `amount` of `available` leaves. Refuses more than `available`, and an amount
+    /// that is zero or leaves dust: it must be the whole of it, or at least
+    /// [`crate::MIN_GAMMA_AMOUNT`] leaving at least as much.
+    fn ensure_gamma_move_amount(
+        amount: GammaBalance,
+        available: GammaBalance,
+    ) -> Result<GammaBalance, DispatchError> {
+        ensure!(amount <= available, Error::<T>::InsufficientGammaBalance);
+        let rest = available.saturating_sub(amount);
+        ensure!(
+            !amount.is_zero()
+                && (rest.is_zero()
+                    || (amount.to_u64() >= crate::MIN_GAMMA_AMOUNT
+                        && rest.to_u64() >= crate::MIN_GAMMA_AMOUNT)),
+            Error::<T>::AmountTooLow
+        );
+        Ok(rest)
+    }
+
+    /// Takes exactly `amount` from the coldkey's balance on `netuid`.
+    fn debit_gamma_balance(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        amount: GammaBalance,
+    ) -> DispatchResult {
+        GammaBalances::<T>::try_mutate_exists(netuid, coldkey, |balance| {
+            let rest = Self::ensure_gamma_move_amount(amount, balance.unwrap_or_default())?;
+            *balance = (!rest.is_zero()).then_some(rest);
+            Ok(())
+        })
+    }
+
+    /// Adds `amount` to the coldkey's balance on `netuid`.
+    fn credit_gamma_balance(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        amount: GammaBalance,
+    ) -> DispatchResult {
+        GammaBalances::<T>::try_mutate(netuid, coldkey, |balance| {
+            *balance = balance
+                .to_u64()
+                .checked_add(amount.to_u64())
+                .ok_or(ArithmeticError::Overflow)?
+                .into();
+            Ok(())
+        })
+    }
+
+    /// Takes exactly `amount` from `deposit`, the coldkey's deposit at `hotkey`, closing it when
+    /// emptied. Returns whether it closed.
+    fn debit_gamma_deposit(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        mut deposit: GammaDeposit<T::AccountId>,
+        amount: GammaBalance,
+    ) -> Result<bool, DispatchError> {
+        deposit.balance = Self::ensure_gamma_move_amount(amount, deposit.balance)?;
+        let closes = deposit.balance.is_zero();
+        if closes {
+            Self::remove_gamma_deposit(netuid, hotkey, &deposit.coldkey);
+        } else {
+            GammaDeposits::<T>::insert(netuid, hotkey, deposit);
+        }
+        Ok(closes)
+    }
+
+    /// Moves up to `amount` from the signer's balance to its deposit at `hotkey`, under the
+    /// amount rule of [`Self::do_move_gamma`], opening one with no daily spend cap if there is
+    /// none.
+    pub fn do_deposit_gamma(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        netuid: NetUid,
+        amount: GammaBalance,
+    ) -> DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        let amount = amount.min(GammaBalances::<T>::get(netuid, &coldkey));
+        Self::debit_gamma_balance(netuid, &coldkey, amount)?;
+        Self::credit_gamma(netuid, &coldkey, &hotkey, amount, None)?;
+        Self::deposit_event(Event::GammaDeposited {
+            netuid,
+            coldkey,
+            hotkey,
+            amount,
+        });
+        Ok(())
+    }
+
+    /// Moves up to `amount` from the signer's deposit at `hotkey` to its balance, under the
+    /// amount rule of [`Self::do_move_gamma`]. Emptying the deposit closes it.
+    pub fn do_withdraw_gamma(
+        origin: OriginFor<T>,
+        hotkey: T::AccountId,
+        netuid: NetUid,
+        amount: GammaBalance,
+    ) -> DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        let deposit = Self::own_gamma_deposit(netuid, &hotkey, &coldkey)?;
+        let amount = amount.min(deposit.balance);
+        let closes = Self::debit_gamma_deposit(netuid, &hotkey, deposit, amount)?;
+        Self::credit_gamma_balance(netuid, &coldkey, amount)?;
+        Self::deposit_event(Event::GammaWithdrawn {
+            netuid,
+            coldkey: coldkey.clone(),
+            hotkey: hotkey.clone(),
+            amount,
+        });
+        if closes {
+            Self::deposit_event(Event::GammaDepositClosed {
+                netuid,
+                coldkey,
+                hotkey,
+            });
+        }
+        Ok(())
+    }
+
+    /// Sends exactly `amount` from the signer's balance, or its deposit at `origin_hotkey`, to
+    /// `destination_coldkey`'s balance, or the deposit it holds at `destination_hotkey`. A
+    /// transfer never opens a deposit. Emptying a source deposit closes it.
+    pub fn do_transfer_gamma(
+        origin: OriginFor<T>,
+        destination_coldkey: T::AccountId,
+        origin_hotkey: Option<T::AccountId>,
+        destination_hotkey: Option<T::AccountId>,
+        netuid: NetUid,
+        amount: GammaBalance,
+    ) -> DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(
+            coldkey != destination_coldkey || origin_hotkey != destination_hotkey,
+            Error::<T>::InvalidValue
+        );
+        ensure!(
+            amount.to_u64() >= crate::MIN_GAMMA_AMOUNT,
+            Error::<T>::AmountTooLow
+        );
+        if let Some(hotkey) = &destination_hotkey {
+            Self::own_gamma_deposit(netuid, hotkey, &destination_coldkey)?;
+        }
+        let closes = match &origin_hotkey {
+            Some(hotkey) => {
+                let deposit = Self::own_gamma_deposit(netuid, hotkey, &coldkey)?;
+                Self::debit_gamma_deposit(netuid, hotkey, deposit, amount)?
+            }
+            None => {
+                Self::debit_gamma_balance(netuid, &coldkey, amount)?;
+                false
+            }
+        };
+        match &destination_hotkey {
+            Some(hotkey) => {
+                Self::credit_gamma(netuid, &destination_coldkey, hotkey, amount, None)?;
+            }
+            None => Self::credit_gamma_balance(netuid, &destination_coldkey, amount)?,
+        }
+        Self::deposit_event(Event::GammaTransferred {
+            netuid,
+            origin_coldkey: coldkey.clone(),
+            destination_coldkey,
+            origin_hotkey: origin_hotkey.clone(),
+            destination_hotkey,
+            amount,
+        });
+        if let (true, Some(hotkey)) = (closes, origin_hotkey) {
+            Self::deposit_event(Event::GammaDepositClosed {
+                netuid,
+                coldkey,
+                hotkey,
+            });
+        }
+        Ok(())
+    }
+
     /// Takes spending away from `old_hotkey` in a hotkey swap: the coldkey's deposit there moves
     /// to `new_hotkey` as a move of its whole balance, or pauses when `new_hotkey` holds another
     /// coldkey's deposit. What `old_hotkey` spent stays in [`GammaSpent`]. Returns whether it
@@ -637,13 +807,17 @@ impl<T: Config> Pallet<T> {
         Ok(true)
     }
 
-    /// Moves the old coldkey's deposits on `netuid` to the new coldkey, terms unchanged; fails
-    /// if the new coldkey would hold more than [`crate::MAX_GAMMA_DEPOSITS`] there.
+    /// Moves the old coldkey's gamma balance and deposits on `netuid` to the new coldkey, terms
+    /// unchanged; fails if the new coldkey would hold more than [`crate::MAX_GAMMA_DEPOSITS`] there.
     pub(crate) fn transfer_coldkey_gamma_deposits(
         netuid: NetUid,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
+        let balance = GammaBalances::<T>::take(netuid, old_coldkey);
+        if !balance.is_zero() {
+            Self::credit_gamma_balance(netuid, new_coldkey, balance)?;
+        }
         let hotkeys = ColdkeyGammaHotkeys::<T>::get(netuid, old_coldkey);
         if hotkeys.is_empty() {
             return Ok(());

@@ -143,6 +143,16 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
     ),
     "close_gamma_deposit": _GAMMA_DEPOSIT,
     "set_gamma_deposit_daily_spend_cap": _GAMMA_DEPOSIT,
+    "deposit_gamma": _GAMMA_DEPOSIT,
+    "withdraw_gamma": _GAMMA_DEPOSIT,
+    "transfer_gamma": IntentPromptPolicy(
+        rules=(
+            PromptRule(
+                "dest_coldkey_ss58",
+                functools.partial(dest_account_spec, "dest_coldkey_ss58"),
+            ),
+        )
+    ),
 }
 
 

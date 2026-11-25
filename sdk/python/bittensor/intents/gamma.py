@@ -1,4 +1,4 @@
-"""Gamma intents: minting, deposits and daily spend caps, and spending."""
+"""Gamma intents: minting, deposits and daily spend caps, balances and transfers, and spending."""
 
 from __future__ import annotations
 
@@ -34,8 +34,9 @@ from .staking import (
     _staked_rao,
 )
 
-# Least gamma a spend or move takes, and a move leaves, unless it empties the deposit, in
-# units (`MIN_GAMMA_AMOUNT`).
+# Least gamma a mint or transfer credits, a spend, move, deposit or withdrawal takes, and a move,
+# deposit, withdrawal or transfer leaves, unless it empties its source, in units
+# (`MIN_GAMMA_AMOUNT`).
 MIN_GAMMA_AMOUNT = 100_000_000
 
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
@@ -98,6 +99,29 @@ def _own_deposit_blocks(deposit: Optional[dict], signer: str, hotkey_ss58: str) 
     if str(deposit["coldkey"]) != signer:
         return [f"the gamma deposit at {hotkey_ss58} belongs to another coldkey"]
     return []
+
+
+async def _balance(substrate, netuid: int, coldkey_ss58: str) -> int:
+    balance = await substrate.query(*st.SubtensorModule.GammaBalances, [netuid, coldkey_ss58])
+    return int(balance or 0)
+
+
+def _amount_blocks(amount: int, available: int, source: str) -> list[str]:
+    """What stops taking exactly ``amount`` from ``available`` gamma units of ``source``."""
+    if not available or amount > available:
+        return [f"{source} holds {_gamma_text(available)}"]
+    rest = available - amount
+    if rest and min(amount, rest) < MIN_GAMMA_AMOUNT:
+        return [
+            f"{source} holds {_gamma_text(available)}: take all of it, or at least 0.1 gamma "
+            "leaving at least as much"
+        ]
+    return []
+
+
+def _drops_cap(deposit: dict) -> str:
+    cap = _cap(deposit)
+    return "" if cap is None else f" and drops its daily spend cap of {_gamma_text(cap)}"
 
 
 def _gamma_text(units: int) -> str:
@@ -574,3 +598,244 @@ class SpendGamma(Intent):
         return (
             f"spend {self.amount_gamma} gamma at {self.service_hotkey_ss58} on netuid {self.netuid}"
         )
+
+
+@register
+@dataclass
+class DepositGamma(Intent):
+    """Move gamma from your balance on a subnet to your deposit at a hotkey.
+
+    Moves up to ``amount_gamma`` (``all`` for the whole balance) from your
+    coldkey's gamma balance, the gamma it holds on no hotkey, to the deposit at
+    ``hotkey_ss58``: the whole balance, or at least 0.1 gamma leaving at least
+    as much. A hotkey with no deposit opens one with no daily spend cap.
+    """
+
+    op = "deposit_gamma"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "deposit_gamma"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_gamma",)
+
+    netuid: int = field(metadata={"help": "Subnet of the balance and the deposit."})
+    hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit credited."})
+    amount_gamma: Money = field(metadata={"help": "Gamma moved."})
+
+    def __post_init__(self):
+        self.amount_gamma = gamma_amount(self.amount_gamma, allow_all=True)
+        if self.amount_gamma != ALL and not gamma_units(self.amount_gamma):
+            raise BittensorError("deposit_gamma: the amount must be above 0")
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.deposit_gamma(
+                hotkey=self.hotkey_ss58,
+                netuid=self.netuid,
+                amount=U64_MAX if self.amount_gamma == ALL else gamma_units(self.amount_gamma),
+            )
+        )
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        balance, deposit = await asyncio.gather(
+            _balance(substrate, self.netuid, signer_address),
+            _deposit(substrate, self.netuid, self.hotkey_ss58),
+        )
+        amount = balance if self.amount_gamma == ALL else gamma_units(self.amount_gamma)
+        source = f"your gamma balance on netuid {self.netuid}"
+        blocks = _amount_blocks(min(amount, balance), balance, source)
+        if deposit is not None:
+            blocks += _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
+        else:
+            blocks += await _new_deposit_blocks(substrate, self.hotkey_ss58, signer_address)
+        return blocks
+
+    def summary(self) -> str:
+        amount = "all" if self.amount_gamma == ALL else f"up to {self.amount_gamma}"
+        return (
+            f"deposit {amount} gamma on netuid {self.netuid} from your balance"
+            f" into your deposit at {self.hotkey_ss58}"
+        )
+
+    def spend(self) -> Spend:
+        # Hands the gamma's use to whoever holds the hotkey; not TAO-denominated, so a
+        # spend cap must block it until raised.
+        return UNBOUNDED
+
+
+@register
+@dataclass
+class WithdrawGamma(Intent):
+    """Move gamma from your deposit at a hotkey to your balance on its subnet.
+
+    Moves up to ``amount_gamma`` (``all`` for the whole deposit) from the
+    deposit at ``hotkey_ss58`` to your coldkey's gamma balance: the whole
+    deposit, or at least 0.1 gamma leaving at least as much. A withdrawal that
+    empties the deposit closes it.
+    """
+
+    op = "withdraw_gamma"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "withdraw_gamma"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_gamma",)
+
+    netuid: int = field(metadata={"help": "Subnet of the deposit and the balance."})
+    hotkey_ss58: str = field(metadata={"help": "Hotkey of the deposit withdrawn from."})
+    amount_gamma: Money = field(metadata={"help": "Gamma withdrawn."})
+
+    def __post_init__(self):
+        self.amount_gamma = gamma_amount(self.amount_gamma, allow_all=True)
+        if self.amount_gamma != ALL and not gamma_units(self.amount_gamma):
+            raise BittensorError("withdraw_gamma: the amount must be above 0")
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.withdraw_gamma(
+                hotkey=self.hotkey_ss58,
+                netuid=self.netuid,
+                amount=U64_MAX if self.amount_gamma == ALL else gamma_units(self.amount_gamma),
+            )
+        )
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
+        blocks = _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58)
+        if blocks or deposit is None:
+            return blocks
+        balance = int(deposit["balance"])
+        amount = balance if self.amount_gamma == ALL else gamma_units(self.amount_gamma)
+        source = f"the gamma deposit at {self.hotkey_ss58}"
+        return _amount_blocks(min(amount, balance), balance, source)
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        deposit = await _deposit(substrate, self.netuid, self.hotkey_ss58)
+        if deposit is None or _own_deposit_blocks(deposit, signer_address, self.hotkey_ss58):
+            return []
+        if self.amount_gamma == ALL or gamma_units(self.amount_gamma) >= int(deposit["balance"]):
+            return [f"withdraws the entire deposit, which closes it{_drops_cap(deposit)}"]
+        return []
+
+    def summary(self) -> str:
+        amount = "all" if self.amount_gamma == ALL else f"up to {self.amount_gamma}"
+        return (
+            f"withdraw {amount} gamma on netuid {self.netuid} from {self.hotkey_ss58}"
+            " to your balance"
+        )
+
+
+@register
+@dataclass
+class TransferGamma(Intent):
+    """Send gamma on a subnet to another coldkey.
+
+    Sends exactly ``amount_gamma`` from your gamma balance, or your deposit at
+    ``origin_hotkey_ss58``, to the gamma balance of ``dest_coldkey_ss58``, or
+    the deposit it already holds at ``destination_hotkey_ss58``. The amount is
+    at least 0.1 gamma, leaving none or at least as much. A
+    transfer never opens a deposit, and one that empties your deposit closes it.
+    """
+
+    op = "transfer_gamma"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "transfer_gamma"),)
+
+    netuid: int = field(metadata={"help": "Subnet of the gamma."})
+    dest_coldkey_ss58: str = field(metadata={"help": "Coldkey receiving the gamma."})
+    amount_gamma: Money = field(metadata={"help": "Gamma sent."})
+    origin_hotkey_ss58: Optional[str] = field(
+        default=None,
+        metadata={"help": "Hotkey of your deposit to send from. Omit to send from your balance."},
+    )
+    destination_hotkey_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Hotkey of the receiver's existing deposit to credit, which that hotkey "
+            "spends under the deposit's daily spend cap. Omit to credit its balance, which its "
+            "coldkey must deposit first."
+        },
+    )
+
+    def __post_init__(self):
+        self.amount_gamma = gamma_amount(self.amount_gamma)
+        if gamma_units(self.amount_gamma) < MIN_GAMMA_AMOUNT:
+            raise BittensorError("transfer_gamma: the amount must be at least 0.1 gamma")
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.transfer_gamma(
+                destination_coldkey=self.dest_coldkey_ss58,
+                netuid=self.netuid,
+                amount=gamma_units(self.amount_gamma),
+                origin_hotkey=self.origin_hotkey_ss58,
+                destination_hotkey=self.destination_hotkey_ss58,
+            )
+        )
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        if (
+            self.dest_coldkey_ss58 == signer_address
+            and self.origin_hotkey_ss58 == self.destination_hotkey_ss58
+        ):
+            return ["the source and the destination are the same"]
+        amount = gamma_units(self.amount_gamma)
+        if self.origin_hotkey_ss58 is None:
+            available = await _balance(substrate, self.netuid, signer_address)
+            source = f"your gamma balance on netuid {self.netuid}"
+            blocks = _amount_blocks(amount, available, source)
+        else:
+            deposit = await _deposit(substrate, self.netuid, self.origin_hotkey_ss58)
+            blocks = _own_deposit_blocks(deposit, signer_address, self.origin_hotkey_ss58)
+            if not blocks and deposit is not None:
+                source = f"the gamma deposit at {self.origin_hotkey_ss58}"
+                blocks = _amount_blocks(amount, int(deposit["balance"]), source)
+        if self.destination_hotkey_ss58 is not None:
+            destination = await _deposit(substrate, self.netuid, self.destination_hotkey_ss58)
+            if destination is None:
+                blocks.append(
+                    f"there is no gamma deposit at {self.destination_hotkey_ss58} on this "
+                    "subnet; a transfer never opens one"
+                )
+            elif str(destination["coldkey"]) != self.dest_coldkey_ss58:
+                blocks.append(
+                    f"the gamma deposit at {self.destination_hotkey_ss58} does not belong to "
+                    f"{self.dest_coldkey_ss58}"
+                )
+        return blocks
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        warnings = []
+        if self.origin_hotkey_ss58 is not None:
+            deposit = await _deposit(substrate, self.netuid, self.origin_hotkey_ss58)
+            if deposit is not None and gamma_units(self.amount_gamma) == int(deposit["balance"]):
+                warnings.append(f"sends the entire deposit, which closes it{_drops_cap(deposit)}")
+        if self.destination_hotkey_ss58 is not None:
+            return warnings
+        dest = self.dest_coldkey_ss58
+        is_hotkey, deposit = await asyncio.gather(
+            _new_deposit_blocks(substrate, dest, dest),
+            _deposit(substrate, self.netuid, dest),
+        )
+        if is_hotkey or (deposit is not None and str(deposit["coldkey"]) != dest):
+            warning = f"{dest} is a hotkey: the gamma goes to a balance only its key can move"
+            if deposit is not None:
+                warning += (
+                    f". To credit its deposit, send to {deposit['coldkey']} with {dest} as the "
+                    "destination hotkey"
+                )
+            warnings.append(warning)
+        return warnings
+
+    def summary(self) -> str:
+        source = (
+            f"your deposit at {self.origin_hotkey_ss58}"
+            if self.origin_hotkey_ss58 is not None
+            else "your balance"
+        )
+        target = (
+            f"the deposit {self.dest_coldkey_ss58} holds at {self.destination_hotkey_ss58}"
+            if self.destination_hotkey_ss58 is not None
+            else f"the balance of {self.dest_coldkey_ss58}"
+        )
+        return f"send {self.amount_gamma} gamma on netuid {self.netuid} from {source} to {target}"
+
+    def spend(self) -> Spend:
+        # Gives the gamma away; not TAO-denominated, so a spend cap must block it until raised.
+        return UNBOUNDED

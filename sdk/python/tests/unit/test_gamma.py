@@ -36,6 +36,7 @@ MINT_STAKE = {
 MOVE = {"netuid": 1, "origin_hotkey_ss58": ALICE_HOT, "destination_hotkey_ss58": BOB_HOT}
 DEPOSIT = {"netuid": 1, "hotkey_ss58": BOB_HOT}
 SPEND = {"netuid": 1, "service_hotkey_ss58": ALICE_HOT, "amount_gamma": "0.5"}
+TRANSFER = {"netuid": 1, "dest_coldkey_ss58": BOB, "amount_gamma": 1}
 SIGNER = ALICE_HOT  # any account, as the dispatch origin
 GAMMA_DISABLED = {"Module": {"index": 7, "error": "0xc0000000"}}
 
@@ -84,6 +85,19 @@ class TestAmounts:
         ("set_gamma_deposit_daily_spend_cap", {**DEPOSIT, "remove_cap": True},
             {"hotkey": BOB_HOT, "netuid": 1, "daily_spend_cap": None}),
         ("spend_gamma", SPEND, {"service": ALICE_HOT, "netuid": 1, "amount": RAO // 2}),
+        ("deposit_gamma", {**DEPOSIT, "amount_gamma": "1.5"},
+            {"hotkey": BOB_HOT, "netuid": 1, "amount": 1_500_000_000}),
+        ("deposit_gamma", {**DEPOSIT, "amount_gamma": "all"},
+            {"hotkey": BOB_HOT, "netuid": 1, "amount": 2**64 - 1}),
+        ("withdraw_gamma", {**DEPOSIT, "amount_gamma": "all"},
+            {"hotkey": BOB_HOT, "netuid": 1, "amount": 2**64 - 1}),
+        ("transfer_gamma", {"netuid": 1, "dest_coldkey_ss58": BOB, "amount_gamma": 2},
+            {"destination_coldkey": BOB, "netuid": 1, "amount": 2 * RAO, "origin_hotkey": None,
+             "destination_hotkey": None}),
+        ("transfer_gamma", {"netuid": 1, "dest_coldkey_ss58": BOB, "amount_gamma": 2,
+            "origin_hotkey_ss58": ALICE_HOT, "destination_hotkey_ss58": BOB_HOT},
+            {"destination_coldkey": BOB, "netuid": 1, "amount": 2 * RAO,
+             "origin_hotkey": ALICE_HOT, "destination_hotkey": BOB_HOT}),
     ],
 )  # fmt: skip
 @pytest.mark.asyncio
@@ -145,6 +159,8 @@ class TestMintWithStake:
         [
             ("mint_gamma_with_stake", MINT_STAKE),
             ("move_gamma", {**MOVE, "amount_gamma": 1}),
+            ("deposit_gamma", {**DEPOSIT, "amount_gamma": 1}),
+            ("transfer_gamma", TRANSFER),
         ],
     )
     def test_spend_is_unbounded(self, op, args):
@@ -302,6 +318,14 @@ class TestGammaReads:
             for service in (ALICE_HOT, BOB_HOT)
         ]
         assert spent == ["3.000000001", "0"]
+
+    def test_balances_read(self):
+        sub = FakeSubstrate()
+        sub.seed_runtime("GammaRuntimeApi", "get_gamma_balances", [(1, 1_500_000_000)])
+        gamma = Client("local", substrate=sub).gamma
+        assert asyncio.run(gamma.gamma_balances(coldkey_ss58=ALICE)) == [
+            {"netuid": 1, "balance_gamma": "1.5"}
+        ]
 
 
 class TestMintPreview:
@@ -554,6 +578,114 @@ class TestDepositPreviews:
         with pytest.raises(BittensorError, match="above 0"):
             build("spend_gamma", {**SPEND, "amount_gamma": 0})
 
+    @pytest.mark.parametrize(
+        ("deposit", "blocked"),
+        [(None, False), (_deposit(), False), (_deposit(coldkey=BOB_HOT), True)],
+        ids=["new", "own", "foreign"],
+    )
+    @pytest.mark.asyncio
+    async def test_deposit_credits_only_an_own_or_new_deposit(self, deposit, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaBalances", [1, SIGNER], RAO)
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
+        intent = build("deposit_gamma", {**DEPOSIT, "amount_gamma": 1})
+        assert bool(await intent.blocks(sub, SIGNER)) is blocked
+
+    @pytest.mark.parametrize(
+        ("balance", "amount", "blocked"),
+        [
+            (None, "all", True),
+            (RAO, "all", False),
+            (RAO, 0.9, False),
+            (RAO, 2, False),
+            (RAO, 0.95, True),
+        ],
+        ids=["empty", "all", "part", "above", "dust"],
+    )
+    @pytest.mark.asyncio
+    async def test_deposit_takes_up_to_the_balance(self, balance, amount, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaBalances", [1, SIGNER], balance)
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit())
+        intent = build("deposit_gamma", {**DEPOSIT, "amount_gamma": amount})
+        assert bool(await intent.blocks(sub, SIGNER)) is blocked
+
+    @pytest.mark.parametrize(
+        ("deposit", "amount", "blocked"),
+        [(None, "all", True), (_deposit(coldkey=BOB_HOT, balance=RAO), "all", True),
+         (_deposit(), "all", True), (_deposit(balance=RAO), "all", False),
+         (_deposit(balance=RAO), 2, False), (_deposit(balance=RAO), 0.95, True)],
+        ids=["missing", "foreign", "empty", "all", "above", "dust"],
+    )  # fmt: skip
+    @pytest.mark.asyncio
+    async def test_withdraw_takes_up_to_an_own_deposit(self, deposit, amount, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
+        intent = build("withdraw_gamma", {**DEPOSIT, "amount_gamma": amount})
+        assert bool(await intent.blocks(sub, SIGNER)) is blocked
+
+    @pytest.mark.parametrize(
+        ("args", "blocked"),
+        [({}, False), ({"amount_gamma": 2}, True),
+         ({"origin_hotkey_ss58": ALICE_HOT}, False),
+         ({"origin_hotkey_ss58": BOB_HOT}, True),
+         ({"destination_hotkey_ss58": BOB_HOT}, False),
+         ({"destination_hotkey_ss58": ALICE_HOT}, True),
+         ({"destination_hotkey_ss58": ALICE}, True),
+         ({"dest_coldkey_ss58": SIGNER}, True)],
+        ids=["balance", "short", "own-deposit", "foreign-deposit", "receivers-deposit",
+             "not-receivers-deposit", "no-deposit", "same"],
+    )  # fmt: skip
+    @pytest.mark.asyncio
+    async def test_transfer_sends_from_own_and_to_the_receivers(self, args, blocked):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "GammaBalances", [1, SIGNER], RAO)
+        sub.seed("SubtensorModule", "GammaDeposits", [1, ALICE_HOT], _deposit(balance=RAO))
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], _deposit(coldkey=BOB))
+        intent = build("transfer_gamma", {**TRANSFER, **args})
+        assert bool(await intent.blocks(sub, SIGNER)) is blocked
+
+    @pytest.mark.parametrize(
+        ("owner", "deposit", "warned"),
+        [
+            (None, None, False),
+            (SIGNER, None, True),
+            (None, _deposit(), True),
+            (BOB, _deposit(coldkey=BOB), False),
+        ],
+        ids=["coldkey", "hotkey", "gamma-key", "own-address"],
+    )
+    @pytest.mark.asyncio
+    async def test_transfer_warns_when_the_receiver_is_a_hotkey(self, owner, deposit, warned):
+        sub = FakeSubstrate()
+        sub.seed("SubtensorModule", "Owner", [BOB], owner)
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB], deposit)
+        warnings = await build("transfer_gamma", TRANSFER).warnings(sub, SIGNER)
+        assert bool(warnings) is warned
+        # Only a deposit there can be credited instead, through its coldkey.
+        assert ("send to" in " ".join(warnings)) is (warned and deposit is not None)
+
+    @pytest.mark.parametrize("op", ["withdraw_gamma", "transfer_gamma"])
+    @pytest.mark.parametrize("amount", [1, 0.5])
+    @pytest.mark.asyncio
+    async def test_withdraw_and_transfer_warn_when_they_empty_the_deposit(self, op, amount):
+        sub = FakeSubstrate()
+        deposit = _deposit(balance=RAO, daily_spend_cap=RAO)
+        sub.seed("SubtensorModule", "GammaDeposits", [1, BOB_HOT], deposit)
+        source = DEPOSIT if op == "withdraw_gamma" else {**TRANSFER, "origin_hotkey_ss58": BOB_HOT}
+        warnings = await build(op, {**source, "amount_gamma": amount}).warnings(sub, SIGNER)
+        assert ("closes it and drops its daily spend cap" in " ".join(warnings)) is (amount == 1)
+
+    @pytest.mark.parametrize(
+        ("op", "amount"),
+        [("deposit_gamma", 0), ("withdraw_gamma", 0), ("transfer_gamma", "0.099999999"),
+         ("transfer_gamma", "all")],
+    )  # fmt: skip
+    def test_calls_refuse_too_little_and_a_transfer_all(self, op, amount):
+        args = TRANSFER if op == "transfer_gamma" else DEPOSIT
+        with pytest.raises(BittensorError):
+            build(op, {**args, "amount_gamma": amount})
+
 
 PAID = {"event": {"module_id": "TransactionPayment", "event_id": "TransactionFeePaid"}}
 APPROVAL = {"event": {"module_id": "Multisig", "event_id": "MultisigApproval"}}
@@ -643,6 +775,8 @@ class TestCli:
         "mint_gamma_with_stake",
         "close_gamma_deposit",
         "set_gamma_deposit_daily_spend_cap",
+        "deposit_gamma",
+        "withdraw_gamma",
     ],
 )
 def test_deposit_hotkey_never_defaults_to_the_wallets(fake, op):  # noqa: F811
@@ -661,12 +795,30 @@ def test_deposit_hotkey_never_defaults_to_the_wallets(fake, op):  # noqa: F811
             "amount_gamma", "all"),
         (["mint-with-stake", "--hotkey", BOB_HOT, "--origin-hotkey", ALICE_HOT, "--all"],
             "amount_alpha", "all"),
+        (["withdraw", "--hotkey", ALICE_HOT, "--all"], "amount_gamma", "all"),
+        (["deposit", "--hotkey", BOB_HOT, "--amount", "0.5"], "amount_gamma", "0.5"),
+        (["deposit", "--hotkey", BOB_HOT, "--all"], "amount_gamma", "all"),
+        (["transfer", "--dest-coldkey", BOB, "--origin-hotkey", ALICE_HOT, "--amount", "0.5"],
+            "origin_hotkey_ss58", ALICE_HOT),
     ],
 )  # fmt: skip
 def test_amount_flags(fake, argv, field, value):  # noqa: F811
     result = invoke("--json", "--dry-run", "gamma", *argv, "--netuid", "1", "-w", _WALLET_NAME)
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["args"][field] == value
+
+
+def test_list_shows_deposits_and_balances(fake):  # noqa: F811
+    fake.seed_runtime("GammaRuntimeApi", "get_gamma_deposits_for_coldkey", [])
+    fake.seed_runtime("GammaRuntimeApi", "get_gamma_balances", [(1, 1_500_000_000)])
+    result = invoke("gamma", "list", "--coldkey", ALICE)
+    assert result.exit_code == 0, result.output
+    assert "gamma balances" in result.output and "1.5" in result.output
+    result = invoke("--json", "gamma", "list", "--coldkey", ALICE)
+    assert json.loads(result.output) == {
+        "deposits": [],
+        "balances": [{"netuid": 1, "balance_gamma": "1.5"}],
+    }
 
 
 def test_unmintable_mint_submits_nothing(fake, monkeypatch):  # noqa: F811

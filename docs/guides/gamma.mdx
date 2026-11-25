@@ -26,12 +26,14 @@ There is only one deposit per `(netuid, hotkey)`. If another coldkey has already
 opened that slot, use another API key; staking ownership does not grant control
 over the existing deposit.
 
-Gamma cannot be transferred to another coldkey or converted back into alpha or
-TAO. Amounts are in gamma, with 10^9 units per gamma.
+A coldkey can also hold gamma on no hotkey, as its **balance** on a subnet, and
+send it to other coldkeys (see [Balances and transfers](#balances-and-transfers)).
+Gamma cannot be converted back into alpha or TAO. Amounts are in gamma, with
+10^9 units per gamma.
 
 | Role | Can |
 |---|---|
-| Coldkey | mint into its deposits, move gamma between them, set each deposit's daily spend cap, close empty deposits |
+| Coldkey | mint into its deposits, move gamma between them and its balance, send gamma to other coldkeys, set each deposit's daily spend cap, close empty deposits |
 | Hotkey | spend its deposit at the subnet's services, without a fee; sign requests to them |
 | Validator or subnet owner hotkey | publish a [service](/docs/guides/services) on its subnet, signed by its coldkey |
 | Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); pay shares of its subnet's emission into other subnets' gamma |
@@ -100,12 +102,13 @@ can still be spent, moved and closed. A mint also fails with
 subtoken is not enabled, and with
 [`SlippageTooHigh`](/docs/errors/chain/SlippageTooHigh) below its minimum. A TAO
 mint above the add-stake swap input limit fails with
-[`InsufficientLiquidity`](/docs/errors/chain/InsufficientLiquidity). Minting or
-moving into a hotkey whose deposit belongs to another coldkey fails with
-[`NonAssociatedColdKey`](/docs/errors/chain/NonAssociatedColdKey).
+[`InsufficientLiquidity`](/docs/errors/chain/InsufficientLiquidity). Minting,
+moving or depositing into a hotkey whose deposit belongs to another coldkey
+fails with [`NonAssociatedColdKey`](/docs/errors/chain/NonAssociatedColdKey).
 
-Through a proxy, minting, moving and setting a deposit's daily spend cap need an
-`Any` or `NonCritical` proxy, and closing it also takes a `NonTransfer` proxy.
+Through a proxy, minting, moving, depositing, withdrawing, sending and setting a
+deposit's daily spend cap need an `Any` or `NonCritical` proxy. Closing a
+deposit also takes a `NonTransfer` proxy.
 
 ## Deposits and API keys
 
@@ -120,7 +123,7 @@ btcli gamma list
 btcli gamma show --netuid 1 --hotkey API_KEY
 ```
 
-To give someone gamma, open a deposit with their hotkey. The deposit stays
+To let someone spend your gamma, open a deposit with their hotkey. The deposit stays
 yours: move the gamma back at any time.
 
 ```bash
@@ -136,6 +139,52 @@ until it is closed with [`close-gamma-deposit`](/docs/tx/close-gamma-deposit):
 ```bash
 btcli gamma close --netuid 1 --hotkey API_KEY
 ```
+
+## Balances and transfers
+
+A coldkey's **balance** on a subnet is gamma it holds on no hotkey. No key can
+spend it until it is moved to a deposit, but it can be sent to other coldkeys.
+[`withdraw-gamma`](/docs/tx/withdraw-gamma) moves up to an amount from a
+deposit to the balance, and a withdrawal that empties the deposit closes it.
+[`deposit-gamma`](/docs/tx/deposit-gamma) moves up to an amount from the
+balance to a deposit. A hotkey with no deposit opens one with no daily spend
+cap.
+
+```bash
+btcli gamma withdraw --netuid 1 --hotkey API_KEY --amount-gamma 5
+btcli gamma deposit --netuid 1 --hotkey OTHER_API_KEY --all
+btcli gamma list
+```
+
+[`transfer-gamma`](/docs/tx/transfer-gamma) sends an exact amount to another
+coldkey. It comes from the signer's balance, or from its deposit at
+`--origin-hotkey`, and goes to the deposit the receiver already holds at
+`--destination-hotkey`, which that hotkey can spend at once and which keeps its
+daily spend cap. Without it, the gamma goes to the receiver's balance, which no
+key can spend until the receiver's coldkey deposits it, so name a deposit when
+the receiver has one. A transfer never opens a deposit, so a receiver who wants top-ups at a key
+opens one there first, with `deposit` or `mint`. Sending to a hotkey's address
+puts the gamma in a balance only that address's key can move.
+
+```bash
+btcli gamma transfer --netuid 1 --dest-coldkey THEIR_COLDKEY --origin-hotkey API_KEY \
+  --destination-hotkey THEIR_API_KEY --amount-gamma 5
+btcli gamma transfer --netuid 1 --dest-coldkey THEIR_COLDKEY --amount-gamma 5
+```
+
+```python
+await client.execute(bt.WithdrawGamma(netuid=1, hotkey_ss58=api_key, amount_gamma=5), wallet)
+await client.execute(
+    bt.TransferGamma(netuid=1, dest_coldkey_ss58=their_coldkey, amount_gamma=5), wallet
+)
+balances = await client.gamma.gamma_balances(coldkey_ss58=wallet.coldkeypub.ss58_address)
+```
+
+An amount is the whole source, or at least 0.1 gamma leaving at least as much.
+A transfer takes exactly the amount given, at least 0.1 gamma, so it has no
+`--all`. These calls
+work while gamma is off. A transfer is not a payment to a service: only a
+hotkey's spend is.
 
 ## Daily spend caps
 
@@ -189,11 +238,11 @@ btcli gamma mint --netuid 3 --hotkey OWNER_HOTKEY --amount-tao 1 --daily-spend-c
 ```
 
 The cap belongs to the deposit, not to the hotkey. The chain removes a deposit
-when its coldkey closes it, moves its whole balance to another hotkey, or swaps
-its hotkey while it holds gamma. If gamma emission credits the same hotkey after
+when its coldkey closes it, moves, withdraws or sends its whole balance, or
+swaps its hotkey while it holds gamma. If gamma emission credits the same hotkey after
 that, it opens a new deposit **without a cap**. Before runtime 495 that deposit
 opened paused. To keep a cap or a pause on the owner hotkey, do not close its
-deposit and do not move its whole balance out.
+deposit and do not move, withdraw or send its whole balance.
 
 Gamma emission credits the owner hotkey of the subnet that pays the share. A
 hotkey swap on the target subnet only moves the deposit to the new hotkey, but
@@ -263,8 +312,10 @@ btcli query tao-usd-price
   stays under it. A deposit another coldkey holds at the old hotkey stays, and
   the old hotkey can still spend it; if that hotkey leaked, that coldkey moves
   the deposit or sets its daily spend cap to 0.
-- A coldkey swap adds the coldkey's deposits to the new coldkey's. It fails if
-  the new coldkey would hold more than 64 on a subnet, and is refused when the
-  two coldkeys hold more than 128 together.
+- A coldkey swap adds the coldkey's deposits and balances to the new coldkey's.
+  It fails if the new coldkey would hold more than 64 deposits on a subnet, and
+  is refused when the two coldkeys hold more than 128 together. A deposit at the
+  coldkey's own address keeps that address as its key, so move it to another
+  hotkey before announcing the swap.
 - The oracle is trusted: its accepted price can rise at most about 61% per day,
   until root replaces or removes it.

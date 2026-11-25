@@ -2545,7 +2545,8 @@ fn test_do_swap_coldkey_migrates_gamma_deposits() {
     });
 }
 
-// Gamma deposits merge into the new coldkey's, up to `MAX_GAMMA_DEPOSITS` per subnet.
+// Gamma deposits merge into the new coldkey's, up to `MAX_GAMMA_DEPOSITS` per subnet, and
+// gamma balances add up.
 #[test]
 fn test_do_swap_coldkey_merges_gamma_deposits() {
     new_test_ext(1).execute_with(|| {
@@ -2554,6 +2555,8 @@ fn test_do_swap_coldkey_merges_gamma_deposits() {
         let held = 200..200 + u64::from(MAX_GAMMA_DEPOSITS) - 1;
         seed_gamma_deposits(netuid, old_coldkey, 100..102);
         seed_gamma_deposits(netuid, new_coldkey, held.clone());
+        GammaBalances::<Test>::insert(netuid, old_coldkey, GammaBalance::from(3u64));
+        GammaBalances::<Test>::insert(netuid, new_coldkey, GammaBalance::from(4u64));
         assert_noop!(
             SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
             Error::<Test>::TooManyGammaDeposits
@@ -2575,6 +2578,11 @@ fn test_do_swap_coldkey_merges_gamma_deposits() {
         assert_eq!(
             GammaDeposits::<Test>::get(netuid, U256::from(100)).map(|deposit| deposit.coldkey),
             Some(new_coldkey)
+        );
+        assert!(!GammaBalances::<Test>::contains_key(netuid, old_coldkey));
+        assert_eq!(
+            GammaBalances::<Test>::get(netuid, new_coldkey),
+            GammaBalance::from(7u64)
         );
     });
 }

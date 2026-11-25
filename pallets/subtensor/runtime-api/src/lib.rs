@@ -176,7 +176,7 @@ sp_api::decl_runtime_apis! {
         fn get_root_basket_claim_previews(coldkey: AccountId32) -> Vec<BasketClaimPreview<AccountId32>>;
     }
 
-    #[api_version(2)]
+    #[api_version(3)]
     pub trait GammaRuntimeApi {
         /// The deposit at a hotkey on a subnet, and what its hotkey can spend from it now.
         fn get_gamma_deposit(netuid: NetUid, hotkey: AccountId32) -> Option<GammaDepositInfo<AccountId32>>;
@@ -186,5 +186,7 @@ sp_api::decl_runtime_apis! {
         fn sim_mint_gamma(netuid: NetUid, amount: TaoBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError>;
         /// `alpha_amount` and the TAO value and gamma of burning it now, or the error that stops it; it reads no stake.
         fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), DispatchError>;
+        /// The gamma a coldkey holds on no hotkey, on every subnet where it holds some.
+        fn get_gamma_balances(coldkey: AccountId32) -> Vec<(NetUid, GammaBalance)>;
     }
 }

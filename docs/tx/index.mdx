@@ -105,6 +105,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`commit-weight-hash`](/docs/tx/commit-weight-hash) | hotkey | signed account (pallet role may apply) | Submit a legacy salt-based weight hash for one subnet mechanism. |
 | [`commit-weights`](/docs/tx/commit-weights) | hotkey | signed account (pallet role may apply) | Timelock-encrypt and commit weights, forcing the commit-reveal path. |
 | [`decrease-take`](/docs/tx/decrease-take) | coldkey | signed account (pallet role may apply) | Decrease the delegate take of a hotkey. |
+| [`deposit-gamma`](/docs/tx/deposit-gamma) | coldkey | signed account (pallet role may apply) | Move gamma from your balance on a subnet to your deposit at a hotkey. |
 | [`dispute-coldkey-swap`](/docs/tx/dispute-coldkey-swap) | coldkey | signed account (pallet role may apply) | Freeze this coldkey entirely until root resolves the dispute. |
 | [`increase-take`](/docs/tx/increase-take) | coldkey | signed account (pallet role may apply) | Increase the delegate take of a hotkey. |
 | [`lock-stake`](/docs/tx/lock-stake) | coldkey | signed account (pallet role may apply) | Lock alpha stake on a subnet, building conviction toward a hotkey. |
@@ -151,10 +152,12 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`swap-hotkey`](/docs/tx/swap-hotkey) | coldkey | signed account (pallet role may apply) | Swap a hotkey for a new one (all subnets, or one netuid). |
 | [`swap-stake`](/docs/tx/swap-stake) | coldkey | signed account (pallet role may apply) | Swap stake on one hotkey between two subnets. |
 | [`terminate-lease`](/docs/tx/terminate-lease) | coldkey | signed account (pallet role may apply) | Terminate an ended lease and take subnet ownership (beneficiary only). |
+| [`transfer-gamma`](/docs/tx/transfer-gamma) | coldkey | signed account (pallet role may apply) | Send gamma on a subnet to another coldkey. |
 | [`transfer-stake`](/docs/tx/transfer-stake) | coldkey | signed account (pallet role may apply) | Transfer stake ownership to another coldkey. |
 | [`unstake-all`](/docs/tx/unstake-all) | coldkey | signed account (pallet role may apply) | Unstake everything from a hotkey across all subnets. |
 | [`unstake-all-alpha`](/docs/tx/unstake-all-alpha) | coldkey | signed account (pallet role may apply) | Unstake all alpha from a hotkey across subnets (moves it to root). |
 | [`update-symbol`](/docs/tx/update-symbol) | coldkey | subnet owner | Update a subnet's symbol (from the chain's fixed catalog). |
+| [`withdraw-gamma`](/docs/tx/withdraw-gamma) | coldkey | signed account (pallet role may apply) | Move gamma from your deposit at a hotkey to your balance on its subnet. |
 
 ## Utility
 

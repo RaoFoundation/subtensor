@@ -895,9 +895,9 @@
         "pallet": "SubtensorModule",
         "call": "commit_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3348,
-        "end_line": 3356,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3346-L3356",
+        "line": 3400,
+        "end_line": 3408,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3398-L3408",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -984,9 +984,9 @@
         "pallet": "SubtensorModule",
         "call": "commit_timelocked_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3386,
-        "end_line": 3404,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3384-L3404",
+        "line": 3438,
+        "end_line": 3456,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3436-L3456",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1269,6 +1269,73 @@
         "line": 491,
         "end_line": 497,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L489-L497",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "deposit_gamma",
+    "summary": "Move gamma from your balance on a subnet to your deposit at a hotkey.",
+    "description": "Move gamma from your balance on a subnet to your deposit at a hotkey.\n\nMoves up to `amount_gamma` (`all` for the whole balance) from your\ncoldkey's gamma balance, the gamma it holds on no hotkey, to the deposit at\n`hotkey_ss58`: the whole balance, or at least 0.1 gamma leaving at least\nas much. A hotkey with no deposit opens one with no daily spend cap.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "deposit_gamma"
+      ]
+    ],
+    "docs_url": "/docs/tx/deposit-gamma",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the balance and the deposit."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit credited."
+        },
+        "amount_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "Gamma moved."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58",
+        "amount_gamma"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx deposit-gamma --netuid <int> --hotkey <ss58|name> --amount-gamma <amount|all>",
+    "python_class": "DepositGamma",
+    "markdown_url": "/llms.mdx/docs/tx/deposit-gamma/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "deposit_gamma",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3296,
+        "end_line": 3303,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3294-L3303",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3410,9 +3477,9 @@
         "pallet": "SubtensorModule",
         "call": "reveal_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3361,
-        "end_line": 3381,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3359-L3381",
+        "line": 3413,
+        "end_line": 3433,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3411-L3433",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4686,9 +4753,9 @@
         "pallet": "SubtensorModule",
         "call": "set_mech_weight_delegate",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3309,
-        "end_line": 3316,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3307-L3316",
+        "line": 3361,
+        "end_line": 3368,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3359-L3368",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5030,9 +5097,9 @@
         "pallet": "SubtensorModule",
         "call": "set_service",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3297,
-        "end_line": 3304,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3295-L3304",
+        "line": 3349,
+        "end_line": 3356,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3347-L3356",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -5448,18 +5515,18 @@
         "pallet": "SubtensorModule",
         "call": "set_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3321,
-        "end_line": 3343,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3319-L3343",
+        "line": 3373,
+        "end_line": 3395,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3371-L3395",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "commit_timelocked_mechanism_weights_for",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 3386,
-        "end_line": 3404,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3384-L3404",
+        "line": 3438,
+        "end_line": 3456,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3436-L3456",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -6170,6 +6237,75 @@
     "markdown_url": "/llms.mdx/docs/tx/transfer-all/content.md"
   },
   {
+    "name": "transfer_gamma",
+    "summary": "Send gamma on a subnet to another coldkey.",
+    "description": "Send gamma on a subnet to another coldkey.\n\nSends exactly `amount_gamma` from your gamma balance, or your deposit at\n`origin_hotkey_ss58`, to the gamma balance of `dest_coldkey_ss58`, or\nthe deposit it already holds at `destination_hotkey_ss58`. The amount is\nat least 0.1 gamma, leaving none or at least as much. A\ntransfer never opens a deposit, and one that empties your deposit closes it.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "transfer_gamma"
+      ]
+    ],
+    "docs_url": "/docs/tx/transfer-gamma",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the gamma."
+        },
+        "dest_coldkey_ss58": {
+          "type": "string",
+          "description": "Coldkey receiving the gamma."
+        },
+        "amount_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Gamma sent."
+        },
+        "origin_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of your deposit to send from. Omit to send from your balance."
+        },
+        "destination_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the receiver's existing deposit to credit, which that hotkey spends under the deposit's daily spend cap. Omit to credit its balance, which its coldkey must deposit first."
+        }
+      },
+      "required": [
+        "netuid",
+        "dest_coldkey_ss58",
+        "amount_gamma"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx transfer-gamma --netuid <int> --dest-coldkey <ss58|name> --amount-gamma <amount>",
+    "python_class": "TransferGamma",
+    "markdown_url": "/llms.mdx/docs/tx/transfer-gamma/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "transfer_gamma",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3325,
+        "end_line": 3341,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3323-L3341",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
     "name": "transfer_stake",
     "summary": "Transfer stake ownership to another coldkey.",
     "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey by default; pass a destination\nhotkey to re-delegate it in the same call (dispatched as\n`transfer_stake_and_hotkey`).\n\nConviction locks: a lock is a coldkey-wide floor (stake hotkey and lock\nhotkey may differ). Amounts at or below free (unlocked) alpha transfer\nwithout moving the lock. Amounts above free pull locked mass with the\nstake \u2014 that locked portion must land on the **receiver's** existing lock\nhotkey or the call fails with `LockHotkeyMismatch`. Fix: keep\n`hotkey_ss58` as the hotkey that holds the stake and set\n`dest_hotkey_ss58` to the receiver's lock hotkey (see `btcli stake\nlist` / `btcli conviction show`). Pulling from the lock hotkey when the stake\nstill sits elsewhere fails with `NotEnoughStakeToWithdraw`. See the\nconviction guide's \"Transferring locked stake\" section.\n\nIt can also land on a different subnet, swapping through both pools (with\nslippage) when the netuids differ. Fails with `TransferDisallowed` when\nthe subnet owner has disabled stake transfers on the origin or destination\nsubnet. A spend-cap policy treats this as an unbounded spend and blocks it\nuntil the cap is raised. Use `move_stake` to re-delegate without changing\nowners. Pass `all` to hand over the entire origin position; on chain\n(spec 469+) `alpha_amount = u64::MAX` means the same and is resolved\nagainst the live position at execution, so a figure copied from a\n`StakeAdded` event \u2014 which can read one rao above the position \u2014 is not\nneeded. A call that fails is charged the work it did, not its declared\nweight.",
@@ -6716,6 +6852,73 @@
         "end_line": 594,
         "url": "/code/pallets/crowdloan/src/lib.rs#L548-L594",
         "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "withdraw_gamma",
+    "summary": "Move gamma from your deposit at a hotkey to your balance on its subnet.",
+    "description": "Move gamma from your deposit at a hotkey to your balance on its subnet.\n\nMoves up to `amount_gamma` (`all` for the whole deposit) from the\ndeposit at `hotkey_ss58` to your coldkey's gamma balance: the whole\ndeposit, or at least 0.1 gamma leaving at least as much. A withdrawal that\nempties the deposit closes it.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "withdraw_gamma"
+      ]
+    ],
+    "docs_url": "/docs/tx/withdraw-gamma",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the deposit and the balance."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey of the deposit withdrawn from."
+        },
+        "amount_gamma": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "Gamma withdrawn."
+        }
+      },
+      "required": [
+        "netuid",
+        "hotkey_ss58",
+        "amount_gamma"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx withdraw-gamma --netuid <int> --hotkey <ss58|name> --amount-gamma <amount|all>",
+    "python_class": "WithdrawGamma",
+    "markdown_url": "/llms.mdx/docs/tx/withdraw-gamma/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "withdraw_gamma",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 3310,
+        "end_line": 3317,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3308-L3317",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   }

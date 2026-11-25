@@ -34,6 +34,7 @@
     "epoch-status",
     "next-epoch-start-block",
     "---Gamma---",
+    "gamma-balances",
     "gamma-deposit",
     "gamma-deposits",
     "gamma-spent",

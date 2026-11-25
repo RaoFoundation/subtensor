@@ -485,7 +485,7 @@ mod errors {
         GammaDepositDailySpendCapMismatch,
         /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
         NotGammaDepositSpender,
-        /// The gamma deposit's balance is below the amount.
+        /// The gamma deposit's balance, or the coldkey's gamma balance, is below the amount.
         InsufficientGammaBalance,
         /// The amount is above what the gamma deposit's daily spend cap allows now.
         GammaDepositDailySpendCapExceeded,

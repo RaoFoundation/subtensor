@@ -33,11 +33,14 @@ from .emission_weights import SetSubnetEmissionWeights
 from .evm import EvmWithdraw, FundEvmKey
 from .gamma import (
     CloseGammaDeposit,
+    DepositGamma,
     MintGamma,
     MintGammaWithStake,
     MoveGamma,
     SetGammaDepositDailySpendCap,
     SpendGamma,
+    TransferGamma,
+    WithdrawGamma,
 )
 from .governance import (
     SetMechanismCount,
@@ -143,6 +146,7 @@ __all__ = [
     "CreateCrowdloan",
     "CreatePureProxy",
     "DecreaseTake",
+    "DepositGamma",
     "DisputeColdkeySwap",
     "DissolveCrowdloan",
     "EvmWithdraw",
@@ -222,6 +226,7 @@ __all__ = [
     "TerminateLease",
     "Transfer",
     "TransferAll",
+    "TransferGamma",
     "TransferStake",
     "TrimNullSubnetBatch",
     "TrimSubnet",
@@ -232,6 +237,7 @@ __all__ = [
     "UpdateCrowdloanMinContribution",
     "UpdateSymbol",
     "WithdrawCrowdloan",
+    "WithdrawGamma",
     "build",
     "list_tools",
     "normalize",

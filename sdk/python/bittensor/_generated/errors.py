@@ -239,7 +239,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 196): ErrorInfo('SubtensorModule', 'GammaDepositSpenderMismatch', 'Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.'),
     (7, 197): ErrorInfo('SubtensorModule', 'GammaDepositDailySpendCapMismatch', "A mint named a daily spend cap other than its gamma deposit's."),
     (7, 198): ErrorInfo('SubtensorModule', 'NotGammaDepositSpender', 'Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.'),
-    (7, 199): ErrorInfo('SubtensorModule', 'InsufficientGammaBalance', "The gamma deposit's balance is below the amount."),
+    (7, 199): ErrorInfo('SubtensorModule', 'InsufficientGammaBalance', "The gamma deposit's balance, or the coldkey's gamma balance, is below the amount."),
     (7, 200): ErrorInfo('SubtensorModule', 'GammaDepositDailySpendCapExceeded', "The amount is above what the gamma deposit's daily spend cap allows now."),
     (7, 201): ErrorInfo('SubtensorModule', 'BurnRecycleEmissionAboveMaximum', '`set_subnet_emission_weights`: burn (slot 0) and recycle (slot 1) together may be at most 33% of emission.'),
     (7, 202): ErrorInfo('SubtensorModule', 'EmissionSlotsNotAscending', "`set_subnet_emission_weights_v2`: the split's slots are not in strictly ascending order."),

@@ -65,6 +65,17 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// The balance `coldkey` holds on every subnet where it has one.
+    pub fn get_gamma_balances(coldkey: &T::AccountId) -> Vec<(NetUid, GammaBalance)> {
+        Self::get_all_subnet_netuids()
+            .into_iter()
+            .filter_map(|netuid| {
+                let balance = GammaBalances::<T>::get(netuid, coldkey);
+                (!balance.is_zero()).then_some((netuid, balance))
+            })
+            .collect()
+    }
+
     /// The alpha burned, TAO value and gamma `mint_gamma` would mint for `amount` now, or the
     /// error that stops it.
     pub fn sim_mint_gamma(
