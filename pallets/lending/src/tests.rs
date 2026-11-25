@@ -1737,6 +1737,36 @@ fn dissolution_invalidates_prune_floor_in_constant_time() {
     });
 }
 
+#[test]
+fn prune_floor_refresh_weight_charges_trie_witness_not_64b_guess() {
+    // Fallback path: 8 reads/subnet. Proof must cover MaxEncodedLen of the
+    // real keys plus trie-path overhead — far above a 64-byte-per-read guess.
+    let n = 4u64;
+    let w = Lending::prune_floor_refresh_weight(n);
+    let reads = n.saturating_mul(8).saturating_add(2);
+    let undercount = reads.saturating_mul(64);
+    assert!(
+        w.proof_size() > undercount,
+        "proof {} must exceed 64 B × {} reads ({})",
+        w.proof_size(),
+        reads,
+        undercount
+    );
+    // Empty-ring pause path: TwapRing + two full spot quotes (9 reads). A
+    // meter that only covers the old 2-read pause check must not start.
+    run(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        force_deleverage(1);
+        // Meter with no budget: cursor/pause reserve must abort before work.
+        let mut meter = WeightMeter::with_limit(Weight::zero());
+        assert_eq!(
+            Lending::exhaust_deleverage_queue(&params(), &mut meter),
+            0,
+            "must reserve cursor + worst-case pause before any queue work"
+        );
+    });
+}
+
 /// Mid-block enable refreshes the floor so the real prune target is tagged.
 #[test]
 fn same_block_enable_and_open_tags_prune_target() {

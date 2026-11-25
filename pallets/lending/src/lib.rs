@@ -238,15 +238,9 @@ pub trait LendingInterface<AccountId> {
     /// Re-key positions from `old` to `new` without moving custody funds.
     fn on_coldkey_swap(old: &AccountId, new: &AccountId) -> DispatchResult;
     /// Freeze the subnet's shorts and snapshot the settlement rate `r` (P12).
-    /// Call before the pool is touched. When lending is enabled this refreshes
-    /// the prune floor; callers that reach here from signed registration must
-    /// declare [`Self::prune_floor_refresh_weight`].
+    /// Call before the pool is touched. Invalidates the prune floor in O(1);
+    /// fail-closed zone checks cover opens until the next metered refresh.
     fn start_dissolution(netuid: NetUid) -> DispatchResult;
-    /// Declared weight for a prune-floor refresh bounded by `SubnetLimit`.
-    /// Added to registration / dissolve dispatch weights.
-    fn prune_floor_refresh_weight() -> Weight {
-        Weight::zero()
-    }
     /// Settle every short at `r` (zone alpha at its proceeds) into the staker
     /// pot and add the residual reserve. Runs after the dissolution alpha
     /// count and before stakers are paid. Returns `true` when done.
@@ -1473,18 +1467,33 @@ pub mod pallet {
         }
 
         /// Worst-case weight to refresh the prune floor over `n` live subnets
-        /// (warm-generation moving-price fallback + conservative trie witness).
+        /// (warm-generation moving-price fallback + trie witness per key).
         pub fn prune_floor_refresh_weight(n: u64) -> Weight {
             let db = T::DbWeight::get();
-            // 1 KiB per key bounds immunity / dissolution / rank / moving-price
-            // trie witnesses without relying on a 64-byte undercount.
-            const PROOF_PER_KEY: u64 = 1024;
-            let proof = n
-                .saturating_mul(8)
-                .saturating_mul(PROOF_PER_KEY)
+            // Per-key PoV: encoded value + key + sibling hashes along the
+            // trie path. 512 B covers a depth-16 path of 32-byte nodes with
+            // margin; value sizes come from MaxEncodedLen of the real keys
+            // (immunity stamp, dissolution, rank gen/price, mechanism, EMA).
+            const TRIE_PATH_OVERHEAD: u64 = 512;
+            let per_subnet_value = (u64::max_encoded_len() as u64) // NetworkRegisteredAt
+                .saturating_add(u64::max_encoded_len() as u64) // NetworkImmunityPeriod
+                .saturating_add(
+                    Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64,
+                )
+                .saturating_add(u32::max_encoded_len() as u64) // RankRingGeneration
+                .saturating_add(u32::max_encoded_len() as u64) // RankGeneration
+                .saturating_add(U64F64::max_encoded_len() as u64) // RankPrice
+                .saturating_add(u16::max_encoded_len() as u64) // SubnetMechanism
+                .saturating_add(U64F64::max_encoded_len() as u64); // SubnetMovingPrice
+            let per_subnet_proof =
+                per_subnet_value.saturating_add(TRIE_PATH_OVERHEAD.saturating_mul(8));
+            let floor_write = (BlockNumberFor::<T>::max_encoded_len() as u64)
+                .saturating_add(u32::max_encoded_len() as u64)
                 .saturating_add(U64F64::max_encoded_len() as u64)
-                .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64)
-                .saturating_add(u32::max_encoded_len() as u64);
+                .saturating_add(TRIE_PATH_OVERHEAD);
+            let proof = n
+                .saturating_mul(per_subnet_proof)
+                .saturating_add(floor_write);
             db.reads(n.saturating_mul(8).saturating_add(2))
                 .saturating_add(db.writes(1))
                 .saturating_add(Weight::from_parts(0, proof))
@@ -2235,20 +2244,32 @@ pub mod pallet {
             let db = T::DbWeight::get();
             // Worst-case lookahead: cursor read, suffix probe, wrap-to-start
             // probe, plus the pass-marker existence check — with key proof.
+            const TRIE_PATH_OVERHEAD: u64 = 512;
             let key_proof = (NetUid::max_encoded_len() as u64)
-                .saturating_add(T::AccountId::max_encoded_len() as u64);
+                .saturating_add(T::AccountId::max_encoded_len() as u64)
+                .saturating_add(TRIE_PATH_OVERHEAD);
             let peek_w = db
                 .reads(4)
                 .saturating_add(Weight::from_parts(0, key_proof.saturating_mul(2)));
             // Initial cursor read (reserved before `DeleverageCursor::get`).
             let cursor_read_w = db.reads(1).saturating_add(Weight::from_parts(0, key_proof));
-            // Pause check worst case: TwapRing + spot path (mechanism, both
-            // reserves, balancer) and trie witnesses for those keys.
-            let pause_check_w = db.reads(5).saturating_add(Weight::from_parts(
-                0,
-                (TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64)
-                    .saturating_add(1024u64.saturating_mul(4)),
-            ));
+            // Pause check worst case (empty TWAP ring): TwapRing, then spot
+            // for the empty-ring fallback, then spot again for the pause
+            // compare. Each spot reads mechanism + both reserves + balancer.
+            let spot_value = (u16::max_encoded_len() as u64) // mechanism
+                .saturating_add(u64::max_encoded_len() as u64) // alpha reserve
+                .saturating_add(u64::max_encoded_len() as u64) // tao reserve
+                .saturating_add(u64::max_encoded_len() as u64); // balancer
+            let pause_proof = (TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64)
+                .saturating_add(TRIE_PATH_OVERHEAD)
+                .saturating_add(
+                    spot_value
+                        .saturating_add(TRIE_PATH_OVERHEAD.saturating_mul(4))
+                        .saturating_mul(2),
+                );
+            let pause_check_w = db
+                .reads(9)
+                .saturating_add(Weight::from_parts(0, pause_proof));
             let mut total = 0u32;
             let mut pass_progressed = false;
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
@@ -3562,9 +3583,6 @@ pub mod pallet {
         }
         fn start_dissolution(netuid: NetUid) -> DispatchResult {
             Self::start_dissolution(netuid)
-        }
-        fn prune_floor_refresh_weight() -> Weight {
-            Self::prune_floor_refresh_weight(T::Pool::subnet_limit().max(1))
         }
         fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             Self::settle_positions_on_dissolution(netuid, meter)
