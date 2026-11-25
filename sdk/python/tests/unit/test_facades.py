@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -124,3 +125,16 @@ def test_sync_client_constructs_offline():
         assert client._state["connected"] is False
     finally:
         client.close()
+
+
+def test_sync_snapshot_spec_version_uses_the_snapshots_block():
+    from tests.harness.fake_substrate import FakeSubstrate
+
+    transport = FakeSubstrate()
+    transport.block_hash = AsyncMock(return_value="0x" + "11" * 32)
+    transport.spec_version = AsyncMock(return_value=496)
+    snapshot = SyncSnapshot(Snapshot(Client("local", substrate=transport), block=42), asyncio.run)
+
+    assert snapshot.spec_version == 496
+    transport.block_hash.assert_awaited_once_with(42)
+    transport.spec_version.assert_awaited_once_with("0x" + "11" * 32)

@@ -1,0 +1,8 @@
+{
+  "kind": "runtime",
+  "spec_version": 496,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v496-upgrade/page.tsx",
+  "public_path": "/releases/v496-upgrade",
+  "audiences": ["node operators", "wallets and indexers", "sudo signers"],
+  "summary": "V496 increments the runtime spec version to 496 and keeps transaction version 2. This PR adds no runtime calls, storage migrations, or parameter changes. It tracks 51 root-controlled settings and excludes the nomination minimum factor from generated proposals. Manual baseline comparisons are report-only. Mainnet approvals pin the independently verified call hash, the runtime spec version, and the multisig timepoint. Merging the files does not apply them. Signers should use the updated SDK from a trusted checkout and regenerate proposals after a runtime upgrade."
+}

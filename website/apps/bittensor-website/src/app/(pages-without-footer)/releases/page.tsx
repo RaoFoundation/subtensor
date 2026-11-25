@@ -23,6 +23,24 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v497',
+    date: 'Proposed',
+    title: 'Runtime Version Bump',
+    summary:
+      'Raises the runtime spec to 497 without changing calls or parameters relative to V496. ' +
+      'Refresh metadata and regenerate older signing payloads at activation.',
+    href: '/releases/v497-upgrade',
+  },
+  {
+    tag: 'v496',
+    date: 'Proposed',
+    title: 'Root Parameter Proposals',
+    summary:
+      'Tracks 51 root-controlled settings across three networks and produces read-only proposals ' +
+      'with a verified call hash and pinned multisig approvals. Merging does not change live settings.',
+    href: '/releases/v496-upgrade',
+  },
+  {
     tag: 'v495',
     date: 'Proposed',
     title: '16 Null Mechanisms, a Shared Null Epoch, Gamma Emission Deposits and Root Claim Weight',
