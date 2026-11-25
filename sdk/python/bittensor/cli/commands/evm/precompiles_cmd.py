@@ -201,7 +201,7 @@ def call(
 
     preview_fields: dict[str, Any] = {}
     try:
-        decoded = evm_precompiles.describe_arguments(fn_abi, resolved_args)
+        decoded = evm_precompiles.describe_arguments(fn_abi, resolved_args, precompile_name)
         preview_fields.update({f"arg {k}": v for k, v in decoded.items()})
     except Exception:
         pass

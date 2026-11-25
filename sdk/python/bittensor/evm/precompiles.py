@@ -178,6 +178,13 @@ PRECOMPILES: dict[str, Precompile] = {
             "Inspect precompile lifecycle and operational availability.",
         ),
         Precompile(
+            "gamma",
+            2068,
+            "gamma.json",
+            "Mint, hold, move, send and spend gamma and set services; read deposits, balances, "
+            "spends and services.",
+        ),
+        Precompile(
             "ed25519-verify",
             1026,
             "ed25519Verify.json",
@@ -241,6 +248,18 @@ CALLER_ROLES: dict[str, dict[str, str]] = {
         "addProxy": "delegating account",
         "removeProxy": "delegating account",
     },
+    "gamma": {
+        "mintGamma": "coldkey (pays the TAO, owns the gamma)",
+        "mintGammaWithStake": "coldkey (must own the stake, owns the gamma)",
+        "moveGamma": "coldkey (must own the deposit)",
+        "closeGammaDeposit": "coldkey (must own the deposit)",
+        "setGammaDepositDailySpendCap": "coldkey (must own the deposit)",
+        "depositGamma": "coldkey (must hold the balance)",
+        "withdrawGamma": "coldkey (must own the deposit)",
+        "transferGamma": "sending coldkey (must hold the gamma)",
+        "spendGamma": "hotkey (spends the deposit at its own address)",
+        "setService": "coldkey (must own the hotkey)",
+    },
 }
 
 # ABI parameter names whose uint values are rao (1 TAO = 1e9), not the EVM's
@@ -256,8 +275,25 @@ _RAO_PARAM_NAMES = frozenset(
         "tao",
         "alpha",
         "amountRao",
+        "alphaAmount",
     }
 )
+
+
+# Gamma-denominated parameters (10^9 units per gamma, one gamma per US dollar), by
+# precompile and function; they take precedence over the rao names above.
+_GAMMA_PARAMS: dict[str, dict[str, frozenset[str]]] = {
+    "gamma": {
+        "mintGamma": frozenset({"minAmountOut", "dailySpendCap"}),
+        "mintGammaWithStake": frozenset({"minAmountOut", "dailySpendCap"}),
+        "moveGamma": frozenset({"amount"}),
+        "setGammaDepositDailySpendCap": frozenset({"dailySpendCap"}),
+        "spendGamma": frozenset({"amount"}),
+        "depositGamma": frozenset({"amount"}),
+        "withdrawGamma": frozenset({"amount"}),
+        "transferGamma": frozenset({"amount"}),
+    },
+}
 
 
 def function_deprecation(precompile_name: str, function_name: str) -> "str | None":
@@ -270,13 +306,17 @@ def caller_role(precompile_name: str, function_name: str) -> "str | None":
     return CALLER_ROLES.get(precompile_name, {}).get(function_name)
 
 
-def describe_arguments(fn_abi: dict, args: "list[Any]") -> dict[str, str]:
+def describe_arguments(
+    fn_abi: dict, args: "list[Any]", precompile_name: "str | None" = None
+) -> dict[str, str]:
     """Human-readable echo of coerced call arguments for a preview.
 
     ``bytes32`` key parameters are shown with their ss58 form; uint parameters
-    known to be rao-denominated are shown in TAO — the two places where a
-    wrong-but-plausible value would otherwise sail through to a revert.
+    known to be rao-denominated are shown in TAO, and gamma-denominated ones in
+    gamma — the places where a wrong-but-plausible value would otherwise sail
+    through to a revert.
     """
+    gamma_params = _GAMMA_PARAMS.get(precompile_name or "", {}).get(fn_abi["name"], frozenset())
     described: dict[str, str] = {}
     for param, raw in zip(fn_abi["inputs"], args):
         name, abi_type = param["name"], _canonical_type(param)
@@ -287,6 +327,9 @@ def describe_arguments(fn_abi: dict, args: "list[Any]") -> dict[str, str]:
                 continue
             except Exception:
                 pass
+        if abi_type.startswith("uint") and name in gamma_params:
+            described[name] = f"{int(value):,} (= {int(value) / 10**9:,.9f} gamma)"
+            continue
         if abi_type.startswith("uint") and name in _RAO_PARAM_NAMES:
             described[name] = f"{int(value):,} rao (= {int(value) / 10**9:,.9f} TAO/alpha)"
             continue

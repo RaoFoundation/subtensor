@@ -48,6 +48,9 @@ implementation details that are not part of the pallet's public behavior.
 
 - EVM associations: Forward view for AssociatedEvmAddress(netuid, uid).
 
+- Gamma: GammaEnabled, SubnetGammaEnabled, ColdkeyGammaHotkeys, GammaBalances, GammaSpent, SubnetGammaEmission, and
+  Services.
+
 ### Pallet balances
 
 TotalIssuance
@@ -68,6 +71,9 @@ FeeRate, SwapBalancer, BalancerTaoReservoir, BalancerAlphaReservoir, HasMigratio
   slices it in memory. The response is capped, while the accepted full-vector decode is recorded in
   [Reviewed exceptions](exceptions.md).
 
+- GammaDeposits: expose the coldkey, balance, daily spend cap, and what the hotkey can spend now, as
+  `GammaRuntimeApi::get_gamma_deposit` computes it; the cap's refill bucket is internal.
+
 ### Pallet Swap
 
 PalSwapInitialized and its successors should be exposed as just generic "IsSwapInitialized", non-specific to palswap / balancer.
@@ -77,6 +83,10 @@ PalSwapInitialized and its successors should be exposed as just generic "IsSwapI
 ### Pallet subtensor
 
 - Root claims: RootClaimableThreshold, RootClaimable, RootClaimed, RootClaimType.
+
+- Gamma pricing and emission internals: SubnetGammaPrice, TaoUsdPrice, TaoUsdPriceOracle, PendingGammaEmission,
+  UnconvertedGammaEmission, and SubnetGammaEmissionWhitelisted. The mint simulations expose what the prices mean
+  to a caller.
 
 ### Pallet balances
 

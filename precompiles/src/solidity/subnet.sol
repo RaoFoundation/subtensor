@@ -327,6 +327,29 @@ interface ISubnet {
         uint16[] calldata uids,
         uint64[] calldata values
     ) external;
+    /// Replace the subnet's whole emission split: the `[burn, recycle, owner,
+    /// validator, miner]` shares and its gamma shares, each as
+    /// `uint64 / type(uint64).max`. `gammaNetuids` names the subnets whose gamma
+    /// a share buys, in ascending order, and `gammaShares` their shares; a
+    /// subnet left out has none. Rules: burn + recycle <= 33%, owner <= 33%
+    /// (>= 18% on a subnet registered through a lease), validator <= 50% and
+    /// above root's baseline share, miner >= 33%, and every share, gamma
+    /// included, sums to max. At most 16 gamma shares, each at most 10%, to
+    /// whitelisted subnets with gamma enabled other than this one, and none
+    /// while the subnet is leased.
+    function setSubnetEmissionWeightsV2(
+        uint16 netuid,
+        uint64 burn,
+        uint64 recycle,
+        uint64 owner,
+        uint64 validator,
+        uint64 miner,
+        uint16[] calldata gammaNetuids,
+        uint64[] calldata gammaShares
+    ) external;
+    /// Enable or disable gamma minting on the subnet. Callable by root or the
+    /// subnet owner; the root subnet is refused.
+    function setSubnetGammaEnabled(uint16 netuid, bool enabled) external;
     function setOwnerImmuneNeuronLimit(
         uint16 netuid,
         uint16 immuneNeurons
@@ -387,6 +410,21 @@ interface ISubnet {
     function getSubnetEmissionWeights(
         uint16 netuid
     ) external view returns (uint64[] memory weights, bool createdViaLease);
+    /// `getSubnetEmissionWeights` with the subnet's gamma shares: the subnets
+    /// whose gamma a share buys, in ascending order, and their shares. The five
+    /// slots sum to one less the gamma shares.
+    function getSubnetEmissionWeightsV2(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            uint64[] memory weights,
+            bool createdViaLease,
+            uint16[] memory gammaNetuids,
+            uint64[] memory gammaShares
+        );
+    function getSubnetGammaEnabled(uint16 netuid) external view returns (bool);
     function getBurnConfig(
         uint16 netuid
     ) external view returns (uint16 halfLife, uint128 increaseMultiplier);

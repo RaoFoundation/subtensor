@@ -143,6 +143,25 @@ class TestPrecompileEncoding:
         assert getter["outputs"] == [{"internalType": "uint8", "name": "", "type": "uint8"}]
         assert setter["stateMutability"] == "payable"
 
+    def test_gamma_precompile_is_registered_at_its_index(self):
+        gamma = precompiles.get_precompile("gamma")
+        assert gamma.address == "0x0000000000000000000000000000000000000814"
+        assert all(fn["stateMutability"] != "payable" for fn in gamma.functions())
+
+    def test_gamma_previews_show_gamma_amounts_in_gamma_and_tao_in_tao(self):
+        gamma = precompiles.get_precompile("gamma")
+        spend = precompiles.describe_arguments(
+            gamma.function("spendGamma"), [BOB_HOT, 1, 2_500_000_000], "gamma"
+        )
+        assert spend["amount"] == "2,500,000,000 (= 2.500000000 gamma)"
+        mint = precompiles.describe_arguments(
+            gamma.function("mintGamma"),
+            [False, BOB_HOT, 1, 1_000_000_000, 100_000_000, False, 0],
+            "gamma",
+        )
+        assert mint["amount"] == "1,000,000,000 rao (= 1.000000000 TAO/alpha)"
+        assert mint["minAmountOut"] == "100,000,000 (= 0.100000000 gamma)"
+
 
 # The vendored ABIs in bittensor/evm/abi must stay in sync with the canonical
 # .abi artifacts in precompiles/src/solidity (see the bittensor.evm.precompiles

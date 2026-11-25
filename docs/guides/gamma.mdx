@@ -305,6 +305,18 @@ oracle feeds. Read it with [`tao-usd-price`](/docs/query/tao-usd-price):
 btcli query tao-usd-price
 ```
 
+## From the EVM
+
+The [gamma precompile](/docs/guides/evm/precompiles/gamma) at
+`0x0000000000000000000000000000000000000814` mints, holds, moves, sends and
+spends gamma, lists services and reads deposits, balances and spends; the oracle
+feed and the root settings are not exposed. A call runs as the caller's mapped
+account, so an EVM account or contract is the coldkey of what it mints and the
+hotkey of a deposit at its mapped account. A spend from the EVM costs gas and
+emits the same `GammaSpent` event as a native spend. A contract can mint for a
+user by minting into its own balance and transferring what the mint returns to
+the user's deposit.
+
 ## Limitations
 
 - Gamma confers no claim on any party and cannot be redeemed. A subnet decides

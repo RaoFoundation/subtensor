@@ -16,7 +16,10 @@ use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 use pallet_subtensor::subnets::dissolution::DissolveCleanupPhase;
-use pallet_subtensor::{EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS};
+use pallet_subtensor::{
+    EMISSION_WEIGHT_SLOTS, EMISSION_WEIGHTS_VIEW_READS, EmissionSlot, EmissionSplit,
+    MAX_GAMMA_SHARES,
+};
 
 pub struct SubnetPrecompile<R>(PhantomData<R>);
 
@@ -701,6 +704,35 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
+    #[precompile::public("getSubnetGammaEnabled(uint16)")]
+    #[precompile::view]
+    fn get_subnet_gamma_enabled(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::SubnetGammaEnabled::<R>::get(
+            NetUid::from(netuid),
+        ))
+    }
+
+    /// Enable or disable gamma minting on the subnet. Callable by the subnet owner or root;
+    /// the root subnet is refused.
+    #[precompile::public("setSubnetGammaEnabled(uint16,bool)")]
+    fn set_subnet_gamma_enabled(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        enabled: bool,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_subnet_gamma_enabled {
+                netuid: netuid.into(),
+                enabled,
+            },
+        )
+    }
+
     #[precompile::public("getLiquidAlphaEnabled(uint16)")]
     #[precompile::view]
     fn get_liquid_alpha_enabled(
@@ -1142,6 +1174,63 @@ where
         )
     }
 
+    /// Replace the subnet's whole emission split: the `[burn, recycle, owner, validator,
+    /// miner]` shares and its gamma shares, each `u64 / u64::MAX`. `gammaNetuids` names the
+    /// subnets whose gamma a share buys, in ascending order, and `gammaShares` their shares;
+    /// a subnet left out has none. The rules of `setSubnetEmissionWeights` apply with the
+    /// gamma shares counted in the sum: at most 16 shares, each at most 10%, to whitelisted
+    /// subnets with gamma enabled other than this one, and none on a leased subnet.
+    #[precompile::public(
+        "setSubnetEmissionWeightsV2(uint16,uint64,uint64,uint64,uint64,uint64,uint16[],uint64[])"
+    )]
+    #[allow(clippy::too_many_arguments)]
+    fn set_subnet_emission_weights_v2(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        burn: u64,
+        recycle: u64,
+        owner: u64,
+        validator: u64,
+        miner: u64,
+        gamma_netuids: BoundedVec<u16, ConstU32<MAX_GAMMA_SHARES>>,
+        gamma_shares: BoundedVec<u64, ConstU32<MAX_GAMMA_SHARES>>,
+    ) -> EvmResult<()> {
+        let gamma_netuids = Vec::<u16>::from(gamma_netuids);
+        let gamma_shares = Vec::<u64>::from(gamma_shares);
+        if gamma_netuids.len() != gamma_shares.len() {
+            return Err(revert("gammaNetuids and gammaShares differ in length"));
+        }
+        let split: Vec<(EmissionSlot, u64)> = [
+            (EmissionSlot::Burn, burn),
+            (EmissionSlot::Recycle, recycle),
+            (EmissionSlot::Owner, owner),
+            (EmissionSlot::Validator, validator),
+            (EmissionSlot::Miner, miner),
+        ]
+        .into_iter()
+        .chain(
+            gamma_netuids
+                .into_iter()
+                .zip(gamma_shares)
+                .map(|(target, share)| {
+                    (
+                        EmissionSlot::Gamma {
+                            netuid: target.into(),
+                        },
+                        share,
+                    )
+                }),
+        )
+        .collect();
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_subnet_emission_weights_v2 {
+                netuid: netuid.into(),
+                split: EmissionSplit::truncate_from(split),
+            },
+        )
+    }
+
     #[precompile::public("setOwnerImmuneNeuronLimit(uint16,uint16)")]
     fn set_owner_immune_neuron_limit(
         handle: &mut impl PrecompileHandle,
@@ -1308,6 +1397,30 @@ where
         Ok((view.weights.to_vec(), view.created_via_lease))
     }
 
+    /// `getSubnetEmissionWeights` with the subnet's gamma shares: the subnets whose gamma a
+    /// share buys, in ascending order, and their `u64 / u64::MAX` shares. The five slots sum
+    /// to one less the gamma shares.
+    #[precompile::public("getSubnetEmissionWeightsV2(uint16)")]
+    #[precompile::view]
+    fn get_subnet_emission_weights_v2(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(Vec<u64>, bool, Vec<u16>, Vec<u64>)> {
+        handle.record_db_reads::<R>(EMISSION_WEIGHTS_VIEW_READS.saturating_add(1))?;
+        let netuid = NetUid::from(netuid);
+        let view = pallet_subtensor::Pallet::<R>::read_subnet_emission_weights_view(netuid);
+        let (gamma_netuids, gamma_shares) = pallet_subtensor::SubnetGammaEmission::<R>::get(netuid)
+            .into_iter()
+            .map(|(target, share)| (u16::from(target), share))
+            .unzip();
+        Ok((
+            view.weights.to_vec(),
+            view.created_via_lease,
+            gamma_netuids,
+            gamma_shares,
+        ))
+    }
+
     #[precompile::public("getBurnConfig(uint16)")]
     #[precompile::view]
     fn get_burn_config(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<(u16, u128)> {
@@ -1455,6 +1568,7 @@ mod tests {
         AccountId, Runtime, addr_from_index, assert_static_call, execute_precompile,
         mapped_account, new_test_ext, precompiles, selector_u32,
     };
+    use pallet_evm::ExitError;
     use precompile_utils::solidity::encode_with_selector;
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::{H160, H256, U256};
@@ -1610,6 +1724,111 @@ mod tests {
                     precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
                 )
                 .execute_returns(true);
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_sets_and_gets_gamma_settings() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5006);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let one = pallet_subtensor::EMISSION_WEIGHT_ONE;
+            let target = NetUid::from(2);
+            pallet_subtensor::Pallet::<Runtime>::init_new_network(target, TEST_TEMPO);
+            pallet_subtensor::SubnetGammaEmissionWhitelisted::<Runtime>::insert(target, true);
+            let gamma_enabled = |netuid: u16| {
+                encode_with_selector(selector_u32("getSubnetGammaEnabled(uint16)"), (netuid,))
+            };
+            let set_gamma_enabled = |netuid: u16, enabled: bool| {
+                encode_with_selector(
+                    selector_u32("setSubnetGammaEnabled(uint16,bool)"),
+                    (netuid, enabled),
+                )
+            };
+
+            // Only the target's owner enables its gamma.
+            precompiles
+                .prepare_test(caller, precompile_addr, set_gamma_enabled(2, true))
+                .execute_error(ExitError::Other(
+                    "dispatch execution failed: Bad origin".into(),
+                ));
+            assert!(!pallet_subtensor::SubnetGammaEnabled::<Runtime>::get(target));
+            precompiles
+                .prepare_test(caller, precompile_addr, set_gamma_enabled(TEST_NETUID_U16, true))
+                .execute_returns(());
+            assert!(pallet_subtensor::SubnetGammaEnabled::<Runtime>::get(netuid));
+            precompiles
+                .prepare_test(caller, precompile_addr, gamma_enabled(TEST_NETUID_U16))
+                .with_static_call(true)
+                .execute_returns(true);
+            pallet_subtensor::SubnetGammaEnabled::<Runtime>::insert(target, true);
+
+            // The whole split, with 5% buying subnet 2's gamma.
+            let owner = pallet_subtensor::emission_fraction(10, 100);
+            let validator = pallet_subtensor::emission_fraction(40, 100);
+            let share = pallet_subtensor::emission_fraction(5, 100);
+            let miner = one - owner - validator - share;
+            let set_split = |netuids: Vec<u16>, shares: Vec<u64>| {
+                encode_with_selector(
+                    selector_u32(
+                        "setSubnetEmissionWeightsV2(uint16,uint64,uint64,uint64,uint64,uint64,uint16[],uint64[])",
+                    ),
+                    (
+                        TEST_NETUID_U16,
+                        0_u64,
+                        0_u64,
+                        owner,
+                        validator,
+                        miner,
+                        netuids,
+                        shares,
+                    ),
+                )
+            };
+            precompiles
+                .prepare_test(caller, precompile_addr, set_split(vec![2], vec![share]))
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::Pallet::<Runtime>::get_subnet_emission_weights(netuid),
+                [0, 0, owner, validator, miner]
+            );
+            assert_eq!(
+                pallet_subtensor::SubnetGammaEmission::<Runtime>::get(netuid).into_inner(),
+                vec![(target, share)]
+            );
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getSubnetEmissionWeightsV2(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    vec![0u64, 0, owner, validator, miner],
+                    false,
+                    vec![2u16],
+                    vec![share],
+                ));
+
+            precompiles
+                .prepare_test(caller, precompile_addr, set_split(vec![2], vec![]))
+                .execute_reverts(|output| output == b"gammaNetuids and gammaShares differ in length");
+            // A valid split from anyone but the owner is refused for its origin.
+            let stranger = addr_from_index(0x5007);
+            precompiles
+                .prepare_test(stranger, precompile_addr, set_split(vec![2], vec![share]))
+                .execute_error(ExitError::Other(
+                    "dispatch execution failed: Bad origin".into(),
+                ));
+            assert_eq!(
+                pallet_subtensor::SubnetGammaEmission::<Runtime>::get(netuid).into_inner(),
+                vec![(target, share)]
+            );
         });
     }
 

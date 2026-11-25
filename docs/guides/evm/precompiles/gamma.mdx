@@ -1,0 +1,83 @@
+---
+title: Gamma
+description: Reference for the deployed GammaPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `GammaPrecompile` |
+| Solidity interface | `IGamma` |
+| Address | `0x0000000000000000000000000000000000000814` |
+| Status | Deployed |
+
+Mints, holds, moves, sends and spends [gamma](/docs/guides/gamma), and lists
+services. Every state-changing function dispatches its extrinsic as the caller's
+mapped account and is non-payable. TAO amounts are in rao, alpha amounts in
+alpha rao, and gamma amounts in gamma units (10^9 per US dollar). An optional
+argument is a `has…` flag and its value; the value is ignored when the flag is
+false.
+
+## Operations
+
+| Function | Source extrinsic | The caller is |
+|---|---|---|
+| `mintGamma(bool,bytes32,uint16,uint64,uint64,bool,uint64)` | `SubtensorModule.mint_gamma` | the coldkey paying the TAO |
+| `mintGammaWithStake(bytes32,bool,bytes32,uint16,uint64,uint64,bool,uint64)` | `SubtensorModule.mint_gamma_with_stake` | the coldkey owning the stake |
+| `moveGamma(bytes32,bytes32,uint16,uint64)` | `SubtensorModule.move_gamma` | the deposit's coldkey |
+| `closeGammaDeposit(bytes32,uint16)` | `SubtensorModule.close_gamma_deposit` | the deposit's coldkey |
+| `setGammaDepositDailySpendCap(bytes32,uint16,bool,uint64)` | `SubtensorModule.set_gamma_deposit_daily_spend_cap` | the deposit's coldkey |
+| `depositGamma(bytes32,uint16,uint64)` | `SubtensorModule.deposit_gamma` | the coldkey holding the balance |
+| `withdrawGamma(bytes32,uint16,uint64)` | `SubtensorModule.withdraw_gamma` | the deposit's coldkey |
+| `transferGamma(bytes32,bool,bytes32,bool,bytes32,uint16,uint64)` | `SubtensorModule.transfer_gamma` | the sending coldkey |
+| `spendGamma(bytes32,uint16,uint64)` | `SubtensorModule.spend_gamma` | the deposit's hotkey |
+| `setService(uint16,bytes32,string)` | `SubtensorModule.set_service` | the hotkey's coldkey |
+
+The two mints return the gamma they credit, and `moveGamma`, `depositGamma` and
+`withdrawGamma` the gamma they move, which can be less than the amount asked.
+
+A mint with no hotkey credits the caller's balance. A transfer to a hotkey with
+no deposit opens one for the receiver, with no daily spend cap. A spend from the EVM costs
+gas, while the native `spend_gamma` pays no fee; it emits the same
+`GammaSpent` event, so services credit it like any other spend, to the caller's
+mapped account.
+
+## Minting for a user
+
+A contract mints into its own balance and sends what it got to the user's
+deposit. If the transfer fails, the revert undoes the mint as well.
+
+```solidity
+IGamma gamma = IGamma(IGAMMA_ADDRESS);
+uint64 credited = gamma.mintGamma(false, 0, netuid, amountRao, minGammaOut, false, 0);
+gamma.transferGamma(user, false, 0, true, userHotkey, netuid, credited);
+```
+
+The deposit opens with no daily spend cap if the user has none at that hotkey,
+unless another coldkey owns the hotkey. A contract can open one for a user only
+while the user holds fewer than 32 deposits on the subnet, and not during the
+user's coldkey swap; sending to an open deposit, or with no hotkey to the
+user's balance, is not limited.
+
+## Views
+
+| Function | Returns |
+|---|---|
+| `getGammaDeposit(uint16,bytes32)` | `(exists, coldkey, balance, hasDailySpendCap, dailySpendCap, spendable)` of the deposit at a hotkey |
+| `getGammaDepositHotkeys(uint16,bytes32)` | the hotkeys holding a coldkey's deposits, at most 64 |
+| `getGammaBalance(uint16,bytes32)` | a coldkey's gamma held at no hotkey |
+| `getGammaSpent(uint16,bytes32,bytes32)` | the gamma a hotkey has spent at a service |
+| `getService(uint16,bytes32)` | `(exists, url)` of a hotkey's service |
+| `getGammaEnabled()` | whether gamma can be minted at all |
+| `simMintGamma(uint16,uint64)` | `(alpha, value, gamma)` a mint of an amount of TAO would give now |
+| `simMintGammaWithStake(uint16,uint64)` | `(alpha, value, gamma)` a mint of an amount of alpha would give now |
+
+`spendable` is what the hotkey can spend now: the balance within what the
+daily spend cap allows, or 0 when that is below the 0.1 gamma spend minimum and
+short of the balance. A simulation fails when the mint would, and is charged
+the gas of the mint it simulates. Whether a subnet
+mints gamma is `ISubnet.getSubnetGammaEnabled`.
+
+The oracle's `feed_tao_usd_price` and the Root-only gamma settings are not
+exposed.
+
+Source: [`gamma.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/gamma.sol)

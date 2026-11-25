@@ -24,6 +24,7 @@
     "drand",
     "timestamp",
     "runtime-configuration",
-    "registry"
+    "registry",
+    "gamma"
   ]
 }
