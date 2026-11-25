@@ -2713,7 +2713,7 @@ pub mod pallet {
             // Cursor read reserved before `NextDue::get`.
             let cursor_w = db.reads(1).saturating_add(Weight::from_parts(
                 0,
-                BlockNumberFor::<T>::max_encoded_len() as u64 + 3072,
+                (BlockNumberFor::<T>::max_encoded_len() as u64).saturating_add(3072),
             ));
             // Empty bucket: Due prefix probe + TotalPositions + NextDue write,
             // with trie witness for the prefix / counter keys.

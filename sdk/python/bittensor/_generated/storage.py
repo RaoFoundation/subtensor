@@ -568,6 +568,7 @@ class Lending:
     PoolTaoEma = Item('Lending', 'PoolTaoEma', 'u64')
     NotionalEma = Item('Lending', 'NotionalEma', 'FixedU128')
     PruneFloor = Item('Lending', 'PruneFloor', '(u32, u32, FixedU128)')
+    PruneTarget = Item('Lending', 'PruneTarget', '(u32, u32, NetUid)')
     StrandedCustody = Item('Lending', 'StrandedCustody', 'StrandedRecord')
     DeleverageQueue = Item('Lending', 'DeleverageQueue', 'u64')
     NextDeleverageSeq = Item('Lending', 'NextDeleverageSeq', 'u64')
