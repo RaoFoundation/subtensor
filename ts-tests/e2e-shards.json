@@ -19,7 +19,8 @@
                     "name": "zombienet_evm_c",
                     "files": [
                         "suites/zombienet_evm/05-direct-call-precompile.test.ts",
-                        "suites/zombienet_evm/02-precompile-gas.test.ts"
+                        "suites/zombienet_evm/02-precompile-gas.test.ts",
+                        "suites/zombienet_evm/06-gamma-precompile.test.ts"
                     ]
                 }
             ]

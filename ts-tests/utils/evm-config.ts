@@ -850,6 +850,714 @@ export const IBalanceTransferABI = [
     },
 ] as const;
 
+export const IGAMMA_ADDRESS = "0x0000000000000000000000000000000000000814";
+
+export const IGammaABI = [
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+        ],
+        name: "closeGammaDeposit",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+        ],
+        name: "depositGamma",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "moved",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bytes32",
+                name: "coldkey",
+                type: "bytes32",
+            },
+        ],
+        name: "getGammaBalance",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+        ],
+        name: "getGammaDeposit",
+        outputs: [
+            {
+                internalType: "bool",
+                name: "exists",
+                type: "bool",
+            },
+            {
+                internalType: "bytes32",
+                name: "coldkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint64",
+                name: "balance",
+                type: "uint64",
+            },
+            {
+                internalType: "bool",
+                name: "hasDailySpendCap",
+                type: "bool",
+            },
+            {
+                internalType: "uint64",
+                name: "dailySpendCap",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "spendable",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bytes32",
+                name: "coldkey",
+                type: "bytes32",
+            },
+        ],
+        name: "getGammaDepositHotkeys",
+        outputs: [
+            {
+                internalType: "bytes32[]",
+                name: "hotkeys",
+                type: "bytes32[]",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "getGammaEnabled",
+        outputs: [
+            {
+                internalType: "bool",
+                name: "",
+                type: "bool",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bytes32",
+                name: "service",
+                type: "bytes32",
+            },
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+        ],
+        name: "getGammaSpent",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+        ],
+        name: "getService",
+        outputs: [
+            {
+                internalType: "bool",
+                name: "exists",
+                type: "bool",
+            },
+            {
+                internalType: "string",
+                name: "url",
+                type: "string",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bool",
+                name: "hasHotkey",
+                type: "bool",
+            },
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "minAmountOut",
+                type: "uint64",
+            },
+            {
+                internalType: "bool",
+                name: "hasDailySpendCap",
+                type: "bool",
+            },
+            {
+                internalType: "uint64",
+                name: "dailySpendCap",
+                type: "uint64",
+            },
+        ],
+        name: "mintGamma",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "credited",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "originHotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "bool",
+                name: "hasDestinationHotkey",
+                type: "bool",
+            },
+            {
+                internalType: "bytes32",
+                name: "destinationHotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "alphaAmount",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "minAmountOut",
+                type: "uint64",
+            },
+            {
+                internalType: "bool",
+                name: "hasDailySpendCap",
+                type: "bool",
+            },
+            {
+                internalType: "uint64",
+                name: "dailySpendCap",
+                type: "uint64",
+            },
+        ],
+        name: "mintGammaWithStake",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "credited",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "originHotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "bytes32",
+                name: "destinationHotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+        ],
+        name: "moveGamma",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "moved",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bool",
+                name: "hasDailySpendCap",
+                type: "bool",
+            },
+            {
+                internalType: "uint64",
+                name: "dailySpendCap",
+                type: "uint64",
+            },
+        ],
+        name: "setGammaDepositDailySpendCap",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "string",
+                name: "url",
+                type: "string",
+            },
+        ],
+        name: "setService",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+        ],
+        name: "simMintGamma",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "alpha",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "value",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "gamma",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "alphaAmount",
+                type: "uint64",
+            },
+        ],
+        name: "simMintGammaWithStake",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "alpha",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "value",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "gamma",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "service",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+        ],
+        name: "spendGamma",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "destinationColdkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "bool",
+                name: "hasOriginHotkey",
+                type: "bool",
+            },
+            {
+                internalType: "bytes32",
+                name: "originHotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "bool",
+                name: "hasDestinationHotkey",
+                type: "bool",
+            },
+            {
+                internalType: "bytes32",
+                name: "destinationHotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+        ],
+        name: "transferGamma",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+        ],
+        name: "withdrawGamma",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "moved",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+];
+
+export const ISUBNET_ADDRESS = "0x0000000000000000000000000000000000000803";
+
+export const ISubnetABI = [
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+        ],
+        name: "registerNetwork",
+        outputs: [],
+        stateMutability: "payable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "burn",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "recycle",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "owner",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "validator",
+                type: "uint64",
+            },
+            {
+                internalType: "uint64",
+                name: "miner",
+                type: "uint64",
+            },
+            {
+                internalType: "uint16[]",
+                name: "gammaNetuids",
+                type: "uint16[]",
+            },
+            {
+                internalType: "uint64[]",
+                name: "gammaShares",
+                type: "uint64[]",
+            },
+        ],
+        name: "setSubnetEmissionWeightsV2",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "bool",
+                name: "enabled",
+                type: "bool",
+            },
+        ],
+        name: "setSubnetGammaEnabled",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+        ],
+        name: "getSubnetEmissionWeightsV2",
+        outputs: [
+            {
+                internalType: "uint64[]",
+                name: "weights",
+                type: "uint64[]",
+            },
+            {
+                internalType: "bool",
+                name: "createdViaLease",
+                type: "bool",
+            },
+            {
+                internalType: "uint16[]",
+                name: "gammaNetuids",
+                type: "uint16[]",
+            },
+            {
+                internalType: "uint64[]",
+                name: "gammaShares",
+                type: "uint64[]",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+        ],
+        name: "getSubnetGammaEnabled",
+        outputs: [
+            {
+                internalType: "bool",
+                name: "",
+                type: "bool",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+];
+
 export const WITHDRAW_CONTRACT_ABI = [
     {
         inputs: [],
@@ -2554,3 +3262,68 @@ export const PRECOMPILE_GAS_CONTRACT_ABI = [
 
 export const PRECOMPILE_GAS_CONTRACT_BYTECODE =
     "60806040527f1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef5f1b5f555f5f1b6001555f5f1b6002555f5f1b6003553480156045575f5ffd5b5061048b806100535f395ff3fe608060405234801561000f575f5ffd5b5060043610610034575f3560e01c806356554a5714610038578063bd9cac2b14610054575b5f5ffd5b610052600480360381019061004d919061028f565b610070565b005b61006e6004803603810190610069919061028f565b61015f565b005b5f5f90505b8167ffffffffffffffff168167ffffffffffffffff1610156101265761040373ffffffffffffffffffffffffffffffffffffffff1663869adcb95f546001546002546003546040518563ffffffff1660e01b81526004016100d994939291906102d2565b602060405180830381865afa1580156100f4573d5f5f3e3d5ffd5b505050506040513d601f19601f82011682018060405250810190610118919061034a565b508080600101915050610075565b507fcf34ef537ac33ee1ac626ca1587a0a7e8e51561e5514f8cb36afa1c5102b3bab604051610154906103cf565b60405180910390a150565b5f5f90505b8167ffffffffffffffff168167ffffffffffffffff1610156102155761040273ffffffffffffffffffffffffffffffffffffffff1663869adcb95f546001546002546003546040518563ffffffff1660e01b81526004016101c894939291906102d2565b602060405180830381865afa1580156101e3573d5f5f3e3d5ffd5b505050506040513d601f19601f82011682018060405250810190610207919061034a565b508080600101915050610164565b507fcf34ef537ac33ee1ac626ca1587a0a7e8e51561e5514f8cb36afa1c5102b3bab60405161024390610437565b60405180910390a150565b5f5ffd5b5f67ffffffffffffffff82169050919050565b61026e81610252565b8114610278575f5ffd5b50565b5f8135905061028981610265565b92915050565b5f602082840312156102a4576102a361024e565b5b5f6102b18482850161027b565b91505092915050565b5f819050919050565b6102cc816102ba565b82525050565b5f6080820190506102e55f8301876102c3565b6102f260208301866102c3565b6102ff60408301856102c3565b61030c60608301846102c3565b95945050505050565b5f8115159050919050565b61032981610315565b8114610333575f5ffd5b50565b5f8151905061034481610320565b92915050565b5f6020828403121561035f5761035e61024e565b5b5f61036c84828501610336565b91505092915050565b5f82825260208201905092915050565b7f63616c6c535232353531390000000000000000000000000000000000000000005f82015250565b5f6103b9600b83610375565b91506103c482610385565b602082019050919050565b5f6020820190508181035f8301526103e6816103ad565b9050919050565b7f63616c6c454432353531390000000000000000000000000000000000000000005f82015250565b5f610421600b83610375565b915061042c826103ed565b602082019050919050565b5f6020820190508181035f83015261044e81610415565b905091905056fea26469706673582212202addcdae9c59ee78157cddedc3148678edf455132bdfc62347f85e7c660b4d2164736f6c634300081e0033";
+
+export const MINT_FOR_USER_CONTRACT_ABI = [
+    {
+        anonymous: false,
+        inputs: [
+            {
+                indexed: false,
+                internalType: "bytes32",
+                name: "user",
+                type: "bytes32",
+            },
+            {
+                indexed: false,
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+            {
+                indexed: false,
+                internalType: "uint64",
+                name: "credited",
+                type: "uint64",
+            },
+        ],
+        name: "Minted",
+        type: "event",
+    },
+    {
+        inputs: [
+            {
+                internalType: "uint16",
+                name: "netuid",
+                type: "uint16",
+            },
+            {
+                internalType: "uint64",
+                name: "amount",
+                type: "uint64",
+            },
+            {
+                internalType: "bytes32",
+                name: "user",
+                type: "bytes32",
+            },
+            {
+                internalType: "bytes32",
+                name: "hotkey",
+                type: "bytes32",
+            },
+        ],
+        name: "mintFor",
+        outputs: [
+            {
+                internalType: "uint64",
+                name: "credited",
+                type: "uint64",
+            },
+        ],
+        stateMutability: "nonpayable",
+        type: "function",
+    },
+];
+
+export const MINT_FOR_USER_CONTRACT_BYTECODE =
+    "0x6080604052348015600e575f5ffd5b506102878061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610029575f3560e01c806349392ef51461002d575b5f5ffd5b61004061003b3660046101e6565b61005d565b60405167ffffffffffffffff909116815260200160405180910390f35b604051635417231360e11b81525f600482018190526024820181905261ffff8616604483015267ffffffffffffffff851660648301526084820181905260a4820181905260c48201819052906108149063a82e46269060e4016020604051808303815f875af11580156100d2573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906100f6919061022f565b6040516343941fd160e01b8152600481018590525f602482018190526044820152600160648201526084810184905261ffff871660a482015267ffffffffffffffff821660c4820152909150610814906343941fd19060e4015f604051808303815f87803b158015610166575f5ffd5b505af1158015610178573d5f5f3e3d5ffd5b5050604080518681526020810186905267ffffffffffffffff85168183015290517f5dd9e45e369855ab5fa83270ab9ed940220ee7e9fe1500128feb229c7bd6f41d9350908190036060019150a1949350505050565b67ffffffffffffffff811681146101e3575f5ffd5b50565b5f5f5f5f608085870312156101f9575f5ffd5b843561ffff8116811461020a575f5ffd5b9350602085013561021a816101ce565b93969395505050506040820135916060013590565b5f6020828403121561023f575f5ffd5b815161024a816101ce565b939250505056fea264697066735822122039516d56020eb68055f8327cb883a9010ffd3a0d5b7ae07228dde6917e7d4f1e64736f6c634300081e0033";

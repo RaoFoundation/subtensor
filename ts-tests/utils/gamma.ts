@@ -33,6 +33,21 @@ export async function sudoSetSubnetGammaEnabled(
     await waitForTransactionWithRetry(api, tx, alice, "sudo_set_subnet_gamma_enabled");
 }
 
+export async function sudoSetSubnetGammaEmissionWhitelisted(
+    api: TypedApi<typeof subtensor>,
+    netuid: number,
+    whitelisted: boolean
+): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const internalCall = api.tx.AdminUtils.sudo_set_subnet_gamma_emission_whitelisted({
+        netuid: netuid,
+        whitelisted: whitelisted,
+    });
+    const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_subnet_gamma_emission_whitelisted");
+}
+
 export async function sudoSetTaoUsdPriceOracle(api: TypedApi<typeof subtensor>, oracle: string): Promise<void> {
     const keyring = new Keyring({ type: "sr25519" });
     const alice = keyring.addFromUri("//Alice");
