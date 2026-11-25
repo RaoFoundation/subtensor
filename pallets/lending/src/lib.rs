@@ -1102,12 +1102,15 @@ pub mod pallet {
         /// must be non-zero.
         #[pallet::call_index(0)]
         #[pallet::weight({
-            // Zone check reads the block's cached floor plus this subnet's
-            // rank/moving price (no live-subnet scan on the signed path).
+            // Hot path: cached [`PruneFloor`] + this subnet's rank/moving.
+            // Fallback (missing floor) rescans up to the NetUid ceiling so a
+            // lowered SubnetLimit cannot undercount live nets.
+            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
+            let proof = (U64F64::max_encoded_len() as u64).saturating_mul(2);
             T::WeightInfo::open_short().saturating_add(
                 T::DbWeight::get()
-                    .reads(4)
-                    .saturating_add(Weight::from_parts(0, U64F64::max_encoded_len() as u64)),
+                    .reads(n.saturating_mul(3).saturating_add(2))
+                    .saturating_add(Weight::from_parts(0, proof)),
             )
         })]
         #[frame_support::transactional]
@@ -1126,10 +1129,12 @@ pub mod pallet {
         /// `min_tao_out` must be non-zero when `extra_mint` is.
         #[pallet::call_index(1)]
         #[pallet::weight({
+            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
+            let proof = (U64F64::max_encoded_len() as u64).saturating_mul(2);
             T::WeightInfo::increase_short().saturating_add(
                 T::DbWeight::get()
-                    .reads(4)
-                    .saturating_add(Weight::from_parts(0, U64F64::max_encoded_len() as u64)),
+                    .reads(n.saturating_mul(3).saturating_add(2))
+                    .saturating_add(Weight::from_parts(0, proof)),
             )
         })]
         #[frame_support::transactional]
@@ -2041,6 +2046,8 @@ pub mod pallet {
             let residual = pos.minted;
             let dust = pos.funds();
             let mut burns_ok = true;
+            // Dust that failed to reach the reserve becomes pot-due on strand.
+            let mut pot_due = 0u64;
             if dust > 0 {
                 let reserve = Self::reserve_account(netuid);
                 let cap = Self::mul_bps(T::Pool::pool_tao(netuid).to_u64(), params.reserve_cap_bps);
@@ -2051,6 +2058,7 @@ pub mod pallet {
                         Ok(credited) => credited.to_u64(),
                         Err(_) => {
                             burns_ok = false;
+                            pot_due = to_reserve;
                             0
                         }
                     }
@@ -2062,6 +2070,7 @@ pub mod pallet {
                 if overflow > 0
                     && T::Pool::burn_interest_tao(&pos.custody, overflow.into()).is_err()
                 {
+                    // Overflow stays on the burn path (not owner refund / not pot).
                     burns_ok = false;
                 }
             }
@@ -2074,16 +2083,18 @@ pub mod pallet {
             SyntheticOutstanding::<T>::mutate(netuid, |s| *s = s.saturating_sub(residual));
             ResidualAlpha::<T>::mutate(netuid, |r| *r = r.saturating_add(residual));
             if !burns_ok {
-                // Leftover free TAO on custody is refundable to the owner.
+                // Deposit and overflow follow the burn path on sweep; only
+                // failed reserve dust is pot-due. Owner refund stays 0 (P19).
                 let left = T::Pool::free_tao(&pos.custody).to_u64();
                 if left > 0 {
+                    let due = pot_due.min(left);
                     StrandedCustody::<T>::insert(
                         netuid,
                         &pos.custody,
                         StrandedRecord {
                             owner: owner.clone(),
-                            due: 0,
-                            refund: left,
+                            due,
+                            refund: 0,
                         },
                     );
                 }
@@ -2117,21 +2128,50 @@ pub mod pallet {
             after_cursor.or_else(|| DeleverageQueue::<T>::iter_keys().next())
         }
 
+        /// Park the cursor on the last queued key for `from`'s subnet so the
+        /// next peek resumes at the following subnet. Starts at `from`
+        /// inclusive. Returns how many keys were walked (lookahead metering).
+        fn advance_cursor_past_subnet(from: &(NetUid, T::AccountId)) -> u32 {
+            let netuid = from.0;
+            let mut walked = 1u32;
+            let mut last = from.clone();
+            for (n, owner) in DeleverageQueue::<T>::iter_keys_from(
+                DeleverageQueue::<T>::hashed_key_for(from.0, &from.1),
+            ) {
+                if n != netuid {
+                    break;
+                }
+                walked = walked.saturating_add(1);
+                last = (n, owner);
+            }
+            DeleverageCursor::<T>::put(last);
+            walked
+        }
+
         /// Run paced buy-backs until a full queue pass makes no progress, the
-        /// hard step cap is hit, or `meter` is exhausted. No-progress entries
-        /// (paused subnet, post-cutoff joiner, zero share) are skipped so they
-        /// cannot starve healthy subnets (MEDIUM 1).
+        /// hard step cap is hit, or `meter` is exhausted. Paused subnets are
+        /// jumped in one cheap skip so a flood of paused keys cannot spend the
+        /// full step budget; other no-progress entries are still stepped past
+        /// one at a time.
         pub(crate) fn exhaust_deleverage_queue(
             params: &SynthParams,
             meter: &mut WeightMeter,
         ) -> u32 {
-            // Peek costs cursor + queue probe reads; the full step is reserved
-            // before the buy-back so no-progress work cannot understate the meter.
             let step_w = T::WeightInfo::deleverage_step();
             let peek_w = T::DbWeight::get().reads(2);
+            // Pause check: TwapRing + spot (+ params already loaded).
+            let pause_skip_w = T::DbWeight::get()
+                .reads(2)
+                .saturating_add(Weight::from_parts(
+                    0,
+                    TwapState::<BlockNumberFor<T>>::max_encoded_len() as u64,
+                ));
+            let lookahead_read = T::DbWeight::get().reads(1);
             let mut total = 0u32;
             let mut pass_progressed = false;
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
+            // Subnets already pause-skipped this block (one check each).
+            let mut paused_skipped: alloc::vec::Vec<NetUid> = alloc::vec::Vec::new();
             while total < MAX_DELEVERAGE_STEPS_PER_BLOCK {
                 if meter.try_consume(peek_w).is_err() {
                     break;
@@ -2139,21 +2179,33 @@ pub mod pallet {
                 let Some(next) = Self::peek_next_deleverage_key() else {
                     break;
                 };
-                // If the recorded pass-start left the queue, start a new mark.
                 if let Some((netuid, owner)) = pass_start.as_ref()
                     && !DeleverageQueue::<T>::contains_key(netuid, owner)
                 {
                     pass_start = None;
                 }
                 if pass_start.as_ref() == Some(&next) {
-                    // Wrapped to the start of this pass.
                     if !pass_progressed {
                         break;
                     }
                     pass_progressed = false;
                 }
                 if pass_start.is_none() {
-                    pass_start = Some(next);
+                    pass_start = Some(next.clone());
+                }
+                let (netuid, _) = &next;
+                if !paused_skipped.contains(netuid) {
+                    if meter.try_consume(pause_skip_w).is_err() {
+                        break;
+                    }
+                    if Self::buybacks_paused(*netuid, params) {
+                        paused_skipped.push(*netuid);
+                        let walked = Self::advance_cursor_past_subnet(&next);
+                        let walk_w = lookahead_read.saturating_mul(u64::from(walked.max(1)));
+                        let _ = meter.try_consume(walk_w);
+                        continue;
+                    }
+                    paused_skipped.push(*netuid);
                 }
                 if meter.try_consume(step_w.saturating_sub(peek_w)).is_err() {
                     break;
@@ -2354,6 +2406,14 @@ pub mod pallet {
                 if refund_pay > 0
                     && let Err(e) =
                         T::Pool::refund_dissolution_tao(who, &record.owner, refund_pay.into())
+                {
+                    return TransactionOutcome::Rollback(Err(e));
+                }
+                // Finish the default burn path for any deposit / overflow that
+                // remained after the pot and owner legs.
+                let leftover = T::Pool::free_tao(who).to_u64();
+                if leftover > 0
+                    && let Err(e) = T::Pool::burn_interest_tao(who, leftover.into())
                 {
                     return TransactionOutcome::Rollback(Err(e));
                 }

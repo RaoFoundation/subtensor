@@ -163,18 +163,10 @@ impl<T: Config> OnRuntimeUpgrade for MigrateToSynthShortsV1<T> {
     }
 }
 
-/// Items whose value type changed when paced deleverage grew a sequence /
-/// cutoff budget and stranded custody gained an owner split. Cleared once so
-/// old encodings cannot decode as the new types.
-pub const DELEVERAGE_VALUE_TYPE_ITEMS: &[&str] = &[
-    "DeleverageQueue",
-    "DeleverageBudget",
-    "DeleverageCursor",
-    "DeleverageFilled",
-    "NextDeleverageSeq",
-    "DeleveragingMinted",
-    "StrandedCustody",
-];
+/// Items whose value type actually changed (queue `()`→`u64`, budget 3-tuple
+/// →4-tuple, stranded `u64`→`StrandedRecord`). Same-type maps are left alone.
+pub const DELEVERAGE_VALUE_TYPE_ITEMS: &[&str] =
+    &["DeleverageQueue", "DeleverageBudget", "StrandedCustody"];
 
 pub fn deleverage_value_types_v2_key() -> BoundedVec<u8, MigrationKeyMaxLen> {
     BoundedVec::truncate_from(b"migrate_deleverage_value_types_v2".to_vec())

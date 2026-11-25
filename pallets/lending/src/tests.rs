@@ -2272,12 +2272,74 @@ fn failed_default_writes_stranded_custody_for_owner_refund() {
         let stranded = StrandedCustody::<Test>::get(netuid(), &pos.custody)
             .expect("failed default must record stranded custody");
         assert_eq!(stranded.owner, account(1));
+        // Reserve collect still succeeded; only the deposit burn failed, so
+        // pot-due is 0 and the owner is not refunded the deposit.
         assert_eq!(stranded.due, 0);
-        assert!(
-            stranded.refund > 0,
-            "owner refund records leftover free TAO"
+        assert_eq!(
+            stranded.refund, 0,
+            "default must not refund deposit or overflow to the owner"
+        );
+        assert_eq!(
+            tao(&pos.custody),
+            pos.deposit,
+            "failed deposit burn leaves deposit on custody for the sweep burn path"
         );
         assert!(!Positions::<Test>::contains_key(account(1), netuid()));
+    });
+}
+
+/// M2: a paused subnet with ≥32 queued keys must not consume the full step
+/// budget — healthy positions on a later subnet still progress in the same
+/// block after a cheap pause skip.
+#[test]
+fn deleverage_skips_paused_subnet_and_progresses_healthy_same_block() {
+    // Synthetic paused-queue keys have no positions; skip try-state.
+    new_test_ext().execute_with(|| {
+        const PAUSED: u16 = 1;
+        let paused: NetUid = PAUSED.into();
+        // Low TWAP median with spot ≈ 1.0 ⇒ buybacks_paused.
+        seed_twap_samples(paused, MIN_HEALTH_TWAP_SAMPLES, 0.1);
+        assert!(Lending::buybacks_paused(paused, &params()));
+
+        for i in 0u8..40 {
+            DeleverageQueue::<Test>::insert(paused, account(i), u64::from(i));
+        }
+        assert_ok!(open(1, MINT, COLLATERAL));
+        assert_ok!(open(2, MINT, COLLATERAL));
+        force_deleverage(1);
+        force_deleverage(2);
+        let now = System::block_number();
+        let cutoff = NextDeleverageSeq::<Test>::get(netuid());
+        let book = DeleveragingMinted::<Test>::get(netuid());
+        SynthParamsStore::<Test>::mutate(|p| p.pace_bps_per_block = 10_000);
+        DeleverageBudget::<Test>::insert(netuid(), (now, u64::MAX / 4, book, cutoff));
+
+        // Paused netuid 1 sorts ahead of healthy netuid 64.
+        let first = DeleverageQueue::<Test>::iter_keys().next().expect("queue");
+        assert_eq!(first.0, paused);
+
+        let before_1 = position(1).minted;
+        let before_2 = position(2).minted;
+        let step_w = <Test as Config>::WeightInfo::deleverage_step();
+        let mut meter = WeightMeter::with_limit(step_w.saturating_mul(64));
+        let attempted = Lending::exhaust_deleverage_queue(&params(), &mut meter);
+        assert!(
+            attempted >= 2,
+            "healthy cohort must still be attempted; got {attempted}"
+        );
+        assert!(
+            attempted < 40,
+            "paused flood must not consume one full step each; got {attempted}"
+        );
+        let progressed = |who: u8, before: u64| match Positions::<Test>::get(account(who), netuid())
+        {
+            Some(p) => p.minted < before,
+            None => true,
+        };
+        assert!(
+            progressed(1, before_1) && progressed(2, before_2),
+            "healthy positions must progress after the paused-subnet skip"
+        );
     });
 }
 
