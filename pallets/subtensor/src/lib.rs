@@ -310,6 +310,10 @@ pub const GAMMA_REFILL_BLOCKS: u64 = 7200;
 /// the deposit: 0.1 gamma.
 pub const MIN_GAMMA_AMOUNT: u64 = 100_000_000;
 
+/// Smallest gamma an on-behalf mint opens another coldkey's deposit with: 5 gamma, so filling
+/// that coldkey's deposit slots costs the opener 5 dollars each, paid to the coldkey.
+pub const MIN_GAMMA_ON_BEHALF_OPEN: u64 = 5_000_000_000;
+
 /// How far a gamma emission trade may fill from its pool's fast moving and spot prices: 2%.
 pub const GAMMA_EMISSION_MAX_SLIPPAGE_BPS: u64 = 200;
 

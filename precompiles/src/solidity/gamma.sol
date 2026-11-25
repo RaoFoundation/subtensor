@@ -23,7 +23,8 @@ interface IGammaPrecompile {
         external view returns (uint256 balance, bytes32 coldkey);
 
     /// Not payable. Buys and burns alpha with amountRao from the caller's free TAO balance and credits
-    /// recipientColdkey's deposit at depositHotkey (opening it with no daily spend cap if new).
+    /// recipientColdkey's deposit at depositHotkey (opening it with no daily spend cap if new;
+    /// opening another coldkey's deposit takes at least 5 gamma, else AmountTooLow).
     /// Reverts below minGammaOut and with the same deposit checks as the quote.
     function mintGammaOnBehalf(uint256 netuid, bytes32 depositHotkey, bytes32 recipientColdkey,
         uint256 amountRao, uint256 minGammaOut) external returns (uint256 gammaMinted);

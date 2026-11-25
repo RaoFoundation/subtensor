@@ -1373,6 +1373,50 @@ fn mint_gamma_on_behalf_refusals() {
     });
 }
 
+#[test]
+fn on_behalf_opens_take_five_gamma_and_top_ups_take_any_mint() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let recipient = U256::from(COLDKEY);
+        let fresh = HOTKEY + 3;
+        add_balance_to_coldkey_account(&U256::from(PAYER), (10 * TAO).into());
+        let per_tao = SubtensorModule::sim_mint_gamma(netuid, TAO.into())
+            .unwrap()
+            .2
+            .to_u64();
+        // About 2 gamma: a valid mint, but short of opening another coldkey's deposit.
+        let small = TAO.saturating_mul(2 * GAMMA) / per_tao;
+        let small_gamma = SubtensorModule::sim_mint_gamma(netuid, small.into())
+            .unwrap()
+            .2;
+        assert!(
+            small_gamma.to_u64() >= MIN_GAMMA_AMOUNT
+                && small_gamma.to_u64() < MIN_GAMMA_ON_BEHALF_OPEN
+        );
+
+        assert_noop!(
+            mint_on_behalf(netuid, COLDKEY, fresh, small, 0),
+            Error::<Test>::AmountTooLow
+        );
+        assert_eq!(
+            SubtensorModule::sim_credit_gamma(netuid, &recipient, &U256::from(fresh), small_gamma),
+            Err(Error::<Test>::AmountTooLow.into())
+        );
+        assert_ok!(SubtensorModule::sim_credit_gamma(
+            netuid,
+            &recipient,
+            &U256::from(fresh),
+            MIN_GAMMA_ON_BEHALF_OPEN.into()
+        ));
+
+        // The recipient's existing deposit takes it, and so does the recipient's own mint.
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        assert_ok!(mint_on_behalf(netuid, COLDKEY, HOTKEY, small, 0));
+        mint(netuid, COLDKEY, fresh, small);
+        assert_gamma_invariants(netuid);
+    });
+}
+
 /// Announces a V2 coldkey swap from `old` to `new`, which reserves `new`; returns the block it
 /// can execute at.
 fn announce_coldkey_swap(old: U256, new: U256) -> u64 {

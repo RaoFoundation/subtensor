@@ -230,6 +230,21 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// An on-behalf mint that opens another coldkey's deposit at `hotkey` credits at least
+    /// [`crate::MIN_GAMMA_ON_BEHALF_OPEN`]; topping up an existing deposit takes any mint.
+    pub(crate) fn ensure_gamma_on_behalf_open(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        gamma: GammaBalance,
+    ) -> DispatchResult {
+        ensure!(
+            GammaDeposits::<T>::contains_key(netuid, hotkey)
+                || gamma.to_u64() >= crate::MIN_GAMMA_ON_BEHALF_OPEN,
+            Error::<T>::AmountTooLow
+        );
+        Ok(())
+    }
+
     /// The AMM price limits of gamma emission trades on `netuid`: a sale floor
     /// [`crate::GAMMA_EMISSION_MAX_SLIPPAGE_BPS`] below the higher of its fast moving and spot
     /// prices, and a purchase ceiling as far above the lower.
@@ -355,7 +370,10 @@ impl<T: Config> Pallet<T> {
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let payer = ensure_signed(origin)?;
-        if let Some(recipient) = recipient.as_ref().filter(|recipient| **recipient != payer) {
+        let on_behalf = recipient
+            .as_ref()
+            .is_some_and(|recipient| *recipient != payer);
+        if let Some(recipient) = recipient.as_ref().filter(|_| on_behalf) {
             Self::ensure_gamma_recipient(recipient)?;
         }
         let coldkey = recipient.unwrap_or_else(|| payer.clone());
@@ -369,6 +387,9 @@ impl<T: Config> Pallet<T> {
         let (tao, alpha) = Self::buy_and_burn_alpha(netuid, &payer, amount)?;
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
+        if on_behalf {
+            Self::ensure_gamma_on_behalf_open(netuid, &hotkey, gamma)?;
+        }
         let daily_spend_cap =
             Self::credit_gamma(netuid, &coldkey, &hotkey, gamma, daily_spend_cap)?;
         Self::deposit_event(Event::GammaMinted {
@@ -399,7 +420,10 @@ impl<T: Config> Pallet<T> {
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
         let signer = ensure_signed(origin.clone())?;
-        if let Some(recipient) = recipient.as_ref().filter(|recipient| **recipient != signer) {
+        let on_behalf = recipient
+            .as_ref()
+            .is_some_and(|recipient| *recipient != signer);
+        if let Some(recipient) = recipient.as_ref().filter(|_| on_behalf) {
             Self::ensure_gamma_recipient(recipient)?;
         }
         let coldkey = recipient.unwrap_or(signer);
@@ -408,6 +432,9 @@ impl<T: Config> Pallet<T> {
         let alpha = Self::do_burn_alpha(origin, origin_hotkey, alpha_amount, netuid)?;
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
+        if on_behalf {
+            Self::ensure_gamma_on_behalf_open(netuid, &destination_hotkey, gamma)?;
+        }
         let daily_spend_cap = Self::credit_gamma(
             netuid,
             &coldkey,

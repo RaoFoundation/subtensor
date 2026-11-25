@@ -106,9 +106,13 @@ impl<T: Config> Pallet<T> {
         gamma: GammaBalance,
     ) -> DispatchResult {
         with_transaction(|| {
-            TransactionOutcome::Rollback(Self::ensure_gamma_recipient(coldkey).and_then(|()| {
-                Self::credit_gamma(netuid, coldkey, hotkey, gamma, None).map(|_| ())
-            }))
+            TransactionOutcome::Rollback(
+                Self::ensure_gamma_recipient(coldkey)
+                    .and_then(|()| Self::ensure_gamma_on_behalf_open(netuid, hotkey, gamma))
+                    .and_then(|()| {
+                        Self::credit_gamma(netuid, coldkey, hotkey, gamma, None).map(|_| ())
+                    }),
+            )
         })
     }
 }
