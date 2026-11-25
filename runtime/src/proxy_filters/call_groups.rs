@@ -185,6 +185,7 @@ call_filter_group!(
     [
         RuntimeCall::Lending(LendingCall::set_enabled),
         RuntimeCall::Lending(LendingCall::set_synth_params),
+        RuntimeCall::Lending(LendingCall::sweep_stranded_funds),
     ]
 );
 
