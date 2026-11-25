@@ -171,7 +171,7 @@ impl<T: Config> Pallet<T> {
     /// Credits `gamma` to the coldkey's deposit at `hotkey`, which must have `daily_spend_cap`
     /// when it is given, or opens one with it, or no cap otherwise, and a full bucket. Returns the
     /// deposit's cap.
-    fn credit_gamma(
+    pub(crate) fn credit_gamma(
         netuid: NetUid,
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
@@ -326,25 +326,28 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Buys alpha with `amount` TAO, burns it and credits its gamma to the signer's deposit
-    /// at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it.
+    /// Buys alpha with `amount` of the signer's TAO, burns it and credits its gamma to the
+    /// deposit of `recipient`, or of the signer when `None`, at `hotkey`, which must have
+    /// `daily_spend_cap` when it is given, or opens with it.
     pub fn do_mint_gamma(
         origin: OriginFor<T>,
+        recipient: Option<T::AccountId>,
         hotkey: T::AccountId,
         netuid: NetUid,
         amount: TaoBalance,
         min_amount_out: GammaBalance,
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
-        let coldkey = ensure_signed(origin)?;
+        let payer = ensure_signed(origin)?;
+        let coldkey = recipient.unwrap_or_else(|| payer.clone());
         Self::ensure_gamma_mintable(netuid)?;
         ensure!(
-            Self::can_remove_balance_from_coldkey_account(&coldkey, amount),
+            Self::can_remove_balance_from_coldkey_account(&payer, amount),
             Error::<T>::NotEnoughBalanceToStake
         );
         Self::ensure_add_stake_input_within_swap_limit(netuid, amount)?;
         let mark = Self::gamma_mark(netuid);
-        let (tao, alpha) = Self::buy_and_burn_alpha(netuid, &coldkey, amount)?;
+        let (tao, alpha) = Self::buy_and_burn_alpha(netuid, &payer, amount)?;
         let (value, gamma) = Self::gamma_for_alpha(alpha, mark)?;
         ensure!(gamma >= min_amount_out, Error::<T>::SlippageTooHigh);
         let daily_spend_cap =
@@ -363,10 +366,12 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha`
-    /// does, and credits its gamma to the signer's deposit at `destination_hotkey`, which
-    /// must have `daily_spend_cap` when it is given, or opens with it.
+    /// does, and credits its gamma to the deposit of `recipient`, or of the signer when `None`,
+    /// at `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens
+    /// with it.
     pub fn do_mint_gamma_with_stake(
         origin: OriginFor<T>,
+        recipient: Option<T::AccountId>,
         origin_hotkey: T::AccountId,
         destination_hotkey: T::AccountId,
         netuid: NetUid,
@@ -374,7 +379,8 @@ impl<T: Config> Pallet<T> {
         min_amount_out: GammaBalance,
         daily_spend_cap: Option<GammaBalance>,
     ) -> DispatchResult {
-        let coldkey = ensure_signed(origin.clone())?;
+        let signer = ensure_signed(origin.clone())?;
+        let coldkey = recipient.unwrap_or(signer);
         Self::ensure_gamma_mintable(netuid)?;
         let mark = Self::gamma_mark(netuid);
         let alpha = Self::do_burn_alpha(origin, origin_hotkey, alpha_amount, netuid)?;

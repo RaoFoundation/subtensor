@@ -4,7 +4,7 @@ use frame_support::traits::ExtendedDispatchable;
 use frame_support::weights::Weight;
 use frame_support::{BoundedVec, assert_noop, assert_ok};
 use sp_core::U256;
-use sp_runtime::DispatchResult;
+use sp_runtime::{DispatchError, DispatchResult};
 use sp_std::collections::btree_map::BTreeMap;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, TaoBalance};
@@ -1111,6 +1111,265 @@ fn mint_gamma_refusals() {
             mint_with_stake(OWNER_HOTKEY, foreign, 0),
             Error::<Test>::NonAssociatedColdKey
         );
+    });
+}
+
+const PAYER: u64 = 103;
+
+/// `PAYER` mints `tao` on behalf of `recipient` into its deposit at `hotkey`.
+fn mint_on_behalf(
+    netuid: NetUid,
+    recipient: u64,
+    hotkey: u64,
+    tao: u64,
+    min_amount_out: u64,
+) -> DispatchResult {
+    SubtensorModule::mint_gamma_on_behalf(
+        RuntimeOrigin::signed(U256::from(PAYER)),
+        U256::from(recipient),
+        U256::from(hotkey),
+        netuid,
+        tao.into(),
+        min_amount_out.into(),
+    )
+}
+
+/// `PAYER` burns up to `alpha` of its stake on `OWNER_HOTKEY` on behalf of `recipient` into
+/// its deposit at `hotkey`.
+fn mint_with_stake_on_behalf(
+    netuid: NetUid,
+    recipient: u64,
+    hotkey: u64,
+    alpha: AlphaBalance,
+    min_amount_out: u64,
+) -> DispatchResult {
+    SubtensorModule::mint_gamma_with_stake_on_behalf(
+        RuntimeOrigin::signed(U256::from(PAYER)),
+        U256::from(recipient),
+        U256::from(OWNER_HOTKEY),
+        U256::from(hotkey),
+        netuid,
+        alpha,
+        min_amount_out.into(),
+    )
+}
+
+/// `PAYER`'s stake on `OWNER_HOTKEY` once it stakes `tao` there, funded with a spare 10 TAO.
+fn stake_payer(netuid: NetUid, tao: u64) -> AlphaBalance {
+    let payer = U256::from(PAYER);
+    add_balance_to_coldkey_account(&payer, (tao + 10 * TAO).into());
+    assert_ok!(SubtensorModule::add_stake(
+        RuntimeOrigin::signed(payer),
+        U256::from(OWNER_HOTKEY),
+        netuid,
+        tao.into()
+    ));
+    SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+        &U256::from(OWNER_HOTKEY),
+        &payer,
+        netuid,
+    )
+}
+
+#[test]
+fn mint_gamma_on_behalf_credits_the_recipient_and_charges_the_signer() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (payer, recipient) = (U256::from(PAYER), U256::from(COLDKEY));
+        let fresh = HOTKEY + 3;
+        add_balance_to_coldkey_account(&payer, (10 * TAO).into());
+        let (payer_before, recipient_before) = (
+            SubtensorModule::get_coldkey_balance(&payer),
+            SubtensorModule::get_coldkey_balance(&recipient),
+        );
+        let quote = SubtensorModule::sim_mint_gamma(netuid, TAO.into())
+            .unwrap()
+            .2;
+        assert_ok!(SubtensorModule::sim_credit_gamma(
+            netuid,
+            &recipient,
+            &U256::from(fresh),
+            quote
+        ));
+
+        assert_ok!(SubtensorModule::mint_gamma_on_behalf(
+            RuntimeOrigin::signed(payer),
+            recipient,
+            U256::from(fresh),
+            netuid,
+            TAO.into(),
+            GammaBalance::ZERO,
+        ));
+        let (alpha, value, gamma) = minted();
+        assert_eq!(gamma, quote);
+        System::assert_has_event(
+            Event::GammaMinted {
+                netuid,
+                coldkey: recipient,
+                hotkey: U256::from(fresh),
+                daily_spend_cap: None,
+                tao: TAO.into(),
+                alpha,
+                value,
+                gamma,
+            }
+            .into(),
+        );
+        assert_eq!(
+            deposit(netuid, fresh),
+            GammaDeposit {
+                coldkey: recipient,
+                balance: gamma,
+                daily_spend_cap: None,
+            }
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&payer),
+            payer_before - TAO.into()
+        );
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&recipient),
+            recipient_before
+        );
+        assert!(ColdkeyGammaHotkeys::<Test>::get(netuid, payer).is_empty());
+
+        // It tops up the recipient's existing deposit, which keeps its terms.
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        assert_ok!(SubtensorModule::set_gamma_deposit_daily_spend_cap(
+            RuntimeOrigin::signed(recipient),
+            U256::from(HOTKEY),
+            netuid,
+            Some(GAMMA.into()),
+        ));
+        let terms = deposit(netuid, HOTKEY);
+        assert_ok!(mint_on_behalf(netuid, COLDKEY, HOTKEY, TAO, 0));
+        assert_eq!(
+            deposit(netuid, HOTKEY),
+            GammaDeposit {
+                balance: terms.balance.saturating_add(minted().2),
+                ..terms
+            }
+        );
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn mint_gamma_with_stake_on_behalf_burns_the_signers_stake() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (payer, recipient) = (U256::from(PAYER), U256::from(COLDKEY));
+        let fresh = HOTKEY + 3;
+        let stake = stake_payer(netuid, 10 * TAO);
+        let half = AlphaBalance::from(stake.to_u64() / 2);
+        let quote = SubtensorModule::sim_mint_gamma_with_stake(netuid, half)
+            .unwrap()
+            .2;
+
+        assert_ok!(mint_with_stake_on_behalf(netuid, COLDKEY, fresh, half, 0));
+        assert_eq!(minted().2, quote);
+        System::assert_has_event(
+            Event::AlphaBurned(payer, U256::from(OWNER_HOTKEY), half, netuid).into(),
+        );
+        assert_eq!(
+            deposit(netuid, fresh),
+            GammaDeposit {
+                coldkey: recipient,
+                balance: quote,
+                daily_spend_cap: None,
+            }
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &U256::from(OWNER_HOTKEY),
+                &payer,
+                netuid,
+            ),
+            stake - half
+        );
+
+        // More than the stake burns the rest.
+        assert_ok!(mint_with_stake_on_behalf(
+            netuid,
+            COLDKEY,
+            fresh,
+            AlphaBalance::MAX,
+            0
+        ));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &U256::from(OWNER_HOTKEY),
+                &payer,
+                netuid,
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            deposit(netuid, fresh).balance,
+            quote.saturating_add(minted().2)
+        );
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn mint_gamma_on_behalf_refusals() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let recipient = U256::from(COLDKEY);
+        let stake = stake_payer(netuid, 10 * TAO);
+        let quote = SubtensorModule::sim_mint_gamma(netuid, TAO.into())
+            .unwrap()
+            .2;
+        let refused = |hotkey: u64, error: DispatchError| {
+            assert_noop!(mint_on_behalf(netuid, COLDKEY, hotkey, TAO, 0), error);
+            assert_noop!(
+                mint_with_stake_on_behalf(netuid, COLDKEY, hotkey, stake, 0),
+                error
+            );
+            assert_eq!(
+                SubtensorModule::sim_credit_gamma(netuid, &recipient, &U256::from(hotkey), quote),
+                Err(error)
+            );
+        };
+
+        // Another coldkey's deposit.
+        mint(netuid, OWNER_COLDKEY, HOTKEY + 100, TAO);
+        refused(HOTKEY + 100, Error::<Test>::NonAssociatedColdKey.into());
+
+        // A hotkey another coldkey owns for staking.
+        assert_ok!(SubtensorModule::set_hotkey_owner(
+            &U256::from(OWNER_COLDKEY),
+            &U256::from(HOTKEY + 101),
+        ));
+        refused(HOTKEY + 101, Error::<Test>::NonAssociatedColdKey.into());
+
+        // Below the minimum out.
+        assert_noop!(
+            mint_on_behalf(netuid, COLDKEY, HOTKEY + 3, TAO, u64::MAX),
+            Error::<Test>::SlippageTooHigh
+        );
+        assert_noop!(
+            mint_with_stake_on_behalf(netuid, COLDKEY, HOTKEY + 3, stake, u64::MAX),
+            Error::<Test>::SlippageTooHigh
+        );
+
+        // The recipient holds `MAX_GAMMA_DEPOSITS` deposits.
+        for index in 0..MAX_GAMMA_DEPOSITS as u64 {
+            mint(netuid, COLDKEY, HOTKEY + 1_000 + index, TAO);
+        }
+        refused(HOTKEY + 3, Error::<Test>::TooManyGammaDeposits.into());
+
+        // The quote's credit check changes nothing.
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_ok!(SubtensorModule::sim_credit_gamma(
+            netuid,
+            &recipient,
+            &U256::from(HOTKEY + 1_000),
+            quote
+        ));
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+        assert_gamma_invariants(netuid);
     });
 }
 

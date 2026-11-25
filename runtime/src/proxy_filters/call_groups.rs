@@ -535,6 +535,8 @@ call_filter_group!(
     [
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma),
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_on_behalf),
+        RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake_on_behalf),
         RuntimeCall::SubtensorModule(SubtensorCall::move_gamma),
     ]
 );

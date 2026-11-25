@@ -4020,6 +4020,66 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn mint_gamma_on_behalf() {
+        let netuid = NetUid::from(1);
+        setup_gamma_subnet::<T>(netuid);
+        let payer: T::AccountId = account("gamma_payer", 0, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey: T::AccountId = account("gamma_new", 0, 1);
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey, &hotkey
+        ));
+        seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
+        add_balance_to_coldkey_account::<T>(&payer, TaoBalance::from(100_000_000_000_u64));
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(payer),
+            coldkey.clone(),
+            hotkey.clone(),
+            netuid,
+            TaoBalance::from(10_000_000_000_u64),
+            GammaBalance::ZERO,
+        );
+
+        assert!(GammaDeposits::<T>::contains_key(netuid, &hotkey));
+    }
+
+    #[benchmark]
+    fn mint_gamma_with_stake_on_behalf() {
+        let netuid = NetUid::from(1);
+        setup_gamma_subnet::<T>(netuid);
+        let payer: T::AccountId = account("gamma_payer", 0, 1);
+        let coldkey: T::AccountId = account("gamma_cold", 0, 1);
+        let hotkey: T::AccountId = account("gamma_staked", 0, 1);
+        let destination: T::AccountId = account("gamma_new", 0, 1);
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey,
+            &destination
+        ));
+        seed_gamma_deposits::<T>(netuid, &coldkey, 0, MAX_GAMMA_DEPOSITS - 1, 1, None);
+        let alpha = AlphaBalance::from(1_000_000_000_u64);
+        let _ = Subtensor::<T>::create_account_if_non_existent(&payer, &hotkey);
+        SubnetAlphaOut::<T>::insert(netuid, alpha.saturating_add(alpha));
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &payer, netuid, alpha,
+        );
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(payer),
+            coldkey.clone(),
+            hotkey,
+            destination.clone(),
+            netuid,
+            alpha,
+            GammaBalance::ZERO,
+        );
+
+        assert!(GammaDeposits::<T>::contains_key(netuid, &destination));
+    }
+
+    #[benchmark]
     fn move_gamma() {
         let netuid = NetUid::from(1);
         Subtensor::<T>::init_new_network(netuid, 1);

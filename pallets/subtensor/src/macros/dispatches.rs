@@ -3195,6 +3195,7 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_mint_gamma(
                 origin,
+                None,
                 hotkey,
                 netuid,
                 amount,
@@ -3220,12 +3221,63 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_mint_gamma_with_stake(
                 origin,
+                None,
                 origin_hotkey,
                 destination_hotkey,
                 netuid,
                 alpha_amount,
                 min_amount_out,
                 daily_spend_cap,
+            )
+        }
+
+        /// Buys alpha on `netuid` with `amount` of the signer's TAO, burns it, and credits its
+        /// gamma to `coldkey`'s deposit at `hotkey`, or opens it with no daily spend cap. Fails
+        /// below `min_amount_out` gamma.
+        #[pallet::call_index(175)]
+        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
+        pub fn mint_gamma_on_behalf(
+            origin: OriginFor<T>,
+            coldkey: T::AccountId,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            amount: TaoBalance,
+            min_amount_out: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_mint_gamma(
+                origin,
+                Some(coldkey),
+                hotkey,
+                netuid,
+                amount,
+                min_amount_out,
+                None,
+            )
+        }
+
+        /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha`
+        /// does, and credits its gamma to `coldkey`'s deposit at `destination_hotkey`, or opens
+        /// it with no daily spend cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(176)]
+        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
+        pub fn mint_gamma_with_stake_on_behalf(
+            origin: OriginFor<T>,
+            coldkey: T::AccountId,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            netuid: NetUid,
+            alpha_amount: AlphaBalance,
+            min_amount_out: GammaBalance,
+        ) -> DispatchResult {
+            Self::do_mint_gamma_with_stake(
+                origin,
+                Some(coldkey),
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                alpha_amount,
+                min_amount_out,
+                None,
             )
         }
 

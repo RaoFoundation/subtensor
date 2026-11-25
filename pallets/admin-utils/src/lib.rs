@@ -351,6 +351,8 @@ pub mod pallet {
         RuntimeConfiguration,
         /// Precompile lifecycle and availability registry
         PrecompileRegistry,
+        /// Gamma minting precompile
+        Gamma,
     }
 
     #[pallet::type_value]
