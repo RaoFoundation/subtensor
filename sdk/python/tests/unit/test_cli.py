@@ -26,7 +26,7 @@ from bittensor.cli.output import Output
 from bittensor.cli.root_helpers import RootPosition, position_columns, position_rows
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
-from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.fake_substrate import ComposedCall, FakeSubstrate
 from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT
 
 runner = CliRunner()
@@ -530,6 +530,82 @@ class TestTransactions:
         )
         assert result.exit_code != 0
         assert "reviewed hash" in " ".join(result.output.replace("│", " ").split())
+        assert not fake.submissions
+
+    @pytest.mark.parametrize(
+        ("operation", "expected_timepoint"),
+        [("open", None), ("88:3", {"height": 88, "index": 3})],
+    )
+    def test_pinned_raw_call_resolves_explicit_preset_signer(
+        self, fake, monkeypatch, wallet_dir, operation, expected_timepoint
+    ):
+        member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed("System", "Account", [member], {"data": {"free": 10**10}})
+        config.add_multisig(
+            {
+                "name": "treasury",
+                "threshold": 2,
+                "signatories": [member, BOB],
+                "account_mode": "legacy",
+            }
+        )
+        expected_hash = "0x" + ComposedCall("System", "remark", {"remark": "0x01"}).call_hash.hex()
+        approvals = []
+        original = fake.submit_multisig
+
+        async def record(call, keypair, account, *, expected_timepoint, **kwargs):
+            approvals.append((keypair.ss58_address, expected_timepoint))
+            return await original(call, keypair, account, **kwargs)
+
+        monkeypatch.setattr(fake, "submit_multisig", record)
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            "-w",
+            "treasury",
+            "--signatory",
+            _WALLET_NAME,
+            "--expected-call-hash",
+            expected_hash,
+            "--multisig-operation",
+            operation,
+        )
+        assert result.exit_code == 0, result.output
+        assert approvals == [(member, expected_timepoint)]
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            ((), "member for a pinned approval"),
+            (("--signatory", "not-a-member"), "not a local member wallet"),
+        ],
+    )
+    def test_pinned_raw_call_never_falls_back_to_another_wallet(
+        self, fake, wallet_dir, extra, message
+    ):
+        member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        config.add_multisig({"name": "treasury", "threshold": 2, "signatories": [member, BOB]})
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            "-w",
+            "treasury",
+            "--multisig-operation",
+            "open",
+            *extra,
+        )
+        assert result.exit_code != 0
+        assert message in " ".join(result.output.replace("│", " ").split()), result.output
         assert not fake.submissions
 
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):

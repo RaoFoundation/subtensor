@@ -366,8 +366,10 @@ def call(
                 signer_ss58 = app_ctx.wallet().coldkeypub.ss58_address
             except Exception:
                 signer_ss58 = None
-            if signer_ss58 not in sigs:
-                if timepoint is not ...:
+            pinned = timepoint is not ...
+            explicit_member = pinned and bool(app_ctx.signatory_wallet)
+            if explicit_member or signer_ss58 not in sigs:
+                if pinned and not explicit_member:
                     raise typer.BadParameter(
                         "the selected wallet must be a member for a pinned approval",
                         param_hint="--wallet",
@@ -379,7 +381,8 @@ def call(
                         signatories=sigs,
                     )
                 except ValueError as error:
-                    raise typer.BadParameter(str(error), param_hint="--wallet") from error
+                    hint = "--signatory" if explicit_member else "--wallet"
+                    raise typer.BadParameter(str(error), param_hint=hint) from error
                 app_ctx.multisig_wallet_name = preset or app_ctx.wallet_name
                 app_ctx.wallet_name = member_name
                 app_ctx.wallet_given = True
