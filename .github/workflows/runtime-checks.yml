@@ -851,8 +851,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Test announcement sanitizer
-        run: python3 .github/scripts/test_announce_summary.py
+      - name: Test release tooling
+        run: |
+          python3 .github/scripts/test_announce_summary.py
+          python3 .github/scripts/test_python_release_source.py
 
       - name: Compare versions with the base
         id: versions
@@ -862,6 +864,9 @@ jobs:
         run: |
           set -euo pipefail
           head_json=$(python3 .github/scripts/check-release-notes.py versions)
+          spec=$(jq -er .spec <<<"$head_json")
+          sdk=$(jq -er .sdk <<<"$head_json")
+          core=$(jq -er .core <<<"$head_json")
           if [ "$EVENT_NAME" = pull_request ]; then
             tmp=$(mktemp -d)
             trap 'rm -rf "$tmp"' EXIT
@@ -871,36 +876,26 @@ jobs:
             done
             base_json=$(python3 .github/scripts/check-release-notes.py versions --root "$tmp")
 
-            if [ "$(jq -er .spec <<<"$head_json")" -gt "$(jq -er .spec <<<"$base_json")" ]; then
-              shipped_changes=$(git diff --name-only "$BASE_SHA" HEAD -- \
-                sdk/python/bittensor/ sdk/python/pyproject.toml \
-                sdk/bittensor-core/src/ sdk/bittensor-core/Cargo.toml \
-                sdk/bittensor-core-py/src/ sdk/bittensor-core-py/Cargo.toml \
-                sdk/bittensor-core-py/pyproject.toml)
-              if [ -n "$shipped_changes" ] && \
-                 { [ "$(jq -er .sdk <<<"$head_json")" = "$(jq -er .sdk <<<"$base_json")" ] || \
-                   [ "$(jq -er .core <<<"$head_json")" = "$(jq -er .core <<<"$base_json")" ]; }; then
-                echo "::error::This runtime release changes shipped Python SDK code. Bump both bittensor and bittensor-core for the paired PyPI release and add Python release notes."
-                exit 1
-              fi
+            if [ "$spec" -gt "$(jq -er .spec <<<"$base_json")" ]; then
+              python3 .github/scripts/check-python-release.py --check-source \
+                --sdk-version "$sdk" --core-version "$core" --repository "$GITHUB_REPOSITORY"
+              python3 .github/scripts/check-release-notes.py python --sdk "$sdk" --core "$core"
             fi
           else
             base_json=$head_json
           fi
           python3 .github/scripts/check-release-notes.py diff \
             --base-spec "$(jq -er .spec <<<"$base_json")" \
-            --head-spec "$(jq -er .spec <<<"$head_json")" \
+            --head-spec "$spec" \
             --base-sdk "$(jq -er .sdk <<<"$base_json")" \
-            --head-sdk "$(jq -er .sdk <<<"$head_json")" \
+            --head-sdk "$sdk" \
             --base-core "$(jq -er .core <<<"$base_json")" \
-            --head-core "$(jq -er .core <<<"$head_json")"
+            --head-core "$core"
           python3 .github/scripts/check-release-notes.py tree
-          spec=$(jq -er .spec <<<"$head_json")
-          sdk=$(jq -er .sdk <<<"$head_json")
           {
             echo "spec=$spec"
             echo "sdk=$sdk"
-            echo "core=$(jq -er .core <<<"$head_json")"
+            echo "core=$core"
           } >> "$GITHUB_OUTPUT"
           if [ -f ".github/release-notes/runtime/${spec}.json" ]; then
             echo "runtime_notes=.github/release-notes/runtime/${spec}.json" >> "$GITHUB_OUTPUT"
