@@ -23,6 +23,15 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v497',
+    date: 'Proposed',
+    title: 'Runtime Version Bump',
+    summary:
+      'Raises the runtime spec to 497 without changing calls or parameters relative to V496. ' +
+      'Refresh metadata and regenerate older signing payloads at activation.',
+    href: '/releases/v497-upgrade',
+  },
+  {
     tag: 'v496',
     date: 'Proposed',
     title: 'Root Parameter Proposals',

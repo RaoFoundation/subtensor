@@ -13,6 +13,7 @@ import json
 import re
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 import bittensor.cli.commands.root as root_commands
@@ -585,9 +586,14 @@ class TestTransactions:
             (("--signatory", "not-a-member"), "not a local member wallet"),
         ],
     )
+    @pytest.mark.parametrize("styled_output", [False, True], ids=["plain", "color"])
     def test_pinned_raw_call_never_falls_back_to_another_wallet(
-        self, fake, wallet_dir, extra, message
+        self, fake, monkeypatch, wallet_dir, extra, message, styled_output
     ):
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("TERM", "xterm")
+        monkeypatch.setattr("typer.rich_utils.FORCE_TERMINAL", styled_output)
+        monkeypatch.setattr("typer.rich_utils.MAX_WIDTH", 80)
         member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
         config.add_multisig({"name": "treasury", "threshold": 2, "signatories": [member, BOB]})
         result = invoke(
@@ -605,7 +611,9 @@ class TestTransactions:
             *extra,
         )
         assert result.exit_code != 0
-        assert message in " ".join(result.output.replace("│", " ").split()), result.output
+        assert ("\x1b[" in result.output) is styled_output, result.output
+        plain_output = Text.from_ansi(result.output).plain
+        assert message in " ".join(plain_output.replace("│", " ").split()), result.output
         assert not fake.submissions
 
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):

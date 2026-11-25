@@ -159,6 +159,11 @@ class SyncSnapshot:
     def constant(self, item):
         return self._call(self._snapshot.constant(item))
 
+    @property
+    def spec_version(self) -> int:
+        """The runtime spec version in this snapshot's state."""
+        return self._call(self._snapshot.spec_version())
+
     def timestamp(self):
         return self._call(self._snapshot.timestamp())
 
