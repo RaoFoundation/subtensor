@@ -658,3 +658,47 @@ def test_cli_overwrite_preserves_existing_group_identity(local_state, stored_mod
     )
     assert result.exit_code == 0, result.output or str(result.exception)
     assert config.get_multisig("treasury")["account_mode"] == (stored_mode or "legacy")
+
+
+@pytest.mark.parametrize(
+    ("pending", "expected", "can_sign"),
+    [
+        (None, None, True),
+        ({"height": 88, "index": 3}, None, False),
+        (None, {"height": 88, "index": 3}, False),
+        ({"height": 89, "index": 3}, {"height": 88, "index": 3}, False),
+        ({"height": 88, "index": 3}, {"height": 88, "index": 3}, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transport_pins_multisig_opening_and_approval(pending, expected, can_sign):
+    from bittensor._transport.interface import SubstrateConnection
+
+    codec = Mock()
+    codec.call_hash.return_value = b"\x01" * 32
+    connection = SimpleNamespace(
+        _runtimes=SimpleNamespace(codec_at=AsyncMock(return_value=codec)),
+        query=AsyncMock(return_value={"when": pending} if pending else None),
+        create_signed_extrinsic=AsyncMock(),
+        ss58_format=42,
+    )
+    account = multisig_account([ALICE, BOB], 2)
+
+    async def approve():
+        return await SubstrateConnection.create_multisig_extrinsic(
+            connection,
+            b"inner",
+            dev_wallet().coldkey,
+            account,
+            max_weight={"ref_time": 1, "proof_size": 0},
+            expected_timepoint=expected,
+        )
+
+    if can_sign:
+        await approve()
+        assert codec.compose_call.call_args.args[2]["maybe_timepoint"] == expected
+        connection.create_signed_extrinsic.assert_awaited_once()
+    else:
+        with pytest.raises(ValueError, match="refusing to sign"):
+            await approve()
+        connection.create_signed_extrinsic.assert_not_awaited()
