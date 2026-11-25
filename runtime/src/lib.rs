@@ -280,8 +280,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    // Above main tip (495) so a real upgrade from main never rolls version back.
-    // Lending: synth shorts only (post-lift retirement on this branch).
+    // Spec 496: root parameter proposals (main) + short-only lending (this PR).
     spec_version: 496,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,

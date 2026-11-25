@@ -1,0 +1,258 @@
+# Root-controlled chain-wide parameters only; balances are raw rao.
+# Fixed-point values are raw integers, not decimal fractions.
+# A change is a proposal until reviewed, signed, and executed on chain.
+# Do not include subnet-owner-settable or netuid-keyed values here.
+
+[metadata]
+network = "mainnet"
+block_number = 9579058
+block_hash = "0x837d38e0033ace927b9d06c7d2d1ef9642332325c00b071e4bfbd269b1aba701"
+genesis_hash = "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+spec_version = 495
+
+# Storage: SubtensorModule.MaxDelegateTake
+[default_take]
+setter = "AdminUtils.sudo_set_default_take"
+value = "11796"
+
+# Storage: SubtensorModule.TxRateLimit
+[tx_rate_limit]
+setter = "AdminUtils.sudo_set_tx_rate_limit"
+value = "1"
+
+# Storage: SubtensorModule.NetworkRateLimit
+[network_rate_limit]
+setter = "AdminUtils.sudo_set_network_rate_limit"
+value = "10800"
+
+# Storage: SubtensorModule.NetworkImmunityPeriod
+[network_immunity_period]
+setter = "AdminUtils.sudo_set_network_immunity_period"
+value = "432000"
+
+# Storage: SubtensorModule.NetworkMinLockCost
+[network_min_lock_cost]
+setter = "AdminUtils.sudo_set_network_min_lock_cost"
+value = "1000000000"
+
+# Storage: SubtensorModule.SubnetLimit
+[subnet_limit]
+setter = "AdminUtils.sudo_set_subnet_limit"
+value = "160"
+
+# Storage: SubtensorModule.NetworkLockReductionInterval
+[lock_reduction_interval]
+setter = "AdminUtils.sudo_set_lock_reduction_interval"
+value = "28800"
+
+# Storage: SubtensorModule.StakeThreshold
+[stake_threshold]
+setter = "AdminUtils.sudo_set_stake_threshold"
+value = "1000000000000"
+
+# Storage: SubtensorModule.TxDelegateTakeRateLimit
+[tx_delegate_take_rate_limit]
+setter = "AdminUtils.sudo_set_tx_delegate_take_rate_limit"
+value = "216000"
+
+# Storage: SubtensorModule.MinDelegateTake
+[min_delegate_take]
+setter = "AdminUtils.sudo_set_min_delegate_take"
+value = "0"
+
+# Storage: SubtensorModule.DissolveNetworkScheduleDuration
+[dissolve_network_schedule_duration]
+setter = "AdminUtils.sudo_set_dissolve_network_schedule_duration"
+value = "36000"
+
+# Storage: EvmChainId.ChainId
+[evm_chain_id]
+setter = "AdminUtils.sudo_set_evm_chain_id"
+value = "964"
+
+# Storage: SubtensorModule.SubnetMovingAlpha
+[subnet_moving_alpha]
+setter = "AdminUtils.sudo_set_subnet_moving_alpha"
+value = { bits = "1288490" }
+
+# Storage: SubtensorModule.CommitRevealWeightsVersion
+[commit_reveal_version]
+setter = "AdminUtils.sudo_set_commit_reveal_version"
+value = "4"
+
+# Storage: SubtensorModule.CKBurn
+[ck_burn]
+setter = "AdminUtils.sudo_set_ck_burn"
+value = "0"
+
+# Storage: SubtensorModule.AdminFreezeWindow
+[admin_freeze_window]
+setter = "AdminUtils.sudo_set_admin_freeze_window"
+value = "10"
+
+# Storage: SubtensorModule.OwnerHyperparamRateLimit
+[owner_hparam_rate_limit]
+setter = "AdminUtils.sudo_set_owner_hparam_rate_limit"
+value = "2"
+
+# Storage: SubtensorModule.TaoFlowCutoff
+[tao_flow_cutoff]
+setter = "AdminUtils.sudo_set_tao_flow_cutoff"
+value = { bits = "0" }
+
+# Storage: SubtensorModule.FlowNormExponent
+[tao_flow_normalization_exponent]
+setter = "AdminUtils.sudo_set_tao_flow_normalization_exponent"
+value = { bits = "18446744073709551616" }
+
+# Storage: SubtensorModule.EmissionGateExponent
+[emission_gate_exponent]
+setter = "AdminUtils.sudo_set_emission_gate_exponent"
+value = { bits = "55340232221128654848" }
+
+# Storage: SubtensorModule.FlowEmaSmoothingFactor
+[tao_flow_smoothing_factor]
+setter = "AdminUtils.sudo_set_tao_flow_smoothing_factor"
+value = "29597889189277"
+
+# Storage: SubtensorModule.NetTaoFlowEnabled
+[net_tao_flow_enabled]
+setter = "AdminUtils.sudo_set_net_tao_flow_enabled"
+value = true
+
+# Storage: SubtensorModule.MaxMechanismCount
+[max_mechanism_count]
+setter = "AdminUtils.sudo_set_max_mechanism_count"
+value = "8"
+
+# Storage: SubtensorModule.StartCallDelay
+[start_call_delay]
+setter = "AdminUtils.sudo_set_start_call_delay"
+value = "0"
+
+# Storage: SubtensorModule.ColdkeySwapAnnouncementDelay
+[coldkey_swap_announcement_delay]
+setter = "AdminUtils.sudo_set_coldkey_swap_announcement_delay"
+value = "36000"
+
+# Storage: SubtensorModule.ColdkeySwapReannouncementDelay
+[coldkey_swap_reannouncement_delay]
+setter = "AdminUtils.sudo_set_coldkey_swap_reannouncement_delay"
+value = "7200"
+
+# Storage: SubtensorModule.BasketMinTradeTao
+[basket_min_trade_tao]
+setter = "AdminUtils.sudo_set_basket_min_trade_tao"
+value = "5000000"
+
+# Storage: SubtensorModule.BasketConcentrationCap
+[basket_concentration_cap]
+setter = "AdminUtils.sudo_set_basket_concentration_cap"
+value = "7865"
+
+# Storage: SubtensorModule.BasketTradingEnabled
+[basket_trading_enabled]
+setter = "AdminUtils.sudo_set_basket_trading_enabled"
+value = true
+
+# Storage: SubtensorModule.BasketDailyTurnoverCap
+[basket_daily_turnover_cap]
+setter = "AdminUtils.sudo_set_basket_daily_turnover_cap"
+value = "6553"
+
+# Storage: SubtensorModule.BasketLiquidityCap
+[basket_liquidity_cap]
+setter = "AdminUtils.sudo_set_basket_liquidity_cap"
+value = "6553"
+
+# Storage: AdminUtils.HashedAccountsEnabled
+[hashed_accounts_enabled]
+setter = "AdminUtils.sudo_set_hashed_accounts_enabled"
+value = true
+
+# Storage: SubtensorModule.MaxEpochsPerBlock
+[max_epochs_per_block]
+setter = "AdminUtils.sudo_set_max_epochs_per_block"
+value = "2"
+
+# Storage: SubtensorModule.GammaEnabled
+[gamma_enabled]
+setter = "AdminUtils.sudo_set_gamma_enabled"
+value = true
+
+# Storage: HashedAccounts.HashedAccountRegistrationDeposit
+[hashed_account_registration_deposit]
+setter = "AdminUtils.sudo_set_hashed_account_registration_deposit"
+value = "200000000"
+
+# Storage: SubtensorModule.BasketTradeMaxSlippageBps
+[basket_trade_max_slippage_bps]
+setter = "AdminUtils.sudo_set_basket_trade_max_slippage_bps"
+value = "500"
+
+# Storage: SubtensorModule.BasketTradeRefillBlocks
+[basket_trade_refill_blocks]
+setter = "AdminUtils.sudo_set_basket_trade_refill_blocks"
+value = "7200"
+
+# Storage: SubtensorModule.BasketTradePriceReferenceMode
+[basket_trade_price_reference]
+setter = "AdminUtils.sudo_set_basket_trade_price_reference"
+value = "StrictestEmaAndSpot"
+
+# Storage: SubtensorModule.SubnetEmissionWeightsRateLimit
+[subnet_emission_weights_rate_limit]
+setter = "AdminUtils.sudo_set_subnet_emission_weights_rate_limit"
+value = "360"
+
+# Storage: SubtensorModule.PendingChildKeyCooldown
+[pending_childkey_cooldown]
+setter = "SubtensorModule.set_pending_childkey_cooldown"
+value = "7200"
+
+# Storage: SubtensorModule.TxChildkeyTakeRateLimit
+[tx_childkey_take_rate_limit]
+setter = "SubtensorModule.sudo_set_tx_childkey_take_rate_limit"
+value = "216000"
+
+# Storage: SubtensorModule.MinChildkeyTake
+[min_childkey_take]
+setter = "SubtensorModule.sudo_set_min_childkey_take"
+value = "0"
+
+# Storage: SubtensorModule.MaxChildkeyTake
+[max_childkey_take]
+setter = "SubtensorModule.sudo_set_max_childkey_take"
+value = "11796"
+
+# Storage: SubtensorModule.NominatorMinRequiredStake
+[nominator_min_required_stake_factor]
+setter = "AdminUtils.sudo_set_nominator_min_required_stake"
+value = "10000000"
+
+# Storage: SubtensorModule.EmissionBarQuantile
+[emission_bar_quantile]
+setter = "AdminUtils.sudo_set_emission_bar_quantile"
+value = { bits = "13835058055282163712" }
+
+# Storage: SubtensorModule.EmissionBarRank
+[emission_bar_rank]
+setter = "AdminUtils.sudo_set_emission_bar_rank"
+value = "48"
+
+# Storage: SubtensorModule.TaoUsdPriceOracle
+[tao_usd_price_oracle]
+setter = "AdminUtils.sudo_set_tao_usd_price_oracle"
+value = "5G1tkR8SckuTi6r3EVqAkZQ8X5uhjj9vyVFroLyDdQDrhM24"
+
+# Atomic root call: all four values are written together.
+[basket_claim_dust]
+setter = "AdminUtils.sudo_set_basket_claim_dust"
+# Storage: SubtensorModule.BasketClaimRowDustCapTao
+row_cap_rao = "1000000000"
+# Storage: SubtensorModule.BasketClaimRowDustBps
+row_bps = "10"
+# Storage: SubtensorModule.BasketClaimSliceDustTao
+slice_rao = "100000"
+# Storage: SubtensorModule.BasketClaimForfeitCapTao
+forfeit_cap_rao = "10000000"

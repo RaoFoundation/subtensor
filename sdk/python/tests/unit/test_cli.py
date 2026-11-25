@@ -13,6 +13,7 @@ import json
 import re
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 import bittensor.cli.commands.root as root_commands
@@ -26,7 +27,7 @@ from bittensor.cli.output import Output
 from bittensor.cli.root_helpers import RootPosition, position_columns, position_rows
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
-from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.fake_substrate import ComposedCall, FakeSubstrate
 from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT
 
 runner = CliRunner()
@@ -515,6 +516,105 @@ class TestTransactions:
         assert result.exit_code == 0, result.output
         wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
         assert fake.submissions[-1][1] == getattr(wallet, role).ss58_address
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_raw_call_refuses_mismatched_reviewed_hash(self, fake, wallet_dir, dry_run):
+        result = invoke(
+            "--json",
+            "--dry-run" if dry_run else "--yes",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            "--expected-call-hash",
+            "0x" + "ff" * 32,
+        )
+        assert result.exit_code != 0
+        assert "reviewed hash" in " ".join(result.output.replace("│", " ").split())
+        assert not fake.submissions
+
+    @pytest.mark.parametrize(
+        ("operation", "expected_timepoint"),
+        [("open", None), ("88:3", {"height": 88, "index": 3})],
+    )
+    def test_pinned_raw_call_resolves_explicit_preset_signer(
+        self, fake, monkeypatch, wallet_dir, operation, expected_timepoint
+    ):
+        member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed("System", "Account", [member], {"data": {"free": 10**10}})
+        config.add_multisig(
+            {
+                "name": "treasury",
+                "threshold": 2,
+                "signatories": [member, BOB],
+                "account_mode": "legacy",
+            }
+        )
+        expected_hash = "0x" + ComposedCall("System", "remark", {"remark": "0x01"}).call_hash.hex()
+        approvals = []
+        original = fake.submit_multisig
+
+        async def record(call, keypair, account, *, expected_timepoint, **kwargs):
+            approvals.append((keypair.ss58_address, expected_timepoint))
+            return await original(call, keypair, account, **kwargs)
+
+        monkeypatch.setattr(fake, "submit_multisig", record)
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            "-w",
+            "treasury",
+            "--signatory",
+            _WALLET_NAME,
+            "--expected-call-hash",
+            expected_hash,
+            "--multisig-operation",
+            operation,
+        )
+        assert result.exit_code == 0, result.output
+        assert approvals == [(member, expected_timepoint)]
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            ((), "member for a pinned approval"),
+            (("--signatory", "not-a-member"), "not a local member wallet"),
+        ],
+    )
+    @pytest.mark.parametrize("styled_output", [False, True], ids=["plain", "color"])
+    def test_pinned_raw_call_never_falls_back_to_another_wallet(
+        self, fake, monkeypatch, wallet_dir, extra, message, styled_output
+    ):
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("TERM", "xterm")
+        monkeypatch.setattr("typer.rich_utils.FORCE_TERMINAL", styled_output)
+        monkeypatch.setattr("typer.rich_utils.MAX_WIDTH", 80)
+        member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        config.add_multisig({"name": "treasury", "threshold": 2, "signatories": [member, BOB]})
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            "-w",
+            "treasury",
+            "--multisig-operation",
+            "open",
+            *extra,
+        )
+        assert result.exit_code != 0
+        assert ("\x1b[" in result.output) is styled_output, result.output
+        plain_output = Text.from_ansi(result.output).plain
+        assert message in " ".join(plain_output.replace("│", " ").split()), result.output
+        assert not fake.submissions
 
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):
         result = invoke(
@@ -1443,3 +1543,58 @@ def test_registered_cli_submission_waits_for_finalized_authority(
     result = context.submit(intent)
     assert result.success, result.to_dict()
     assert observed[-1] is (crypto in wallets.HASHED_CRYPTO_TYPES)
+
+
+@pytest.mark.parametrize("live_version", [496, 497])
+def test_raw_pinned_approval_checks_spec_even_if_hash_matches(
+    fake, monkeypatch, wallet_dir, live_version
+):
+    member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+    fake.seed("System", "Account", [member], {"data": {"free": 10**10}})
+    expected_hash = "0x" + ComposedCall("System", "remark", {"remark": "0x01"}).call_hash.hex()
+    approvals = []
+    compose = fake.compose
+    submit = fake.submit_multisig
+
+    async def versioned_compose(call):
+        result = await compose(call)
+        result.spec_version = live_version
+        return result
+
+    async def record(
+        call, keypair, account, *, expected_timepoint, expected_spec_version, **kwargs
+    ):
+        approvals.append((expected_timepoint, expected_spec_version))
+        return await submit(call, keypair, account, **kwargs)
+
+    monkeypatch.setattr(fake, "compose", versioned_compose)
+    monkeypatch.setattr(fake, "submit_multisig", record)
+    result = invoke(
+        "--json",
+        "--yes",
+        "--no-mev-shield",
+        "call",
+        "System.remark",
+        "--args",
+        '{"remark":"0x01"}',
+        "-w",
+        _WALLET_NAME,
+        "--multisig-threshold",
+        "2",
+        "--signatories",
+        f"{member},{BOB}",
+        "--expected-call-hash",
+        expected_hash,
+        "--expected-spec-version",
+        "496",
+        "--multisig-operation",
+        "open",
+    )
+    if live_version == 496:
+        assert result.exit_code == 0, result.output or str(result.exception)
+        assert approvals == [(None, 496)]
+    else:
+        assert result.exit_code != 0
+        message = " ".join(result.output.replace("│", " ").split())
+        assert "runtime specVersion 497 differs from reviewed 496" in message
+        assert not approvals

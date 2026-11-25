@@ -1,0 +1,125 @@
+name: Sudo parameters
+
+on:
+  pull_request:
+    paths:
+      - "sudo/**"
+      - ".github/workflows/sudo-params.yml"
+      - "sdk/python/bittensor/cli/call.py"
+      - "sdk/python/bittensor/multisig.py"
+      - "sdk/python/bittensor/_substrate.py"
+      - "sdk/python/bittensor/_transport/interface.py"
+  push:
+    branches: [main]
+    paths:
+      - "sudo/**"
+      - ".github/workflows/sudo-params.yml"
+      - "sdk/python/bittensor/cli/call.py"
+      - "sdk/python/bittensor/multisig.py"
+      - "sdk/python/bittensor/_substrate.py"
+      - "sdk/python/bittensor/_transport/interface.py"
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Comparison baseline ref (report only; never produces a signable proposal)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sudo-params-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Offline diff and encoding tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sudo/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --prefix sudo
+      - name: Run network-free tests
+        run: npm test --prefix sudo
+
+  proposal:
+    name: Propose ${{ matrix.network }} changes (read-only)
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        network: [devnet, testnet, mainnet]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sudo/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --prefix sudo
+      - name: Resolve the baseline and source files
+        run: bash sudo/baseline.sh >> "$GITHUB_ENV"
+        env:
+          NETWORK: ${{ matrix.network }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || inputs.base_ref }}
+          OUTPUT_DIR: ${{ runner.temp }}
+      - name: Compare reviewed values with live state and encode only
+        run: |
+          args=(--file "$SOURCE_FILE" --output-dir "$RUNNER_TEMP/${NETWORK}-proposal")
+          if [ -s "$BASE_FILE" ]; then
+            args+=(--base-file "$BASE_FILE")
+          fi
+          if [ "$MANUAL_COMPARISON" = "true" ]; then
+            args+=(--comparison-only)
+          else
+            if [ "$TRUSTED_MAIN_PUSH" != "true" ]; then
+              args+=(--preview)
+            elif [ -n "$BASE_COMMIT" ]; then
+              args+=(--publish-main-push)
+            fi
+            node sudo/validate-metadata.js "$NETWORK"
+          fi
+          node sudo/diff.js "${NETWORK}" "${args[@]}" --source-commit "$SOURCE_COMMIT" --base-commit "$BASE_COMMIT"
+        env:
+          NETWORK: ${{ matrix.network }}
+          MANUAL_COMPARISON: ${{ github.event_name == 'workflow_dispatch' }}
+          TRUSTED_MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Publish the proposal in the workflow summary
+        run: cat "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.md" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          NETWORK: ${{ matrix.network }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sudo-${{ matrix.network }}-proposal
+          path: ${{ runner.temp }}/${{ matrix.network }}-proposal/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Notify Discord about a real proposal
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          NETWORK: ${{ matrix.network }}
+          SUDO_DISCORD_WEBHOOK: ${{ secrets.SUDO_DISCORD_WEBHOOK }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node sudo/notify.js "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.json"
+      - name: Mainnet is proposal-only
+        if: matrix.network == 'mainnet' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "CI has not signed or submitted anything. Review the call and use the verifier when a signable proposal is present." >> "$GITHUB_STEP_SUMMARY"

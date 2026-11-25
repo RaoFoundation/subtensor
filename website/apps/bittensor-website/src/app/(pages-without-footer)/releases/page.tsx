@@ -24,11 +24,11 @@ type Release = {
 const releases: Release[] = [
   {
     tag: 'v496',
-    date: 'Upcoming',
-    title: 'Short-Only Synthetic Lending',
+    date: 'Proposed',
+    title: 'Root Parameters and Short-Only Lending',
     summary:
-      'Runtime spec 496: short-only synthetic lending (dark launch), flat APR, whole-book coverage, ' +
-      'TWAP health, paced buy-backs, and post-basket dereg settlement at frozen r.',
+      'Runtime spec 496: reviewed root parameter proposals, plus short-only synthetic lending ' +
+      '(dark launch) with flat APR, whole-book coverage, TWAP health, and paced buy-backs.',
     href: '/releases/v496-upgrade',
   },
   {
