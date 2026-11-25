@@ -24,7 +24,7 @@ subnet; grow it with `increase_short`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L1089-L1106) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L1103-L1123) |
 
 ## Parameters
 
@@ -81,14 +81,17 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_short` — [`pallets/lending/src/lib.rs#L1097`](/code/pallets/lending/src/lib.rs#L1089-L1106):
+`Lending.open_short` — [`pallets/lending/src/lib.rs#L1114`](/code/pallets/lending/src/lib.rs#L1103-L1123):
 
 ```rust
 #[pallet::call_index(0)]
 #[pallet::weight({
-    let n = T::Pool::subnet_limit().max(1);
+    // Zone check reads the block's cached floor plus this subnet's
+    // rank/moving price (no live-subnet scan on the signed path).
     T::WeightInfo::open_short().saturating_add(
-        T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+        T::DbWeight::get()
+            .reads(4)
+            .saturating_add(Weight::from_parts(0, U64F64::max_encoded_len() as u64)),
     )
 })]
 #[frame_support::transactional]

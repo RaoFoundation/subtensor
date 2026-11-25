@@ -758,6 +758,10 @@ pub mod pallet {
     /// Separate from the emission [`SubnetMovingPrice`] which caps the feed at 1.0.
     #[pallet::storage]
     pub type NotionalEma<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
+    /// Lowest non-immune prune rank for the tagged block (P16). Refreshed in
+    /// `on_initialize` so signed opens/increases pay O(1) for the zone check.
+    #[pallet::storage]
+    pub type PruneFloor<T: Config> = StorageValue<_, (BlockNumberFor<T>, U64F64), OptionQuery>;
     /// Closed custody coldkeys that still hold TAO after a failed settle or
     /// default. Root [`sweep_stranded_funds`] pays `due` to the pot and
     /// refunds the owner portion.
@@ -1019,6 +1023,16 @@ pub mod pallet {
                 Self::twap_tick(*netuid, now, &params, close_interval);
                 weight = weight.saturating_add(twap_tick_w);
             }
+            // Publish this block's prune-zone floor from the same live set so
+            // open/increase stay O(1). Charge immune + rank/moving per subnet.
+            Self::refresh_prune_floor(now, &subnets);
+            weight = weight.saturating_add(
+                db.reads_writes(subnets.len().saturating_mul(3) as u64, 1)
+                    .saturating_add(Weight::from_parts(
+                        0,
+                        (U64F64::max_encoded_len() as u64).saturating_mul(2),
+                    )),
+            );
             if close_interval {
                 weight = weight.saturating_add(
                     T::WeightInfo::twap_sample().saturating_mul(subnets.len() as u64),
@@ -1088,9 +1102,12 @@ pub mod pallet {
         /// must be non-zero.
         #[pallet::call_index(0)]
         #[pallet::weight({
-            let n = T::Pool::subnet_limit().max(1);
+            // Zone check reads the block's cached floor plus this subnet's
+            // rank/moving price (no live-subnet scan on the signed path).
             T::WeightInfo::open_short().saturating_add(
-                T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+                T::DbWeight::get()
+                    .reads(4)
+                    .saturating_add(Weight::from_parts(0, U64F64::max_encoded_len() as u64)),
             )
         })]
         #[frame_support::transactional]
@@ -1109,9 +1126,10 @@ pub mod pallet {
         /// `min_tao_out` must be non-zero when `extra_mint` is.
         #[pallet::call_index(1)]
         #[pallet::weight({
-            let n = T::Pool::subnet_limit().max(1);
             T::WeightInfo::increase_short().saturating_add(
-                T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+                T::DbWeight::get()
+                    .reads(4)
+                    .saturating_add(Weight::from_parts(0, U64F64::max_encoded_len() as u64)),
             )
         })]
         #[frame_support::transactional]
@@ -1177,12 +1195,12 @@ pub mod pallet {
 
         #[pallet::call_index(6)]
         #[pallet::weight({
-            // O(1) limit read (not an enumeration) so weight tracks governance's
-            // SubnetLimit; proof covers RankRing clears up to that bound.
-            let n = T::Pool::subnet_limit().max(1);
+            // Governance can lower SubnetLimit below the live count without
+            // pruning those nets, so price clears against the NetUid ceiling.
+            let n = MAX_LIVE_SUBNETS_FOR_WEIGHT;
             let ring_proof = (dereg::RankState::max_encoded_len() as u64).saturating_mul(n);
             T::WeightInfo::set_enabled()
-                .saturating_add(T::DbWeight::get().reads(3))
+                .saturating_add(T::DbWeight::get().reads(2))
                 .saturating_add(T::DbWeight::get().reads_writes(
                     n.saturating_add(1),
                     n.saturating_mul(2).saturating_add(1),
@@ -1425,19 +1443,46 @@ pub mod pallet {
             RankPrice::<T>::get(netuid).unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
         }
 
+        /// Publish this block's lowest non-immune prune rank for O(1) zone checks.
+        fn refresh_prune_floor(now: BlockNumberFor<T>, subnets: &[NetUid]) {
+            let mut floor: Option<U64F64> = None;
+            for &netuid in subnets {
+                if T::Pool::prune_immune(netuid) {
+                    continue;
+                }
+                let price = Self::prune_rank_price(netuid);
+                floor = Some(match floor {
+                    Some(lo) => lo.min(price),
+                    None => price,
+                });
+            }
+            if let Some(floor) = floor {
+                PruneFloor::<T>::put((now, floor));
+            } else {
+                PruneFloor::<T>::kill();
+            }
+        }
+
         /// The subnet's prune rank is within `zone_bps` of the lowest
         /// non-immune prune rank, so it is a prune candidate (P16). Matches
-        /// subtensor's prune selection fallback.
+        /// subtensor's prune selection fallback. Uses the block's cached floor
+        /// when present; otherwise computes it once.
         pub fn in_prune_zone(netuid: NetUid, params: &SynthParams) -> bool {
             if T::Pool::prune_immune(netuid) {
                 return false;
             }
             let own = Self::prune_rank_price(netuid);
-            let floor = T::Pool::live_subnets()
-                .into_iter()
-                .filter(|n| *n == netuid || !T::Pool::prune_immune(*n))
-                .map(Self::prune_rank_price)
-                .fold(own, |lo, p| lo.min(p));
+            let now = frame_system::Pallet::<T>::block_number();
+            let floor = match PruneFloor::<T>::get() {
+                Some((at, floor)) if at == now => floor,
+                _ => {
+                    let subnets = T::Pool::live_subnets();
+                    Self::refresh_prune_floor(now, &subnets);
+                    PruneFloor::<T>::get()
+                        .map(|(_, floor)| floor)
+                        .unwrap_or(own)
+                }
+            };
             own <= Self::scale_price(floor, u128::from(params.zone_bps))
         }
 
@@ -2080,15 +2125,17 @@ pub mod pallet {
             params: &SynthParams,
             meter: &mut WeightMeter,
         ) -> u32 {
-            // Reserve the full step before each attempt. A no-progress path can
-            // still quote, touch the cursor, and attempt a transactional
-            // buy-back; charging only a 4-read probe understates that work and
-            // can let an attempt run when the remaining meter cannot cover it.
+            // Peek costs cursor + queue probe reads; the full step is reserved
+            // before the buy-back so no-progress work cannot understate the meter.
             let step_w = T::WeightInfo::deleverage_step();
+            let peek_w = T::DbWeight::get().reads(2);
             let mut total = 0u32;
             let mut pass_progressed = false;
             let mut pass_start: Option<(NetUid, T::AccountId)> = None;
             while total < MAX_DELEVERAGE_STEPS_PER_BLOCK {
+                if meter.try_consume(peek_w).is_err() {
+                    break;
+                }
                 let Some(next) = Self::peek_next_deleverage_key() else {
                     break;
                 };
@@ -2108,7 +2155,7 @@ pub mod pallet {
                 if pass_start.is_none() {
                     pass_start = Some(next);
                 }
-                if meter.try_consume(step_w).is_err() {
+                if meter.try_consume(step_w.saturating_sub(peek_w)).is_err() {
                     break;
                 }
                 let (attempted, progressed) = Self::process_deleverage_queue(1, params);
@@ -2241,8 +2288,10 @@ pub mod pallet {
         }
 
         /// Uncapped slow EMA of spot for interest / min notional (P5).
+        /// Prefers the seeded [`NotionalEma`]; before the first tick falls
+        /// back to the emission moving price — never raw spot.
         pub fn notional_price(netuid: NetUid) -> U64F64 {
-            NotionalEma::<T>::get(netuid).unwrap_or_else(|| T::Pool::current_alpha_price(netuid))
+            NotionalEma::<T>::get(netuid).unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
         }
 
         fn notional(netuid: NetUid, minted: u64) -> u64 {
@@ -2256,46 +2305,61 @@ pub mod pallet {
         /// pot and refunds `refund` to the recorded owner — never an
         /// arbitrary EOA or another subnet's accounts.
         pub fn do_sweep_stranded(netuid: NetUid, who: &T::AccountId) -> DispatchResult {
-            let reserve = Self::reserve_account(netuid);
-            let free = T::Pool::free_tao(who).to_u64();
-            if *who == reserve {
-                let amount = free.saturating_sub(ResidualReserve::<T>::get(netuid));
-                ensure!(amount > 0, Error::<T>::ZeroAmount);
-                if T::Pool::subnet_pot_account(netuid).is_some() {
-                    let _ = T::Pool::pay_into_pot(who, netuid, amount.into())?;
-                } else {
-                    T::Pool::burn_interest_tao(who, amount.into())?;
+            // Pot + refund must commit together so a failed refund cannot leave
+            // a paid pot leg eligible for retry against the same record.
+            with_transaction(|| {
+                let reserve = Self::reserve_account(netuid);
+                let free = T::Pool::free_tao(who).to_u64();
+                if *who == reserve {
+                    let amount = free.saturating_sub(ResidualReserve::<T>::get(netuid));
+                    if amount == 0 {
+                        return TransactionOutcome::Rollback(Err(Error::<T>::ZeroAmount.into()));
+                    }
+                    let paid = if T::Pool::subnet_pot_account(netuid).is_some() {
+                        T::Pool::pay_into_pot(who, netuid, amount.into())
+                    } else {
+                        T::Pool::burn_interest_tao(who, amount.into()).map(|_| amount.into())
+                    };
+                    return match paid {
+                        Ok(_) => TransactionOutcome::Commit(Ok(())),
+                        Err(e) => TransactionOutcome::Rollback(Err(e)),
+                    };
                 }
-                return Ok(());
-            }
-            let record =
-                StrandedCustody::<T>::get(netuid, who).ok_or(Error::<T>::OwnerNotAllowed)?;
-            ensure!(
-                !EscrowOwner::<T>::contains_key(netuid, who),
-                Error::<T>::PositionExists
-            );
-            let want = record.due.saturating_add(record.refund);
-            ensure!(want > 0, Error::<T>::ZeroAmount);
-            ensure!(free > 0, Error::<T>::ZeroAmount);
-            let (due_pay, refund_pay) = if free >= want {
-                (record.due, record.refund)
-            } else {
-                // Prefer the pot leg when free balance is short.
-                let due_pay = record.due.min(free);
-                (due_pay, free.saturating_sub(due_pay).min(record.refund))
-            };
-            if due_pay > 0 {
-                if T::Pool::subnet_pot_account(netuid).is_some() {
-                    let _ = T::Pool::pay_into_pot(who, netuid, due_pay.into())?;
-                } else {
-                    T::Pool::burn_interest_tao(who, due_pay.into())?;
+                let Some(record) = StrandedCustody::<T>::get(netuid, who) else {
+                    return TransactionOutcome::Rollback(Err(Error::<T>::OwnerNotAllowed.into()));
+                };
+                if EscrowOwner::<T>::contains_key(netuid, who) {
+                    return TransactionOutcome::Rollback(Err(Error::<T>::PositionExists.into()));
                 }
-            }
-            if refund_pay > 0 {
-                let _ = T::Pool::refund_dissolution_tao(who, &record.owner, refund_pay.into())?;
-            }
-            StrandedCustody::<T>::remove(netuid, who);
-            Ok(())
+                let want = record.due.saturating_add(record.refund);
+                if want == 0 || free == 0 {
+                    return TransactionOutcome::Rollback(Err(Error::<T>::ZeroAmount.into()));
+                }
+                let (due_pay, refund_pay) = if free >= want {
+                    (record.due, record.refund)
+                } else {
+                    let due_pay = record.due.min(free);
+                    (due_pay, free.saturating_sub(due_pay).min(record.refund))
+                };
+                if due_pay > 0 {
+                    let paid = if T::Pool::subnet_pot_account(netuid).is_some() {
+                        T::Pool::pay_into_pot(who, netuid, due_pay.into())
+                    } else {
+                        T::Pool::burn_interest_tao(who, due_pay.into()).map(|_| due_pay.into())
+                    };
+                    if let Err(e) = paid {
+                        return TransactionOutcome::Rollback(Err(e));
+                    }
+                }
+                if refund_pay > 0
+                    && let Err(e) =
+                        T::Pool::refund_dissolution_tao(who, &record.owner, refund_pay.into())
+                {
+                    return TransactionOutcome::Rollback(Err(e));
+                }
+                StrandedCustody::<T>::remove(netuid, who);
+                TransactionOutcome::Commit(Ok(()))
+            })
         }
 
         fn interest_denominator() -> u128 {
@@ -2922,7 +2986,19 @@ pub mod pallet {
                 return;
             };
             let params = SynthParamsStore::<T>::get();
-            if Self::charge_interest(owner, netuid, &mut pos, &params).is_ok() {
+            // Same transactional + clone pattern as `process_due`: a mid-charge
+            // failure must not keep the reserve share while `pos` still books
+            // the transferred collateral for the terminal split.
+            let mut charged = pos.clone();
+            let interest_ok = with_transaction(|| {
+                match Self::charge_interest(owner, netuid, &mut charged, &params) {
+                    Ok(()) => TransactionOutcome::Commit(Ok(())),
+                    Err(e) => TransactionOutcome::Rollback(Err(e)),
+                }
+            })
+            .is_ok();
+            if interest_ok {
+                pos = charged;
                 Positions::<T>::insert(owner, netuid, &pos);
             }
             // Best-effort: burn any accrued-but-uncollected interest from

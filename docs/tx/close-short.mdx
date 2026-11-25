@@ -14,7 +14,7 @@ disabled.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close_short`](/code/pallets/lending/src/lib.rs#L1155-L1166) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.close_short`](/code/pallets/lending/src/lib.rs#L1173-L1184) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("close_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.close_short` — [`pallets/lending/src/lib.rs#L1158`](/code/pallets/lending/src/lib.rs#L1155-L1166):
+`Lending.close_short` — [`pallets/lending/src/lib.rs#L1176`](/code/pallets/lending/src/lib.rs#L1173-L1184):
 
 ```rust
 #[pallet::call_index(4)]

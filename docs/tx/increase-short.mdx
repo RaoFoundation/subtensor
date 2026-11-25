@@ -13,7 +13,7 @@ of `extra_mint`; omit it to use the simulated sale less
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.increase_short`](/code/pallets/lending/src/lib.rs#L1110-L1127) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.increase_short`](/code/pallets/lending/src/lib.rs#L1127-L1145) |
 
 ## Parameters
 
@@ -66,14 +66,15 @@ result = sub.execute_tool("increase_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.increase_short` — [`pallets/lending/src/lib.rs#L1118`](/code/pallets/lending/src/lib.rs#L1110-L1127):
+`Lending.increase_short` — [`pallets/lending/src/lib.rs#L1136`](/code/pallets/lending/src/lib.rs#L1127-L1145):
 
 ```rust
 #[pallet::call_index(1)]
 #[pallet::weight({
-    let n = T::Pool::subnet_limit().max(1);
     T::WeightInfo::increase_short().saturating_add(
-        T::DbWeight::get().reads(n.saturating_mul(3).saturating_add(1)),
+        T::DbWeight::get()
+            .reads(4)
+            .saturating_add(Weight::from_parts(0, U64F64::max_encoded_len() as u64)),
     )
 })]
 #[frame_support::transactional]

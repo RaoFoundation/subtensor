@@ -11,7 +11,7 @@ submit it.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.poke`](/code/pallets/lending/src/lib.rs#L1170-L1176) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.poke`](/code/pallets/lending/src/lib.rs#L1188-L1194) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("poke_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.poke` — [`pallets/lending/src/lib.rs#L1173`](/code/pallets/lending/src/lib.rs#L1170-L1176):
+`Lending.poke` — [`pallets/lending/src/lib.rs#L1191`](/code/pallets/lending/src/lib.rs#L1188-L1194):
 
 ```rust
 #[pallet::call_index(5)]

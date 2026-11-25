@@ -141,6 +141,9 @@ fn set_residual(r: u64) {
 }
 fn set_other_rank(price: f64) {
     RankPrice::<Test>::insert(other(), U64F64::from_num(price));
+    // Rank mutations in tests are mid-block; production refreshes the floor
+    // only in on_initialize, so clear the cache here.
+    PruneFloor::<Test>::kill();
 }
 
 fn seed_twap_samples(netuid: NetUid, samples: u32, price: f64) {
@@ -158,6 +161,7 @@ fn seed_rank_from_ema(netuid: NetUid, price: f64) {
     RankRing::<Test>::insert(netuid, state);
     // Simulate a fully-warmed ring: publish the first SMA so rank_price() is non-zero.
     RankPrice::<Test>::insert(netuid, U64F64::from_num(price));
+    PruneFloor::<Test>::kill();
 }
 
 pub struct MockPool;
