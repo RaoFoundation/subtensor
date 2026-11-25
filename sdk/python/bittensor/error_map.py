@@ -115,6 +115,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "IncorrectWeightVersionKey": _C.INVALID_ARGUMENT,
     "ServingRateLimitExceeded": _C.RATE_LIMITED,
     "UidsLengthExceedUidsInSubNet": _C.LIMIT_EXCEEDED,
+    "TooManyWeightsForNullMechanism": _C.LIMIT_EXCEEDED,
     "NetworkTxRateLimitExceeded": _C.RATE_LIMITED,
     "DelegateTxRateLimitExceeded": _C.RATE_LIMITED,
     "HotKeySetTxRateLimitExceeded": _C.RATE_LIMITED,

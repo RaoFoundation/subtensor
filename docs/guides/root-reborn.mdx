@@ -261,18 +261,31 @@ root-stakes to.
   the entitlement keeps accruing and pays out once it clears. There is no
   deadline and nothing expires.
 - **Claim fee.** The inclusion fee scales with how many ALPHA types the
-  basket holds. The chain reserves a 129-unit envelope for a single-validator
-  claim and the full 256-unit envelope for a coldkey-wide claim, then refunds
-  the unused part after. Admission
+  basket holds. Since runtime 495 a single-validator claim reserves the weight
+  of that validator's own fund: its stored basket rows and its queued dividend
+  credits. It also reserves a fixed 32 ms for the stake-change corrections of
+  the claimant, which the claim settles first, and the reads that count the
+  fund two times. One claim admits a fund of up to
+  258 claim units (the validator,
+  each stored row, and each queued credit on a subnet where the fund has no
+  row), which is a fund with rows on 256 subnets. A coldkey-wide claim reserves
+  the full 256-unit envelope. The chain refunds the unused part after. Admission
   counts only root-relevant validator hotkeys plus their stored basket rows;
   unrelated subnet stakes are filtered instead of being multiplied by the total
   network count. Classifying the staking-hotkey vector is separately capped at
   256 relationships. The amount you actually spend
   follows the holdings scanned and redeemed (around τ0.057 on a full
-  128-holding basket).
+  128-holding basket). A small claim also pays for the count of the fund and
+  for the corrections that it settles.
   `btcli root claim --dry-run` shows reserved versus spent, compares the
   spent fee to accrued yield, warns if the claim loses money, and
   refuses if free TAO cannot cover the reserved amount.
+- **Claim after a trade or a hotkey swap.** Since runtime 495 a
+  single-validator claim fails with `RootClaimTooHeavy` when, earlier in the
+  same transaction, a `swap-basket` buy opened a new row in the same fund or a
+  hotkey swap moved a fund to that validator hotkey. A batch computes the
+  weight of the claim before the trade runs, so that weight would be too
+  small. Send the claim in a later transaction; the same block is sufficient.
 - **Owed is a live quote.** [`root-basket-owed`](/docs/query/root-basket-owed)
   marks your entitlement at current pool prices, so the number moves with the
   market — a claim realizes whatever the pools pay at execution time.

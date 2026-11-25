@@ -107,14 +107,19 @@ DESCRIPTIONS: dict[str, str] = {
         "a hotkey the beneficiary coldkey actually owns."
     ),
     "RootClaimTooHeavy": (
-        "A root claim would process more than the fixed 256-unit admission envelope. Only "
-        "root-relevant validator hotkeys and their stored basket rows count as claim work; "
-        "classifying the staking-hotkey relationship vector is separately capped at 256, and "
-        "the queued dividend credits plus weight-vector destinations the claim would flush "
-        "first are capped at 512 across all validators claimed (one validator always fits). "
-        "Unrelated subnet stakes are not multiplied by the total network count. Split a "
-        "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
-        "individually oversized basket."
+        "A root claim would process more than its admission envelope. A coldkey-wide claim "
+        "admits 256 units: only root-relevant validator hotkeys and their stored basket rows "
+        "count as claim work; classifying the staking-hotkey relationship vector is separately "
+        "capped at 256, and the queued dividend credits the claim would flush first are capped "
+        "at 512 across all validators claimed. Unrelated subnet stakes are not multiplied by "
+        "the total network count. A single-validator claim admits 258 units: the validator, "
+        "its stored basket rows, and one for each queued dividend credit on a subnet the fund "
+        "does not hold. A runtime before 495 admits 130 units and does not count queued "
+        "credits. A single-validator claim also fails with this error when a "
+        "`swap_basket` buy or a hotkey swap gave the same fund a new row earlier in the same "
+        "transaction; send the claim in a later transaction. Split a coldkey-wide claim by "
+        "validator where that fits, and investigate or consolidate an individually oversized "
+        "basket."
     ),
     "RootWeightCapExceeded": (
         "Retired (kept for SCALE index stability on the 463 testnet/devnet runtime): one "
@@ -959,9 +964,16 @@ DESCRIPTIONS: dict[str, str] = {
         "against that hyperparameter and wait for the next interval to start."
     ),
     "TooManyUIDsPerMechanism": (
-        "Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed "
-        "the chain default of 256 UIDs per subnet. Check `MaxAllowedUids` and the subnet's "
-        "mechanism count so their product stays within the limit."
+        "The requested subnet UID capacity exceeds its consensus limit. Null consensus allows "
+        "`MaxAllowedUids` up to 2500 independently of mechanism count. Yuma consensus requires "
+        "max UIDs times mechanism count to remain at most 256. Reduce `MaxAllowedUids`, reduce "
+        "the mechanism count on Yuma, or switch to a consensus mode that supports the capacity."
+    ),
+    "TooManyWeightsForNullMechanism": (
+        "A Null-consensus weight row exceeds the shared 2500-entry budget divided by the "
+        "subnet's current mechanism count, rounded down with a minimum of one entry. Reduce "
+        "the UID list to that per-mechanism limit; opaque timelocked commits are checked at "
+        "reveal. Yuma-consensus rows do not use this additional limit."
     ),
     "TooManyUnrevealedCommits": (
         "Legacy hash commits (`commit_weights` and `commit_mechanism_weights`) reached their "

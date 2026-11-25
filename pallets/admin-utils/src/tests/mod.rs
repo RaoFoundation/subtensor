@@ -3982,23 +3982,15 @@ fn null_consensus_capacity_and_switch_boundaries() {
             AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 2_501),
             Error::<Test>::MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
         );
-        assert_noop!(
-            SubtensorModule::do_set_mechanism_count(netuid, MechId::from(2)),
-            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
-        );
-        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
-            RuntimeOrigin::root(),
-            netuid,
-            1_250
-        ));
         assert_ok!(SubtensorModule::do_set_mechanism_count(
             netuid,
             MechId::from(2)
         ));
-        assert_noop!(
-            AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 1_251),
-            pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
-        );
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            2_500
+        ));
         pallet_subtensor::SubnetworkN::<Test>::insert(netuid, 129);
         assert_noop!(
             AdminUtils::sudo_set_epoch_consensus(
@@ -4008,7 +4000,7 @@ fn null_consensus_capacity_and_switch_boundaries() {
             ),
             pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
         );
-        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 1_250);
+        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 2_500);
         assert_eq!(
             SubtensorModule::get_epoch_consensus(netuid),
             EpochConsensus::Null
@@ -4024,6 +4016,45 @@ fn null_consensus_capacity_and_switch_boundaries() {
             AdminUtils::sudo_set_max_allowed_uids(RuntimeOrigin::root(), netuid, 129),
             pallet_subtensor::Error::<Test>::TooManyUIDsPerMechanism
         );
+    });
+}
+
+#[test]
+fn null_root_allows_sixteen_mechanisms_without_uid_scaling() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        SubtensorModule::set_admin_freeze_window(0);
+        assert_ok!(AdminUtils::sudo_set_epoch_consensus(
+            RuntimeOrigin::root(),
+            netuid,
+            EpochConsensus::Null
+        ));
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            256
+        ));
+        assert_ok!(AdminUtils::sudo_set_max_mechanism_count(
+            RuntimeOrigin::root(),
+            MechId::from(16)
+        ));
+        assert_ok!(AdminUtils::sudo_set_mechanism_count(
+            RuntimeOrigin::root(),
+            netuid,
+            MechId::from(16)
+        ));
+        assert_eq!(
+            SubtensorModule::get_current_mechanism_count(netuid),
+            MechId::from(16)
+        );
+        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 256);
+        assert_ok!(AdminUtils::sudo_set_max_allowed_uids(
+            RuntimeOrigin::root(),
+            netuid,
+            2_500
+        ));
+        assert_eq!(SubtensorModule::get_max_allowed_uids(netuid), 2_500);
     });
 }
 

@@ -1,0 +1,29 @@
+.table_scroller {
+  width: 100%;
+  max-width: calc(100vw - 64px);
+  overflow-x: auto;
+}
+
+.table_scroller table {
+  min-width: 560px;
+}
+
+ul.bullets {
+  list-style-type: disc;
+}
+
+ul.bullets,
+ol.ordered {
+  text-align: left;
+}
+
+ul.bullets strong,
+ol.ordered strong {
+  font-weight: 600;
+}
+
+/* Long call names have no spaces. Let them break so that a narrow screen does not
+   get a page that is wider than its viewport. Code blocks keep their own scrolling. */
+.page :not(pre) > code {
+  overflow-wrap: anywhere;
+}

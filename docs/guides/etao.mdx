@@ -28,7 +28,7 @@ miners, root stakers and integrators should expect.
   validator, miner]` of `u64` parts of `u64::MAX` that sums to exactly one.
 - **New extrinsic:** `AdminUtils.sudo_set_subnet_emission_weights(netuid,
   uids, values)` — a sparse update callable by the subnet owner (once per
-  50,400 blocks per subnet) or root.
+  360 blocks per subnet by default, see [Rate limit](#rate-limit)) or root.
 - **Rules (v1):** `burn + recycle ≤ 33%`; `0 ≤ owner ≤ 33%` (lease-created
   subnets `≥ 18%`); `validator ≤ 50%` and strictly above root's live
   baseline share; `miner ≥ 33%`; the five slots sum to exactly one.
@@ -130,13 +130,20 @@ call; `btcli` does that arithmetic for you (below).
 
 ### Rate limit
 
-Owners may change a subnet's vector **once every 50,400 blocks** (about
-seven days at 12 s). The limit is keyed by **subnet**, not by owner coldkey
+Owners may change a subnet's vector **once every 360 blocks** by default
+(one default tempo, about 72 minutes at 12 s). The limit is the storage value
+`SubnetEmissionWeightsRateLimit`. Root can change it with
+`AdminUtils.sudo_set_subnet_emission_weights_rate_limit`, and a limit of 0
+removes the wait. Before runtime 494 the limit was a constant of 50,400 blocks
+(about seven days).
+
+The limit is keyed by **subnet**, not by owner coldkey
 (`LastRateLimitedBlock[OwnerHyperparamUpdate(netuid, EmissionWeights)]`), so
 handing a subnet to a new owner does not reset it. A subnet's first change is
 never rate-limited, root is exempt, and dissolving a subnet clears the key so
-a reused netuid starts fresh. The window is a runtime constant
-(`SubnetEmissionWeightsRateLimit`), not a hyperparameter.
+a reused netuid starts fresh. The limit is network-wide, not a subnet
+hyperparameter. `btcli subnets emission show` reads it from the chain and
+prints the block of the next owner change.
 
 ## How root stays whole
 
@@ -281,8 +288,9 @@ legacy views but are no longer written.
 carries the full post-merge five-slot vector.
 
 **Rate limit:** `TransactionType::OwnerHyperparamUpdate(Hyperparameter::EmissionWeights)`
-keyed by subnet in `LastRateLimitedBlock`; constant
-`SubnetEmissionWeightsRateLimit = 50_400`.
+keyed by subnet in `LastRateLimitedBlock`; storage value
+`SubnetEmissionWeightsRateLimit`, 360 blocks by default (a constant of 50,400
+before runtime 494).
 
 **Runtime API / RPC:** `SubnetInfoRuntimeApi.get_subnet_emission_weights(netuid)
 → Option<SubnetEmissionWeightsInfo { netuid, weights, burn, recycle, owner,
@@ -352,7 +360,7 @@ Root
          validator floor  > 5.4015%  a change must leave the validator share above the baseline
                 root tao  5,443,000 TAO
           alpha issuance  6,457,000 alpha
-       next owner change  now  first change; owners may change once per 50,400 blocks
+       next owner change  now  first change; owners may change once per 360 blocks
        created via lease  no
 
 Allowed
@@ -415,7 +423,7 @@ Emission weights
   miner                         41.00% -> 62.00%
   root share of emission        5.4015% -> 5.4015% (baseline 5.4015%, paid off the top)
   validators after root         35.5987% -> 14.5985%
-  next owner change after this  about block 7,463,280 (50,400 blocks after the one that includes this call)
+  next owner change after this  about block 7,413,240 (360 blocks after the one that includes this call)
 
 Fees
   estimated fee                 ~τ0.000216036
@@ -463,10 +471,10 @@ error: the chain would reject this change: ValidatorEmissionTooLowToPreserveRoot
 Exit code 2, nothing signed. With `--json` the same three fields arrive as
 `{"error", "note", "help"}` on stderr.
 
-**6. Inside the weekly window the write is blocked, not rejected.**
+**6. Inside the rate limit the write is blocked, not rejected.**
 
 ```
-error: the owner changed this vector at block 7,412,880; the chain allows the next owner change at block 7,463,280 (in 50,112 blocks, about 167.0 h); root is exempt
+error: the owner changed this vector at block 7,412,880; the chain allows the next owner change at block 7,413,240 (in 72 blocks, about 0.2 h); root is exempt
   help: resolve this hard stop before submitting
 ```
 
@@ -510,8 +518,9 @@ from anyone to stay current. The only cap is the validator slot itself: on a
 subnet whose slot has fallen below the baseline you receive the whole slot.
 The global `TaoWeight` remains the governance lever over root's weight.
 
-**Subnet owners.** You get one change per week per subnet; plan it. Your
-first change is free of the limit. Lease-created subnets cannot drop the
+**Subnet owners.** You get one change per 360 blocks per subnet by default
+(the chain's `SubnetEmissionWeightsRateLimit`); it was one per week before
+runtime 494. Your first change is free of the limit. Lease-created subnets cannot drop the
 owner slot below 18%. Every `btcli` write validates locally and shows the
 exact floor, so test with `--dry-run` first. The owner cut's auto-lock
 setting is unaffected.

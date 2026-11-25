@@ -30,7 +30,7 @@ btcli subnets emission show --netuid 12
 btcli subnets emission increase --netuid 12 --slot miner --by 5%
 ```
 
-Settable by the subnet owner (once per week per subnet) or root through
+Settable by the subnet owner (once per 360 blocks per subnet by default) or root through
 [`set-subnet-emission-weights`](/docs/tx/set-subnet-emission-weights); not
 available on the root subnet.
 

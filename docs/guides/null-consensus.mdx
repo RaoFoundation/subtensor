@@ -39,10 +39,24 @@ btcli hparams set --netuid 1 --name epoch_consensus --value Null
 btcli hparams set --netuid 1 --name max_allowed_uids --value 2500
 ```
 
-Capacity is `floor(2500 / mechanism_count)` for Null, and
-`floor(256 / mechanism_count)` for Yuma. Increasing the mechanism count also checks
-the configured capacity. Reduce capacity first if the shared limit would be exceeded.
-Switching to Null does not automatically increase capacity.
+Capacity is `max_allowed_uids <= 2500` for Null, independent of mechanism count.
+For Yuma, `max_allowed_uids × mechanism_count` must stay ≤ 256, so the ceiling is
+`floor(256 / mechanism_count)`. Increasing the mechanism count also checks the
+configured capacity. Reduce capacity first if the Yuma shared limit would be
+exceeded. Switching to Null does not automatically increase capacity.
+
+The default global mechanism limit remains 2. Root may raise it to the hard
+maximum of 16 and then configure up to 16 mechanisms on a subnet. Null weight
+rows are capped at `max(1, floor(2500 / mechanism_count))`: 2,500 with one
+mechanism, 1,250 with two, and 156 with sixteen. This total budget is fixed;
+there is no per-row sudo setting. The cap applies to direct and delegated weight
+submission and to revealed or timelocked weights. Existing rows are retained when
+the mechanism count changes, but new rows must fit the new cap. Null's effective
+minimum non-self row length is the smallest of three values: `MinAllowedWeights`,
+the row cap, and the registered UID count. So an existing minimum above a reduced
+cap cannot make every valid row impossible. The stored `MinAllowedWeights` setting
+is not rewritten.
+Yuma rows have no additional cap and retain their existing minimum-row rule.
 
 Returning to Yuma requires the actual registered population to fit the Yuma ceiling.
 Use bounded owner pruning to shrink explicitly before switching. Switching
@@ -193,11 +207,44 @@ owner rewards increase the pool balance without rewriting ownership shares.
 Shared pools and first deposits keep the ordinary deposit accounting, and
 collateral capture and release still apply. The shared interface still uses ordered account maps, so this does not
 claim that every operation in the surrounding epoch pipeline is strictly linear.
-Delegation processing also scales with incoming parent edges, whose count is
-currently unbounded; a population ceiling alone does not bound that workload.
+Delegation processing also scales with incoming parent edges: up to 100 for
+each UID, and more where a parent list is older than that limit. A population
+ceiling alone does not bound that workload.
 When a Null epoch is due, the scheduler runs it first, as the only epoch in
 that block. Remaining due subnets are deferred; blocks with only Yuma epochs
 retain the configured epoch cap. Payouts settle atomically in the epoch's block.
+
+From runtime 495, a Null epoch reads the state that all mechanisms share once
+for the subnet: hotkeys, registration blocks, stake and the elected validator.
+Each mechanism then adds only its own work: its last-update blocks, the elected
+validator's weight row and its pending commits. Storage, events and
+payouts are the same as when each mechanism ran a complete epoch. In a local
+measurement with 16 mechanisms and 2,500 UIDs, the epoch took about one
+fourteenth of the earlier time.
+
+The block hook adds a weight for each Null epoch that runs, on top of its fixed
+weight. That weight depends on the mechanism count and the UID count. Until it
+is measured on reference hardware, it reserves one more fixed hook envelope for
+each Null epoch.
+
+One risk is known and accepted for runtime 495. The stake pass reads the stake
+of every parent of every UID, and the weight does not grow with the number of
+parents. An epoch on a subnet where each UID has hundreds of parents can take
+longer than its weight states. Such subnets are not expected.
+
+A second risk is known and accepted for runtime 495. When an owner lowers the
+mechanism count, the call deletes the weight rows of each removed mechanism at
+once, and the weight of the call is fixed. A Null subnet can hold up to 2,500
+weight rows for each mechanism, so a change from 16 mechanisms to 1 can delete
+up to 37,500 rows in one call. Only the elected validator can set a row, so
+rows collect only as the elected validator changes.
+
+A third risk is known and accepted for runtime 495, and it has the same cause.
+A pruning batch (`trim-null-batch`) has a small fixed weight, about 0.34 ms. The
+batch reads the weight rows of every mechanism and deletes the rows of UIDs
+without a validator permit. With 16 mechanisms and 2,500 rows for each, one
+batch can need about 5 seconds by the database weights, which is more than the
+compute time of one block.
 
 ## Solidity callers
 

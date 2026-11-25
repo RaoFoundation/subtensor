@@ -113,3 +113,138 @@ async def test_null_nonpermit_rejected_before_composing_or_encrypting(monkeypatc
     with pytest.raises(ChainError) as error:
         await SetWeights(netuid=1, weights={0: 1}, raw_u16=True).build(substrate, dev_wallet())
     assert error.value.code == ErrorCode.NOT_AUTHORIZED
+
+
+# The SDK must not reject a valid capped Null row locally when the stored minimum
+# exceeds the cap, completely blocking validator weight submission.
+# PROTECTED_REGRESSION: changes require explicit human approval.
+@pytest.mark.asyncio
+async def test_null_effective_minimum_allows_capped_row_and_rejects_shorter_row():
+    from bittensor.intents import SetWeights
+    from bittensor.result import ChainError
+    from tests.harness.fake_substrate import FakeSubstrate
+    from tests.harness.samples import dev_wallet
+
+    substrate = FakeSubstrate()
+    substrate.seed_default("SubtensorModule", "SubnetEpochConsensus", "Null")
+    substrate.seed_default("SubtensorModule", "ValidatorPermit", [True])
+    substrate.seed_default("SubtensorModule", "MinAllowedWeights", 1_024)
+    substrate.seed_default("SubtensorModule", "MechanismCountCurrent", 16)
+    substrate.seed_default("SubtensorModule", "SubnetworkN", 256)
+
+    built = await SetWeights(netuid=1, uids=list(range(156)), weights=[1] * 156).build(
+        substrate, dev_wallet()
+    )
+    assert built.function == "set_mechanism_weights"
+    assert built.params["dests"] == list(range(156))
+
+    with pytest.raises(ChainError, match="at least 156 weights"):
+        await SetWeights(netuid=1, uids=list(range(155)), weights=[1] * 155).build(
+            substrate, dev_wallet()
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "mechanisms", "subnet_n", "expected_minimum"),
+    [
+        ("Null", 1, 100, 100),
+        ("Null", 16, 256, 156),
+        ("Yuma", 16, 100, 1_024),
+    ],
+)
+async def test_weight_preflight_effective_minimum_matches_runtime(
+    mode, mechanisms, subnet_n, expected_minimum
+):
+    from bittensor.intents.weights import _preflight
+    from tests.harness.fake_substrate import FakeSubstrate
+    from tests.harness.samples import dev_wallet
+
+    substrate = FakeSubstrate()
+    substrate.seed_default("SubtensorModule", "SubnetEpochConsensus", mode)
+    substrate.seed_default("SubtensorModule", "ValidatorPermit", [True])
+    substrate.seed_default("SubtensorModule", "MinAllowedWeights", 1_024)
+    substrate.seed_default("SubtensorModule", "MechanismCountCurrent", mechanisms)
+    substrate.seed_default("SubtensorModule", "SubnetworkN", subnet_n)
+
+    preflight = await _preflight(substrate, dev_wallet().hotkey.ss58_address, 1, 0)
+    assert preflight.min_allowed_weights == expected_minimum
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "mechanisms", "expected_cap"),
+    [
+        ("Null", 1, 2_500),
+        ("Null", 2, 1_250),
+        ("Null", 3, 833),
+        ("Null", 16, 156),
+        ("Yuma", 1, None),
+        ("Yuma", 16, None),
+    ],
+)
+async def test_weight_preflight_row_cap_matches_runtime(mode, mechanisms, expected_cap):
+    from bittensor.intents.weights import _preflight
+    from tests.harness.fake_substrate import FakeSubstrate
+    from tests.harness.samples import dev_wallet
+
+    substrate = FakeSubstrate()
+    substrate.seed_default("SubtensorModule", "SubnetEpochConsensus", mode)
+    substrate.seed_default("SubtensorModule", "ValidatorPermit", [True])
+    substrate.seed_default("SubtensorModule", "MechanismCountCurrent", mechanisms)
+
+    preflight = await _preflight(substrate, dev_wallet().hotkey.ss58_address, 1, 0)
+    assert preflight.max_row_len == expected_cap
+
+
+def test_conform_enforces_the_null_row_cap():
+    from bittensor.result import ChainError, ErrorCode
+
+    capped = _Preflight(0, False, 0, 65_535, max_row_len=156)
+    uids = list(range(1, 158))
+    # A row at the cap passes, in the relative and in the raw form.
+    assert len(_conform(uids[:156], [1.0] * 156, capped, 1)[0]) == 156
+    assert len(_conform(uids[:156], [7] * 156, capped, 1, True)[0]) == 156
+    # One entry more is refused with the code of the chain's error.
+    for raw_u16, weights in ((False, [1.0] * 157), (True, [7] * 157)):
+        with pytest.raises(ChainError, match="at most 156 weights") as error:
+            _conform(uids, weights, capped, 1, raw_u16)
+        assert error.value.code == ErrorCode.LIMIT_EXCEEDED
+        assert error.value.name == "TooManyWeightsForNullMechanism"
+    # Zero weights are not submitted, so they do not count.
+    assert len(_conform(uids, [1.0] * 156 + [0.0], capped, 1)[0]) == 156
+    # Without a cap (Yuma) the same row passes.
+    assert len(_conform(uids, [1.0] * 157, _Preflight(0, False, 0, 65_535), 1)[0]) == 157
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("commit_reveal", [False, True])
+async def test_null_row_above_the_cap_is_rejected_before_signing_or_encrypting(
+    monkeypatch, commit_reveal
+):
+    from bittensor.intents import CommitWeights, SetWeights
+    from bittensor.result import ChainError, ErrorCode
+    from tests.harness.fake_substrate import FakeSubstrate
+    from tests.harness.samples import dev_wallet
+
+    substrate = FakeSubstrate()
+    substrate.seed_default("SubtensorModule", "SubnetEpochConsensus", "Null")
+    substrate.seed_default("SubtensorModule", "ValidatorPermit", [True])
+    substrate.seed_default("SubtensorModule", "CommitRevealWeightsEnabled", commit_reveal)
+    substrate.seed_default("SubtensorModule", "MechanismCountCurrent", 16)
+    substrate.seed_default("SubtensorModule", "SubnetworkN", 2_500)
+
+    def unexpected_encrypt(**kwargs):
+        raise AssertionError("A row above the cap must be rejected before encryption")
+
+    monkeypatch.setattr(
+        "bittensor.intents.weights._core.get_encrypted_commit_v2", unexpected_encrypt
+    )
+    row = {uid: 1 for uid in range(157)}
+    for intent in (
+        SetWeights(netuid=1, mechid=15, weights=row, raw_u16=True),
+        CommitWeights(netuid=1, mechid=15, weights=row),
+    ):
+        with pytest.raises(ChainError, match="at most 156 weights") as error:
+            await intent.build(substrate, dev_wallet())
+        assert error.value.code == ErrorCode.LIMIT_EXCEEDED

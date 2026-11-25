@@ -345,6 +345,7 @@ zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe
 # versions pinned by libp2p and litep2p; upstream 280c0e5c4e3002d73ba0762835ef82272d1d33a6.
 hickory-proto-0244 = { path = "vendor/hickory-dns/hickory-proto-0.24.4", package = "hickory-proto" }
 hickory-proto-0252 = { path = "vendor/hickory-dns/hickory-proto-0.25.2", package = "hickory-proto" }
+
 [patch."https://github.com/RaoFoundation/polkadot-sdk.git"]
 sc-informant = { path = "vendor/sc-informant" }
 

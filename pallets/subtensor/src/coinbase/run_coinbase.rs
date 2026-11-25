@@ -22,6 +22,12 @@ macro_rules! tou64 {
 
 impl<T: Config> Pallet<T> {
     pub fn run_coinbase(block_emission_credit: CreditOf<T>) {
+        let _null_epoch_weight = Self::run_coinbase_weighing_null_epochs(block_emission_credit);
+    }
+
+    /// Runs the coinbase. Returns the weight of the Null epochs that ran in this
+    /// block: the fixed block-step envelope does not include them.
+    pub(crate) fn run_coinbase_weighing_null_epochs(block_emission_credit: CreditOf<T>) -> Weight {
         // --- 0. Get current block.
         let current_block: u64 = Self::get_current_block_as_u64();
         let block_emission = U96F32::saturating_from_num(block_emission_credit.peek());
@@ -65,6 +71,24 @@ impl<T: Config> Pallet<T> {
 
         // --- 6. Distribute the emissions to the subnets.
         Self::distribute_emissions_to_subnets(&emissions_to_distribute);
+
+        // --- 7. Weigh the Null epochs that ran.
+        Self::null_epochs_weight(emissions_to_distribute.keys().copied())
+    }
+
+    /// Weight of one Null epoch for each Null subnet in `netuids`, by its
+    /// mechanism count and its UID count.
+    pub(crate) fn null_epochs_weight(netuids: impl Iterator<Item = NetUid>) -> Weight {
+        netuids
+            .filter(|netuid| Self::get_epoch_consensus(*netuid) == EpochConsensus::Null)
+            .fold(Weight::zero(), |total, netuid| {
+                total.saturating_add(
+                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::null_epoch(
+                        u32::from(u8::from(Self::get_current_mechanism_count(netuid))),
+                        u32::from(Self::get_subnetwork_n(netuid)),
+                    ),
+                )
+            })
     }
 
     pub fn inject_and_maybe_swap(

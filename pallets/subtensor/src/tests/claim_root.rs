@@ -253,12 +253,12 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
         );
 
-        // The single-hotkey declaration reserves one validator unit, 128 non-root subnet
-        // slots, and the root slot, not the coldkey-wide 256-unit envelope.
+        // The single-hotkey declaration is sized from this validator's fund, not from the
+        // coldkey-wide 256-unit envelope.
         let single_call =
             RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey });
         let single_declared = single_call.get_dispatch_info().call_weight;
-        let single_envelope = SubtensorModule::root_claim_hotkey_declared_weight();
+        let single_envelope = SubtensorModule::root_claim_hotkey_declared_weight_for(&hotkey);
         assert!(single_declared.all_gte(single_envelope));
         assert!(single_declared.all_lt(declared_weight));
     });
@@ -435,9 +435,9 @@ fn test_claim_root_ignores_network_count_and_bounds_actual_basket_rows() {
         );
         assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hotkey]));
 
-        // The single-hotkey gate must use the 130-unit cap, not the 256-unit
-        // coldkey-wide envelope. A 131-unit claim (1 hotkey + 130 rows) would
-        // otherwise be admitted under a 130-unit declaration.
+        // The single-hotkey gate must use its own cap (`MAX_ROOT_CLAIM_HOTKEY_WORK`), not
+        // the coldkey-wide envelope. A claim of one unit more (1 hotkey + as many rows as
+        // the cap) would otherwise be admitted above the largest single-hotkey declaration.
         let single = U256::from(1003);
         for raw_netuid in 1..MAX_ROOT_CLAIM_HOTKEY_WORK as u16 {
             AlphaV2::<Test>::insert(
@@ -998,12 +998,15 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
         assert!(root_slot >= nav_before * 99 / 100);
 
         // Charged as two active units (the swept rows) plus a one-row scan (the root
-        // slot) — not the full per-row claim weight.
+        // slot) — not the full per-row claim weight. Since runtime 495 the claim also
+        // reports the storage work that counted the two rows of the fund for its
+        // declaration (`root_claim_hotkey_sizing_weight`).
         let actual = post
             .actual_weight
             .expect("claim reports benchmark-derived actual weight");
         let expected = <Test as crate::Config>::WeightInfo::claim_root(2)
-            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(1));
+            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(1))
+            .saturating_add(SubtensorModule::root_claim_hotkey_sizing_weight(2, 0));
         assert_eq!(actual, expected);
     });
 }

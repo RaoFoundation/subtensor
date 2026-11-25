@@ -12,9 +12,12 @@ pub use deferred_dividends::{DeferredBasketConversion, DeferredBasketDebt, Defer
 mod basket_views;
 pub mod beta_pricing;
 mod claim_root;
+pub use claim_root::RootClaimHotkeyWork;
 #[cfg(test)]
 pub(crate) use claim_root::RootClaimOutcome;
 pub mod decrease_take;
+#[cfg(test)]
+mod deferred_dividends_reference;
 pub mod helpers;
 pub mod increase_take;
 pub mod lending;

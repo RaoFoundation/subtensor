@@ -2191,6 +2191,14 @@ mod dispatches {
         /// that is admitted and then fails is charged the work it did, not the declared
         /// envelope; a claim refused at admission keeps the envelope.
         ///
+        /// The declared weight follows the fund: it is sized from the validator's stored
+        /// basket rows and queued dividend credits
+        /// ([`Pallet::root_claim_hotkey_declared_weight_for`]), up to a fund of
+        /// [`crate::MAX_ROOT_CLAIM_HOTKEY_WORK`] claim units. A batch or proxy computes it
+        /// before any inner call runs, so a claim is refused when a `swap_basket` buy or a
+        /// hotkey swap gave the same fund a new row earlier in the same transaction. Send
+        /// that claim in a later transaction.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         /// * `hotkey`: The validator whose basket entitlement to redeem.
@@ -2200,11 +2208,12 @@ mod dispatches {
         /// * `BasketClaimDustSkipped`: When the claim left dust rows unsold.
         ///
         /// # Errors
-        /// * `RootClaimTooHeavy`: The fund has more rows (or queued credits) than one claim
-        ///   may walk.
+        /// * `RootClaimTooHeavy`: The fund has more rows (stored, or to be opened by queued
+        ///   credits) than one claim may walk, or it got a new row from a trade or a hotkey
+        ///   swap earlier in the same transaction.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            Pallet::<T>::root_claim_hotkey_declared_weight()
+            Pallet::<T>::root_claim_hotkey_declared_weight_for(&hotkey)
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
@@ -2212,24 +2221,43 @@ mod dispatches {
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             // Admission failures keep the declared envelope (see `claim_root`).
+            // The declaration was sized before this transaction ran. It does not cover a
+            // row that a trade or a key swap added to the fund since then.
             ensure!(
-                Self::root_claim_hotkey_fits_declared_budget(&hotkey),
+                !Self::basket_rows_opened_in_current_transaction(&hotkey),
                 Error::<T>::RootClaimTooHeavy
             );
+            // The count of the fund that sized the declaration. A fund above the limit
+            // has none.
+            let Some(work) = Self::root_claim_hotkey_work(&hotkey) else {
+                return Err(Error::<T>::RootClaimTooHeavy.into());
+            };
 
+            // The counts of the fund are work of this call, also when the claim fails.
+            // The work counters of the claim do not count them.
+            let sizing = Self::root_claim_hotkey_sizing_weight(work.rows, work.queued);
             let admitted =
-                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work());
+                Self::root_claim_admission_weight(Self::root_claim_hotkey_declared_work())
+                    .max(sizing);
+            // The claim starts with the settlement of the claimant's deferred-dividend
+            // debts. The work counters of the claim do not count it.
+            let settlement =
+                Self::root_claim_debt_settlement_weight(Self::root_claim_debts(&hotkey, &coldkey));
             let outcome = Self::do_root_claim_tracked(coldkey.clone(), vec![hotkey]).map_err(
                 |(done, error)| {
                     Self::fail_with_weight(
                         error,
-                        Self::root_claim_actual_weight(1, 0, &done).saturating_add(admitted),
+                        Self::root_claim_actual_weight(1, 0, &done)
+                            .saturating_add(admitted)
+                            .saturating_add(settlement),
                     )
                 },
             )?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::root_claim_actual_weight(1, 0, &outcome);
+            let weight = Self::root_claim_actual_weight(1, 0, &outcome)
+                .saturating_add(settlement)
+                .saturating_add(sizing);
             Ok((Some(weight), Pays::Yes).into())
         }
 

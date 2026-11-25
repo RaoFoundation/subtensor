@@ -33,13 +33,29 @@ const releases: Release[] = [
   },
   {
     tag: 'v495',
-    date: 'Upcoming',
-    title: 'Synthetic Short Lending (Dark Launch)',
+    date: 'Proposed',
+    title: '16 Null Mechanisms, a Shared Null Epoch, Gamma Emission Deposits and Root Claim Weight',
     summary:
-      'Adds the Lending pallet as a dark launch (Enabled defaults false): synthetic shorts only, ' +
-      'root-settable SynthParams, custody accounts, and ProxyType::Lending. Spec 495 sits above the ' +
-      'release-494 candidate so the ships do not collide.',
+      'Null subnets allow 2,500 UIDs for any mechanism count and can run up to 16 mechanisms ' +
+      'when root raises the global limit of two. New Null weight rows share a budget of 2,500 ' +
+      'entries across the mechanisms. The Null epoch reads subnet-wide state once, with ' +
+      'identical results, and reports its own block weight. A deposit that gamma emission ' +
+      'opens for a subnet owner has no daily spend cap. A single-validator root claim reserves ' +
+      'the block weight of its own fund and admits funds with rows on 256 subnets. The guide ' +
+      'gives one picture of V494 and V495, with CLI, Python SDK and raw-call examples.',
     href: '/releases/v495-upgrade',
+  },
+  {
+    tag: 'v494',
+    date: 'Proposed',
+    title: 'Commit Burns, Weight Delegation, Basket Controls and Etao',
+    summary:
+      'Coldkeys publish commitments for each mechanism and channel, with an optional burn that ' +
+      'the subnet owner configures. A validator hotkey authorizes one delegate to send weights ' +
+      'for one mechanism. Root can set the basket trade band, price reference and refill ' +
+      'period; the defaults do not change. The owner limit for subnet emission weights is a ' +
+      'storage value of 360 blocks instead of a constant of 50,400 blocks.',
+    href: '/releases/v494-upgrade',
   },
   {
     tag: 'v493',

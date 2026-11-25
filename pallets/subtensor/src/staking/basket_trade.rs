@@ -38,6 +38,9 @@ struct BasketTradeOutcome {
     /// Escrow holding rows valued: the pre-trade sweep, plus the destination row when the
     /// trade opens it.
     holdings: u64,
+    /// Whether the trade recorded a new fund row for the single-hotkey claim guard
+    /// ([`Pallet::note_basket_rows_opened`]): one more read and write.
+    rows_opened_noted: bool,
 }
 
 /// Cached guarded valuation for a multi-leg rebalance. Only the origin and destination
@@ -207,7 +210,14 @@ impl<T: Config> Pallet<T> {
             alpha_bought: outcome.alpha_bought.into(),
         });
 
-        Ok(Self::swap_basket_weight(outcome.holdings).saturating_add(flush_weight))
+        let noted_weight = if outcome.rows_opened_noted {
+            Self::basket_rows_opened_weight()
+        } else {
+            Weight::zero()
+        };
+        Ok(Self::swap_basket_weight(outcome.holdings)
+            .saturating_add(flush_weight)
+            .saturating_add(noted_weight))
     }
 
     /// Multi-leg basket rebalance with one pending-deposit flush and one initial NAV sweep.
@@ -284,7 +294,9 @@ impl<T: Config> Pallet<T> {
             )
         })?;
 
+        let mut noted: u64 = 0;
         for (origin_netuid, destination_netuid, alpha_sold, outcome) in outcomes {
+            noted = noted.saturating_add(u64::from(outcome.rows_opened_noted));
             Self::deposit_event(Event::BasketSwapped {
                 hotkey: hotkey.clone(),
                 origin_netuid,
@@ -297,7 +309,8 @@ impl<T: Config> Pallet<T> {
 
         Ok(
             Self::swap_basket_many_weight(initial_rows.max(1), legs.len() as u32)
-                .saturating_add(flush_weight),
+                .saturating_add(flush_weight)
+                .saturating_add(Self::basket_rows_opened_weight().saturating_mul(noted)),
         )
     }
 
@@ -519,6 +532,13 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BasketMinOutNotMet
         );
 
+        // --- 4a'. A buy on a subnet the fund did not hold opens a row that a single-hotkey
+        // claim declared earlier in this transaction did not count. Record it so such a
+        // claim is refused. The root cash slot is exempt: every claim reserves it.
+        let rows_opened_noted = destination_is_new
+            && !destination_netuid.is_root()
+            && Self::note_basket_rows_opened(hotkey);
+
         // --- 4b. Liquidity rule: the fund may not hold more of the destination than
         // `BasketLiquidityCap` of the pool's alpha reserve, and may not *buy*
         // more than that share in one refill window (the standing holding resets
@@ -556,6 +576,7 @@ impl<T: Config> Pallet<T> {
             tao_mid,
             alpha_bought: alpha_bought.to_u64(),
             holdings: holdings_before.saturating_add(u64::from(destination_is_new)),
+            rows_opened_noted,
         })
     }
 
@@ -926,27 +947,39 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// Record that each leg can write when its buy opens a fund row
+    /// ([`Pallet::note_basket_rows_opened`]).
+    fn basket_rows_opened_weight_for_legs(num_legs: u32) -> Weight {
+        Self::basket_rows_opened_weight().saturating_mul(u64::from(num_legs))
+    }
+
     /// Pre-dispatch envelope for [`Pallet::swap_basket_many`]: one capped initial sweep,
-    /// one conservative per-leg allowance, and one shared pending-deposit flush.
+    /// one conservative per-leg allowance, one shared pending-deposit flush, and one
+    /// opened-row record for each leg.
     pub fn swap_basket_many_declared_weight(num_legs: u32) -> Weight {
         Self::swap_basket_many_weight(MAX_BASKET_ROWS, num_legs)
             .saturating_add(Self::basket_flush_weight_bound())
+            .saturating_add(Self::basket_rows_opened_weight_for_legs(num_legs))
     }
 
     pub fn swap_basket_many_declared_weight_for(hotkey: &T::AccountId, num_legs: u32) -> Weight {
         Self::swap_basket_many_weight(MAX_BASKET_ROWS, num_legs)
             .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+            .saturating_add(Self::basket_rows_opened_weight_for_legs(num_legs))
     }
 
     /// Worst-case pre-dispatch weight of `swap_basket`: the capped trade plus aggregate
-    /// pending-dividend settlement. Runtime calls use the hotkey-specific variant below and
-    /// refund to actual post-dispatch work.
+    /// pending-dividend settlement and the opened-row record. Runtime calls use the
+    /// hotkey-specific variant below and refund to actual post-dispatch work.
     pub fn swap_basket_declared_weight() -> Weight {
-        Self::swap_basket_weight(MAX_BASKET_ROWS).saturating_add(Self::basket_flush_weight_bound())
+        Self::swap_basket_weight(MAX_BASKET_ROWS)
+            .saturating_add(Self::basket_flush_weight_bound())
+            .saturating_add(Self::basket_rows_opened_weight())
     }
 
     pub fn swap_basket_declared_weight_for(hotkey: &T::AccountId) -> Weight {
         Self::swap_basket_weight(MAX_BASKET_ROWS)
             .saturating_add(Self::root_pending_dividend_weight_for(hotkey, true))
+            .saturating_add(Self::basket_rows_opened_weight())
     }
 }

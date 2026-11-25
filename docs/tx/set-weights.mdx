@@ -17,13 +17,16 @@ error says how many blocks to wait. The chain additionally enforces checks
 that are not preflighted: the hotkey must hold the minimum stake to set
 weights and a validator permit. Null has one permit holder, the highest-stake
 UID; self weights and subnet ownership do not bypass that permit. Yuma retains
-its owner and self-weight exceptions. `version_key` must not be older than the subnet's
+its owner and self-weight exceptions. On a Null subnet one row holds at most
+`max(1, 2500 // mechanism_count)` weights (2,500 with one mechanism, 156
+with sixteen); a longer row is refused before it is signed or encrypted.
+`version_key` must not be older than the subnet's
 required version. Prefer this over `commit_weights`/`reveal_weights`
 unless you specifically need to force one path.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L127-L142), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085), [`SubtensorModule.set_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3291-L3315), [`SubtensorModule.commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3376) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L127-L142), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085), [`SubtensorModule.set_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3319-L3343), [`SubtensorModule.commit_timelocked_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3384-L3404) |
 
 ## Parameters
 
@@ -82,7 +85,7 @@ result = sub.execute_tool("set_weights", {...}, wallet)
 | --- | --- |
 | `SubtensorModule.set_mechanism_weights` | [`pallets/subtensor/src/macros/dispatches.rs#L129`](/code/pallets/subtensor/src/macros/dispatches.rs#L127-L142) |
 | `SubtensorModule.commit_timelocked_mechanism_weights` | [`pallets/subtensor/src/macros/dispatches.rs#L2069`](/code/pallets/subtensor/src/macros/dispatches.rs#L2067-L2085) |
-| `SubtensorModule.set_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3293`](/code/pallets/subtensor/src/macros/dispatches.rs#L3291-L3315) |
-| `SubtensorModule.commit_timelocked_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3358`](/code/pallets/subtensor/src/macros/dispatches.rs#L3356-L3376) |
+| `SubtensorModule.set_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3321`](/code/pallets/subtensor/src/macros/dispatches.rs#L3319-L3343) |
+| `SubtensorModule.commit_timelocked_mechanism_weights_for` | [`pallets/subtensor/src/macros/dispatches.rs#L3386`](/code/pallets/subtensor/src/macros/dispatches.rs#L3384-L3404) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

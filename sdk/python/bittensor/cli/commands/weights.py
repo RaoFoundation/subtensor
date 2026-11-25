@@ -81,7 +81,8 @@ def set_weights(
     weights_file: Path | None = typer.Option(
         None,
         "--weights-file",
-        help="JSON object mapping UID to weight; supports full 2,500-UID rows.",
+        help="JSON object mapping UID to weight; supports full Null rows "
+        "(2,500 UIDs with one mechanism, 2500 // mechanism count with more).",
     ),
     mechid: int = typer.Option(0, "--mechid", help=SetWeights.field_help("mechid")),
     version_key: int = typer.Option(0, "--version-key", help=SetWeights.field_help("version_key")),
@@ -132,7 +133,8 @@ def commit_weights(
     weights_file: Path | None = typer.Option(
         None,
         "--weights-file",
-        help="JSON object mapping UID to weight; supports full 2,500-UID rows.",
+        help="JSON object mapping UID to weight; supports full Null rows "
+        "(2,500 UIDs with one mechanism, 2500 // mechanism count with more).",
     ),
     mechid: int = typer.Option(
         0,

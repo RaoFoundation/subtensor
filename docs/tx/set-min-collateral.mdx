@@ -15,7 +15,7 @@ immediately). Zero clears the floor and restores pure drain behavior.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_min_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L3135-L3144) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_min_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L3163-L3172) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("set_min_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_min_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L3137`](/code/pallets/subtensor/src/macros/dispatches.rs#L3135-L3144):
+`SubtensorModule.set_min_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L3165`](/code/pallets/subtensor/src/macros/dispatches.rs#L3163-L3172):
 
 ```rust
 #[pallet::call_index(145)]
