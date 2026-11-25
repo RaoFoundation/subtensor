@@ -846,6 +846,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull_request checkout is the merge commit; fetch its base parent.
+          fetch-depth: 2
+          persist-credentials: false
 
       - name: Test announcement sanitizer
         run: python3 .github/scripts/test_announce_summary.py
@@ -853,7 +857,6 @@ jobs:
       - name: Compare versions with the base
         id: versions
         env:
-          GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -861,17 +864,26 @@ jobs:
           head_json=$(python3 .github/scripts/check-release-notes.py versions)
           if [ "$EVENT_NAME" = pull_request ]; then
             tmp=$(mktemp -d)
-            mkdir -p "$tmp/runtime/src" "$tmp/sdk/python" "$tmp/sdk/bittensor-core-py"
-            gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/runtime/src/lib.rs?ref=$BASE_SHA" \
-              > "$tmp/runtime/src/lib.rs"
-            gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/sdk/python/pyproject.toml?ref=$BASE_SHA" \
-              > "$tmp/sdk/python/pyproject.toml"
-            gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/sdk/bittensor-core-py/pyproject.toml?ref=$BASE_SHA" \
-              > "$tmp/sdk/bittensor-core-py/pyproject.toml"
+            trap 'rm -rf "$tmp"' EXIT
+            for file in runtime/src/lib.rs sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml; do
+              mkdir -p "$tmp/$(dirname "$file")"
+              git show "$BASE_SHA:$file" > "$tmp/$file"
+            done
             base_json=$(python3 .github/scripts/check-release-notes.py versions --root "$tmp")
+
+            if [ "$(jq -er .spec <<<"$head_json")" -gt "$(jq -er .spec <<<"$base_json")" ]; then
+              shipped_changes=$(git diff --name-only "$BASE_SHA" HEAD -- \
+                sdk/python/bittensor/ sdk/python/pyproject.toml \
+                sdk/bittensor-core/src/ sdk/bittensor-core/Cargo.toml \
+                sdk/bittensor-core-py/src/ sdk/bittensor-core-py/Cargo.toml \
+                sdk/bittensor-core-py/pyproject.toml)
+              if [ -n "$shipped_changes" ] && \
+                 { [ "$(jq -er .sdk <<<"$head_json")" = "$(jq -er .sdk <<<"$base_json")" ] || \
+                   [ "$(jq -er .core <<<"$head_json")" = "$(jq -er .core <<<"$base_json")" ]; }; then
+                echo "::error::This runtime release changes shipped Python SDK code. Bump both bittensor and bittensor-core for the paired PyPI release and add Python release notes."
+                exit 1
+              fi
+            fi
           else
             base_json=$head_json
           fi

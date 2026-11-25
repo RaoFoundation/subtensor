@@ -95,6 +95,25 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           uv build --sdist --out-dir ../../dist
 
+          # Maturin prunes crates outside the bindings' graph, but Cargo
+          # still opens every local workspace patch when installing the sdist.
+          shopt -s nullglob
+          archives=(../../dist/bittensor_core-*.tar.gz)
+          [ "${#archives[@]}" -eq 1 ]
+          archive=${archives[0]}
+          source_dir=$(mktemp -d)
+          trap 'rm -rf "$source_dir"' EXIT
+          tar -xzf "$archive" -C "$source_dir"
+          package=${archive##*/}
+          package=${package%.tar.gz}
+          for patch in evm-gasometer hickory-dns sc-informant; do
+            cp -a "../../vendor/$patch" "$source_dir/$package/vendor/"
+          done
+          cargo metadata --offline --format-version 1 \
+            --manifest-path "$source_dir/$package/Cargo.toml" >/dev/null
+          tar -czf "$source_dir/repacked.tar.gz" -C "$source_dir" "$package"
+          mv "$source_dir/repacked.tar.gz" "$archive"
+
       # Default features include "ledger". On Linux hidapi uses its pure-Rust
       # hidraw backend (linux-native-basic-udev), which links no libudev and
       # no C, so the wheel stays manylinux-compliant with Ledger support in.

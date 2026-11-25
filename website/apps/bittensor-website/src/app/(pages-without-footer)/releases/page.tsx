@@ -25,10 +25,10 @@ const releases: Release[] = [
   {
     tag: 'v497',
     date: 'Proposed',
-    title: 'Runtime Version Bump',
+    title: 'Runtime and Python SDK',
     summary:
       'Raises the runtime spec to 497 without changing calls or parameters relative to V496. ' +
-      'Refresh metadata and regenerate older signing payloads at activation.',
+      'Python SDK 11.3.7 ships the V496 sudo signing safeguards.',
     href: '/releases/v497-upgrade',
   },
   {
