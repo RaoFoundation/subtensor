@@ -1,0 +1,187 @@
+[
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "netuid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "depositHotkey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getGammaDeposit",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "balance",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "coldkey",
+				"type": "bytes32"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "netuid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "depositHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "recipientColdkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amountRao",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "minGammaOut",
+				"type": "uint256"
+			}
+		],
+		"name": "mintGammaOnBehalf",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "gammaMinted",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "netuid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "stakeHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "depositHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "recipientColdkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "alphaAmount",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "minGammaOut",
+				"type": "uint256"
+			}
+		],
+		"name": "mintGammaWithStakeOnBehalf",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "gammaMinted",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "netuid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "depositHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "recipientColdkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amountRao",
+				"type": "uint256"
+			}
+		],
+		"name": "quoteMintGamma",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "gammaOut",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "netuid",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "stakeHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "depositHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "recipientColdkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amountAlpha",
+				"type": "uint256"
+			}
+		],
+		"name": "quoteMintGammaWithStake",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "gammaOut",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]

@@ -2164,13 +2164,13 @@ where
     }
 }
 
-fn try_u16_from_u256(value: U256) -> Result<u16, PrecompileFailure> {
+pub(crate) fn try_u16_from_u256(value: U256) -> Result<u16, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("the value is outside of u16 bounds".into()),
     })
 }
 
-fn try_u64_from_u256(value: U256) -> Result<u64, PrecompileFailure> {
+pub(crate) fn try_u64_from_u256(value: U256) -> Result<u64, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("the value is outside of u64 bounds".into()),
     })

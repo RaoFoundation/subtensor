@@ -19,6 +19,7 @@ use frame_support::{
     dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
     pallet_prelude::Decode,
 };
+pub use gamma::GammaPrecompile;
 pub use leasing::LeasingPrecompile;
 pub use metagraph::MetagraphPrecompile;
 pub use neuron::NeuronPrecompile;
@@ -60,6 +61,7 @@ mod crowdloan;
 mod drand;
 mod ed25519;
 mod extensions;
+mod gamma;
 mod leasing;
 mod metagraph;
 mod neuron;
@@ -199,7 +201,7 @@ where
             || address == hash(PrecompileRegistry::<R>::INDEX)
     }
 
-    pub fn used_addresses() -> [H160; 40] {
+    pub fn used_addresses() -> [H160; 41] {
         [
             hash(1),
             hash(2),
@@ -241,6 +243,7 @@ where
             hash(TimestampPrecompile::<R>::INDEX),
             hash(RuntimeConfigurationPrecompile::<R>::INDEX),
             hash(PrecompileRegistry::<R>::INDEX),
+            hash(GammaPrecompile::<R>::INDEX),
         ]
     }
 }
@@ -401,6 +404,9 @@ where
                     PrecompileEnum::PrecompileRegistry,
                 )
             }
+            a if a == hash(GammaPrecompile::<R>::INDEX) => {
+                GammaPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Gamma)
+            }
             _ => None,
         }
     }
@@ -516,6 +522,7 @@ mod address_and_selector_tests {
                 hash(VotingPowerPrecompile::<Runtime>::INDEX),
                 hash(ProxyPrecompile::<Runtime>::INDEX),
                 hash(BalancePrecompile::<Runtime>::INDEX),
+                hash(GammaPrecompile::<Runtime>::INDEX),
             ] {
                 assert_eq!(
                     execute_with_foreign_frame(address, alloc::vec::Vec::new()),
@@ -618,6 +625,7 @@ mod address_and_selector_tests {
         assert_eq!(TimestampPrecompile::<Runtime>::INDEX, 2065);
         assert_eq!(RuntimeConfigurationPrecompile::<Runtime>::INDEX, 2066);
         assert_eq!(PrecompileRegistry::<Runtime>::INDEX, 2067);
+        assert_eq!(GammaPrecompile::<Runtime>::INDEX, 2068);
     }
 
     #[test]
@@ -641,6 +649,7 @@ mod address_and_selector_tests {
             (PrecompileEnum::Timestamp, 15),
             (PrecompileEnum::RuntimeConfiguration, 16),
             (PrecompileEnum::PrecompileRegistry, 17),
+            (PrecompileEnum::Gamma, 18),
         ];
 
         for (variant, expected_index) in variants {
@@ -726,6 +735,18 @@ mod address_and_selector_tests {
                 "getPrecompileStatus(address,bytes4)"
             ))
         );
+        for signature in [
+            "quoteMintGamma(uint256,bytes32,bytes32,uint256)",
+            "quoteMintGammaWithStake(uint256,bytes32,bytes32,bytes32,uint256)",
+            "getGammaDeposit(uint256,bytes32)",
+            "mintGammaOnBehalf(uint256,bytes32,bytes32,uint256,uint256)",
+            "mintGammaWithStakeOnBehalf(uint256,bytes32,bytes32,bytes32,uint256,uint256)",
+        ] {
+            assert!(
+                gamma::GammaPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing Gamma selector {signature}"
+            );
+        }
     }
 
     #[test]
