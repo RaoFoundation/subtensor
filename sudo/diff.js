@@ -12,6 +12,14 @@ const { createKeyMulti, encodeAddress, sortAddresses } = require("@polkadot/util
 function argumentsOf(argv) {
   const options = { file: null, baseFile: null, outputDir: null, ws: null, sourceCommit: null, baseCommit: null };
   for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--publish-main-push") {
+      options.publishMainPush = true;
+      continue;
+    }
+    if (argv[i] === "--comparison-only") {
+      options.comparisonOnly = true;
+      continue;
+    }
     if (argv[i] === "--preview") {
       options.preview = true;
       continue;
@@ -23,10 +31,25 @@ function argumentsOf(argv) {
   return options;
 }
 
+function verifyMainPush(options, env = process.env) {
+  if (!options.publishMainPush) return;
+  if (options.preview || options.comparisonOnly || env.GITHUB_EVENT_NAME !== "push" ||
+      env.GITHUB_REF !== "refs/heads/main" || !env.GITHUB_EVENT_PATH) {
+    throw new Error("Only a trusted push to main can publish a signing command");
+  }
+  const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
+  if (event.ref !== "refs/heads/main" || !/^[0-9a-f]{40}$/.test(options.baseCommit || "") ||
+      !/^[0-9a-f]{40}$/.test(options.sourceCommit || "") ||
+      event.before !== options.baseCommit || event.after !== options.sourceCommit) {
+    throw new Error("Proposal source and baseline must match the main push event");
+  }
+}
+
 async function main() {
   const [network, ...argv] = process.argv.slice(2);
   const options = argumentsOf(argv);
-  if (!network) throw new Error("Usage: node diff.js <network> [--file FILE --base-file FILE --output-dir DIR --ws URL --source-commit SHA --base-commit SHA --preview]");
+  if (!network) throw new Error("Usage: node diff.js <network> [--file FILE --base-file FILE --output-dir DIR --ws URL --source-commit SHA --base-commit SHA --preview --comparison-only --publish-main-push]");
+  verifyMainPush(options);
   const root = __dirname;
   const file = path.resolve(options.file || path.join(root, `${network}.toml`));
   const baseFile = options.baseFile ? path.resolve(options.baseFile) : null;
@@ -46,7 +69,7 @@ async function main() {
     const live = await readAt(api, context.blockHash);
     if (Object.keys(live.errors).length) throw new Error(JSON.stringify(live.errors, null, 2));
     const diff = compare(desired.values, live.values, baseline);
-    const encoded = encodeProposal(diff, api);
+    const encoded = options.comparisonOnly ? null : encodeProposal(diff, api);
     let sudoKey = null;
     if (network === "mainnet") {
       sudoKey = (await api.query.sudo.key.at(context.blockHash)).toJSON();
@@ -65,10 +88,21 @@ async function main() {
     sourceSha256: require("node:crypto").createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
     baseSha256: baseFile ? require("node:crypto").createHash("sha256").update(fs.readFileSync(baseFile)).digest("hex") : null,
   } : null;
-  writeProposal(result.diff, result.encoded, network, result.context, outputDir, { file, baseFile, provenance, preview: options.preview });
+  writeProposal(result.diff, result.encoded, network, result.context, outputDir, {
+    file, baseFile, provenance, preview: options.preview,
+    comparisonOnly: options.comparisonOnly, publishMainPush: options.publishMainPush,
+  });
   console.log(`${network}: ${result.encoded ? result.diff.changed.length : 0} proposed value change(s), ${result.diff.drift.length} unrelated drift item(s), ${result.diff.reportOnly.length} report-only difference(s), ${result.diff.unchanged.length} already correct.`);
   if (!result.reviewed) console.log("No exact reviewed baseline; mismatches are unclassified live drift and the report contains no call data.");
-  for (const entry of result.diff.changed) console.log(`CHANGE ${entry.key}: ${JSON.stringify(entry.chain)} -> ${JSON.stringify(entry.desired)}`);
+  if (result.reviewed) {
+    for (const entry of result.diff.changed) {
+      if (options.comparisonOnly) {
+        console.log(`COMPARISON ${entry.key}: baseline ${JSON.stringify(entry.baseline) ?? "not tracked"}; file ${JSON.stringify(entry.desired)}; live ${JSON.stringify(entry.chain)}`);
+      } else {
+        console.log(`CHANGE ${entry.key}: ${JSON.stringify(entry.chain)} -> ${JSON.stringify(entry.desired)}`);
+      }
+    }
+  }
   for (const entry of result.diff.drift) console.log(`DRIFT ${entry.key}: file ${JSON.stringify(entry.desired)}, live ${JSON.stringify(entry.chain)} (not proposed)`);
   for (const entry of result.diff.reportOnly) console.log(`REPORT ONLY ${entry.key}: file ${JSON.stringify(entry.desired)}, live ${JSON.stringify(entry.chain)}. ${entry.reportOnly}`);
   if (result.encoded) console.log(`Validated encoded call ${result.encoded.callHash}; proposal written to ${outputDir}`);
@@ -76,4 +110,4 @@ async function main() {
 }
 
 if (require.main === module) runCli(main);
-module.exports = { argumentsOf };
+module.exports = { argumentsOf, verifyMainPush };

@@ -356,6 +356,7 @@ class Substrate(Protocol):
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
         expected_timepoint=...,
+        expected_spec_version: int | None = None,
     ) -> ExtrinsicResult:
         """Record one signatory's approval of ``call`` for a multisig account."""
         ...
@@ -1022,6 +1023,7 @@ class RpcSubstrate:
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
         expected_timepoint=...,
+        expected_spec_version: int | None = None,
     ) -> ExtrinsicResult:
         """Record one signatory's approval of ``call`` for a multisig account.
 
@@ -1032,6 +1034,8 @@ class RpcSubstrate:
         """
         try:
             guard = {} if expected_timepoint is ... else {"expected_timepoint": expected_timepoint}
+            if expected_spec_version is not None:
+                guard["expected_spec_version"] = expected_spec_version
             extrinsic = await self.raw.create_multisig_extrinsic(
                 call, keypair, multisig_account, **guard
             )

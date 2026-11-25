@@ -76,6 +76,21 @@ def normalize(value):
     return value
 
 
+def reviewed_spec_version(proposal):
+    version = proposal.get("specVersion")
+    if type(version) is not int or not 0 <= version <= 0xFFFFFFFF:
+        raise ValueError("Proposal must specify a valid runtime specVersion")
+    return version
+
+
+def require_runtime_version(expected, actual, context):
+    if actual != expected:
+        raise ValueError(
+            f"{context} runtime specVersion {actual} differs from reviewed {expected}; "
+            "regenerate and review the proposal"
+        )
+
+
 def load_proposal(path, reproduced_path, expected):
     if not re.fullmatch(r"0x[0-9a-fA-F]{64}", expected):
         raise ValueError("Expected call hash must be 32 bytes of hex")
@@ -85,7 +100,11 @@ def load_proposal(path, reproduced_path, expected):
     reproduced = json.loads(reproduced_path.read_text())
     if proposal.get("network") != "mainnet" or reproduced.get("network") != "mainnet":
         raise ValueError("Countersigning is only available for a mainnet proposal")
+    expected_version = reviewed_spec_version(proposal)
+    require_runtime_version(expected_version, reviewed_spec_version(reproduced), "Reproduced proposal")
     for candidate in (proposal, reproduced):
+        if candidate.get("preview") or candidate.get("comparison_only"):
+            raise ValueError("Preview and comparison-only artifacts cannot authorize approvals")
         if not candidate.get("provenance", {}).get("baseCommit"):
             raise ValueError("Proposal has no exact reviewed baseline")
         if candidate.get("call_hash") != expected:
@@ -145,11 +164,13 @@ def verify_preconditions(proposal, affected):
 async def verify(proposal, affected, call_args, signatories, threshold):
     import bittensor as bt
 
+    expected_version = reviewed_spec_version(proposal)
     async with bt.Subtensor("finney", fallback_endpoints=[], archive_endpoints=[]) as client:
+        snapshot = await client.at(await client.finalized_block())
+        require_runtime_version(expected_version, await snapshot.spec_version(), "Finalized")
         batch = call_args["call"]["Utility"]["batch_all"]["calls"]
         inner_calls = [await client.compose(sdk_call(value)) for value in batch]
         batch_call = await client.compose(bt.calls.Utility.batch_all(calls=inner_calls))
-        snapshot = await client.at(await client.finalized_block())
         sudo_key = str(await snapshot.query(bt.storage.Sudo.Key))
         multisig = await client.multisig(signatories, threshold, account_mode="legacy")
         if multisig.address != sudo_key:
@@ -157,6 +178,7 @@ async def verify(proposal, affected, call_args, signatories, threshold):
         if str(proposal.get("sudoKey")) != sudo_key:
             raise ValueError("Proposal sudo key differs from the live sudo key")
         call = await client.compose(bt.calls.Sudo.sudo(call=batch_call))
+        require_runtime_version(expected_version, call.spec_version, "Composed call")
         actual = "0x" + bytes(call.call_hash).hex()
         if actual != proposal["call_hash"]:
             raise ValueError(f"Recomposed call hash {actual} differs from the reviewed hash")
@@ -167,15 +189,16 @@ async def verify(proposal, affected, call_args, signatories, threshold):
             live = await snapshot.query(tuple(entry["storage"]))
             if normalize(live) != normalize(entry["live"]):
                 raise ValueError(f"Live value changed for {entry['key']}; regenerate the proposal")
+        require_runtime_version(expected_version, await client.spec_version(), "Current")
         print(
-            "Verified live sudo key, independently supplied call hash, "
+            f"Verified runtime specVersion {expected_version}, live sudo key, reviewed call hash, "
             "and every affected old value at this read."
         )
         print("Call hash:", actual)
         return call
 
 
-def btcli_command(call_args_path, signatories, threshold, wallet, expected, operation):
+def btcli_command(call_args_path, signatories, threshold, wallet, expected, operation, spec_version):
     return [
         shutil.which("btcli") or "btcli",
         "call",
@@ -194,6 +217,8 @@ def btcli_command(call_args_path, signatories, threshold, wallet, expected, oper
         "finney",
         "--expected-call-hash",
         expected,
+        "--expected-spec-version",
+        str(spec_version),
         "--multisig-operation",
         operation,
         "--no-mev-shield",
@@ -227,7 +252,7 @@ def main(argv=None):
     call_args = reproduced["btcli_args"]
     for entry in affected:
         print(f"{entry['key']}: {entry['live']} -> {entry['proposed']}")
-    print(f"Reviewed call hash: {args.expected_call_hash}")
+    print(f"Reviewed call hash: {args.expected_call_hash} (specVersion {proposal['specVersion']})")
     if input(f"Confirm one Finney approval ({args.operation})? [y/N] ").strip().lower() != "y":
         return 1
     with tempfile.TemporaryDirectory(prefix="sudo-mainnet-verification-") as directory:
@@ -236,6 +261,7 @@ def main(argv=None):
         asyncio.run(verify(proposal, affected, call_args, signatories, threshold))
         return subprocess.run(btcli_command(
             args_path, signatories, threshold, wallet, args.expected_call_hash, args.operation,
+            reviewed_spec_version(proposal),
         )).returncode
 
 

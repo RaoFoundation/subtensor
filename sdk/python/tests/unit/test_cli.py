@@ -1535,3 +1535,58 @@ def test_registered_cli_submission_waits_for_finalized_authority(
     result = context.submit(intent)
     assert result.success, result.to_dict()
     assert observed[-1] is (crypto in wallets.HASHED_CRYPTO_TYPES)
+
+
+@pytest.mark.parametrize("live_version", [496, 497])
+def test_raw_pinned_approval_checks_spec_even_if_hash_matches(
+    fake, monkeypatch, wallet_dir, live_version
+):
+    member = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+    fake.seed("System", "Account", [member], {"data": {"free": 10**10}})
+    expected_hash = "0x" + ComposedCall("System", "remark", {"remark": "0x01"}).call_hash.hex()
+    approvals = []
+    compose = fake.compose
+    submit = fake.submit_multisig
+
+    async def versioned_compose(call):
+        result = await compose(call)
+        result.spec_version = live_version
+        return result
+
+    async def record(
+        call, keypair, account, *, expected_timepoint, expected_spec_version, **kwargs
+    ):
+        approvals.append((expected_timepoint, expected_spec_version))
+        return await submit(call, keypair, account, **kwargs)
+
+    monkeypatch.setattr(fake, "compose", versioned_compose)
+    monkeypatch.setattr(fake, "submit_multisig", record)
+    result = invoke(
+        "--json",
+        "--yes",
+        "--no-mev-shield",
+        "call",
+        "System.remark",
+        "--args",
+        '{"remark":"0x01"}',
+        "-w",
+        _WALLET_NAME,
+        "--multisig-threshold",
+        "2",
+        "--signatories",
+        f"{member},{BOB}",
+        "--expected-call-hash",
+        expected_hash,
+        "--expected-spec-version",
+        "496",
+        "--multisig-operation",
+        "open",
+    )
+    if live_version == 496:
+        assert result.exit_code == 0, result.output or str(result.exception)
+        assert approvals == [(None, 496)]
+    else:
+        assert result.exit_code != 0
+        message = " ".join(result.output.replace("│", " ").split())
+        assert "runtime specVersion 497 differs from reviewed 496" in message
+        assert not approvals

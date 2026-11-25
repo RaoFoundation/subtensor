@@ -84,6 +84,7 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   const { diff, encoded } = changedDiff();
   const proposal = writeProposal(diff, encoded, "mainnet", context, output, {
     file: "/reviewed/mainnet.toml",
+    publishMainPush: true,
     baseFile: "/base/mainnet.toml",
     provenance: { sourceCommit: "abc", baseCommit: "def", sourceSha256: "123", baseSha256: "456" },
   });
@@ -158,6 +159,11 @@ test("mainnet artifacts contain call data, old-to-new values, and a countersign 
   const samePath = offlineVerifier(artifact, artifact, proposal.call_hash);
   assert.match(samePath.stderr.toString(), /must be a separate file/);
   for (const [name, mutate, message] of [
+    ["spec-version", (value) => { value.specVersion++; }, /Reproduced proposal runtime specVersion/],
+    ["missing-spec-version", (value) => { delete value.specVersion; }, /valid runtime specVersion/],
+    ["invalid-spec-version", (value) => { value.specVersion = true; }, /valid runtime specVersion/],
+    ["preview", (value) => { value.preview = true; }, /cannot authorize approvals/],
+    ["comparison-only", (value) => { value.comparison_only = true; }, /cannot authorize approvals/],
     ["old-value", (value) => { value.diff.proposed[0].live = "999"; }, /Artifact old values differ/],
     ["storage", (value) => { value.diff.proposed[0].storage[1] = "DefaultTake"; }, /Artifact old values differ/],
     ["calls", (value) => {
@@ -203,6 +209,7 @@ test("an omitted grouped artifact member is rejected against the independent pro
   } } }] } } } };
   const proposal = {
     network: "mainnet",
+    specVersion: 496,
     provenance: { sourceCommit: "abc", baseCommit: "def" },
     signers: {
       threshold: 2,
@@ -358,4 +365,47 @@ test("nomination-only edits produce a visible report and no signing artifact", (
   assert.match(markdown, /Report-only differences/);
   assert.match(markdown, /nominator_min_required_stake_factor/);
   assert.doesNotMatch(markdown, /python3 sudo\/countersign.py/);
+});
+
+test("manual comparison keeps candidate differences but removes all signing data", (t) => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-comparison-"));
+  t.after(() => fs.rmSync(output, { recursive: true, force: true }));
+  const { diff, encoded } = changedDiff();
+  const options = { file: "mainnet.toml", publishMainPush: true, provenance: { sourceCommit: "abc", baseCommit: "old" } };
+  const args = path.join(output, "mainnet-args.json");
+  // Reusing an output directory must not leave behind a previously signable args file.
+  writeProposal(diff, encoded, "mainnet", context, output, options);
+  assert.ok(fs.existsSync(args));
+  const report = writeProposal(diff, encoded, "mainnet", context, output, { ...options, comparisonOnly: true });
+  assert.equal(report.diff.reviewed, false);
+  assert.deepEqual(report.diff.comparison, [{ key: "subnet_limit", baseline: "160", live: "160", file: "161" }]);
+  assert.deepEqual(report.diff.proposed, []);
+  for (const key of ["call_data", "call_hash", "decoded_call", "btcli_args", "countersign_command"]) {
+    assert.equal(report[key], null, key);
+  }
+  assert.equal(fs.existsSync(args), false);
+  const markdown = fs.readFileSync(path.join(output, "mainnet-proposal.md"), "utf8");
+  assert.match(markdown, /Report only/);
+  assert.match(markdown, /Comparison baseline commit: `old`/);
+  assert.match(markdown, /subnet_limit/);
+  assert.doesNotMatch(markdown, /SUDO_WALLET/);
+});
+
+test("verifier pins the finalized snapshot, composed call and btcli handoff", () => {
+  const result = spawnSync("python3", [
+    path.join(__dirname, "runtime_version_driver.py"),
+    path.join(__dirname, "..", "countersign.py"),
+  ], { timeout: 10000 });
+  assert.equal(result.status, 0, result.stderr.toString());
+});
+
+test("local reproduction has call data but cannot publish an approval command", (t) => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-reproduce-"));
+  t.after(() => fs.rmSync(output, { recursive: true, force: true }));
+  const { diff, encoded } = changedDiff();
+  const result = writeProposal(diff, encoded, "mainnet", context, output, {
+    file: "mainnet.toml", provenance: { sourceCommit: "abc", baseCommit: "def" },
+  });
+  assert.ok(result.call_hash);
+  assert.equal(result.countersign_command, null);
 });

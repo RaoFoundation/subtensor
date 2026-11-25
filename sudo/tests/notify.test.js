@@ -122,19 +122,19 @@ test("zero changes and drift-only output do not call GitHub or Discord", async (
   }
 });
 
-test("pull requests and non-main refs never post, even if secrets are supplied", async (t) => {
+test("pull requests, manual comparisons and non-main refs never post, even if secrets are supplied", async (t) => {
   for (const env of [
     { GITHUB_EVENT_NAME: "pull_request" },
     { GITHUB_EVENT_NAME: "pull_request_target" },
     { GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/sudo-params-as-code" },
     { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/sudo-params-as-code" },
+    { GITHUB_EVENT_NAME: "workflow_dispatch" },
     { GITHUB_EVENT_NAME: "schedule" },
   ]) {
     const { calls, result } = await notify(t, { env });
     assert.equal(result.status, "skipped-untrusted");
     assert.equal(calls.length, 0);
   }
-  assert.equal(trustedContext(environment({ GITHUB_EVENT_NAME: "workflow_dispatch" })), true);
   assert.equal(trustedContext(environment()), true);
 });
 

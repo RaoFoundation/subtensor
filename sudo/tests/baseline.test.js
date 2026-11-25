@@ -30,11 +30,11 @@ function fixture(t) {
   git(repo, "add", "sudo/mainnet.toml");
   git(repo, "commit", "-qm", "initial live export");
   const head = git(repo, "rev-parse", "HEAD");
-  function resolve(baseRef = base) {
+  function resolve(baseRef = base, eventName = "pull_request") {
     return Object.fromEntries(execFileSync("bash", [path.join(__dirname, "..", "baseline.sh")], {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, NETWORK: "mainnet", BASE_REF: baseRef, EVENT_NAME: "pull_request", OUTPUT_DIR: output },
+      env: { ...process.env, NETWORK: "mainnet", BASE_REF: baseRef, EVENT_NAME: eventName, OUTPUT_DIR: output },
     }).trimEnd().split("\n").map((line) => {
       const separator = line.indexOf("=");
       return [line.slice(0, separator), line.slice(separator + 1)];
@@ -78,4 +78,20 @@ test("a real baseline commit is used and working-tree edits remain visible", (t)
   assert.equal(result.BASE_COMMIT, state.head);
   fs.writeFileSync(state.file, state.initial.replace('value = "160"', 'value = "161"'));
   assert.equal(state.resolve(state.head).BASE_COMMIT, state.head);
+});
+
+test("push uses the event ancestor and refuses a divergent rollback baseline", (t) => {
+  const state = fixture(t);
+  git(state.repo, "switch", "-qc", "divergent", state.head);
+  fs.writeFileSync(state.file, state.initial.replace('value = "160"', 'value = "161"'));
+  git(state.repo, "commit", "-qam", "other branch edits a parameter");
+  const divergent = git(state.repo, "rev-parse", "HEAD");
+  git(state.repo, "switch", "-qc", "source", state.head);
+  git(state.repo, "commit", "-qm", "reviewed source", "--allow-empty");
+  assert.equal(state.resolve(state.head, "push").BASE_COMMIT, state.head);
+  const rejected = state.resolve(divergent, "push");
+  assert.equal(rejected.BASE_COMMIT, "");
+  assert.equal(fs.existsSync(rejected.BASE_FILE), false);
+  const comparison = state.resolve(divergent, "workflow_dispatch");
+  assert.equal(comparison.BASE_COMMIT, divergent);
 });

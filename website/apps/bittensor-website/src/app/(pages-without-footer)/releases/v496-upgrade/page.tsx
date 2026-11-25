@@ -41,14 +41,16 @@ export default function Page() {
           <p>
             The repository tracks 51 chain-wide root settings for devnet, testnet, and mainnet. CI
             compares reviewed file edits with finalized on-chain values and reports unrelated drift
-            separately. Pull requests show a preview, not an approval command. Merging the files
+            separately. Pull requests show a preview, and manual baseline comparisons are
+            report-only. Only pushes to main can produce an approval command. Merging the files
             does not sign, submit, or apply a proposal. The nomination minimum factor is tracked
             for reporting only and cannot enter a generated batch.
           </p>
           <p>
             On mainnet, use the checked-in verifier and updated SDK from a trusted checkout.
-            Independently reproduce the proposal and compare its call hash before approving. Only
-            the designated initiator opens the operation; later signers approve its exact opening
+            Independently reproduce the proposal and compare its call hash and runtime spec version
+            before approving. The signer refuses to sign under a different runtime version. Only the
+            designated initiator opens the operation; later signers approve its exact opening
             timepoint. The verifier checks live values before approval, but the existing sudo
             setters still use last-successful-write semantics at execution.
           </p>

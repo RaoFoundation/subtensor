@@ -70,7 +70,7 @@ function renderPayload(proposal, context) {
 }
 
 function trustedContext(env) {
-  return (env.GITHUB_EVENT_NAME === "push" || env.GITHUB_EVENT_NAME === "workflow_dispatch") &&
+  return env.GITHUB_EVENT_NAME === "push" &&
     env.GITHUB_REF === "refs/heads/main";
 }
 

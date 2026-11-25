@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { params, groups } = require("../lib/params");
 const { loadParams, storagePlan } = require("../lib/diff");
 
@@ -51,4 +52,32 @@ test("only successive runs for the same PR share a cancellation group", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "..", "..", ".github", "workflows", "sudo-params.yml"), "utf8");
   assert.match(workflow, /group:.*format\('pr-\{0\}', github.event.pull_request.number\).*format\('run-\{0\}', github.run_id\)/);
   assert.match(workflow, /cancel-in-progress: \$\{\{ github.event_name == 'pull_request' \}\}/);
+});
+
+test("CI reserves signable proposals and notifications for main pushes", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "..", "..", ".github", "workflows", "sudo-params.yml"), "utf8");
+  assert.match(workflow, /BASE_REF:.*github.event_name == 'push' && github.event.before/);
+  assert.match(workflow, /MANUAL_COMPARISON: .*github.event_name == 'workflow_dispatch'/);
+  assert.match(workflow, /if \[ "\$MANUAL_COMPARISON" = "true" \]; then\s+args\+=\(--comparison-only\)/);
+  assert.match(workflow, /TRUSTED_MAIN_PUSH: .*github.event_name == 'push' && github.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /Notify Discord about a real proposal\s+if: github.event_name == 'push' && github.ref == 'refs\/heads\/main'/);
+});
+
+test("publishing requires the exact before and after from a main push", (t) => {
+  const { verifyMainPush } = require("../diff");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-push-event-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const eventPath = path.join(directory, "event.json");
+  const ref = "refs/heads/main";
+  const before = "a".repeat(40);
+  const after = "b".repeat(40);
+  fs.writeFileSync(eventPath, JSON.stringify({ ref, before, after }));
+  const env = { GITHUB_EVENT_NAME: "push", GITHUB_REF: ref, GITHUB_EVENT_PATH: eventPath };
+  const options = { publishMainPush: true, baseCommit: before, sourceCommit: after };
+  assert.doesNotThrow(() => verifyMainPush(options, env));
+  assert.throws(() => verifyMainPush({ ...options, baseCommit: "c".repeat(40) }, env), /match the main push event/);
+  assert.throws(() => verifyMainPush({ ...options, sourceCommit: "c".repeat(40) }, env), /match the main push event/);
+  assert.throws(() => verifyMainPush(options, { ...env, GITHUB_EVENT_NAME: "workflow_dispatch" }), /trusted push to main/);
+  assert.throws(() => verifyMainPush({ ...options, comparisonOnly: true }, env), /trusted push to main/);
+  assert.throws(() => verifyMainPush(options, {}), /trusted push to main/);
 });

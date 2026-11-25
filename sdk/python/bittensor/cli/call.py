@@ -220,6 +220,13 @@ def call(
         "--expected-call-hash",
         help="Refuse to sign unless the composed call matches this hash.",
     ),
+    expected_spec_version: Optional[int] = typer.Option(
+        None,
+        "--expected-spec-version",
+        min=0,
+        max=0xFFFFFFFF,
+        help="Pin a reviewed multisig approval to this runtime spec version.",
+    ),
     multisig_operation: Optional[str] = typer.Option(
         None, "--multisig-operation", help="Pin one clear approval to open or to HEIGHT:INDEX."
     ),
@@ -295,6 +302,11 @@ def call(
         raise typer.BadParameter(
             "requires one unshielded approval of a multisig with threshold at least two",
             param_hint="--multisig-operation",
+        )
+    if expected_spec_version is not None and (timepoint is ... or expected_call_hash is None):
+        raise typer.BadParameter(
+            "requires --multisig-operation and --expected-call-hash",
+            param_hint="--expected-spec-version",
         )
     if app_ctx.signatory_wallet and not via_multisig:
         # A typo'd or missing multisig name must not degrade into a plain raw
@@ -410,6 +422,11 @@ def call(
     async def compose_checked(client):
         composed = await _compose_only(client, prepare)
         _checked_hash(composed, expected_call_hash)
+        if expected_spec_version is not None and composed.spec_version != expected_spec_version:
+            raise ValueError(
+                f"Composed runtime specVersion {composed.spec_version} differs from reviewed "
+                f"{expected_spec_version}; regenerate and review the proposal"
+            )
         return composed
 
     if app_ctx.dry_run:
@@ -443,7 +460,11 @@ def call(
                 )
         else:
             app_ctx.run(compose_checked)
-        fields["command"] = replay_command()
+        if expected_spec_version is not None:
+            fields["expected_spec_version"] = expected_spec_version
+            fields["command"] = "Use the reviewed proposal verifier for this pinned approval."
+        else:
+            fields["command"] = replay_command()
         app_ctx.output.detail("dry run: raw call", fields)
         return
 
@@ -473,6 +494,8 @@ def call(
     context_rows.append(("summary", label))
     if expected_call_hash is not None:
         context_rows.append(("reviewed call hash", expected_call_hash))
+    if expected_spec_version is not None:
+        context_rows.append(("reviewed runtime spec version", str(expected_spec_version)))
     if multisig_operation is not None:
         context_rows.append(("multisig operation", multisig_operation))
     signer_rows: list[tuple] = [("signer", app_ctx.wallet_name)]
@@ -523,6 +546,8 @@ def call(
                 if use_shield:
                     await app_ctx._prepare_two_stage_signer(signing)
                 guard = {} if timepoint is ... else {"expected_timepoint": timepoint}
+                if expected_spec_version is not None:
+                    guard["expected_spec_version"] = expected_spec_version
                 result = await ms.approve(
                     call, signing, signer=signer, shielded=use_shield, **guard
                 )
@@ -575,10 +600,13 @@ def call(
 
         async def _submit_multisig(client):
             ms = await client.multisig(sigs, threshold, account_mode=account_mode)
-            prepared = await prepare(client)
-            composed = await client.compose(prepared)
-            call_hash = _checked_hash(composed, expected_call_hash)
-            call = composed if expected_call_hash is not None else prepared
+            if expected_call_hash is not None:
+                composed = call = await compose_checked(client)
+                call_hash = "0x" + bytes(composed.call_hash).hex()
+            else:
+                call = await prepare(client)
+                composed = await client.compose(call)
+                call_hash = _checked_hash(composed, None)
             if rounds:
                 result = await _approve_rounds(client, ms, call, call_hash)
             else:

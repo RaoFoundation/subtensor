@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       base_ref:
-        description: "Required reviewed baseline ref for separating unrelated live drift"
+        description: "Comparison baseline ref (report only; never produces a signable proposal)"
         required: true
         type: string
 
@@ -74,7 +74,7 @@ jobs:
           cache-dependency-path: sudo/package-lock.json
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --prefix sudo
-      - name: Read the exact reviewed baseline and source files
+      - name: Resolve the baseline and source files
         run: bash sudo/baseline.sh >> "$GITHUB_ENV"
         env:
           NETWORK: ${{ matrix.network }}
@@ -87,14 +87,21 @@ jobs:
           if [ -s "$BASE_FILE" ]; then
             args+=(--base-file "$BASE_FILE")
           fi
-          if [ "$TRUSTED_MAIN" != "true" ]; then
-            args+=(--preview)
+          if [ "$MANUAL_COMPARISON" = "true" ]; then
+            args+=(--comparison-only)
+          else
+            if [ "$TRUSTED_MAIN_PUSH" != "true" ]; then
+              args+=(--preview)
+            elif [ -n "$BASE_COMMIT" ]; then
+              args+=(--publish-main-push)
+            fi
+            node sudo/validate-metadata.js "$NETWORK"
           fi
-          node sudo/validate-metadata.js "$NETWORK"
           node sudo/diff.js "${NETWORK}" "${args[@]}" --source-commit "$SOURCE_COMMIT" --base-commit "$BASE_COMMIT"
         env:
           NETWORK: ${{ matrix.network }}
-          TRUSTED_MAIN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          MANUAL_COMPARISON: ${{ github.event_name == 'workflow_dispatch' }}
+          TRUSTED_MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Publish the proposal in the workflow summary
         run: cat "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.md" >> "$GITHUB_STEP_SUMMARY"
         env:
@@ -106,15 +113,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Notify Discord about a real proposal
-        if: >-
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           NETWORK: ${{ matrix.network }}
           SUDO_DISCORD_WEBHOOK: ${{ secrets.SUDO_DISCORD_WEBHOOK }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node sudo/notify.js "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.json"
       - name: Mainnet is proposal-only
-        if: matrix.network == 'mainnet' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: matrix.network == 'mainnet' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo "CI has not signed or submitted anything. Review the call and use the verifier when a signable proposal is present." >> "$GITHUB_STEP_SUMMARY"

@@ -702,3 +702,50 @@ async def test_transport_pins_multisig_opening_and_approval(pending, expected, c
         with pytest.raises(ValueError, match="refusing to sign"):
             await approve()
         connection.create_signed_extrinsic.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("wrapper_version", "signing_version", "expected_result"),
+    [(497, 497, "reject"), (496, 497, "reject"), (496, 496, "sign")],
+)
+@pytest.mark.asyncio
+async def test_reviewed_spec_is_enforced_by_multisig_payload_codec(
+    monkeypatch, wrapper_version, signing_version, expected_result
+):
+    from bittensor._transport import interface
+    from bittensor._transport.contract import CallBytes
+
+    wrapper = Mock(spec_version=wrapper_version)
+    wrapper.call_hash.return_value = bytes(32)
+    wrapper.compose_call.return_value = CallBytes(data=b"outer", spec_version=wrapper_version)
+    signing = Mock(spec_version=signing_version)
+    connection = interface.SubstrateConnection("ws://unused.invalid")
+    connection._runtimes = SimpleNamespace(codec_at=AsyncMock(side_effect=[wrapper, signing]))
+    connection._nonces = SimpleNamespace(next_for=AsyncMock(return_value=0), release=Mock())
+    connection.query = AsyncMock(return_value=None)
+    connection.genesis_hash = AsyncMock(return_value="0x" + "00" * 32)
+    sign = AsyncMock(return_value="test receipt")
+    monkeypatch.setattr(interface, "_sign_and_assemble", sign)
+
+    async def approve():
+        return await connection.create_multisig_extrinsic(
+            CallBytes(data=b"identical reviewed call bytes", spec_version=496),
+            dev_wallet().coldkey,
+            multisig_account([ALICE, BOB], 2),
+            max_weight={"ref_time": 1, "proof_size": 0},
+            expected_timepoint=None,
+            expected_spec_version=496,
+        )
+
+    if expected_result == "reject":
+        with pytest.raises(ValueError, match="runtime specVersion 497 differs from reviewed 496"):
+            await approve()
+        sign.assert_not_awaited()
+        if wrapper_version == 496:
+            connection._nonces.release.assert_called_once_with(
+                dev_wallet().coldkey.ss58_address, 0, 1
+            )
+    else:
+        assert await approve() == "test receipt"
+        assert sign.await_args.args[0].spec_version == 496
+        connection._nonces.release.assert_not_called()
