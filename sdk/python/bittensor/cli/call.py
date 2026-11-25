@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 from typing import Any, Optional
 
 import typer
@@ -149,6 +150,29 @@ def _resolve_multisig(app_ctx, **kwargs):
         raise typer.BadParameter(str(error), param_hint="--multisig")
 
 
+def _multisig_timepoint(value: str | None):
+    if value is None:
+        return ...
+    if value == "open":
+        return None
+    if not re.fullmatch(r"[0-9]{1,10}:[0-9]{1,10}", value):
+        raise typer.BadParameter("expected open or HEIGHT:INDEX", param_hint="--multisig-operation")
+    height, index = map(int, value.split(":"))
+    if max(height, index) >= 2**32:
+        raise typer.BadParameter("timepoint out of range", param_hint="--multisig-operation")
+    return {"height": height, "index": index}
+
+
+def _checked_hash(composed, expected):
+    actual = ms_helpers.hex_bytes(composed.call_hash)
+    if expected is not None and actual.lower() != expected.lower():
+        raise typer.BadParameter(
+            f"composed call hash {actual} does not match the reviewed hash",
+            param_hint="--expected-call-hash",
+        )
+    return actual
+
+
 @with_tx_globals
 def call(
     ctx: typer.Context,
@@ -190,6 +214,14 @@ def call(
         "--other-signatories",
         help="Other signers only: wallet names, address-book names, or ss58 "
         "(comma/space-separated); your -w wallet coldkey is added.",
+    ),
+    expected_call_hash: Optional[str] = typer.Option(
+        None,
+        "--expected-call-hash",
+        help="Refuse to sign unless the composed call matches this hash.",
+    ),
+    multisig_operation: Optional[str] = typer.Option(
+        None, "--multisig-operation", help="Pin one clear approval to open or to HEIGHT:INDEX."
     ),
     signer: str = typer.Option(
         "coldkey",
@@ -252,6 +284,18 @@ def call(
         str(getattr(force_proxy_type, "value", force_proxy_type)) if force_proxy_type else None
     )
     via_multisig = threshold is not None
+    timepoint = _multisig_timepoint(multisig_operation)
+    if expected_call_hash is not None and not re.fullmatch(
+        r"0x[0-9a-fA-F]{64}", expected_call_hash
+    ):
+        raise typer.BadParameter("expected a 32-byte hex hash", param_hint="--expected-call-hash")
+    if timepoint is not ... and (
+        not via_multisig or threshold < 2 or shield or len(app_ctx.signatory_wallets) > 1
+    ):
+        raise typer.BadParameter(
+            "requires one unshielded approval of a multisig with threshold at least two",
+            param_hint="--multisig-operation",
+        )
     if app_ctx.signatory_wallet and not via_multisig:
         # A typo'd or missing multisig name must not degrade into a plain raw
         # call: the user explicitly asked for a multisig member to sign.
@@ -290,6 +334,7 @@ def call(
             raise typer.BadParameter(str(error), param_hint="--signatory") from error
     elif (
         via_multisig
+        and timepoint is ...
         and signer == "coldkey"
         and not app_ctx.signatory_wallet
         and not app_ctx.signer_backend
@@ -322,6 +367,11 @@ def call(
             except Exception:
                 signer_ss58 = None
             if signer_ss58 not in sigs:
+                if timepoint is not ...:
+                    raise typer.BadParameter(
+                        "the selected wallet must be a member for a pinned approval",
+                        param_hint="--wallet",
+                    )
                 try:
                     member_name, _ss58 = ms_helpers.pick_local_signatory(
                         app_ctx,
@@ -354,6 +404,11 @@ def call(
             proxy_type=proxy_type_value,
         )
 
+    async def compose_checked(client):
+        composed = await _compose_only(client, prepare)
+        _checked_hash(composed, expected_call_hash)
+        return composed
+
     if app_ctx.dry_run:
         fields: dict[str, Any] = {
             "target": target,
@@ -370,7 +425,7 @@ def call(
         if via_multisig:
 
             async def _dry_run_multisig(client):
-                await _compose_only(client, prepare)
+                await compose_checked(client)
                 return await _multisig_address(client, sigs, threshold, account_mode=account_mode)
 
             ms_addr = app_ctx.run(_dry_run_multisig)
@@ -384,10 +439,13 @@ def call(
                     f"{name} ({backend})" for name, _ss58, backend in rounds
                 )
         else:
-            app_ctx.run(lambda client: _compose_only(client, prepare))
+            app_ctx.run(compose_checked)
         fields["command"] = replay_command()
         app_ctx.output.detail("dry run: raw call", fields)
         return
+
+    if expected_call_hash is not None:
+        app_ctx.run(compose_checked)
 
     if via_multisig:
         who = preset or f"{threshold}-of-{len(sigs)}"
@@ -410,6 +468,10 @@ def call(
     if proxy_for:
         context_rows.append(("proxy for", proxy_for))
     context_rows.append(("summary", label))
+    if expected_call_hash is not None:
+        context_rows.append(("reviewed call hash", expected_call_hash))
+    if multisig_operation is not None:
+        context_rows.append(("multisig operation", multisig_operation))
     signer_rows: list[tuple] = [("signer", app_ctx.wallet_name)]
     if via_multisig:
         signer_rows.append(("multisig", who))
@@ -457,7 +519,10 @@ def call(
                 )
                 if use_shield:
                     await app_ctx._prepare_two_stage_signer(signing)
-                result = await ms.approve(call, signing, signer=signer, shielded=use_shield)
+                guard = {} if timepoint is ... else {"expected_timepoint": timepoint}
+                result = await ms.approve(
+                    call, signing, signer=signer, shielded=use_shield, **guard
+                )
                 return result
             finally:
                 await _release_signer(signing, result)
@@ -507,9 +572,10 @@ def call(
 
         async def _submit_multisig(client):
             ms = await client.multisig(sigs, threshold, account_mode=account_mode)
-            call = await prepare(client)
-            composed = await client.compose(call)
-            call_hash = ms_helpers.hex_bytes(composed.call_hash)
+            prepared = await prepare(client)
+            composed = await client.compose(prepared)
+            call_hash = _checked_hash(composed, expected_call_hash)
+            call = composed if expected_call_hash is not None else prepared
             if rounds:
                 result = await _approve_rounds(client, ms, call, call_hash)
             else:
@@ -534,6 +600,11 @@ def call(
                 signer_role=signer,
                 result=result,
             )
+            if timepoint is not ... and followup and followup.get("status") == "pending":
+                followup["co_signer_commands"] = []
+                followup["commands_available"] = False
+                followup["decode_note"] = "pinned operation: use the reviewed proposal verifier"
+                followup["decode_hint"] = "subsequent approvals must use the opening timepoint"
             result.data["multisig_followup"] = followup
             return result
 
@@ -549,7 +620,13 @@ def call(
                 )
                 if use_shield:
                     await app_ctx._prepare_two_stage_signer(signing)
-                result = await _submit(client, prepare, signing, signer, shielded=use_shield)
+                if expected_call_hash is not None:
+                    composed = await compose_checked(client)
+                    result = await client.submit_call(
+                        composed, signing, signer=signer, shielded=use_shield
+                    )
+                else:
+                    result = await _submit(client, prepare, signing, signer, shielded=use_shield)
                 return result
             finally:
                 await _release_signer(signing, result)

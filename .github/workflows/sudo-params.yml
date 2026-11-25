@@ -5,11 +5,19 @@ on:
     paths:
       - "sudo/**"
       - ".github/workflows/sudo-params.yml"
+      - "sdk/python/bittensor/cli/call.py"
+      - "sdk/python/bittensor/multisig.py"
+      - "sdk/python/bittensor/_substrate.py"
+      - "sdk/python/bittensor/_transport/interface.py"
   push:
     branches: [main]
     paths:
       - "sudo/**"
       - ".github/workflows/sudo-params.yml"
+      - "sdk/python/bittensor/cli/call.py"
+      - "sdk/python/bittensor/multisig.py"
+      - "sdk/python/bittensor/_substrate.py"
+      - "sdk/python/bittensor/_transport/interface.py"
   workflow_dispatch:
     inputs:
       base_ref:
@@ -79,13 +87,24 @@ jobs:
           if [ -s "$BASE_FILE" ]; then
             args+=(--base-file "$BASE_FILE")
           fi
+          if [ "$TRUSTED_MAIN" != "true" ]; then
+            args+=(--preview)
+          fi
+          node sudo/validate-metadata.js "$NETWORK"
           node sudo/diff.js "${NETWORK}" "${args[@]}" --source-commit "$SOURCE_COMMIT" --base-commit "$BASE_COMMIT"
         env:
           NETWORK: ${{ matrix.network }}
+          TRUSTED_MAIN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
       - name: Publish the proposal in the workflow summary
         run: cat "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.md" >> "$GITHUB_STEP_SUMMARY"
         env:
           NETWORK: ${{ matrix.network }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sudo-${{ matrix.network }}-proposal
+          path: ${{ runner.temp }}/${{ matrix.network }}-proposal/
+          if-no-files-found: error
+          retention-days: 30
       - name: Notify Discord about a real proposal
         if: >-
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -95,13 +114,7 @@ jobs:
           SUDO_DISCORD_WEBHOOK: ${{ secrets.SUDO_DISCORD_WEBHOOK }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node sudo/notify.js "$RUNNER_TEMP/${NETWORK}-proposal/${NETWORK}-proposal.json"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: sudo-${{ matrix.network }}-proposal
-          path: ${{ runner.temp }}/${{ matrix.network }}-proposal/
-          if-no-files-found: error
-          retention-days: 30
       - name: Mainnet is proposal-only
-        if: matrix.network == 'mainnet'
+        if: matrix.network == 'mainnet' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
-          echo "CI has not signed or submitted anything. Review the call and use the countersign command in the proposal above." >> "$GITHUB_STEP_SUMMARY"
+          echo "CI has not signed or submitted anything. Review the call and use the verifier when a signable proposal is present." >> "$GITHUB_STEP_SUMMARY"

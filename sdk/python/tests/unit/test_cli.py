@@ -516,6 +516,22 @@ class TestTransactions:
         wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
         assert fake.submissions[-1][1] == getattr(wallet, role).ss58_address
 
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_raw_call_refuses_mismatched_reviewed_hash(self, fake, wallet_dir, dry_run):
+        result = invoke(
+            "--json",
+            "--dry-run" if dry_run else "--yes",
+            "call",
+            "System.remark",
+            "--args",
+            '{"remark":"0x01"}',
+            "--expected-call-hash",
+            "0x" + "ff" * 32,
+        )
+        assert result.exit_code != 0
+        assert "reviewed hash" in " ".join(result.output.replace("│", " ").split())
+        assert not fake.submissions
+
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):
         result = invoke(
             "--json",

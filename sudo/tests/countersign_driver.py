@@ -1,5 +1,6 @@
 """Run countersign validation offline; fail if live verification or btcli starts."""
 
+import builtins
 import importlib.util
 import json
 import sys
@@ -15,6 +16,7 @@ def unreachable(*_args):
     raise RuntimeError("offline test reached live verification or btcli")
 
 
+builtins.input = lambda _: "y"
 countersign.asyncio.run = unreachable
 countersign.btcli_command = unreachable
 try:

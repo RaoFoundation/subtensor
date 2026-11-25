@@ -8,6 +8,7 @@ with the SDK, so the downloaded artifact is data rather than executable code.
 """
 
 import argparse
+import shutil
 import asyncio
 import json
 import os
@@ -31,7 +32,14 @@ def arguments(argv=None):
         required=True,
         help="Hash independently reproduced from the reviewed source and baseline",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--operation", required=True,
+        help="open for the designated initiator; HEIGHT:INDEX from the initiator for every later approval",
+    )
+    options = parser.parse_args(argv)
+    if options.operation != "open" and not re.fullmatch(r"[0-9]{1,10}:[0-9]{1,10}", options.operation):
+        parser.error("--operation must be open or HEIGHT:INDEX")
+    return options
 
 
 def sdk_call(value):
@@ -50,7 +58,7 @@ def sdk_call(value):
                     function,
                     {key: sdk_call(item) for key, item in arguments.items()},
                 )
-    return value
+    return normalize(value)
 
 
 def normalize(value):
@@ -141,7 +149,8 @@ async def verify(proposal, affected, call_args, signatories, threshold):
         batch = call_args["call"]["Utility"]["batch_all"]["calls"]
         inner_calls = [await client.compose(sdk_call(value)) for value in batch]
         batch_call = await client.compose(bt.calls.Utility.batch_all(calls=inner_calls))
-        sudo_key = str(await client.query(bt.storage.Sudo.Key))
+        snapshot = await client.at(await client.finalized_block())
+        sudo_key = str(await snapshot.query(bt.storage.Sudo.Key))
         multisig = await client.multisig(signatories, threshold, account_mode="legacy")
         if multisig.address != sudo_key:
             raise ValueError("Signer set does not derive the live sudo key")
@@ -155,7 +164,7 @@ async def verify(proposal, affected, call_args, signatories, threshold):
         # every storage precondition in main(). No artifact field supplies the
         # storage-to-setter mapping.
         for entry in affected:
-            live = await client.query(tuple(entry["storage"]))
+            live = await snapshot.query(tuple(entry["storage"]))
             if normalize(live) != normalize(entry["live"]):
                 raise ValueError(f"Live value changed for {entry['key']}; regenerate the proposal")
         print(
@@ -166,9 +175,9 @@ async def verify(proposal, affected, call_args, signatories, threshold):
         return call
 
 
-def btcli_command(call_args_path, signatories, threshold, wallet):
+def btcli_command(call_args_path, signatories, threshold, wallet, expected, operation):
     return [
-        "btcli",
+        shutil.which("btcli") or "btcli",
         "call",
         "Sudo.sudo",
         "--args-file",
@@ -183,6 +192,12 @@ def btcli_command(call_args_path, signatories, threshold, wallet):
         wallet,
         "--network",
         "finney",
+        "--expected-call-hash",
+        expected,
+        "--multisig-operation",
+        operation,
+        "--no-mev-shield",
+        "--yes",
     ]
 
 
@@ -210,15 +225,18 @@ def main(argv=None):
     ) != set(signatories):
         raise ValueError("Proposal signers differ from the reviewed repository configuration")
     call_args = reproduced["btcli_args"]
+    for entry in affected:
+        print(f"{entry['key']}: {entry['live']} -> {entry['proposed']}")
+    print(f"Reviewed call hash: {args.expected_call_hash}")
+    if input(f"Confirm one Finney approval ({args.operation})? [y/N] ").strip().lower() != "y":
+        return 1
     with tempfile.TemporaryDirectory(prefix="sudo-mainnet-verification-") as directory:
         args_path = Path(directory) / "verified-mainnet-args.json"
-        args_path.write_text(json.dumps(call_args, indent=2) + "\n")
+        args_path.write_text(json.dumps(normalize(call_args), indent=2) + "\n")
         asyncio.run(verify(proposal, affected, call_args, signatories, threshold))
-        print(
-            "Review the displayed batch. Before the final executing approval, "
-            "the last signer must rerun this verifier and confirm no drift."
-        )
-        return subprocess.run(btcli_command(args_path, signatories, threshold, wallet)).returncode
+        return subprocess.run(btcli_command(
+            args_path, signatories, threshold, wallet, args.expected_call_hash, args.operation,
+        )).returncode
 
 
 if __name__ == "__main__":

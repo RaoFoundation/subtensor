@@ -1363,6 +1363,7 @@ class SubstrateConnection:
         max_weight: Optional[dict | int] = None,
         era: Optional[dict] = None,
         nonce: Optional[int] = None,
+        expected_timepoint=...,
     ) -> SignedExtrinsic:
         """One signatory's approval of ``call`` for a multisig account.
 
@@ -1380,6 +1381,13 @@ class SubstrateConnection:
             [multisig_account.ss58_address, "0x" + codec.call_hash(call).hex()],
         )
         maybe_timepoint = pending["when"] if pending else None
+        if expected_timepoint is not ... and (
+            multisig_account.threshold < 2 or maybe_timepoint != expected_timepoint
+        ):
+            raise ValueError(
+                "Multisig operation no longer matches the requested opening or timepoint; "
+                "refusing to sign"
+            )
         signer_address = _ss58_encode(bytes(keypair.public_key), self.ss58_format)
         other_signatories = [
             address for address in multisig_account.signatories if address != signer_address

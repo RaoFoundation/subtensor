@@ -6,7 +6,7 @@ const path = require("node:path");
 const process = require("node:process");
 const { stringify: stringifyToml } = require("smol-toml");
 const { params, groups } = require("./lib/params");
-const { withChain, finalizedContext, readAt } = require("./lib/chain");
+const { withChain, finalizedContext, readAt, runCli } = require("./lib/chain");
 
 function inlineValue(value) {
   if (typeof value === "bigint") return value.toString();
@@ -96,5 +96,5 @@ async function main() {
   if (failed) process.exitCode = 1;
 }
 
-if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1; });
+if (require.main === module) runCli(main);
 module.exports = { render };

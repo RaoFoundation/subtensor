@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { safeJsonValues } = require("./diff");
 const { sortAddresses } = require("@polkadot/util-crypto");
 
 function display(value) {
@@ -27,7 +28,7 @@ function changesMarkdown(diff) {
     lines.push("", "### Unrelated live drift (excluded from the proposal)", "",
       "These values were not edited in the PR or cannot be separated without a baseline. Review them separately; they are not part of the batch.", "");
     for (const entry of diff.drift) {
-      lines.push(`- \`${entry.key}\`: file \`${display(entry.desired)}\`; live \`${display(entry.chain)}\``);
+      lines.push(`- \`${entry.key}\`: file \`${display(entry.file)}\`; live \`${display(entry.live)}\``);
     }
   }
   return lines.join("\n");
@@ -44,9 +45,8 @@ function signerConfiguration() {
 }
 
 function signerCommand(proposal) {
-  const { threshold, signatories } = proposal.signers;
-  const args = JSON.stringify(proposal.btcli_args).replaceAll("'", "'\"'\"'");
-  return `btcli call Sudo.sudo --args '${args}' --multisig-account-mode legacy --multisig-threshold ${threshold} --signatories ${signatories.join(",")} -w <WALLET> --network finney`;
+  if (!/^0x[0-9a-f]{64}$/.test(proposal.call_hash)) throw new Error("Cannot publish an invalid call hash");
+  return `SUDO_WALLET=<WALLET> python3 sudo/countersign.py <ARTIFACT_JSON> <REPRODUCED_JSON> --expected-call-hash ${proposal.call_hash} --operation <OPEN_OR_HEIGHT:INDEX>`;
 }
 
 function reviewBlock(proposal) {
@@ -64,7 +64,9 @@ function reviewBlock(proposal) {
 function renderMarkdown(proposal, file, network) {
   const lines = [
     `# ${network} sudo parameter proposal`, "",
-    "**Proposal only. CI has not signed or submitted any extrinsic.**", "",
+    proposal.preview
+      ? "**Preview only. CI has not signed or submitted any extrinsic.**"
+      : "**Proposal only. CI has not signed or submitted any extrinsic.**", "",
     `Source file: \`${file}\``,
     ...(proposal.provenance ? [
       `Source commit: \`${proposal.provenance.sourceCommit}\``,
@@ -81,24 +83,25 @@ function renderMarkdown(proposal, file, network) {
     lines.push("No call data was produced because there are no proposed changes or no reviewed baseline. Mismatches without a baseline are reported as unclassified live drift.");
     return lines.join("\n");
   }
-  if (network !== "mainnet") {
+  if (!proposal.countersign_command) {
     lines.push(
       "## Encoded call", "",
       ...reviewBlock(proposal).split("\n"), "",
       "Each setter was encoded and round-tripped against live runtime metadata.", "",
-      "The proposal snapshot is not a substitute for a fresh live-state check.",
+      proposal.preview
+        ? "**Preview only. Do not sign using this run. Use a trusted main-branch run.**"
+        : "The proposal snapshot is not a substitute for a fresh live-state check.",
     );
     return lines.join("\n");
   }
   lines.push(
     "## Triumvirate countersigning", "",
     `Inspect the decoded changes, decoded call, call data, and call hash immediately below. Confirm that the command is exactly the change you reviewed before allowing it to use your wallet. It uses the existing ${proposal.signers.threshold}-of-${proposal.signers.signatories.length} legacy multisig.`, "",
-    "On your own trusted signer machine, install the repository SDK and paste this one command. Replace only `<WALLET>` with your own local member wallet name. The first approval creates the pending operation; the CLI discovers its timepoint for subsequent approvals, and the final required approval executes it.", "",
-    "**Known limitation:** old-value checks are not atomic with execution. An out-of-band update can finalize after verification but before the final multisig approval executes. **The last signer must rerun this verifier immediately before the final, executing approval and confirm no drift.** If any value changed, stop, regenerate, and restart review.", "",
-    "### Review this exact call, then paste and run", "",
+    "Use the verifier from a trusted checkout, not from a pull request or downloaded artifact. Independently reproduce the proposal from the listed source and baseline before approving. Only the designated initiator uses `open`. Every subsequent signer must use the exact opening `HEIGHT:INDEX`; if it is no longer pending, the approval refuses to sign.", "",
+    "**Known limitation:** old-value checks are not atomic with execution. The verifier rechecks every affected old value immediately before handing off to btcli. If any value changed, stop, regenerate, and restart review.", "",
+    "### Review this exact call, then verify and approve", "",
     ...reviewBlock(proposal).split("\n"), "",
-    "```bash", signerCommand(proposal), "```", "",
-    "For optional extra verification, run the checked-in `sudo/countersign.py` from a separately reviewed checkout instead of the command above; see `sudo/README.md` for its independent two-proposal interface. Never execute a verifier downloaded from an artifact.", "",
+    "```bash", proposal.countersign_command, "```", "",
     "**Do not reuse this artifact after a runtime upgrade or out-of-band change without regenerating it.**",
   );
   return lines.join("\n");
@@ -117,6 +120,7 @@ function writeProposal(diff, encoded, network, context, outputDir, options = {})
       drift: diff.drift.map(({ key, chain, desired }) => ({ key, file: desired, live: chain })),
     },
     signers,
+    preview: Boolean(options.preview),
     provenance: options.provenance || null,
     call_data: encoded?.callData || null,
     call_hash: encoded?.callHash || null,
@@ -125,13 +129,13 @@ function writeProposal(diff, encoded, network, context, outputDir, options = {})
     countersign_command: null,
     setter_calls: encoded?.setters || [],
   };
-  if (network === "mainnet" && encoded) proposal.countersign_command = signerCommand(proposal);
+  if (network === "mainnet" && encoded && !options.preview && options.provenance?.baseCommit) proposal.countersign_command = signerCommand(proposal);
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(path.join(outputDir, `${network}-proposal.json`), JSON.stringify(proposal, null, 2) + "\n");
   const markdown = renderMarkdown({ ...proposal, encoded, context }, options.file, network);
   fs.writeFileSync(path.join(outputDir, `${network}-proposal.md`), markdown + "\n");
   if (encoded) {
-    fs.writeFileSync(path.join(outputDir, `${network}-args.json`), JSON.stringify(encoded.btcliArgs, null, 2) + "\n");
+    fs.writeFileSync(path.join(outputDir, `${network}-args.json`), JSON.stringify(safeJsonValues(encoded.btcliArgs, true), null, 2) + "\n");
   }
   return proposal;
 }

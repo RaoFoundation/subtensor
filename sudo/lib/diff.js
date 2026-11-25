@@ -1,6 +1,7 @@
 "use strict";
 
 const { parse: parseToml } = require("smol-toml");
+const { stringCamelCase } = require("@polkadot/util");
 const { params, groups } = require("./params");
 
 function assertPlainObject(value, label) {
@@ -9,7 +10,7 @@ function assertPlainObject(value, label) {
   }
 }
 
-function loadParams(text) {
+function loadParams(text, { historical = false } = {}) {
   let parsed;
   try {
     parsed = parseToml(text, { integersAsBigInt: "asNeeded" });
@@ -23,6 +24,7 @@ function loadParams(text) {
   const loaded = {};
   for (const param of params) {
     const entry = root.get(param.name);
+    if (historical && entry === undefined) continue;
     if (entry === undefined) throw new Error(`Missing [${param.name}]`);
     assertPlainObject(entry, param.name);
     if (entry.setter !== `${param.callPallet}.${param.call}`) {
@@ -40,19 +42,22 @@ function loadParams(text) {
   }
   for (const [name, group] of Object.entries(groups)) {
     const entry = root.get(name);
+    if (historical && entry === undefined) continue;
     if (entry === undefined) throw new Error(`Missing [${name}]`);
     assertPlainObject(entry, name);
     const expected = ["setter", ...Object.keys(group.storage)].sort().join(",");
-    if (Object.keys(entry).sort().join(",") !== expected) {
+    if (!historical && Object.keys(entry).sort().join(",") !== expected) {
       throw new Error(`[${name}] must contain setter and ${Object.keys(group.storage).join(", ")}`);
     }
     if (entry.setter !== `${group.callPallet}.${group.call}`) {
       throw new Error(`[${name}].setter must be ${group.callPallet}.${group.call}`);
     }
-    for (const key of Object.keys(group.storage)) loaded[`${name}.${key}`] = entry[key];
+    for (const key of Object.keys(group.storage)) {
+      if (Object.hasOwn(entry, key)) loaded[`${name}.${key}`] = normalize(entry[key]);
+    }
     root.delete(name);
   }
-  if (root.size) throw new Error(`Unknown tables: ${[...root.keys()].join(", ")}`);
+  if (!historical && root.size) throw new Error(`Unknown tables: ${[...root.keys()].join(", ")}`);
   return { metadata: metadata || {}, values: loaded };
 }
 
@@ -70,7 +75,8 @@ function normalize(value) {
     if (typeof bits !== "string" || !/^(0x[0-9a-fA-F]+|[0-9]+)$/.test(bits)) {
       throw new Error(`Invalid fixed-point bits: ${bits}`);
     }
-    return { bits: bits.startsWith("0x") ? BigInt(bits).toString() : bits };
+    if (typeof value.bits === "number" && !Number.isSafeInteger(value.bits)) throw new Error("Unsafe fixed-point bits");
+    return { bits: BigInt(bits).toString() };
   }
   if (Array.isArray(value)) return value.map(normalize);
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalize(item)]));
@@ -81,7 +87,7 @@ function storagePlan() {
     ...params.map((param) => ({
       key: param.name,
       pallet: param.pallet,
-      item: param.apiStorage || param.storage,
+      item: param.storage,
       callPallet: param.callPallet,
       call: param.call,
       args: (value) => ({ [param.argument]: value }),
@@ -144,28 +150,28 @@ function compare(desired, chain, baseline = null) {
 }
 
 function apiName(name) {
-  return name.charAt(0).toLowerCase() + name.slice(1);
+  return stringCamelCase(name);
 }
 
 function setterName(name) {
   return name.replace(/_([a-z0-9])/g, (_, char) => char.toUpperCase());
 }
 
-function setterCalls(diff, api) {
-  function numericArgs(value) {
-    if (typeof value === "string" && /^[0-9]+$/.test(value) && BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER)) {
-      return Number(value);
-    }
-    if (Array.isArray(value)) return value.map(numericArgs);
-    if (value !== null && typeof value === "object") {
-      if ("bits" in value && Object.keys(value).length === 1) {
-        const bits = BigInt(value.bits);
-        return { bits: bits <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(bits) : "0x" + bits.toString(16).padStart(32, "0") };
-      }
-      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, numericArgs(item)]));
-    }
-    return value;
+// Keep unsafe integers as exact decimal strings in machine-readable artifacts.
+// At the CLI boundary, use JSON number tokens without a JS Number conversion.
+function safeJsonValues(value, raw = false) {
+  if (typeof value === "string" && /^-?(0|[1-9][0-9]*)$/.test(value)) {
+    const n = Number(value);
+    return Number.isSafeInteger(n) ? n : raw ? JSON.rawJSON(value) : value;
   }
+  if (Array.isArray(value)) return value.map((item) => safeJsonValues(item, raw));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, safeJsonValues(item, raw)]));
+  }
+  return value;
+}
+
+function setterCalls(diff, api) {
   // Grouped settings have one all-or-nothing call even if only one member
   // changed. Including all values also makes the call's full effect explicit.
   const changes = new Map();
@@ -202,14 +208,19 @@ function setterCalls(diff, api) {
       storage: [entry.pallet, entry.item],
       setter: `${entry.callPallet}.${entry.call}`,
     }];
-    const numeric = numericArgs(args);
-    const snakeArgs = Object.fromEntries(builder.meta.fields.map((field, i) => [
-      field.name.toString(),
-      numeric[builder.meta.args[i].name.toString()],
-    ]));
-    // Compose through the live registry; this validates both call existence
-    // and SCALE argument types. It does not sign or submit an extrinsic.
-    const call = builder(args);
+    const names = builder.meta.fields.map((field) => field.name.toString());
+    const expected = Object.keys(args).map((name) => name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
+    if (names.length !== expected.length || names.some((name, i) => name !== expected[i])) {
+      throw new Error(`Argument mapping differs from live metadata for ${entry.callPallet}.${entry.call}: ${names.join(", ")}`);
+    }
+    const values = Object.values(args);
+    const call = builder(...values);
+    const decoded = api.registry.createType("Call", call.method.toU8a());
+    const decodedArgs = decoded.args.map((arg) => normalize(arg.toPrimitive()));
+    if (decodedArgs.length !== values.length || values.some((value, i) => !equalValue(value, decodedArgs[i]))) {
+      throw new Error(`Decoded arguments differ from requested values for ${entry.callPallet}.${entry.call}`);
+    }
+    const snakeArgs = Object.fromEntries(names.map((name, i) => [name, safeJsonValues(decodedArgs[i])]));
     return { key: entry.key, target: `${entry.callPallet}.${entry.call}`, args, snakeArgs, affected, call };
   });
 }
@@ -254,4 +265,4 @@ function encodeProposal(diff, api) {
   };
 }
 
-module.exports = { apiName, loadParams, compare, encodeProposal, equalValue, normalize, setterCalls, storagePlan };
+module.exports = { apiName, loadParams, compare, encodeProposal, equalValue, normalize, setterCalls, storagePlan, safeJsonValues };

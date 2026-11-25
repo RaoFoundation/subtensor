@@ -67,7 +67,7 @@ function mapCalls(callArgs) {
       entries = [{
         key: param.name,
         proposed: normalize(args[argument]),
-        storage: [param.pallet, param.apiStorage || param.storage],
+        storage: [param.pallet, param.storage],
         setter: target,
       }];
     } else if (grouped.has(target)) {

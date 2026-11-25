@@ -43,15 +43,24 @@ function fixture(t) {
   return { repo, output, file, initial, base, head, resolve };
 }
 
-test("only the exact committed initial export may bootstrap a baseline", (t) => {
+test("initial export stays report-only without a historical baseline", (t) => {
   const state = fixture(t);
-  let result = state.resolve();
-  assert.equal(result.BASE_COMMIT, state.head);
-  assert.equal(fs.readFileSync(result.BASE_FILE, "utf8"), state.initial);
-  fs.writeFileSync(state.file, state.initial.replace('value = "160"', 'value = "161"'));
-  result = state.resolve();
+  const result = state.resolve();
   assert.equal(result.BASE_COMMIT, "");
   assert.equal(fs.existsSync(result.BASE_FILE), false);
+});
+
+test("PR uses its branch point instead of a later base-tip edit", (t) => {
+  const state = fixture(t);
+  git(state.repo, "switch", "-qc", "main-tip", state.head);
+  fs.writeFileSync(state.file, state.initial.replace('value = "160"', 'value = "161"'));
+  git(state.repo, "commit", "-qam", "main changes subnet limit");
+  const mainTip = git(state.repo, "rev-parse", "HEAD");
+  git(state.repo, "switch", "-qc", "pr-head", state.head);
+  git(state.repo, "commit", "-qm", "PR changes other setting", "--allow-empty");
+  const result = state.resolve(mainTip);
+  assert.equal(result.BASE_COMMIT, state.head);
+  assert.equal(fs.readFileSync(result.BASE_FILE, "utf8"), state.initial);
 });
 
 test("an edited committed initial export cannot bootstrap itself", (t) => {

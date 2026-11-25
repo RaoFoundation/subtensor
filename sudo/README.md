@@ -8,7 +8,7 @@ These files describe root-controlled, chain-wide configuration. They do not chan
 - `lib/params.js`: the explicit storage-to-root-setter allowlist.
 - `networks.json`: public endpoints used for reads.
 
-The tools use Node.js and `@polkadot/api`. They have no signing key, wallet, seed, or submission path. They encode calls and calculate hashes only.
+The reporting tools use Node.js 22.5+ (CI uses 24) and `@polkadot/api`. They have no signing key, wallet, seed, or submission path. They encode calls and calculate hashes only.
 
 ## Units and values
 
@@ -36,7 +36,7 @@ Excluded by design:
 - `sudo_set_basket_trading_frozen`, which manages an account-keyed kill-switch set;
 - operational root calls that do not represent a configuration value.
 
-Review side effects, not only storage writes. Increasing `nominator_min_required_stake_factor` can clear small nominations. Changing an emission bar clears its stored gate bar for recomputation. Changing the oracle clears the cached TAO/USD price. Basket claim dust is atomic.
+Review side effects, not only storage writes. The nomination minimum setter can scan every alpha stake entry and clear small nominations in one extrinsic. The current runtime compares the previous effective minimum with the new raw factor, so do not assume a decrease in raw factor skips the scan. Changing an emission bar clears its stored gate bar for recomputation. Changing the oracle clears the cached TAO/USD price. Basket claim dust is atomic.
 
 ## Refresh and compare
 
@@ -59,20 +59,20 @@ Every readable value is recorded. Any endpoint failure, missing storage item, or
 Compare a reviewed edit with the live chain and its PR base:
 
 ```bash
-git show origin/main:sudo/mainnet.toml > /tmp/mainnet-base.toml
+git show "$(git merge-base HEAD origin/main):sudo/mainnet.toml" > /tmp/mainnet-base.toml
 node sudo/diff.js mainnet \
   --file sudo/mainnet.toml \
   --base-file /tmp/mainnet-base.toml \
   --output-dir /tmp/sudo-mainnet-proposal
 ```
 
-Values already equal to live state are skipped. A value edited from its base is proposed. A value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. An exact reviewed baseline is required for call data: without `--base-file`, every live/file mismatch is reported as unclassified drift and the output contains no call data. CI resolves the exact PR base commit, the commit before a main push, or a required manual-dispatch baseline ref. For this first PR only, an unchanged initial export can be its own baseline, yielding a zero-change report; an edited initial file remains report-only. The proposal records source/baseline commits and file SHA-256 hashes.
+Values already equal to live state are skipped. A value edited from its base is proposed. A value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. An exact reviewed baseline is required for call data: without `--base-file`, every live/file mismatch is reported as unclassified drift and the output contains no call data. CI uses the PR merge base, the commit before a main push, or a required manual-dispatch baseline ref. Historical files can omit newly tracked settings and retain retired settings; new settings count as edits, and retired settings never generate calls. An initial export without a historical file is report-only. The proposal records source/baseline commits and file SHA-256 hashes.
 
 Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapped in `Sudo.sudo`. The tool resolves calls and argument types from live metadata and SCALE round-trips each setter and the complete outer call before writing call data.
 
 ## CI proposals
 
-`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch must name a reviewed baseline ref to distinguish unrelated drift. It runs offline tests, then performs read-only comparisons for all three networks. JSON and Markdown artifacts include the finalized-block context, source/baseline provenance, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
+`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch must name a reviewed baseline ref to distinguish unrelated drift. It runs offline tests, then checks every managed parameter against live metadata and performs read-only comparisons for all three networks. PR and non-main runs are previews and omit approval commands. Artifacts upload before the optional Discord notification. JSON and Markdown artifacts include the finalized-block context, source/baseline provenance, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
 
 Devnet and testnet CI simply produce the decoded diff, decoded call, call data, and call hash for review. There is no additional apply-status section. CI never signs or submits an extrinsic.
 
@@ -86,27 +86,18 @@ The message is informational only. It does not execute a call, apply a proposal,
 
 ## Mainnet triumvirate review
 
-A changed mainnet proposal contains data-only JSON/Markdown artifacts and one ready-to-copy countersign command in both the Markdown artifact and workflow step summary. It mirrors the repository's existing 2-of-3 legacy-multisig process using `.github/scripts/deploy/sudo-signatories.json`. The diff verifies that this signer set derives the live `Sudo.Key`. CI does not publish executable countersign code.
+A changed proposal from a trusted main-branch run includes an approval template. CI never uses a wallet or signs. The configured 2-of-3 legacy signer set must derive the live `Sudo.Key`. Do not sign from a PR preview or run code shipped in an artifact.
 
-On a trusted signer machine, install the repository SDK. Read the `parameter: old -> new` changes, decoded call, call data, and BLAKE2-256 call hash printed immediately above the command. Confirm that its inline JSON is exactly the change you reviewed. Paste the command as-is except for replacing `<WALLET>` with your own local member wallet name, then run it. Each member uses the same command with their own wallet. The first approval creates the pending multisig operation; `btcli` discovers the pending timepoint on subsequent runs, and the final required approval executes the batch.
-
-The normal flow is deliberately read, paste, and run. It does not require reproducing the proposal or supplying a second file or expected-hash argument. Do not reuse a proposal after a runtime upgrade or out-of-band change; regenerate and review it instead.
-
-**Known limitation:** the old-value checks are not atomic with the later multisig execution. An emergency update can finalize after verification but before the final approval, as with today's manual multisig process. **The last signer must rerun the verifier immediately before the final, executing approval and confirm no drift.** If any value changed, stop, regenerate the proposal, and restart review. This is a procedural mitigation, not a runtime-enforced compare-and-set.
-
-### Optional independent verifier
-
-The checked-in `sudo/countersign.py` remains an optional alternative to the inline command. It independently recomposes a reviewed call and rechecks affected storage before handing off to the same standard `btcli` multisig process. It is not a prerequisite for the normal read/paste/run flow above.
-
-From a separately reviewed repository checkout, independently reproduce the proposal using the artifact's exact source and baseline commits and hashes. Then run it against the two separate JSON files:
+On your trusted signer machine, use the updated repository SDK and repository verifier. Independently reproduce the proposal from its listed source and baseline commits and hashes. Compare the old-to-new values, decoded call, SCALE data and BLAKE2-256 hash. Run:
 
 ```bash
-SUDO_WALLET=<WALLET> python3 sudo/countersign.py /path/to/downloaded/mainnet-proposal.json \
-  /path/to/independently-reproduced/mainnet-proposal.json \
-  --expected-call-hash <INDEPENDENTLY_VERIFIED_HASH>
+SUDO_WALLET=your-wallet python3 sudo/countersign.py downloaded.json independently-reproduced.json \
+  --expected-call-hash 0xYOUR_REVIEWED_HASH --operation open
 ```
 
-Never execute a verifier downloaded from an artifact. The checked-in script requires both proposals' calls, decoded call, call data, hash, signers, sudo key, and exact source/baseline provenance to agree. It maps the authenticated batch through `verify-proposal.js`, rejects omitted or extra grouped members and unknown setters, and rechecks old values against live state before invoking `btcli`. It contains no keys and does not accept seed material.
+Only the designated initiator uses `open`, once. Share its opening `HEIGHT:INDEX` with the remaining signers. They run the same verifier with their own wallet and that exact timepoint instead of `open`. The approval cannot open a fresh operation if the reviewed timepoint was executed, canceled or replaced. The verifier checks both artifacts, the allowlisted storage mapping and fresh finalized old values after confirmation. The updated `btcli` independently checks the composed hash before signing; its pinned multisig approval carries that exact timepoint to the chain.
+
+**Known limitation:** old-value checks are not atomic with multisig execution. If an emergency update lands after verification but before execution, the runtime does not enforce a compare-and-set. Stop on any observed drift, regenerate, and restart review. Do not reuse an old opening command, even if the values have since returned to their old state. The `*-args.json` file has exact JSON number tokens for inspection or SDK composition; it is not an alternative approval path.
 
 The runtime-upgrade `SudoUncheckedSetCode` proxy cannot apply arbitrary parameter calls.
 

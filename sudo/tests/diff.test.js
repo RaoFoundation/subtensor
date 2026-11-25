@@ -57,7 +57,8 @@ function fakeApi() {
             const isBatch = pallet === "utility" && method === "batchAll";
             const isSudo = pallet === "sudo" && method === "sudo";
             if (!argumentNames && !isBatch && !isSudo) return undefined;
-            const fn = (args) => {
+            const fn = (...values) => {
+              const args = argumentNames ? Object.fromEntries(argumentNames.map((name, i) => [name, values[i]])) : values[0];
               calls.push({ pallet, method, args });
               return fakeCall(`${pallet}.${method}`, args);
             };
@@ -72,6 +73,9 @@ function fakeApi() {
     }),
     registry: {
       createType: (_type, raw) => ({
+        args: Object.values(JSON.parse(Buffer.from(raw).toString()).args).map((value) => ({
+          toPrimitive: () => value,
+        })),
         toHex: () => "0x" + Buffer.from(raw).toString("hex"),
         toHuman: () => {
           const { target, args } = JSON.parse(Buffer.from(raw).toString());
@@ -185,7 +189,7 @@ test("encodes fixed-point values as their raw bits", () => {
   const diff = compare({ ...values, subnet_moving_alpha: { bits: "18446744073709551616" } }, values, values);
   const encoded = encodeProposal(diff, fakeApi());
   assert.deepEqual(encoded.setters[0].args, { alpha: { bits: "18446744073709551616" } });
-  assert.deepEqual(encoded.setters[0].btcliArgs, { alpha: { bits: "0x00000000000000010000000000000000" } });
+  assert.deepEqual(encoded.setters[0].btcliArgs, { alpha: { bits: "18446744073709551616" } });
 });
 
 test("no changes and drift-only comparisons produce no call", () => {
@@ -204,7 +208,11 @@ test("malformed metadata and failed call round trips are rejected", () => {
   });
   assert.throws(() => encodeProposal(diff, malformed), /Malformed live metadata/);
   const mismatched = fakeApi();
-  mismatched.registry.createType = () => ({ toHex: () => "0xdeadbeef" });
+  const roundTrip = mismatched.registry.createType;
+  mismatched.registry.createType = (type, raw) => ({
+    ...roundTrip(type, raw),
+    toHex: () => "0xdeadbeef",
+  });
   assert.throws(() => encodeProposal(diff, mismatched), /Outer call round-trip failed/);
 });
 
@@ -214,4 +222,25 @@ test("live metadata missing a setter fails before proposal", () => {
   const api = fakeApi();
   api.tx.adminUtils = {};
   assert.throws(() => encodeProposal(diff, api), /Live metadata does not contain/);
+});
+
+test("historical schemas can add and retire settings without treating existing values as edits", () => {
+  const { toml, values } = fixture();
+  const historical = toml.replace(/\[default_take\][\s\S]*?\n\n/, "") +
+    "\n[retired_parameter]\nvalue = 1\n";
+  const baseline = loadParams(historical, { historical: true }).values;
+  assert.deepEqual(compare(values, { ...values, default_take: "0", tx_rate_limit: "999" }, baseline)
+    .changed.map((entry) => entry.key), ["default_take"]);
+});
+
+test("valid SCALE bytes with the wrong value are refused", () => {
+  const { values } = fixture();
+  const api = fakeApi();
+  const original = api.registry.createType;
+  api.registry.createType = (...args) => ({
+    ...original(...args),
+    args: [{ toPrimitive: () => true }],
+  });
+  const old = { ...values, gamma_enabled: true };
+  assert.throws(() => encodeProposal(compare(values, old, old), api), /Decoded arguments differ/);
 });
