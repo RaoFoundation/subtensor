@@ -3235,7 +3235,8 @@ mod dispatches {
         /// gamma to `coldkey`'s deposit at `hotkey`, or opens it with no daily spend cap. Fails
         /// below `min_amount_out` gamma.
         #[pallet::call_index(175)]
-        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
+        // The recipient's swap dispute, announcement and reserved destination.
+        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma().saturating_add(T::DbWeight::get().reads(3)), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_on_behalf(
             origin: OriginFor<T>,
             coldkey: T::AccountId,
@@ -3259,7 +3260,8 @@ mod dispatches {
         /// does, and credits its gamma to `coldkey`'s deposit at `destination_hotkey`, or opens
         /// it with no daily spend cap. Fails below `min_amount_out` gamma.
         #[pallet::call_index(176)]
-        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
+        // The recipient's swap dispute, announcement and reserved destination.
+        #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake().saturating_add(T::DbWeight::get().reads(3)), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_with_stake_on_behalf(
             origin: OriginFor<T>,
             coldkey: T::AccountId,

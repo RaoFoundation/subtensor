@@ -3,7 +3,9 @@ use core::marker::PhantomData;
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
-use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
+use pallet_evm::{
+    AddressMapping, ExitError, GasWeightMapping, PrecompileFailure, PrecompileHandle,
+};
 use precompile_utils::EvmResult;
 use sp_core::{H256, U256};
 use sp_runtime::DispatchError;
@@ -12,12 +14,6 @@ use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, TaoBalance, T
 
 use crate::staking::{try_u16_from_u256, try_u64_from_u256};
 use crate::{PrecompileExt, PrecompileHandleExt};
-
-/// The reads `mint_gamma`'s weight declares.
-const QUOTE_MINT_GAMMA_READS: u64 = 28;
-/// Subnet, gamma and subtoken flags, gamma and spot prices, TAO/USD, the stake hotkey's owner,
-/// and the deposit, its hotkey's owner and its coldkey's deposits.
-const QUOTE_MINT_GAMMA_WITH_STAKE_READS: u64 = 14;
 
 pub struct GammaPrecompile<R>(PhantomData<R>);
 
@@ -78,9 +74,18 @@ where
         recipient_coldkey: H256,
         amount_rao: U256,
     ) -> EvmResult<U256> {
-        handle.record_db_reads::<R>(QUOTE_MINT_GAMMA_READS)?;
         let netuid = NetUid::from(try_u16_from_u256(netuid)?);
         let amount = TaoBalance::from(try_u64_from_u256(amount_rao)?);
+        Self::record_mint_weight(
+            handle,
+            pallet_subtensor::Call::<R>::mint_gamma_on_behalf {
+                coldkey: R::AccountId::from(recipient_coldkey.0),
+                hotkey: R::AccountId::from(deposit_hotkey.0),
+                netuid,
+                amount,
+                min_amount_out: GammaBalance::ZERO,
+            },
+        )?;
         let (_, _, gamma) =
             pallet_subtensor::Pallet::<R>::sim_mint_gamma(netuid, amount).map_err(revert)?;
         Self::sim_credit(netuid, deposit_hotkey, recipient_coldkey, gamma)
@@ -96,11 +101,21 @@ where
         recipient_coldkey: H256,
         amount_alpha: U256,
     ) -> EvmResult<U256> {
-        handle.record_db_reads::<R>(QUOTE_MINT_GAMMA_WITH_STAKE_READS)?;
         let netuid = NetUid::from(try_u16_from_u256(netuid)?);
         let alpha = AlphaBalance::from(UniqueSaturatedInto::<u64>::unique_saturated_into(
             amount_alpha,
         ));
+        Self::record_mint_weight(
+            handle,
+            pallet_subtensor::Call::<R>::mint_gamma_with_stake_on_behalf {
+                coldkey: R::AccountId::from(recipient_coldkey.0),
+                origin_hotkey: R::AccountId::from(stake_hotkey.0),
+                destination_hotkey: R::AccountId::from(deposit_hotkey.0),
+                netuid,
+                alpha_amount: alpha,
+                min_amount_out: GammaBalance::ZERO,
+            },
+        )?;
         let (_, _, gamma) = pallet_subtensor::Pallet::<R>::sim_mint_gamma_with_stake(netuid, alpha)
             .map_err(revert)?;
         if !pallet_subtensor::Pallet::<R>::hotkey_account_exists(&R::AccountId::from(
@@ -177,6 +192,22 @@ where
             min_amount_out: GammaBalance::from(try_u64_from_u256(min_gamma_out)?),
         };
         Self::dispatch_mint(handle, netuid, deposit_hotkey, call)
+    }
+
+    /// Charges `call`'s declared weight: a quote runs the swap and credit of the mint it prices,
+    /// so it costs what that mint declares.
+    fn record_mint_weight(
+        handle: &mut impl PrecompileHandle,
+        call: pallet_subtensor::Call<R>,
+    ) -> EvmResult<()> {
+        let weight = <R as frame_system::Config>::RuntimeCall::from(call)
+            .get_dispatch_info()
+            .total_weight();
+        handle.record_cost(<R as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
+            weight,
+        ))?;
+        handle.record_external_cost(Some(weight.ref_time()), Some(weight.proof_size()), None)?;
+        Ok(())
     }
 
     fn sim_credit(
@@ -343,6 +374,35 @@ mod tests {
                 .prepare_test(caller, address(), deposit_input(&hotkey))
                 .with_static_call(true)
                 .execute_returns((U256::from(quote), h256(&recipient)));
+        });
+    }
+
+    #[test]
+    fn quote_charges_the_weight_of_the_mint_it_prices() {
+        new_test_ext().execute_with(|| {
+            let (caller, recipient, hotkey, _) = setup();
+            let call = pallet_subtensor::Call::<Runtime>::mint_gamma_on_behalf {
+                coldkey: recipient.clone(),
+                hotkey: hotkey.clone(),
+                netuid: NETUID.into(),
+                amount: TAO.into(),
+                min_amount_out: GammaBalance::ZERO,
+            };
+            let weight = <Runtime as frame_system::Config>::RuntimeCall::from(call)
+                .get_dispatch_info()
+                .total_weight();
+            let quote =
+                pallet_subtensor::Pallet::<Runtime>::sim_mint_gamma(NETUID.into(), TAO.into())
+                    .unwrap()
+                    .2
+                    .to_u64();
+            precompiles::<GammaPrecompile<Runtime>>()
+                .prepare_test(caller, address(), quote_input(&hotkey, &recipient, TAO))
+                .with_static_call(true)
+                .expect_cost(
+                    <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(weight),
+                )
+                .execute_returns(U256::from(quote));
         });
     }
 
