@@ -553,6 +553,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "CustodyUnavailable": _C.INTERNAL,
     "DilutionBreakerActive": _C.POLICY_VIOLATION,
     "PoolTooShallow": _C.INSUFFICIENT_LIQUIDITY,
+    "YoungSubnet": _C.POLICY_VIOLATION,
     "WithdrawBufferBreached": _C.INSUFFICIENT_BALANCE,
     "PositionExists": _C.ALREADY_EXISTS,
     "TooManyPositions": _C.LIMIT_EXCEEDED,
