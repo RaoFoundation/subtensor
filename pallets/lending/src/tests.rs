@@ -122,6 +122,8 @@ fn pot() -> u64 {
 }
 fn set_ema(price: f64) {
     write(&key(b"test/ema", netuid()), U64F64::from_num(price));
+    // Keep the uncapped notional EMA in sync with the test feed.
+    NotionalEma::<Test>::insert(netuid(), U64F64::from_num(price));
 }
 fn set_live(live: bool) {
     write(&key(b"test/dead", netuid()), !live);
@@ -1715,11 +1717,11 @@ fn young_subnet_blocks_opens_until_health_twap_warms() {
 }
 
 #[test]
-fn migration_seeds_rank_ring_from_moving_price() {
+fn migration_does_not_seed_rank_ring_from_moving_price() {
     run(|| {
         set_ema(0.77);
         RankRing::<Test>::remove(netuid());
-        Enabled::<Test>::put(true);
+        RankPrice::<Test>::remove(netuid());
         Enabled::<Test>::put(false);
         crate::migrations::migrate_to_synth_shorts_v1::<Test>();
         assert!(!Enabled::<Test>::get());
@@ -1727,8 +1729,10 @@ fn migration_seeds_rank_ring_from_moving_price() {
             <Lending as LendingInterface<_>>::dereg_moving_price(netuid()),
             None
         );
-        let ring = RankRing::<Test>::get(netuid()).expect("migration prepares rank ring");
-        assert!(ring.days.iter().all(|d| *d == U64F64::from_num(0.77)));
+        assert!(
+            RankRing::<Test>::get(netuid()).is_none(),
+            "migration must not seed RankRing from capped moving price"
+        );
     });
 }
 
@@ -2028,27 +2032,30 @@ fn burn_from_position_caps_at_minted() {
     });
 }
 
-/// try_state must pass when residual alpha exists with zero ResidualReserve (pool shrank)
-/// and when BlockNetMinted has stale tags from a previous block.
+/// I7 rejects stale BlockNetMinted tags; I8 rejects residual alpha with no
+/// synthetic outstanding and no retire funding.
 #[test]
-fn try_state_allows_residual_with_zero_reserve_and_stale_net_minted() {
+fn try_state_rejects_stale_net_minted_and_unfunded_residual() {
     new_test_ext().execute_with(|| {
         assert_ok!(open(1, MINT, COLLATERAL));
+        // Stale BlockNetMinted tag (I7).
+        System::set_block_number(System::block_number() + 1);
+        assert!(Lending::do_try_state().is_err(), "I7: stale BlockNetMinted");
 
-        // Residual alpha with zero reserve — old I8 would have rejected this.
+        // Clear the tag, close the short, then leave residual with no reserve (I8).
+        BlockNetMinted::<Test>::remove(netuid());
+        assert_ok!(close(1, MINT));
         set_residual(MINT / 4);
         ResidualReserve::<Test>::remove(netuid());
-
-        // BlockNetMinted has a tag from this block; advance the block number so
-        // the tag is stale — old I7 would have rejected this.
-        System::set_block_number(System::block_number() + 1);
-
-        assert_ok!(Lending::do_try_state());
+        assert!(
+            Lending::do_try_state().is_err(),
+            "I8: residual without retire funding"
+        );
     });
 }
 
 /// Empty rank ring warms block by block: None until full, Some after.
-/// Disabling returns None; re-enabling does not reseed from zero.
+/// Disabling returns None; re-enabling clears rings so they rewarm.
 #[test]
 fn empty_rank_ring_warms_and_disable_returns_none() {
     run(|| {
@@ -2078,16 +2085,111 @@ fn empty_rank_ring_warms_and_disable_returns_none() {
             "disabled: dark regardless of stored RankPrice"
         );
 
-        // Re-enable → RankPrice still there, ranking resumes.
+        // Re-enable clears rings so they warm from real samples again.
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
-        assert!(rank().is_some(), "re-enabled: RankPrice still present");
+        assert_eq!(rank(), None, "re-enable resets RankPrice");
+        assert!(
+            RankRing::<Test>::get(netuid()).is_none(),
+            "re-enable clears RankRing"
+        );
 
-        // set_enabled(false) on a zero-price scenario: mock EMA = 0, ring empty.
-        RankRing::<Test>::remove(netuid());
-        RankPrice::<Test>::remove(netuid());
         set_ema(0.0);
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
         assert_eq!(rank(), None, "zero-price ring: dark");
         set_ema(1.0);
+    });
+}
+
+/// H1: an unwarm ring must not drag the prune-zone floor to zero via
+/// `rank_price() == 0`. Floor uses RankPrice else moving price (same as
+/// subtensor dereg selection), so a warm low subnet stays in the zone.
+#[test]
+fn prune_zone_ignores_unwarm_zero_rank_price() {
+    run(|| {
+        // Warm low subnet (netuid): RankPrice = 0.1.
+        seed_rank_from_ema(netuid(), 0.1);
+        set_ema(0.1);
+        // Unwarm peer past immunity: no RankPrice, moving price = 1.0.
+        // Without the fallback, `rank_price` would read as 0 and set floor=0.
+        RankRing::<Test>::remove(other());
+        RankPrice::<Test>::remove(other());
+        write(&key(b"test/ema", other()), U64F64::from_num(1.0));
+
+        assert_eq!(
+            Lending::rank_price(other()),
+            U64F64::from_num(0),
+            "unwarm ring still reports rank_price 0 for coverage"
+        );
+        assert_eq!(
+            Lending::prune_rank_price(other()),
+            U64F64::from_num(1.0),
+            "prune floor falls back to moving price"
+        );
+        assert!(
+            Lending::in_prune_zone(netuid(), &params()),
+            "warm low subnet must stay in the prune zone"
+        );
+        assert!(!Lending::in_prune_zone(other(), &params()));
+    });
+}
+
+/// H2: forced-close exhaustion meters against weight, stops on no-progress,
+/// and the default open deposit is the spec's 0.1 TAO.
+#[test]
+fn deleverage_exhaust_stops_on_no_progress_and_default_deposit() {
+    run(|| {
+        assert_eq!(
+            SynthParams::default().deposit,
+            100_000_000,
+            "default open deposit is 0.1 TAO"
+        );
+        assert!(
+            MAX_DELEVERAGE_STEPS_PER_BLOCK <= 32,
+            "hard cap must stay ≤ ~10% of a 4s block"
+        );
+
+        assert_ok!(open(1, MINT, COLLATERAL));
+        force_deleverage(1);
+        // Seed TWAP at the pre-pump spot, then raise spot so buy-backs pause.
+        let samples = params().twap_samples;
+        seed_twap_samples(netuid(), samples, 1.0);
+        SynthParamsStore::<Test>::mutate(|p| p.pause_bps = 10_000);
+        set_pool(POOL * 2, POOL / 2);
+        assert!(Lending::buybacks_paused(netuid(), &params()));
+
+        let step_w = <Test as Config>::WeightInfo::deleverage_step();
+        let mut meter = WeightMeter::with_limit(step_w.saturating_mul(64));
+        let attempted = Lending::exhaust_deleverage_queue(&params(), &mut meter);
+        assert_eq!(
+            attempted, 1,
+            "must stop after the first no-progress attempt"
+        );
+        assert!(
+            Positions::<Test>::contains_key(account(1), netuid()),
+            "position remains while buy-backs are paused"
+        );
+    });
+}
+
+/// Failed interest burn must not debit custody proceeds / uncollected interest.
+#[test]
+fn drain_uncollected_interest_skips_debit_when_burn_fails() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(open(1, MINT, COLLATERAL));
+        let mut pos = position(1);
+        UncollectedInterest::<Test>::insert(account(1), netuid(), 1_000);
+        // Empty custody so burn_interest_tao fails transfer. Skip try_state
+        // (I3) because the custody is intentionally underfunded.
+        set_tao(&pos.custody, 0);
+        pos.proceeds = 5_000;
+        pos.collateral = 0;
+        let proceeds_before = pos.proceeds;
+        Lending::drain_uncollected_interest_for_test(&account(1), netuid(), &mut pos);
+        assert_eq!(pos.proceeds, proceeds_before, "no debit on burn failure");
+        assert_eq!(
+            UncollectedInterest::<Test>::get(account(1), netuid()),
+            1_000,
+            "owed interest stays recorded"
+        );
     });
 }

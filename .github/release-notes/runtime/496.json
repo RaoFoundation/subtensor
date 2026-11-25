@@ -4,5 +4,5 @@
   "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v496-upgrade/page.tsx",
   "public_path": "/releases/v496-upgrade",
   "audiences": ["node operators", "validators", "subnet owners", "SDK users", "integrators"],
-  "summary": "V496 keeps Lift lending dark-launched (Enabled defaults false) and locks Jacob book/APR economics: short-book outstanding α ≤ 15% of pool α (sudo 1–50%); long-book outstanding borrowed TAO ≤ 15% of SubnetTAO (same bounds); Cap_short back to 1× (split_short_bps 5000). Short APR tracks utilization U with a kinked curve (20% flat to U=0.5, then to 100% at U=1), applied live at each accrual (O(1)); interest still burned. Also ships add_collateral, roll collateral adequacy, and spot-relative forced buyback progress from the lending tip. Regenerate metadata before integrating."
+  "summary": "V496 keeps synthetic-mint SHORTS-ONLY lending dark-launched (Enabled defaults false) and locks Jacob SPEC v1.2 book/APR economics: short-book open impact, flat APR interest burned with a residual-reserve share, paced buy-backs for forced closes, uncapped notional EMA for interest/min size, and prune-zone ranking identical to subtensor dereg selection. Also ships add_collateral, withdraw_collateral, poke, and root sweep_stranded_funds. Regenerate metadata before integrating."
 }

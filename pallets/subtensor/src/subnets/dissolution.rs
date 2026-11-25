@@ -147,9 +147,21 @@ impl codec::Decode for DissolveCleanupStatus {
             last_key: codec::Decode::decode(input)?,
             subnet_total_alpha_value: codec::Decode::decode(input)?,
             subnet_distributed_tao: codec::Decode::decode(input)?,
-            dissolution_price_bits: Option::<u128>::decode(input).unwrap_or(None),
-            subnet_settled_alpha: Option::<u128>::decode(input).unwrap_or(None),
+            // Missing trailing fields (EOF) → None; a corrupt payload errors.
+            dissolution_price_bits: Self::decode_trailing_opt(input)?,
+            subnet_settled_alpha: Self::decode_trailing_opt(input)?,
         })
+    }
+}
+
+impl DissolveCleanupStatus {
+    fn decode_trailing_opt<T: codec::Decode, I: codec::Input>(
+        input: &mut I,
+    ) -> Result<Option<T>, codec::Error> {
+        match input.remaining_len()? {
+            Some(0) => Ok(None),
+            _ => Option::<T>::decode(input),
+        }
     }
 }
 
@@ -1310,6 +1322,30 @@ mod decode_compat_tests {
         assert_eq!(
             decoded.subnet_settled_alpha, None,
             "subnet_settled_alpha should be None"
+        );
+    }
+
+    /// Corrupt trailing bytes must error, not map to `None`.
+    #[test]
+    fn dissolve_cleanup_status_corrupt_trailing_errors() {
+        let netuid = NetUid::from(5u16);
+        let phase = DissolveCleanupPhase::AlphaInOutStakesSettleStakes;
+        let last_key: Option<Vec<u8>> = None;
+        let subnet_total_alpha_value: Option<u128> = Some(42);
+        let subnet_distributed_tao: Option<u128> = Some(7);
+
+        let mut bytes: Vec<u8> = Vec::new();
+        netuid.encode_to(&mut bytes);
+        phase.encode_to(&mut bytes);
+        last_key.encode_to(&mut bytes);
+        subnet_total_alpha_value.encode_to(&mut bytes);
+        subnet_distributed_tao.encode_to(&mut bytes);
+        // Truncated Option discriminant / payload — not EOF-empty, not valid.
+        bytes.push(1);
+
+        assert!(
+            DissolveCleanupStatus::decode(&mut &bytes[..]).is_err(),
+            "corrupt trailing field must error"
         );
     }
 }

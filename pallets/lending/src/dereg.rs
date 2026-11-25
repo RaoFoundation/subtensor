@@ -4,9 +4,9 @@
 //!   [`RankPrice`], a [`SynthParams::rank_days`]-day SMA of raw spot (no
 //!   add-back of minted short alpha). Each block adds spot to a day
 //!   accumulator; every [`SynthParams::rank_day_blocks`] the day's mean enters
-//!   a ring of daily means and the SMA is recomputed. The ring is seeded from
-//!   [`LendingPoolInterface::moving_alpha_price`] when lending is enabled (not
-//!   from one block of spot), so ranking stays dark until then.
+//!   a ring of daily means and the SMA is recomputed. Rings start empty and
+//!   stay dark until a full window of real daily samples; prune selection
+//!   falls back to the emission moving price until then.
 //! * **P12 `T_ema`.** An EMA of pool TAO with time constant
 //!   [`SynthParams::tao_ema_blocks`], seeded at pool TAO.
 
@@ -117,8 +117,27 @@ pub fn ema_step(prev: Option<u64>, value: u64, window: u64) -> u64 {
     }
 }
 
+/// Fixed-point EMA step for uncapped prices.
+pub fn ema_price_step(prev: Option<U64F64>, value: U64F64, window: u64) -> U64F64 {
+    let Some(prev) = prev else {
+        return value;
+    };
+    let window = U64F64::saturating_from_num(window.max(1));
+    let delta = if value >= prev {
+        value.saturating_sub(prev)
+    } else {
+        prev.saturating_sub(value)
+    };
+    let step = delta.checked_div(window).unwrap_or_default();
+    if value >= prev {
+        prev.saturating_add(step)
+    } else {
+        prev.saturating_sub(step)
+    }
+}
+
 impl<T: Config> Pallet<T> {
-    /// Advance `netuid`'s ranking SMA and pool-TAO EMA one block.
+    /// Advance `netuid`'s ranking SMA, pool-TAO EMA, and uncapped notional EMA.
     pub fn update_dereg_moving_price(netuid: NetUid) {
         let params = SynthParamsStore::<T>::get();
         let tao = T::Pool::pool_tao(netuid).to_u64();
@@ -128,10 +147,18 @@ impl<T: Config> Pallet<T> {
             u64::from(params.tao_ema_blocks),
         );
         PoolTaoEma::<T>::insert(netuid, ema);
+        // Uncapped slow EMA of spot for notional / interest (never the
+        // emission EMA's 1.0-capped feed).
+        let spot = T::Pool::current_alpha_price(netuid);
+        let notional = ema_price_step(
+            NotionalEma::<T>::get(netuid),
+            spot,
+            u64::from(params.tao_ema_blocks),
+        );
+        NotionalEma::<T>::insert(netuid, notional);
         if !Enabled::<T>::get() {
             return;
         }
-        let spot = T::Pool::current_alpha_price(netuid);
         let mut state = RankRing::<T>::get(netuid).unwrap_or_default();
         if let Some(sma) = rank_step(&mut state, spot, params.rank_days, params.rank_day_blocks) {
             RankPrice::<T>::insert(netuid, sma);

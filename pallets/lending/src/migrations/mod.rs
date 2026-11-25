@@ -121,20 +121,9 @@ pub fn migrate_to_synth_shorts_v1<T: Config>() -> Weight {
     }
     SynthParamsStore::<T>::put(SynthParams::default());
     Enabled::<T>::put(false);
-    let params = SynthParamsStore::<T>::get();
-    for netuid in T::Pool::live_subnets() {
-        let price = T::Pool::moving_alpha_price(netuid);
-        // Seed nothing from a zero moving price — leave the ring empty so it
-        // warms from real daily samples (falls back to emission EMA until full).
-        if price == U64F64::from_num(0) {
-            weight = weight.saturating_add(db.reads(1));
-            continue;
-        }
-        let mut state = dereg::RankState::default();
-        dereg::seed_rank_ring(&mut state, price, params.rank_days);
-        RankRing::<T>::insert(netuid, state);
-        weight = weight.saturating_add(db.reads_writes(1, 1));
-    }
+    // Do not seed RankRing from the capped emission moving price. Rings warm
+    // from real daily samples; prune selection falls back to moving price
+    // until each ring publishes a full window.
     HasMigrationRun::<T>::insert(&key, true);
     weight.saturating_add(db.writes(3))
 }

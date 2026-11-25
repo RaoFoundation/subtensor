@@ -26,6 +26,8 @@ pub trait WeightInfo {
 	fn poke() -> Weight;
 	fn set_enabled() -> Weight;
 	fn set_synth_params() -> Weight;
+	/// Root recovery of stranded TAO on a custody / reserve coldkey.
+	fn sweep_stranded() -> Weight;
 	/// One scheduled interest charge plus its health check (`on_idle`).
 	fn charge_interest() -> Weight;
 	/// One paced buy-back for a deleveraging position (`on_initialize`).
@@ -90,6 +92,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	fn set_enabled() -> Weight { set_enabled_envelope(T::DbWeight::get()) }
 	fn set_synth_params() -> Weight { set_params_envelope(T::DbWeight::get()) }
+	fn sweep_stranded() -> Weight { set_params_envelope(T::DbWeight::get()) }
 	fn charge_interest() -> Weight { charge_envelope(T::DbWeight::get()) }
 	fn deleverage_step() -> Weight { trade_envelope(T::DbWeight::get()) }
 	fn retire_residual() -> Weight { trade_envelope(T::DbWeight::get()) }
@@ -109,6 +112,7 @@ impl WeightInfo for () {
 	}
 	fn set_enabled() -> Weight { set_enabled_envelope(RocksDbWeight::get()) }
 	fn set_synth_params() -> Weight { set_params_envelope(RocksDbWeight::get()) }
+	fn sweep_stranded() -> Weight { set_params_envelope(RocksDbWeight::get()) }
 	fn charge_interest() -> Weight { charge_envelope(RocksDbWeight::get()) }
 	fn deleverage_step() -> Weight { trade_envelope(RocksDbWeight::get()) }
 	fn retire_residual() -> Weight { trade_envelope(RocksDbWeight::get()) }
