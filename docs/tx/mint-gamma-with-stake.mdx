@@ -15,7 +15,7 @@ less `rate_tolerance`. Its plan's `preview` and result's
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3210-L3230) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.mint_gamma_with_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L3211-L3232) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("mint_gamma_with_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3212`](/code/pallets/subtensor/src/macros/dispatches.rs#L3210-L3230):
+`SubtensorModule.mint_gamma_with_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L3213`](/code/pallets/subtensor/src/macros/dispatches.rs#L3211-L3232):
 
 ```rust
 #[pallet::call_index(167)]
@@ -91,6 +91,7 @@ pub fn mint_gamma_with_stake(
 ) -> DispatchResult {
     Self::do_mint_gamma_with_stake(
         origin,
+        None,
         origin_hotkey,
         destination_hotkey,
         netuid,
@@ -101,6 +102,6 @@ pub fn mint_gamma_with_stake(
 }
 ```
 
-Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L368).
+Delegates to [`do_mint_gamma_with_stake`](/code/pallets/subtensor/src/subnets/gamma.rs#L372).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

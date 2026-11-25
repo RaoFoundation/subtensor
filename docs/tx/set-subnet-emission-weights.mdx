@@ -23,7 +23,7 @@ change the limit; 50,400 blocks on earlier runtimes.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_weights_v2`](/code/pallets/admin-utils/src/lib.rs#L3042-L3068) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_subnet_emission_weights_v2`](/code/pallets/admin-utils/src/lib.rs#L3044-L3070) |
 
 ## Verify
 
@@ -89,7 +89,7 @@ result = sub.execute_tool("set_subnet_emission_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_subnet_emission_weights_v2` — [`pallets/admin-utils/src/lib.rs#L3048`](/code/pallets/admin-utils/src/lib.rs#L3042-L3068):
+`AdminUtils.sudo_set_subnet_emission_weights_v2` — [`pallets/admin-utils/src/lib.rs#L3050`](/code/pallets/admin-utils/src/lib.rs#L3044-L3070):
 
 ```rust
 #[pallet::call_index(120)]

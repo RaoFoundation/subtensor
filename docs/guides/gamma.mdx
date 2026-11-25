@@ -26,12 +26,12 @@ There is only one deposit per `(netuid, hotkey)`. If another coldkey has already
 opened that slot, use another API key; staking ownership does not grant control
 over the existing deposit.
 
-Gamma cannot be transferred to another coldkey or converted back into alpha or
-TAO. Amounts are in gamma, with 10^9 units per gamma.
+Gamma cannot be moved to another coldkey's deposit or converted back into alpha
+or TAO, but a mint can credit another coldkey's deposit. Amounts are in gamma, with 10^9 units per gamma.
 
 | Role | Can |
 |---|---|
-| Coldkey | mint into its deposits, move gamma between them, set each deposit's daily spend cap, close empty deposits |
+| Coldkey | mint into its deposits or, on behalf, into another coldkey's, move gamma between its deposits, set each deposit's daily spend cap, close empty deposits |
 | Hotkey | spend its deposit at the subnet's services, without a fee; sign requests to them |
 | Validator or subnet owner hotkey | publish a [service](/docs/guides/services) on its subnet, signed by its coldkey |
 | Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); pay shares of its subnet's emission into other subnets' gamma |
@@ -107,6 +107,24 @@ moving into a hotkey whose deposit belongs to another coldkey fails with
 Through a proxy, minting, moving and setting a deposit's daily spend cap need an
 `Any` or `NonCritical` proxy, and closing it also takes a `NonTransfer` proxy.
 
+## Minting on behalf of another coldkey
+
+`mint_gamma_on_behalf` and `mint_gamma_with_stake_on_behalf` take the TAO or
+burn the stake of the signer, as the mints above do, and credit the gamma to the
+deposit of the coldkey they name at the hotkey they name. A deposit they open
+belongs to that coldkey and has no daily spend cap; an existing deposit must
+belong to it and keeps its cap. They fail as the mints above do, including with
+[`NonAssociatedColdKey`](/docs/errors/chain/NonAssociatedColdKey) when the
+hotkey's deposit belongs to another coldkey or its staking owner is another
+coldkey, and with
+[`TooManyGammaDeposits`](/docs/errors/chain/TooManyGammaDeposits) when the
+named coldkey already holds 64 deposits on the subnet. The
+`GammaMinted` event names the credited coldkey.
+
+EVM contracts and accounts mint on behalf through the
+[Gamma precompile](/docs/guides/evm/precompiles/gamma), which also quotes both
+mints for a given deposit.
+
 ## Deposits and API keys
 
 Any account can be a deposit's hotkey, and it needs no registration or funds. A
@@ -121,7 +139,8 @@ btcli gamma show --netuid 1 --hotkey API_KEY
 ```
 
 To give someone gamma, open a deposit with their hotkey. The deposit stays
-yours: move the gamma back at any time.
+yours: move the gamma back at any time. To give it for good, mint it
+[on behalf](#minting-on-behalf-of-another-coldkey) of their coldkey.
 
 ```bash
 btcli gamma move --netuid 1 --origin-hotkey THEIR_KEY --destination-hotkey API_KEY --amount-gamma all
@@ -255,6 +274,8 @@ btcli query tao-usd-price
   spent at its services, and holders receive nothing.
 - Spent gamma pays the service nothing on chain: the burned alpha's value
   accrues to the subnet's alpha holders.
+- Anyone can open deposits for a coldkey by minting on its behalf, up to its 64
+  per subnet.
 - While a coldkey swap is announced, the coldkey's gamma calls are refused, but
   its deposits' hotkeys keep spending.
 - A hotkey swap moves the coldkey's deposit at the old hotkey on each subnet it

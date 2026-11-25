@@ -1,0 +1,38 @@
+---
+title: Gamma
+description: Reference for the deployed GammaPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `GammaPrecompile` |
+| Solidity interface | `IGammaPrecompile` |
+| Address | `0x0000000000000000000000000000000000000814` |
+| Status | Deployed |
+
+Quotes and makes [gamma](/docs/guides/gamma) mints that credit another
+coldkey's deposit, and reads deposits. Gamma amounts are in base units, 10^9 per
+gamma; TAO amounts in rao.
+
+## Functions
+
+```text
+quoteMintGamma(uint256,bytes32,bytes32,uint256)
+quoteMintGammaWithStake(uint256,bytes32,bytes32,bytes32,uint256)
+getGammaDeposit(uint256,bytes32)
+mintGammaOnBehalf(uint256,bytes32,bytes32,uint256,uint256)
+mintGammaWithStakeOnBehalf(uint256,bytes32,bytes32,bytes32,uint256,uint256)
+```
+
+The quotes fail on any error that stops the mint, including the checks on the
+deposit they would credit. `quoteMintGammaWithStake` reads no stake, so it
+quotes the whole amount. The mints are not payable: they dispatch as the mapped
+EVM caller, which pays the TAO from its free balance or burns its own stake, and
+return the gamma added to the deposit.
+
+| Function | Source extrinsic |
+|---|---|
+| `mintGammaOnBehalf` | `SubtensorModule.mint_gamma_on_behalf` |
+| `mintGammaWithStakeOnBehalf` | `SubtensorModule.mint_gamma_with_stake_on_behalf` |
+
+Source: [`gamma.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/gamma.sol)
