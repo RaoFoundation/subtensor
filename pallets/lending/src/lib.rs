@@ -3093,8 +3093,9 @@ pub mod pallet {
                 },
             );
             // Skip the floor scan while disabled (opens cannot run). When
-            // enabled, refresh under the SubnetLimit-bounded weight declared
-            // on the registration / dissolve dispatch path.
+            // enabled, refresh so the O(1) zone cache excludes this net.
+            // Declaring the SubnetLimit-bounded surcharge on
+            // `register_network` needs an approved fee-baseline update.
             if Enabled::<T>::get() {
                 Self::refresh_prune_floor(now, &T::Pool::live_subnets());
             }
