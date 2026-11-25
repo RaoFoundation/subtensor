@@ -135,6 +135,9 @@ RAW_ONLY: dict[str, set[str]] = {
         "set_activity_cutoff_factor",
         # TAO/USD price feed — signed by the oracle only, not agent-executable
         "feed_tao_usd_price",
+        # gamma mints crediting another coldkey's deposit — the EVM Gamma precompile's path
+        "mint_gamma_on_behalf",
+        "mint_gamma_with_stake_on_behalf",
     },
     "Balances": {
         # force_* are root-origin; burn/upgrade are niche
