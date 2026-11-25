@@ -36,6 +36,7 @@ function render(values, context, errors = {}) {
     if (!(param.name in values)) continue;
     lines.push(
       `# Storage: ${param.pallet}.${param.storage}`,
+      ...(param.reportOnly ? [`# Report only: ${param.reportOnly}`] : []),
       `[${param.name}]`,
       `setter = ${JSON.stringify(`${param.callPallet}.${param.call}`)}`,
       `value = ${inlineValue(values[param.name])}`,

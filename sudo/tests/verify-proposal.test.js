@@ -69,3 +69,10 @@ test("the standalone mapper reads stdin and emits no executable helper or keys",
   assert.notEqual(invalid.status, 0);
   assert.match(invalid.stderr, /not in the reviewed allowlist/);
 });
+
+test("the countersign allowlist rejects the report-only nomination setter", () => {
+  assert.throws(() => mapCalls(batch([
+    { AdminUtils: { sudo_set_subnet_limit: { max_subnets: 161 } } },
+    { AdminUtils: { sudo_set_nominator_min_required_stake: { min_stake: 100 } } },
+  ])), /not in the reviewed allowlist.*sudo_set_nominator_min_required_stake/);
+});

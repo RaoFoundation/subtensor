@@ -28,7 +28,7 @@ function snakeCase(name) {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
-const singles = new Map(params.map((param) => [
+const singles = new Map(params.filter((param) => !param.reportOnly).map((param) => [
   `${param.callPallet}.${param.call}`,
   param,
 ]));

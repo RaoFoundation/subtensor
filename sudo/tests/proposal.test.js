@@ -338,3 +338,24 @@ test("args JSON preserves large integers as exact JSON number tokens", (t) => {
   assert.match(args, /"max": 18446744073709551615/);
   assert.match(args, /"bits": 36893488147419103232/);
 });
+
+test("nomination-only edits produce a visible report and no signing artifact", (t) => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "sudo-report-only-"));
+  t.after(() => fs.rmSync(output, { recursive: true, force: true }));
+  const key = "nominator_min_required_stake_factor";
+  const desired = (BigInt(liveValues[key]) + 1n).toString();
+  const diff = compare({ ...liveValues, [key]: desired }, liveValues, liveValues);
+  const proposal = writeProposal(diff, encodeProposal(diff, {}), "mainnet", context, output, {
+    file: "mainnet.toml", provenance: { sourceCommit: "abc", baseCommit: "def" },
+  });
+  assert.equal(proposal.diff.proposed.length, 0);
+  assert.deepEqual(proposal.diff.reportOnly.map(({ key, file }) => [key, file]), [[key, desired]]);
+  assert.equal(proposal.call_data, null);
+  assert.equal(proposal.call_hash, null);
+  assert.equal(proposal.countersign_command, null);
+  assert.equal(fs.existsSync(path.join(output, "mainnet-args.json")), false);
+  const markdown = fs.readFileSync(path.join(output, "mainnet-proposal.md"), "utf8");
+  assert.match(markdown, /Report-only differences/);
+  assert.match(markdown, /nominator_min_required_stake_factor/);
+  assert.doesNotMatch(markdown, /python3 sudo\/countersign.py/);
+});

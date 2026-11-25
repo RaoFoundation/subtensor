@@ -24,6 +24,12 @@ function changesMarkdown(diff) {
     ...proposed.map((affected) => `| \`${affected.key}\` | \`${display(affected.live)}\` | \`${display(affected.proposed)}\` | \`${affected.setter}\` |`),
   ];
   if (!proposed.length) lines.push("| _No proposed changes_ | | | |");
+  if (diff.reportOnly?.length) {
+    lines.push("", "### Report-only differences (never included in a batch)", "");
+    for (const entry of diff.reportOnly) {
+      lines.push(`- \`${entry.key}\`: file \`${display(entry.file)}\`; live \`${display(entry.live)}\`. ${entry.reason}`);
+    }
+  }
   if (diff.drift.length) {
     lines.push("", "### Unrelated live drift (excluded from the proposal)", "",
       "These values were not edited in the PR or cannot be separated without a baseline. Review them separately; they are not part of the batch.", "");
@@ -117,6 +123,9 @@ function writeProposal(diff, encoded, network, context, outputDir, options = {})
     diff: {
       reviewed: diff.reviewed,
       proposed: encoded?.setters.flatMap((setter) => setter.affected) || [],
+      reportOnly: diff.reportOnly.map(({ key, chain, desired, reportOnly }) => ({
+        key, file: desired, live: chain, reason: reportOnly,
+      })),
       drift: diff.drift.map(({ key, chain, desired }) => ({ key, file: desired, live: chain })),
     },
     signers,

@@ -90,6 +90,7 @@ function storagePlan() {
       item: param.storage,
       callPallet: param.callPallet,
       call: param.call,
+      reportOnly: param.reportOnly,
       args: (value) => ({ [param.argument]: value }),
     })),
     ...Object.entries(groups).flatMap(([name, group]) =>
@@ -142,9 +143,10 @@ function compare(desired, chain, baseline = null) {
     chainValues: normalize(chain),
     reviewed: Boolean(baseline),
     unchanged: entries.filter((entry) => equalValue(entry.desired, entry.chain)),
-    changed: entries.filter((entry) => !equalValue(entry.desired, entry.chain) &&
+    changed: entries.filter((entry) => !entry.reportOnly && !equalValue(entry.desired, entry.chain) &&
       (!baseline || !equalValue(entry.desired, entry.baseline))),
-    drift: entries.filter((entry) => !equalValue(entry.desired, entry.chain) &&
+    reportOnly: entries.filter((entry) => entry.reportOnly && !equalValue(entry.desired, entry.chain)),
+    drift: entries.filter((entry) => !entry.reportOnly && !equalValue(entry.desired, entry.chain) &&
       (!baseline || equalValue(entry.desired, entry.baseline))),
   };
 }
@@ -171,12 +173,16 @@ function safeJsonValues(value, raw = false) {
   return value;
 }
 
+const reportOnlySetters = new Set(params.filter((param) => param.reportOnly)
+  .map((param) => `${param.callPallet}.${param.call}`));
+
 function setterCalls(diff, api) {
   // Grouped settings have one all-or-nothing call even if only one member
   // changed. Including all values also makes the call's full effect explicit.
   const changes = new Map();
   for (const entry of diff.changed) {
     const id = `${entry.callPallet}.${entry.call}`;
+    if (reportOnlySetters.has(id)) throw new Error(`Report-only setter cannot be encoded: ${id}`);
     if (!changes.has(id)) changes.set(id, entry);
   }
   return [...changes.values()].map((entry) => {

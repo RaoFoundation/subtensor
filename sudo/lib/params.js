@@ -48,7 +48,10 @@ const params = [
   ["tx_childkey_take_rate_limit", "TxChildkeyTakeRateLimit", "txRateLimit", { callPallet: "SubtensorModule" }],
   ["min_childkey_take", "MinChildkeyTake", "take", { callPallet: "SubtensorModule" }],
   ["max_childkey_take", "MaxChildkeyTake", "take", { callPallet: "SubtensorModule" }],
-  ["nominator_min_required_stake_factor", "NominatorMinRequiredStake", "minStake", { call: "sudo_set_nominator_min_required_stake" }],
+  ["nominator_min_required_stake_factor", "NominatorMinRequiredStake", "minStake", {
+    call: "sudo_set_nominator_min_required_stake",
+    reportOnly: "The setter can sweep the entire staking map; exclude it until cleanup is bounded and weighted.",
+  }],
   ["emission_bar_quantile", "EmissionBarQuantile", "quantile"],
   ["emission_bar_rank", "EmissionBarRank", "rank"],
   ["tao_usd_price_oracle", "TaoUsdPriceOracle", "oracle", { optional: true }],
@@ -60,6 +63,7 @@ const params = [
   call: options.call || `sudo_set_${name}`,
   argument: options.argument || argument,
   optional: options.optional || false,
+  reportOnly: options.reportOnly || null,
 }));
 
 const groups = {

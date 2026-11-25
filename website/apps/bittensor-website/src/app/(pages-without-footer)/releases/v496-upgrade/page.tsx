@@ -42,7 +42,8 @@ export default function Page() {
             The repository tracks 51 chain-wide root settings for devnet, testnet, and mainnet. CI
             compares reviewed file edits with finalized on-chain values and reports unrelated drift
             separately. Pull requests show a preview, not an approval command. Merging the files
-            does not sign, submit, or apply a proposal.
+            does not sign, submit, or apply a proposal. The nomination minimum factor is tracked
+            for reporting only and cannot enter a generated batch.
           </p>
           <p>
             On mainnet, use the checked-in verifier and updated SDK from a trusted checkout.

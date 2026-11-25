@@ -22,7 +22,8 @@ function alternatives(value, key) {
 }
 
 function validateMetadata(live, api) {
-  for (const { key } of storagePlan()) {
+  for (const { key, reportOnly } of storagePlan()) {
+    if (reportOnly) continue;
     const current = normalize(live[key]);
     // Also exercise both oracle representations and false independent of live configuration.
     const samples = alternatives(current, key);
@@ -48,7 +49,7 @@ async function main() {
     const live = await readAt(api, blockHash);
     if (Object.keys(live.errors).length) throw new Error(JSON.stringify(live.errors));
     validateMetadata(live.values, api);
-    console.log(`${network}: validated all ${storagePlan().length} parameters at block ${blockNumber} (spec ${specVersion})`);
+    console.log(`${network}: read all ${storagePlan().length} settings and validated ${storagePlan().filter((entry) => !entry.reportOnly).length} proposal-eligible values at block ${blockNumber} (spec ${specVersion})`);
   });
 }
 if (require.main === module) runCli(main);

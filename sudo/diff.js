@@ -66,10 +66,11 @@ async function main() {
     baseSha256: baseFile ? require("node:crypto").createHash("sha256").update(fs.readFileSync(baseFile)).digest("hex") : null,
   } : null;
   writeProposal(result.diff, result.encoded, network, result.context, outputDir, { file, baseFile, provenance, preview: options.preview });
-  console.log(`${network}: ${result.encoded ? result.diff.changed.length : 0} proposed value change(s), ${result.diff.drift.length} unrelated drift item(s), ${result.diff.unchanged.length} already correct.`);
+  console.log(`${network}: ${result.encoded ? result.diff.changed.length : 0} proposed value change(s), ${result.diff.drift.length} unrelated drift item(s), ${result.diff.reportOnly.length} report-only difference(s), ${result.diff.unchanged.length} already correct.`);
   if (!result.reviewed) console.log("No exact reviewed baseline; mismatches are unclassified live drift and the report contains no call data.");
   for (const entry of result.diff.changed) console.log(`CHANGE ${entry.key}: ${JSON.stringify(entry.chain)} -> ${JSON.stringify(entry.desired)}`);
   for (const entry of result.diff.drift) console.log(`DRIFT ${entry.key}: file ${JSON.stringify(entry.desired)}, live ${JSON.stringify(entry.chain)} (not proposed)`);
+  for (const entry of result.diff.reportOnly) console.log(`REPORT ONLY ${entry.key}: file ${JSON.stringify(entry.desired)}, live ${JSON.stringify(entry.chain)}. ${entry.reportOnly}`);
   if (result.encoded) console.log(`Validated encoded call ${result.encoded.callHash}; proposal written to ${outputDir}`);
   else console.log("No proposed call data.");
 }

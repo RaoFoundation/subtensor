@@ -26,7 +26,7 @@ Each table names its exact allowed setter. The loader rejects missing, unknown, 
 
 ## Scope
 
-The files cover 51 storage values: 47 single-value setters plus the four values in the basket-claim-dust group. Covered categories include delegate and childkey takes and rate limits; network registration, lock, immunity, and dissolve settings; EVM chain ID; commit-reveal version; CK burn; admin freeze and owner hyperparameter limits; flow and emission-gate settings; mechanism count; start-call and coldkey-swap delays; basket trading and claim-dust settings; hashed-account settings; epoch scheduling; moving alpha; nomination requirements; emission bars; and the TAO/USD price oracle.
+The files track 51 storage values: 46 single-value setters eligible for proposals, four values in the basket-claim-dust group, and one report-only value. Covered categories include delegate and childkey takes and rate limits; network registration, lock, immunity, and dissolve settings; EVM chain ID; commit-reveal version; CK burn; admin freeze and owner hyperparameter limits; flow and emission-gate settings; mechanism count; start-call and coldkey-swap delays; basket trading and claim-dust settings; hashed-account settings; epoch scheduling; moving alpha; nomination requirements; emission bars; and the TAO/USD price oracle.
 
 Excluded by design:
 
@@ -36,7 +36,9 @@ Excluded by design:
 - `sudo_set_basket_trading_frozen`, which manages an account-keyed kill-switch set;
 - operational root calls that do not represent a configuration value.
 
-Review side effects, not only storage writes. The nomination minimum setter can scan every alpha stake entry and clear small nominations in one extrinsic. The current runtime compares the previous effective minimum with the new raw factor, so do not assume a decrease in raw factor skips the scan. Changing an emission bar clears its stored gate bar for recomputation. Changing the oracle clears the cached TAO/USD price. Basket claim dust is atomic.
+The nomination minimum factor is exported and reported, but its setter is excluded from all generated batches and the countersign verifier rejects it. The setter can scan every alpha stake entry in one extrinsic, including on some raw-factor decreases. Keep it report-only until cleanup is bounded and weighted at that bound.
+
+Review side effects, not only storage writes. Changing an emission bar clears its stored gate bar for recomputation. Changing the oracle clears the cached TAO/USD price. Basket claim dust is atomic.
 
 ## Refresh and compare
 
@@ -66,13 +68,13 @@ node sudo/diff.js mainnet \
   --output-dir /tmp/sudo-mainnet-proposal
 ```
 
-Values already equal to live state are skipped. A value edited from its base is proposed. A value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. An exact reviewed baseline is required for call data: without `--base-file`, every live/file mismatch is reported as unclassified drift and the output contains no call data. CI uses the PR merge base, the commit before a main push, or a required manual-dispatch baseline ref. Historical files can omit newly tracked settings and retain retired settings; new settings count as edits, and retired settings never generate calls. An initial export without a historical file is report-only. The proposal records source/baseline commits and file SHA-256 hashes.
+Values already equal to live state are skipped. An eligible value edited from its base is proposed. Report-only differences appear separately and never generate a setter. An eligible value that still equals its base but differs on chain is **unrelated live drift** and is excluded from the call. An exact reviewed baseline is required for call data: without `--base-file`, eligible live/file mismatches are reported as unclassified drift and the output contains no call data. CI uses the PR merge base, the commit before a main push, or a required manual-dispatch baseline ref. Historical files can omit newly tracked settings and retain retired settings; new settings count as edits, and retired settings never generate calls. An initial export without a historical file is report-only. The proposal records source/baseline commits and file SHA-256 hashes.
 
 Every changed value becomes its allowlisted setter in `Utility.batch_all`, wrapped in `Sudo.sudo`. The tool resolves calls and argument types from live metadata and SCALE round-trips each setter and the complete outer call before writing call data.
 
 ## CI proposals
 
-`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch must name a reviewed baseline ref to distinguish unrelated drift. It runs offline tests, then checks every managed parameter against live metadata and performs read-only comparisons for all three networks. PR and non-main runs are previews and omit approval commands. Artifacts upload before the optional Discord notification. Only successive runs for the same PR share a cancellation group; each main push and manual dispatch has its own group. JSON and Markdown artifacts include the finalized-block context, source/baseline provenance, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
+`.github/workflows/sudo-params.yml` runs for pull requests touching `sudo/**`, pushes to main touching it, and manual dispatches. A manual dispatch must name a reviewed baseline ref to distinguish unrelated drift. It runs offline tests, then reads every tracked setting and checks every proposal-eligible value against live metadata and performs read-only comparisons for all three networks. PR and non-main runs are previews and omit approval commands. Artifacts upload before the optional Discord notification. Only successive runs for the same PR share a cancellation group; each main push and manual dispatch has its own group. JSON and Markdown artifacts include the finalized-block context, source/baseline provenance, decoded old-to-new changes, unrelated drift, encoded call data, and call hash. Every proposal is written to the workflow step summary.
 
 Devnet and testnet CI simply produce the decoded diff, decoded call, call data, and call hash for review. There is no additional apply-status section. CI never signs or submits an extrinsic.
 

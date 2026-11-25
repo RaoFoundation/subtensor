@@ -257,3 +257,25 @@ test("signed cutoff bits round-trip and don't block unrelated changes", () => {
   const unrelated = encodeProposal(compare({ ...signed, subnet_limit: "160" }, signed, signed), fakeApi());
   assert.deepEqual(unrelated.setters.map(({ key }) => key), ["subnet_limit"]);
 });
+
+test("nomination minimum is reported, not encoded, even in a mixed reviewed edit", () => {
+  const { values } = fixture();
+  const key = "nominator_min_required_stake_factor";
+  const desired = { ...values, [key]: "100000000" };
+  const reportOnly = compare(desired, values, values);
+  assert.deepEqual(reportOnly.changed, []);
+  assert.deepEqual(reportOnly.drift, []);
+  assert.deepEqual(reportOnly.reportOnly.map(({ key, desired }) => [key, desired]), [
+    [key, "100000000"],
+  ]);
+  assert.equal(encodeProposal(reportOnly, fakeApi()), null);
+  assert.equal(compare(desired, values).reportOnly[0].key, key);
+
+  const mixed = compare({ ...desired, subnet_limit: "160" }, values, values);
+  const encoded = encodeProposal(mixed, fakeApi());
+  assert.deepEqual(encoded.setters.map((setter) => setter.key), ["subnet_limit"]);
+  assert.doesNotMatch(JSON.stringify(encoded.btcliArgs), /sudo_set_nominator_min_required_stake/);
+
+  const forged = { ...reportOnly, changed: [{ ...reportOnly.reportOnly[0], reportOnly: null }] };
+  assert.throws(() => encodeProposal(forged, fakeApi()), /Report-only setter cannot be encoded/);
+});
