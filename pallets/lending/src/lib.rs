@@ -735,6 +735,12 @@ pub mod pallet {
     /// Separate from the emission [`SubnetMovingPrice`] which caps the feed at 1.0.
     #[pallet::storage]
     pub type NotionalEma<T: Config> = StorageMap<_, Identity, NetUid, U64F64, OptionQuery>;
+    /// Closed custody coldkeys that still hold TAO after a failed settle.
+    /// Value is the recorded stranded amount (funds + deposit) at failure.
+    /// Root [`sweep_stranded_funds`] may recover only up to this amount.
+    #[pallet::storage]
+    pub type StrandedCustody<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
     /// Positions in [`ShortState::Deleveraging`], by subnet. Value is the
     /// monotonic admission sequence used for O(1) cohort checks (I9).
     #[pallet::storage]
@@ -2122,17 +2128,25 @@ pub mod pallet {
         }
 
         /// Root recovery: move stranded free TAO on `who` into the pot (or burn).
+        /// Only the subnet's residual reserve (excess over the book) or a
+        /// custody recorded in [`StrandedCustody`] may be swept — never an
+        /// arbitrary EOA or another subnet's accounts.
         pub fn do_sweep_stranded(netuid: NetUid, who: &T::AccountId) -> DispatchResult {
             let reserve = Self::reserve_account(netuid);
             let free = T::Pool::free_tao(who).to_u64();
-            let amount = if *who == reserve {
-                free.saturating_sub(ResidualReserve::<T>::get(netuid))
+            let (amount, clear_stranded) = if *who == reserve {
+                (
+                    free.saturating_sub(ResidualReserve::<T>::get(netuid)),
+                    false,
+                )
             } else {
+                let cap =
+                    StrandedCustody::<T>::get(netuid, who).ok_or(Error::<T>::OwnerNotAllowed)?;
                 ensure!(
                     !EscrowOwner::<T>::contains_key(netuid, who),
                     Error::<T>::PositionExists
                 );
-                free
+                (free.min(cap), true)
             };
             ensure!(amount > 0, Error::<T>::ZeroAmount);
             if T::Pool::subnet_pot_account(netuid).is_some() {
@@ -2140,6 +2154,9 @@ pub mod pallet {
                 let _ = T::Pool::pay_into_pot(who, netuid, amount.into())?;
             } else {
                 T::Pool::burn_interest_tao(who, amount.into())?;
+            }
+            if clear_stranded {
+                StrandedCustody::<T>::remove(netuid, who);
             }
             Ok(())
         }
@@ -2796,8 +2813,12 @@ pub mod pallet {
                     });
                 }
                 Err(_) => {
-                    // TAO stays on custody; funds are recoverable. Remove the
-                    // position so the loop can advance past this entry.
+                    // TAO stays on custody; record a subnet-bound stranded
+                    // amount so root sweep cannot debit unrelated accounts.
+                    let stranded = pos.funds().saturating_add(pos.deposit);
+                    if stranded > 0 {
+                        StrandedCustody::<T>::insert(netuid, &pos.custody, stranded);
+                    }
                     SyntheticOutstanding::<T>::mutate(netuid, |s| {
                         *s = s.saturating_sub(pos.minted)
                     });

@@ -28,6 +28,19 @@ mod benchmarks {
         frame_system::Pallet::<T>::set_block_number(10_000u32.into());
         T::Pool::benchmark_mint_tao(caller, COLLATERAL.saturating_mul(10));
         assert_ok!(Pallet::<T>::initialize_custody());
+        // Warm the health TWAP so opens are not rejected as YoungSubnet (P6).
+        let mut ring = TwapState::<BlockNumberFor<T>>::default();
+        let spot = T::Pool::current_alpha_price(netuid());
+        for _ in 0..MIN_HEALTH_TWAP_SAMPLES {
+            let _ = ring.samples.try_push(spot);
+        }
+        TwapRing::<T>::insert(netuid(), ring);
+        // Publish a ranking SMA so coverage / prune-zone paths stay stable.
+        let mut rank = dereg::RankState::default();
+        dereg::seed_rank_ring(&mut rank, spot, SynthParams::default().rank_days);
+        RankRing::<T>::insert(netuid(), rank);
+        RankPrice::<T>::insert(netuid(), spot);
+        NotionalEma::<T>::insert(netuid(), spot);
     }
 
     fn open_fixture<T: Config>(caller: &T::AccountId) {
@@ -133,13 +146,15 @@ mod benchmarks {
 
     #[benchmark]
     fn sweep_stranded() {
-        let who: T::AccountId = whitelisted_caller();
-        seed::<T>(&who);
+        let caller: T::AccountId = whitelisted_caller();
+        seed::<T>(&caller);
+        let custody = Pallet::<T>::position_account(&caller, netuid(), 1u32.into());
         let stranded = COLLATERAL / 10;
-        T::Pool::benchmark_mint_tao(&who, stranded);
+        T::Pool::benchmark_mint_tao(&custody, stranded);
+        StrandedCustody::<T>::insert(netuid(), &custody, stranded);
         #[extrinsic_call]
-        sweep_stranded_funds(RawOrigin::Root, netuid(), who.clone());
-        assert_eq!(T::Pool::free_tao(&who), Zero::zero());
+        sweep_stranded_funds(RawOrigin::Root, netuid(), custody.clone());
+        assert!(StrandedCustody::<T>::get(netuid(), &custody).is_none());
     }
 
     #[benchmark]

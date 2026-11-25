@@ -2009,6 +2009,35 @@ fn settle_failure_skips_position_and_advances() {
                 .any(|e| matches!(e, Event::ShortSettledOnDissolution { .. })),
             "ShortSettledOnDissolution emitted for the healthy position"
         );
+        // Drained custody still records the book's stranded amount for sweep.
+        assert!(
+            StrandedCustody::<Test>::iter_prefix(netuid()).any(|(_, amt)| amt > 0),
+            "failed settle must record stranded custody"
+        );
+    });
+}
+
+#[test]
+fn sweep_stranded_rejects_unrelated_accounts() {
+    new_test_ext().execute_with(|| {
+        let stranger = account(9);
+        mint_tao(&stranger, 1_000_000);
+        assert_noop!(
+            Lending::sweep_stranded_funds(RuntimeOrigin::root(), netuid(), stranger),
+            Error::<Test>::OwnerNotAllowed
+        );
+        let custody = Lending::position_account(&account(1), netuid(), 10);
+        mint_tao(&custody, 50_000);
+        StrandedCustody::<Test>::insert(netuid(), &custody, 50_000);
+        let pot_before = pot();
+        assert_ok!(Lending::sweep_stranded_funds(
+            RuntimeOrigin::root(),
+            netuid(),
+            custody.clone()
+        ));
+        assert!(StrandedCustody::<Test>::get(netuid(), &custody).is_none());
+        assert_eq!(pot(), pot_before + 50_000);
+        assert_eq!(tao(&custody), 0);
     });
 }
 

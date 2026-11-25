@@ -563,6 +563,7 @@ class Lending:
     RankPrice = Item('Lending', 'RankPrice', 'FixedU128')
     PoolTaoEma = Item('Lending', 'PoolTaoEma', 'u64')
     NotionalEma = Item('Lending', 'NotionalEma', 'FixedU128')
+    StrandedCustody = Item('Lending', 'StrandedCustody', 'u64')
     DeleverageQueue = Item('Lending', 'DeleverageQueue', 'u64')
     NextDeleverageSeq = Item('Lending', 'NextDeleverageSeq', 'u64')
     DeleveragingMinted = Item('Lending', 'DeleveragingMinted', 'u64')
