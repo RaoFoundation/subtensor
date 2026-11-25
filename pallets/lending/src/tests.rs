@@ -1890,7 +1890,6 @@ fn try_state_covers_i2_i3_i5_i7_i8_i9_invariants() {
 
         // I5: interest charge capped at collateral.
         force_deleverage(1);
-        let mut meter = WeightMeter::new();
         let _ = Lending::deleverage_step(&account(1), netuid(), &params());
         check_invariants();
 

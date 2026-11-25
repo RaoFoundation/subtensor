@@ -1,5 +1,6 @@
 #![allow(
     clippy::unwrap_used,
+    clippy::expect_used,
     clippy::arithmetic_side_effects,
     clippy::indexing_slicing
 )]
@@ -33,7 +34,7 @@ fn dissolve_with_short_pays_stakers_at_frozen_r_and_recycles_leftover() {
         enable_lending_on_subnet(net);
 
         let short_cold = U256::from(301);
-        let quote = LendingPallet::<Test>::quote_open_short(net, SHORT_MINT).expect("open quote");
+        let quote = LendingPallet::<Test>::quote_open_short(net, SHORT_MINT).unwrap();
         let stake_in = TaoBalance::from(quote.required_collateral)
             .saturating_add(TaoBalance::from(quote.deposit))
             .saturating_add(ExistentialDeposit::get());
@@ -59,9 +60,7 @@ fn dissolve_with_short_pays_stakers_at_frozen_r_and_recycles_leftover() {
         let pot_before = SubnetTAO::<Test>::get(net).to_u64();
 
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        let rate = lending::Dissolutions::<Test>::get(net)
-            .expect("dissolution flags lending")
-            .price;
+        let rate = lending::Dissolutions::<Test>::get(net).unwrap().price;
         run_dissolve_cleanup_to_completion();
 
         let expected_staker = (U64F64::saturating_from_num(stake).saturating_mul(rate))

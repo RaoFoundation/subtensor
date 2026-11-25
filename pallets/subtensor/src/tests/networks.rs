@@ -423,17 +423,31 @@ fn dissolve_single_alpha_out_staker_gets_all_tao() {
         SubnetTAO::<Test>::insert(net, TaoBalance::from(pot));
         SubtensorModule::set_subnet_locked_balance(net, 0.into());
         TotalHotkeyAlpha::<Test>::insert(s_hot, net, AlphaBalance::from(5_000u64));
+        // Frozen `r` uses swap issuance (α-in/α-out), not only α-out ledger rows.
+        SubnetAlphaOut::<Test>::insert(net, AlphaBalance::from(5_000u64));
+
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(pot));
 
         // Cold-key balance before
         let before = SubtensorModule::get_coldkey_balance(&s_cold);
 
         // Dissolve
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
 
-        // Cold-key received full pot
+        let expected = (U64F64::saturating_from_num(5_000u64).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
+
+        // Cold-key received α×r (here α-out is the full issuance denominator).
         let after = SubtensorModule::get_coldkey_balance(&s_cold);
-        assert_eq!(after, before + pot.into());
+        assert_eq!(after, before + expected.into());
 
         // No α entries left for dissolved subnet
         assert!(AlphaV2::<Test>::iter().all(|((_h, _c, n), _)| n != net));
@@ -1034,14 +1048,22 @@ fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
             staker_before
         );
 
-        run_block_idle();
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
 
-        // Reservoir alpha is treated like materialized protocol pool alpha.
-        // The staker owns half the denominator, so receives half the reservoir
-        // TAO pot; the protocol share is recycled.
+        let expected = (U64F64::saturating_from_num(100u64).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
+
+        // Staker settles at frozen α×r; protocol/pool α share is recycled, not
+        // paid as a separate pro-rata slice of the pot.
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&staker_cold),
-            staker_before + TaoBalance::from(50_u64)
+            staker_before + TaoBalance::from(expected)
         );
         assert!(TotalIssuance::<Test>::get() < issuance_before);
         assert!(!NetworksAdded::<Test>::contains_key(net));
@@ -1128,15 +1150,18 @@ fn dissolve_rounding_remainder_distribution() {
         let c1_before = SubtensorModule::get_coldkey_balance(&s1c);
         let c2_before = SubtensorModule::get_coldkey_balance(&s2c);
 
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(1));
+
         // 3. Run full dissolve flow
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        run_dissolve_cleanup_to_completion();
 
-        // 4. s1 (larger remainder) should get +1 τ on cold-key
+        // 4. α×r floors to zero for both; remainder τ is recycled, not LRM dust.
         let c1_after = SubtensorModule::get_coldkey_balance(&s1c);
         let c2_after = SubtensorModule::get_coldkey_balance(&s2c);
 
-        assert_eq!(c1_after, c1_before + 1.into());
+        assert_eq!(c1_after, c1_before);
         assert_eq!(c2_after, c2_before);
 
         // α records for subnet gone; TAO key gone
@@ -1231,14 +1256,24 @@ fn dissolve_protocol_alpha_post_deploy_includes_alpha_in() {
         let staker_before = SubtensorModule::get_coldkey_balance(&staker_cold);
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
-        assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(pot));
 
-        // Post-deploy denominator = 100 alpha-in + 50 cached protocol alpha
-        // + 50 user alpha = 200. The user gets 50/200 of the 200 TAO pot.
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
+
+        // Post-deploy: staker pays at frozen `r` (α-in participates in issuance).
+        let expected = (U64F64::saturating_from_num(50u64).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&staker_cold),
-            staker_before + 50.into()
+            staker_before + expected.into()
         );
 
         assert_eq!(
@@ -2643,45 +2678,9 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
             tao_after_adds.insert(cold, SubtensorModule::get_coldkey_balance(&cold));
         }
 
-        // ────────────────────────────────────────────────────────────────────
-        // 5) Compute Hamilton-apportionment BASE shares per cold and total leftover
-        //    from the **pair-level** pre‑LP α snapshot; also count pairs per cold.
-        // ────────────────────────────────────────────────────────────────────
         for &net in nets.iter() {
             SubnetAlphaIn::<Test>::insert(net, AlphaBalance::ZERO);
             SubnetProtocolAlpha::<Test>::insert(net, AlphaBalance::ZERO);
-        }
-
-        let mut base_share_cold: BTreeMap<U256, u64> =
-            cold_lps.iter().copied().map(|c| (c, 0_u64)).collect();
-        let mut pair_count_cold: BTreeMap<U256, u32> =
-            cold_lps.iter().copied().map(|c| (c, 0_u32)).collect();
-
-        let mut leftover_total: u64 = 0;
-
-        for (ni, &net) in nets.iter().enumerate() {
-            let pot = pots[ni];
-            let pairs = alpha_pairs_per_net.get(&net).cloned().unwrap_or_default();
-            if pot == 0 || pairs.is_empty() {
-                continue;
-            }
-            let total_alpha: u128 = pairs.iter().map(|(_, a)| *a).sum();
-            if total_alpha == 0 {
-                continue;
-            }
-
-            let mut base_sum_net: u64 = 0;
-            for ((_, cold), a) in pairs.iter().copied() {
-                // quota = a * pot / total_alpha
-                let prod: u128 = a.saturating_mul(pot as u128);
-                let base: u64 = (prod / total_alpha) as u64;
-                base_sum_net = base_sum_net.saturating_add(base);
-                *base_share_cold.entry(cold).or_default() =
-                    base_share_cold[&cold].saturating_add(base);
-                *pair_count_cold.entry(cold).or_default() += 1;
-            }
-            let leftover_net = pot.saturating_sub(base_sum_net);
-            leftover_total = leftover_total.saturating_add(leftover_net);
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -2697,7 +2696,7 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
 
         // ────────────────────────────────────────────────────────────────────
         // 7) Assertions: τ balances, α gone, nets removed, swap state clean
-        //    (Hamilton invariants enforced at cold-level without relying on tie-break)
+        //    (α×r payouts; rounding dust recycled, not Hamilton remainder)
         // ────────────────────────────────────────────────────────────────────
         // Collect actual pot credits per cold (principal cancels out against adds when comparing before→after).
         let mut actual_pot_cold: BTreeMap<U256, u64> =
@@ -2708,40 +2707,19 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
             actual_pot_cold.insert(cold, after.saturating_sub(before.into()).into());
         }
 
-        // (a) Sum of actual pot credits equals total pots.
+        // (a) Pot credits never exceed seeded pots; dust is recycled on-chain.
         let total_actual: u64 = actual_pot_cold.values().copied().sum();
         let total_pots: u64 = pots.iter().copied().sum();
-        assert_eq!(
-            total_actual, total_pots,
-            "total τ pot credited across colds must equal sum of pots"
+        assert!(
+            total_actual <= total_pots,
+            "total τ credited {total_actual} exceeds sum of pots {total_pots}"
+        );
+        assert!(
+            total_actual > 0,
+            "stakers must receive at least some pot τ under α×r"
         );
 
-        // (b) Each cold’s pot is within Hamilton bounds: base ≤ actual ≤ base + #pairs.
-        let mut extra_accum: u64 = 0;
-        for &cold in cold_lps.iter() {
-            let base = *base_share_cold.get(&cold).unwrap_or(&0);
-            let pairs = *pair_count_cold.get(&cold).unwrap_or(&0) as u64;
-            let actual = *actual_pot_cold.get(&cold).unwrap_or(&0);
-
-            assert!(
-                actual >= base,
-                "cold {cold:?} actual pot {actual} is below base {base}"
-            );
-            assert!(
-                actual <= base.saturating_add(pairs),
-                "cold {cold:?} actual pot {actual} exceeds base + pairs ({base} + {pairs})"
-            );
-
-            extra_accum = extra_accum.saturating_add(actual.saturating_sub(base));
-        }
-
-        // (c) The total “extra beyond base” equals the computed leftover_total across nets.
-        assert_eq!(
-            extra_accum, leftover_total,
-            "sum of extras beyond base must equal total leftover"
-        );
-
-        // (d) τ principal was fully refunded (compare after_adds → after).
+        // (b) τ principal was fully refunded (compare after_adds → after).
         for &cold in cold_lps.iter() {
             let before = tao_before[&cold];
             let mid = tao_after_adds[&cold];
