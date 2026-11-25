@@ -100,6 +100,18 @@ async def _submit_once(
         raise
 
 
+class _SigningRuntimeMismatch(ValueError):
+    pass
+
+
+def _require_spec_version(codec, expected: Optional[int]) -> None:
+    if expected is not None and codec.spec_version != expected:
+        raise _SigningRuntimeMismatch(
+            f"Signing runtime specVersion {codec.spec_version} differs from reviewed {expected}; "
+            "regenerate and review the proposal"
+        )
+
+
 class QueryMapResult:
     """Decoded (key, value) pairs of a storage map, paginating transparently.
 
@@ -609,6 +621,7 @@ class SubstrateConnection:
         signature: Optional[bytes | str] = None,
         hashed_generation_offset: int = 0,
         hashed_signing_snapshot: Optional[HashedSigningSnapshot] = None,
+        expected_spec_version: Optional[int] = None,
     ) -> SignedExtrinsic:
         """Sign a composed call at the current runtime, for submission.
 
@@ -626,7 +639,8 @@ class SubstrateConnection:
                 else await self.get_chain_finalised_head()
             )
             # An unsupported or disabled runtime must not consume a local nonce reservation.
-            await self._stateless_mldsa_codec(block_hash, keypair.crypto_type)
+            codec = await self._stateless_mldsa_codec(block_hash, keypair.crypto_type)
+            _require_spec_version(codec, expected_spec_version)
             if hashed_signing_snapshot is not None:
                 expected = hashed_signing_snapshot.nonce + hashed_generation_offset
                 if nonce is not None and nonce != expected:
@@ -648,6 +662,7 @@ class SubstrateConnection:
                 signature=signature,
                 signing_snapshot=hashed_signing_snapshot,
                 block_hash=block_hash,
+                expected_spec_version=expected_spec_version,
             )
         if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
             return await self._sign_hashed(
@@ -660,6 +675,7 @@ class SubstrateConnection:
                 signature=signature,
                 generation_offset=hashed_generation_offset,
                 signing_snapshot=hashed_signing_snapshot,
+                expected_spec_version=expected_spec_version,
             )
         if hashed_generation_offset or hashed_signing_snapshot is not None:
             raise ValueError("a generation offset or snapshot is only valid for hashed accounts")
@@ -667,15 +683,21 @@ class SubstrateConnection:
             nonce = await self._nonces.next_for(keypair.ss58_address)
         else:
             self._nonces.pin(keypair.ss58_address, nonce)
-        return await self.sign_without_nonce_tracking(
-            call,
-            keypair,
-            era=era,
-            nonce=nonce,
-            tip=tip,
-            tip_asset_id=tip_asset_id,
-            signature=signature,
-        )
+        try:
+            return await self.sign_without_nonce_tracking(
+                call,
+                keypair,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                signature=signature,
+                expected_spec_version=expected_spec_version,
+            )
+        except _SigningRuntimeMismatch:
+            # No signature was created; don't leave a gap in the local nonce cache.
+            self._nonces.release(keypair.ss58_address, nonce, 1)
+            raise
 
     async def sign_without_nonce_tracking(
         self,
@@ -687,6 +709,7 @@ class SubstrateConnection:
         tip: int = 0,
         tip_asset_id: Optional[int] = None,
         signature: Optional[bytes | str] = None,
+        expected_spec_version: Optional[int] = None,
     ) -> SignedExtrinsic:
         """Sign at an explicit nonce without recording it in the nonce cache.
 
@@ -702,6 +725,7 @@ class SubstrateConnection:
                 tip=tip,
                 tip_asset_id=tip_asset_id,
                 signature=signature,
+                expected_spec_version=expected_spec_version,
             )
         if keypair.crypto_type in REGISTERED_CRYPTO_TYPES:
             return await self._sign_hashed(
@@ -712,8 +736,10 @@ class SubstrateConnection:
                 tip=tip,
                 tip_asset_id=tip_asset_id,
                 signature=signature,
+                expected_spec_version=expected_spec_version,
             )
         codec = await self._runtimes.codec_at(None)
+        _require_spec_version(codec, expected_spec_version)
         era, era_block_hash = await self._normalize_era(era)
         return await _sign_and_assemble(
             codec,
@@ -773,6 +799,7 @@ class SubstrateConnection:
         signature,
         signing_snapshot=None,
         block_hash=None,
+        expected_spec_version: Optional[int] = None,
     ):
         if not 0 <= nonce < 2**32 - 1:
             raise ValueError("standard post-quantum nonce is exhausted or invalid")
@@ -782,6 +809,7 @@ class SubstrateConnection:
             else block_hash or await self.get_chain_finalised_head()
         )
         codec = await self._stateless_mldsa_codec(block_hash, keypair.crypto_type)
+        _require_spec_version(codec, expected_spec_version)
         if signing_snapshot is not None and (
             signing_snapshot.address != keypair.ss58_address
             or signing_snapshot.crypto_type != keypair.crypto_type
@@ -929,6 +957,7 @@ class SubstrateConnection:
         signature: Optional[bytes | str],
         generation_offset: int = 0,
         signing_snapshot: Optional[HashedSigningSnapshot] = None,
+        expected_spec_version: Optional[int] = None,
     ) -> SignedExtrinsic:
         """Recover current authority from chain state, never from local counters.
 
@@ -958,6 +987,7 @@ class SubstrateConnection:
         if not 0 <= generation < 2**64 - 1 - generation_offset:
             raise SubstrateRequestException("hashed signing generation is exhausted")
         codec = await self._runtimes.codec_at(block_hash)
+        _require_spec_version(codec, expected_spec_version)
 
         if signature is None:
             pending_nonce = await self._nonces.next_for(keypair.ss58_address, use_cache=False)
@@ -1363,6 +1393,8 @@ class SubstrateConnection:
         max_weight: Optional[dict | int] = None,
         era: Optional[dict] = None,
         nonce: Optional[int] = None,
+        expected_timepoint=...,
+        expected_spec_version: Optional[int] = None,
     ) -> SignedExtrinsic:
         """One signatory's approval of ``call`` for a multisig account.
 
@@ -1371,6 +1403,9 @@ class SubstrateConnection:
         timepoint when the operation is already open.
         """
         codec = await self._runtimes.codec_at(None)
+        _require_spec_version(codec, expected_spec_version)
+        if expected_spec_version is not None:
+            _require_spec_version(call, expected_spec_version)
         if max_weight is None:
             payment_info = await self.get_payment_info(call, keypair)
             max_weight = payment_info["weight"]
@@ -1380,6 +1415,13 @@ class SubstrateConnection:
             [multisig_account.ss58_address, "0x" + codec.call_hash(call).hex()],
         )
         maybe_timepoint = pending["when"] if pending else None
+        if expected_timepoint is not ... and (
+            multisig_account.threshold < 2 or maybe_timepoint != expected_timepoint
+        ):
+            raise ValueError(
+                "Multisig operation no longer matches the requested opening or timepoint; "
+                "refusing to sign"
+            )
         signer_address = _ss58_encode(bytes(keypair.public_key), self.ss58_format)
         other_signatories = [
             address for address in multisig_account.signatories if address != signer_address
@@ -1399,7 +1441,16 @@ class SubstrateConnection:
             function,
             params,
         )
-        return await self.create_signed_extrinsic(as_multi, keypair, era=era, nonce=nonce)
+        # Signing may select a different codec than wrapper composition (including
+        # a finalized codec for PQ signers); enforce the same pin on the payload.
+        guard = (
+            {}
+            if expected_spec_version is None
+            else {
+                "expected_spec_version": expected_spec_version,
+            }
+        )
+        return await self.create_signed_extrinsic(as_multi, keypair, era=era, nonce=nonce, **guard)
 
     # -- addresses ---------------------------------------------------------------------------------
 

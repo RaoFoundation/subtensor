@@ -84,6 +84,11 @@ class Snapshot:
 
     # Chain metadata --------------------------------------------------------------
 
+    async def spec_version(self) -> int:
+        """The runtime spec version in this snapshot's state."""
+        block_hash = await self._client._block_hash(self.block)
+        return await self._client._substrate.spec_version(block_hash)
+
     async def timestamp(self) -> datetime:
         """UTC timestamp of this snapshot's block."""
         return await self._client.timestamp(block=self.block)
