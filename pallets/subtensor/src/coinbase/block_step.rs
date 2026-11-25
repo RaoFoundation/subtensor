@@ -74,9 +74,11 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
     }
 
     /// Storage work for one lending dereg-price / pool-TAO EMA tick (worst case
-    /// with ranking rollover). Charged into `block_step`'s returned weight.
+    /// with ranking rollover). Reads params, pool TAO, prior EMA, enabled,
+    /// spot (mechanism + reserves + balancer), and the ranking ring; writes
+    /// EMA, ring, and optionally RankPrice. Charged into `block_step`.
     pub(crate) fn lending_dereg_tick_weight() -> Weight {
-        T::DbWeight::get().reads_writes(4, 3)
+        T::DbWeight::get().reads_writes(10, 4)
     }
 
     pub fn update_root_prop() {

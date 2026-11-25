@@ -447,7 +447,11 @@ fn force_deleverage(who: u8) {
     let mut pos = position(who);
     pos.state = ShortState::Deleveraging { since };
     Positions::<Test>::insert(account(who), netuid(), &pos);
-    DeleverageQueue::<Test>::insert(netuid(), account(who), ());
+    let seq = NextDeleverageSeq::<Test>::mutate(netuid(), |s| {
+        *s = s.saturating_add(1);
+        *s
+    });
+    DeleverageQueue::<Test>::insert(netuid(), account(who), seq);
     DeleveragingMinted::<Test>::mutate(netuid(), |d| *d += pos.minted);
 }
 
@@ -1058,19 +1062,19 @@ fn late_join_deleverage_waits_until_next_block_cohort() {
         assert_ok!(open(2, MINT, COLLATERAL));
         force_deleverage(1);
         let params = params();
-        // Lock this block's budget/cohort on position 1 only.
+        // Lock this block's budget/cutoff on position 1 only.
         assert!(Lending::deleverage_step(&account(1), netuid(), &params));
-        assert!(DeleverageCohort::<Test>::contains_key(netuid(), account(1)));
+        let (_, _, _, cutoff) = DeleverageBudget::<Test>::get(netuid()).expect("budget locked");
+        let seq1 = DeleverageQueue::<Test>::get(netuid(), account(1)).expect("queued");
+        assert!(seq1 <= cutoff);
         force_deleverage(2);
-        assert!(!DeleverageCohort::<Test>::contains_key(
-            netuid(),
-            account(2)
-        ));
+        let seq2 = DeleverageQueue::<Test>::get(netuid(), account(2)).expect("queued");
+        assert!(seq2 > cutoff, "late join must be past the locked cutoff");
         let minted_before = position(2).minted;
         assert!(!Lending::deleverage_step(&account(2), netuid(), &params));
         assert_eq!(position(2).minted, minted_before, "late join must not fill");
         step_block();
-        // `on_initialize` rebuilds the cohort and may already step position 2.
+        // Next block's cutoff includes position 2; on_initialize may already step it.
         let after = Positions::<Test>::get(account(2), netuid()).map(|p| p.minted);
         assert!(
             after.is_none() || after.unwrap() < minted_before,

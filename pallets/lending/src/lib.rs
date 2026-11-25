@@ -731,18 +731,24 @@ pub mod pallet {
     /// EMA of pool TAO (`T_ema`, P12).
     #[pallet::storage]
     pub type PoolTaoEma<T: Config> = StorageMap<_, Identity, NetUid, u64, OptionQuery>;
-    /// Positions in [`ShortState::Deleveraging`], by subnet.
+    /// Positions in [`ShortState::Deleveraging`], by subnet. Value is the
+    /// monotonic admission sequence used for O(1) cohort checks (I9).
     #[pallet::storage]
     pub type DeleverageQueue<T: Config> =
-        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, OptionQuery>;
+    /// Next admission sequence for [`DeleverageQueue`] on each subnet.
+    #[pallet::storage]
+    pub type NextDeleverageSeq<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
     /// Σ `minted` over the subnet's deleveraging positions.
     #[pallet::storage]
     pub type DeleveragingMinted<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
-    /// The block's pace budget and deleveraging book on the subnet, fixed at
-    /// its first deleverage step so fills are pro rata.
+    /// The block's pace budget, deleveraging book, and admission cutoff on the
+    /// subnet, fixed at its first deleverage step so fills are pro rata and
+    /// late joins wait until the next block (I9). Tuple is
+    /// `(at, budget, book, cutoff_seq)`.
     #[pallet::storage]
     pub type DeleverageBudget<T: Config> =
-        StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u64, u64), OptionQuery>;
+        StorageMap<_, Identity, NetUid, (BlockNumberFor<T>, u64, u64, u64), OptionQuery>;
     /// Per-position deleverage fill this block: locked pro-rata allocation and
     /// TAO already spent against it. Stops repeated `poke`s from taking more
     /// than the position's share of the block's pace budget.
@@ -754,19 +760,6 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         (BlockNumberFor<T>, u64, u64),
-        OptionQuery,
-    >;
-    /// Positions eligible for this block's locked deleverage budget. Fixed with
-    /// [`DeleverageBudget`] so positions queued after the lock wait until the
-    /// next block (I9).
-    #[pallet::storage]
-    pub type DeleverageCohort<T: Config> = StorageDoubleMap<
-        _,
-        Identity,
-        NetUid,
-        Blake2_128Concat,
-        T::AccountId,
-        BlockNumberFor<T>,
         OptionQuery,
     >;
     /// Last queue key served; the next pass resumes after it.
@@ -972,9 +965,10 @@ pub mod pallet {
                 .checked_rem(u64::from(interval))
                 .is_some_and(|r| r == 0);
             let subnets = T::Pool::live_subnets();
-            // Every block accumulates spot into the interval; rollover also
-            // pushes a median sample. Charge both paths (Skeptic weight gap).
-            let twap_tick_w = db.reads_writes(2, 1);
+            // Enumeration scans `NetworksAdded`; each dynamic-pool tick reads
+            // mechanism + both reserves + balancer + TwapRing and writes the ring.
+            weight = weight.saturating_add(db.reads(subnets.len().saturating_add(1) as u64));
+            let twap_tick_w = db.reads_writes(5, 1);
             for netuid in subnets.iter() {
                 Self::twap_tick(*netuid, now, &params, close_interval);
                 weight = weight.saturating_add(twap_tick_w);
@@ -1644,30 +1638,25 @@ pub mod pallet {
         }
 
         /// The block's pace budget and deleveraging book on `netuid`, fixed at
-        /// the first call in the block. Also freezes the cohort of queue
-        /// members so later joins wait until the next block.
-        fn deleverage_budget(netuid: NetUid, params: &SynthParams) -> (u64, u64) {
+        /// the first call in the block. Snapshots the admission cutoff so
+        /// later joins wait until the next block (I9) at constant cost.
+        fn deleverage_budget(netuid: NetUid, params: &SynthParams) -> (u64, u64, u64) {
             let now = frame_system::Pallet::<T>::block_number();
-            if let Some((at, budget, book)) = DeleverageBudget::<T>::get(netuid)
+            if let Some((at, budget, book, cutoff)) = DeleverageBudget::<T>::get(netuid)
                 && at == now
             {
-                return (budget, book);
+                return (budget, book, cutoff);
             }
             let budget = Self::pace_room(netuid, params);
             let book = DeleveragingMinted::<T>::get(netuid);
-            DeleverageBudget::<T>::insert(netuid, (now, budget, book));
-            // Drop last block's cohort, then freeze whoever is queued now.
-            let _ = DeleverageCohort::<T>::clear_prefix(netuid, u32::MAX, None);
-            for owner in DeleverageQueue::<T>::iter_key_prefix(netuid) {
-                DeleverageCohort::<T>::insert(netuid, owner, now);
-            }
-            (budget, book)
+            let cutoff = NextDeleverageSeq::<T>::get(netuid);
+            DeleverageBudget::<T>::insert(netuid, (now, budget, book, cutoff));
+            (budget, book, cutoff)
         }
 
-        /// `true` when `owner` was in the queue when this block's budget locked.
-        fn in_deleverage_cohort(netuid: NetUid, owner: &T::AccountId) -> bool {
-            let now = frame_system::Pallet::<T>::block_number();
-            matches!(DeleverageCohort::<T>::get(netuid, owner), Some(at) if at == now)
+        /// `true` when `owner` was admitted at or before this block's cutoff.
+        fn in_deleverage_cohort(netuid: NetUid, owner: &T::AccountId, cutoff: u64) -> bool {
+            matches!(DeleverageQueue::<T>::get(netuid, owner), Some(seq) if seq <= cutoff)
         }
 
         // ---- position lifecycle --------------------------------------------
@@ -1722,7 +1711,6 @@ pub mod pallet {
                 DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_sub(pos.minted));
             }
             DeleverageFilled::<T>::remove(netuid, owner);
-            DeleverageCohort::<T>::remove(netuid, owner);
             UncollectedInterest::<T>::remove(owner, netuid);
             PositionCount::<T>::mutate(netuid, |n| *n = n.saturating_sub(1));
             TotalPositions::<T>::mutate(|n| *n = n.saturating_sub(1));
@@ -1745,7 +1733,11 @@ pub mod pallet {
             pos.state = ShortState::Deleveraging {
                 since: frame_system::Pallet::<T>::block_number(),
             };
-            DeleverageQueue::<T>::insert(netuid, owner, ());
+            let seq = NextDeleverageSeq::<T>::mutate(netuid, |s| {
+                *s = s.saturating_add(1);
+                *s
+            });
+            DeleverageQueue::<T>::insert(netuid, owner, seq);
             DeleveragingMinted::<T>::mutate(netuid, |d| *d = d.saturating_add(pos.minted));
             Self::deposit_event(Event::DeleverageStarted {
                 who: owner.clone(),
@@ -1777,9 +1769,9 @@ pub mod pallet {
                 return false;
             }
             let funds = pos.funds();
-            let (budget, book) = Self::deleverage_budget(netuid, params);
-            // Positions queued after the budget lock wait until the next block.
-            if !Self::in_deleverage_cohort(netuid, owner) {
+            let (budget, book, cutoff) = Self::deleverage_budget(netuid, params);
+            // Positions admitted after the cutoff wait until the next block.
+            if !Self::in_deleverage_cohort(netuid, owner, cutoff) {
                 return false;
             }
             let share = if book == 0 {
@@ -2651,8 +2643,8 @@ pub mod pallet {
             SyntheticOutstanding::<T>::remove(netuid);
             DeleveragingMinted::<T>::remove(netuid);
             DeleverageBudget::<T>::remove(netuid);
+            NextDeleverageSeq::<T>::remove(netuid);
             let _ = DeleverageFilled::<T>::clear_prefix(netuid, u32::MAX, None);
-            let _ = DeleverageCohort::<T>::clear_prefix(netuid, u32::MAX, None);
             BreakerTripped::<T>::remove(netuid);
             TwapRing::<T>::remove(netuid);
             PaceAnchor::<T>::remove(netuid);
@@ -2752,8 +2744,8 @@ pub mod pallet {
                 if Due::<T>::take(pos.due, (old.clone(), netuid)).is_some() {
                     Due::<T>::insert(pos.due, (new.clone(), netuid), ());
                 }
-                if DeleverageQueue::<T>::take(netuid, old).is_some() {
-                    DeleverageQueue::<T>::insert(netuid, new, ());
+                if let Some(seq) = DeleverageQueue::<T>::take(netuid, old) {
+                    DeleverageQueue::<T>::insert(netuid, new, seq);
                     DeleverageCursor::<T>::kill();
                 }
             }
