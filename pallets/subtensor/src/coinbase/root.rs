@@ -410,6 +410,12 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_network_to_prune() -> Option<NetUid> {
+        // Prefer the metered block cache so signed registration does not
+        // rescan RankPrice / RankRingGeneration for every live subnet.
+        if let Some(netuid) = T::Lending::cached_network_to_prune() {
+            return Some(netuid);
+        }
+
         let mut candidate_netuid: Option<NetUid> = None;
         let mut candidate_price: U64F64 = U64F64::saturating_from_num(u128::MAX);
         let mut candidate_timestamp: u64 = u64::MAX;

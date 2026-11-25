@@ -120,6 +120,10 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         u64::from(SubnetLimit::<T>::get())
     }
 
+    fn network_registered_at(netuid: NetUid) -> u64 {
+        NetworkRegisteredAt::<T>::get(netuid)
+    }
+
     #[transactional]
     fn mint_and_sell(
         netuid: NetUid,

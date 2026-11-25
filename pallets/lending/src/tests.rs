@@ -283,6 +283,10 @@ impl LendingPoolInterface<Account> for MockPool {
     fn subnet_limit() -> u64 {
         128
     }
+    fn network_registered_at(netuid: NetUid) -> u64 {
+        // Stable ordering for floor/target ties in unit tests.
+        u64::from(u16::from(netuid))
+    }
     fn mint_and_sell(
         netuid: NetUid,
         custody_cold: &Account,
@@ -1719,6 +1723,10 @@ fn dissolution_invalidates_prune_floor_in_constant_time() {
         assert!(
             PruneFloor::<Test>::get().is_none(),
             "dissolution must kill the cached floor"
+        );
+        assert!(
+            PruneTarget::<Test>::get().is_none(),
+            "dissolution must kill the cached prune target"
         );
         assert!(
             Lending::in_prune_zone(netuid(), &params()),

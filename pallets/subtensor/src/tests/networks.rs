@@ -1944,6 +1944,10 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
             "dissolution must kill the cached floor without a full rescan"
         );
         assert!(
+            pallet_lending::PruneTarget::<Test>::get().is_none(),
+            "dissolution must kill the cached prune target without a full rescan"
+        );
+        assert!(
             pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
             "missing floor fails closed (in zone)"
         );
