@@ -113,10 +113,12 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn network_registered_at(_netuid: NetUid) -> u64 {
         0
     }
-    /// Registration block when `netuid` is prune-eligible; `None` when immune.
-    /// Implementations should read `NetworkRegisteredAt` once and reuse it for
-    /// both the immunity check and the prune-floor tie-break.
-    fn prune_eligible_registered_at(netuid: NetUid) -> Option<u64> {
+    /// Registration block when `netuid` is prune-eligible at `now`; `None`
+    /// when immune. `now` is the caller's shared block number so the floor
+    /// refresh does not re-read System Number per candidate. Implementations
+    /// should read `NetworkRegisteredAt` once and reuse it for the tie-break.
+    fn prune_eligible_registered_at(netuid: NetUid, now: u64) -> Option<u64> {
+        let _ = now;
         if Self::prune_immune(netuid) {
             None
         } else {
@@ -260,6 +262,20 @@ pub trait LendingInterface<AccountId> {
     /// registration read the victim in O(1) instead of rescanning ranks.
     fn cached_network_to_prune() -> Option<NetUid> {
         None
+    }
+    /// Lending ranks are live (`Enabled`). When true, capacity registration
+    /// must use [`Self::cached_network_to_prune`] only — a cache miss must not
+    /// fall back to emission moving price (that can pick a different victim
+    /// after a mid-block cache kill).
+    fn lending_ranks_active() -> bool {
+        false
+    }
+    /// O(1) weight for [`Self::start_dissolution`] (Dissolutions insert + rate
+    /// reads + floor/target kills). Callers that reach the hook from signed
+    /// registration must saturate this onto their dispatch weight; changing
+    /// those fees requires explicit fee-baseline approval.
+    fn start_dissolution_weight() -> Weight {
+        Weight::zero()
     }
     /// Settle every short at `r` (zone alpha at its proceeds) into the staker
     /// pot and add the residual reserve. Runs after the dissolution alpha
@@ -1471,12 +1487,20 @@ pub mod pallet {
         }
 
         /// Published [`RankPrice`] only when the ring's generation matches
-        /// [`RankGeneration`] (re-enable invalidates without an O(n) clear).
-        pub(crate) fn active_rank_price(netuid: NetUid) -> Option<U64F64> {
-            if RankRingGeneration::<T>::get(netuid) != RankGeneration::<T>::get() {
+        /// `epoch` (re-enable invalidates without an O(n) clear). Callers that
+        /// already hold [`RankGeneration`] pass it so the floor refresh does
+        /// not re-read the shared value per candidate.
+        pub(crate) fn active_rank_price_at(netuid: NetUid, epoch: u32) -> Option<U64F64> {
+            if RankRingGeneration::<T>::get(netuid) != epoch {
                 return None;
             }
             RankPrice::<T>::get(netuid)
+        }
+
+        /// Published [`RankPrice`] only when the ring's generation matches
+        /// [`RankGeneration`] (re-enable invalidates without an O(n) clear).
+        pub(crate) fn active_rank_price(netuid: NetUid) -> Option<U64F64> {
+            Self::active_rank_price_at(netuid, RankGeneration::<T>::get())
         }
 
         /// Same fallback as subtensor's [`dereg_rank_price`]: published
@@ -1484,6 +1508,13 @@ pub mod pallet {
         /// so unwarm rings cannot drag the floor to zero.
         pub fn prune_rank_price(netuid: NetUid) -> U64F64 {
             Self::active_rank_price(netuid).unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
+        }
+
+        /// Floor-refresh price using a shared `epoch` (avoids per-candidate
+        /// [`RankGeneration`] re-reads).
+        fn prune_rank_price_at(netuid: NetUid, epoch: u32) -> U64F64 {
+            Self::active_rank_price_at(netuid, epoch)
+                .unwrap_or_else(|| T::Pool::moving_alpha_price(netuid))
         }
 
         /// Test helper: republish [`PruneFloor`] for the current block.
@@ -1497,25 +1528,25 @@ pub mod pallet {
         /// (warm-generation moving-price fallback + trie witness per key).
         pub fn prune_floor_refresh_weight(n: u64) -> Weight {
             let db = T::DbWeight::get();
-            // Per-candidate worst case after reusing `NetworkRegisteredAt`
-            // via `prune_eligible_registered_at`:
-            //   immunity (registered_at + period) + dissolution +
-            //   RankRingGeneration + RankGeneration + RankPrice +
-            //   SubnetMechanism + SubnetMovingPrice  = 8 reads.
-            // Shared RankGeneration is also read once up front (+1), and the
-            // floor/target existence probes are covered by the +2 below.
+            // Shared once per refresh (not per candidate): RankGeneration +
+            // System Number. Per-candidate warm-miss path (no published
+            // RankPrice): NetworkRegisteredAt + NetworkImmunityPeriod +
+            // Dissolutions + RankRingGeneration + RankPrice-miss +
+            // SubnetMechanism + SubnetMovingPrice = 7. Charge 7 to match
+            // that access pattern after hoisting shared reads.
             //
-            // PoV per key: MaxEncodedLen(value) + a conservative encoded-trie
-            // path. Substrate compact-encoded branch nodes can pack many child
-            // hashes plus key nibbles; 3 KiB bounds a deep path of encoded
-            // nodes for each distinct storage key (8 keys × 3 KiB).
+            // PoV: MaxEncodedLen(value) per key + one encoded trie path.
+            // Substrate compact-encoded branch nodes pack child hashes and
+            // key nibbles; 3 KiB is a conservative upper bound on a deep
+            // path of encoded nodes for one storage key (same order as a
+            // ~16-hash / nibble-heavy path, not a 64 B flat guess).
             const TRIE_PATH_PER_KEY: u64 = 3072;
-            const KEYS_PER_SUBNET: u64 = 8;
+            const KEYS_PER_SUBNET: u64 = 7;
+            const SHARED_READS: u64 = 2; // RankGeneration + System Number
             let per_subnet_value = (u64::max_encoded_len() as u64) // NetworkRegisteredAt
                 .saturating_add(u64::max_encoded_len() as u64) // NetworkImmunityPeriod
                 .saturating_add(Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
                 .saturating_add(u32::max_encoded_len() as u64) // RankRingGeneration
-                .saturating_add(u32::max_encoded_len() as u64) // RankGeneration
                 .saturating_add(U64F64::max_encoded_len() as u64) // RankPrice
                 .saturating_add(u16::max_encoded_len() as u64) // SubnetMechanism
                 .saturating_add(U64F64::max_encoded_len() as u64); // SubnetMovingPrice
@@ -1529,10 +1560,15 @@ pub mod pallet {
                 .saturating_add(TRIE_PATH_PER_KEY.saturating_mul(2));
             let proof = n
                 .saturating_mul(per_subnet_proof)
-                .saturating_add(cache_write);
-            db.reads(n.saturating_mul(KEYS_PER_SUBNET).saturating_add(2))
-                .saturating_add(db.writes(2))
-                .saturating_add(Weight::from_parts(0, proof))
+                .saturating_add(cache_write)
+                .saturating_add(TRIE_PATH_PER_KEY.saturating_mul(SHARED_READS));
+            db.reads(
+                n.saturating_mul(KEYS_PER_SUBNET)
+                    .saturating_add(SHARED_READS)
+                    .saturating_add(2), // floor/target existence
+            )
+            .saturating_add(db.writes(2))
+            .saturating_add(Weight::from_parts(0, proof))
         }
 
         /// Publish this block's lowest non-immune, non-dissolving prune rank
@@ -1541,15 +1577,18 @@ pub mod pallet {
         /// nets are excluded so the cache stays coherent with dereg eligibility.
         fn refresh_prune_floor(now: BlockNumberFor<T>, subnets: &[NetUid]) {
             let epoch = RankGeneration::<T>::get();
+            // Shared block number for immunity checks (one System Number read).
+            let now_u64 = TryInto::<u64>::try_into(now).ok().unwrap_or(u64::MAX);
             let mut best: Option<(NetUid, U64F64, u64)> = None;
             for &netuid in subnets {
-                let Some(registered_at) = T::Pool::prune_eligible_registered_at(netuid) else {
+                let Some(registered_at) = T::Pool::prune_eligible_registered_at(netuid, now_u64)
+                else {
                     continue;
                 };
                 if Dissolutions::<T>::contains_key(netuid) {
                     continue;
                 }
-                let price = Self::prune_rank_price(netuid);
+                let price = Self::prune_rank_price_at(netuid, epoch);
                 best = Some(match best {
                     Some((cur, lo, ts)) if price > lo || (price == lo && registered_at >= ts) => {
                         (cur, lo, ts)
@@ -3204,7 +3243,34 @@ pub mod pallet {
             )
         }
 
+        /// O(1) weight for [`Self::start_dissolution`]: Enabled check, optional
+        /// Dissolutions probe/insert, rate reads (pool tao, PoolTaoEma,
+        /// issuance), System Number, and floor/target kills — with trie proof.
+        pub fn start_dissolution_weight() -> Weight {
+            let db = T::DbWeight::get();
+            const TRIE_PATH: u64 = 3072;
+            // Enabled + Dissolutions + PoolTaoEma + pool_tao + issuance + Number
+            // + PruneFloor + PruneTarget (existence) = 8 reads; Dissolutions +
+            // two kills = up to 3 writes.
+            let value = (bool::max_encoded_len() as u64)
+                .saturating_add(Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
+                .saturating_add(U64F64::max_encoded_len() as u64) // PoolTaoEma
+                .saturating_add(u64::max_encoded_len() as u64) // pool tao
+                .saturating_add(u64::max_encoded_len() as u64) // issuance
+                .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64)
+                .saturating_add(U64F64::max_encoded_len() as u64) // floor
+                .saturating_add(NetUid::max_encoded_len() as u64); // target
+            db.reads_writes(8, 3)
+                .saturating_add(Weight::from_parts(0, value.saturating_add(TRIE_PATH * 8)))
+        }
+
         pub fn start_dissolution(netuid: NetUid) -> DispatchResult {
+            // Always freeze `r` (protocol dissolve accounting uses it even
+            // with no shorts) and O(1)-kill the prune caches. Do not rescan
+            // the floor here — signed registration reaches this hook without
+            // a SubnetLimit surcharge (fee baselines protected). Saturating
+            // `start_dissolution_weight` onto register_network / dissolve
+            // dispatch weights needs explicit fee-baseline approval.
             Self::ensure_not_dissolving(netuid)?;
             let now = frame_system::Pallet::<T>::block_number();
             Dissolutions::<T>::insert(
@@ -3214,11 +3280,6 @@ pub mod pallet {
                     price: Self::dissolution_rate(netuid),
                 },
             );
-            // O(1): invalidate the floor and target. Signed registration can
-            // reach here without a SubnetLimit surcharge (fee baseline
-            // protected), so do not rescan. Fail-closed `in_prune_zone` covers
-            // opens until the next metered refresh; prune selection falls back
-            // to the legacy scan only when the cache is missing.
             PruneFloor::<T>::kill();
             PruneTarget::<T>::kill();
             Ok(())
@@ -3680,6 +3741,12 @@ pub mod pallet {
         }
         fn cached_network_to_prune() -> Option<NetUid> {
             Self::cached_network_to_prune()
+        }
+        fn lending_ranks_active() -> bool {
+            Enabled::<T>::get()
+        }
+        fn start_dissolution_weight() -> Weight {
+            Self::start_dissolution_weight()
         }
         fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             Self::settle_positions_on_dissolution(netuid, meter)

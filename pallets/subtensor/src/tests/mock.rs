@@ -733,6 +733,12 @@ impl pallet_lending::LendingInterface<U256> for TestLending {
     fn cached_network_to_prune() -> Option<NetUid> {
         pallet_lending::Pallet::<Test>::cached_network_to_prune()
     }
+    fn lending_ranks_active() -> bool {
+        pallet_lending::Enabled::<Test>::get()
+    }
+    fn start_dissolution_weight() -> Weight {
+        pallet_lending::Pallet::<Test>::start_dissolution_weight()
+    }
     fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
         pallet_lending::Pallet::<Test>::settle_positions_on_dissolution(netuid, meter)
     }

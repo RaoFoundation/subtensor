@@ -1947,7 +1947,9 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
         ));
 
         // Dissolution O(1)-invalidates the floor; fail-closed keeps candidates
-        // in zone until the next metered refresh.
+        // in zone until the next metered refresh. With lending ranks active,
+        // capacity registration must wait for a fresh PruneTarget — no
+        // emission-price fallback that could pick a different victim.
         assert_ok!(pallet_lending::Pallet::<Test>::start_dissolution(n4));
         assert!(
             pallet_lending::PruneFloor::<Test>::get().is_none(),
@@ -1960,6 +1962,11 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
         assert!(
             pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
             "missing floor fails closed (in zone)"
+        );
+        assert_eq!(
+            SubtensorModule::get_network_to_prune(),
+            None,
+            "lending-on cache miss must defer prune selection"
         );
 
         // Disable / re-enable: generation bump + O(1) cache kill. Floor is

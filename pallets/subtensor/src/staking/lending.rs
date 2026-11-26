@@ -34,10 +34,10 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
     }
 
     /// Single `NetworkRegisteredAt` read shared by the immunity check and the
-    /// prune-floor registration tie-break.
-    fn prune_eligible_registered_at(netuid: NetUid) -> Option<u64> {
+    /// prune-floor registration tie-break. `now` is the caller's shared block
+    /// number (no per-candidate System Number read).
+    fn prune_eligible_registered_at(netuid: NetUid, now: u64) -> Option<u64> {
         let at = NetworkRegisteredAt::<T>::get(netuid);
-        let now = Self::get_current_block_as_u64();
         if now < at.saturating_add(Self::get_network_immunity_period()) {
             None
         } else {

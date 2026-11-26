@@ -1747,11 +1747,12 @@ fn dissolution_invalidates_prune_floor_in_constant_time() {
 
 #[test]
 fn prune_floor_refresh_weight_charges_trie_witness_not_64b_guess() {
-    // Fallback path: 8 reads/subnet. Proof must cover MaxEncodedLen of the
-    // real keys plus trie-path overhead — far above a 64-byte-per-read guess.
+    // Warm-miss path: 7 reads/subnet + shared. Proof must cover MaxEncodedLen
+    // of the real keys plus trie-path overhead — far above a 64 B guess.
     let n = 4u64;
     let w = Lending::prune_floor_refresh_weight(n);
-    let reads = n.saturating_mul(8).saturating_add(2);
+    // 7 keys/candidate + 2 shared + 2 floor/target probes.
+    let reads = n.saturating_mul(7).saturating_add(4);
     let undercount = reads.saturating_mul(64);
     assert!(
         w.proof_size() > undercount,

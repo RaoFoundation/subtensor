@@ -416,6 +416,16 @@ impl<T: Config> Pallet<T> {
             return Some(netuid);
         }
 
+        // Lending ranks are live: do not fall back to emission moving price.
+        // A mid-block cache kill (owner dissolve of a non-victim, or the
+        // prune-triggered dissolve itself) would otherwise pick a different
+        // victim than the RankPrice floor. Defer capacity registration until
+        // the next metered `on_initialize` republishes `PruneTarget`
+        // (`SubnetLimitReached` when no victim is available).
+        if T::Lending::lending_ranks_active() {
+            return None;
+        }
+
         let mut candidate_netuid: Option<NetUid> = None;
         let mut candidate_price: U64F64 = U64F64::saturating_from_num(u128::MAX);
         let mut candidate_timestamp: u64 = u64::MAX;
@@ -427,14 +437,7 @@ impl<T: Config> Pallet<T> {
 
             let registered_at = NetworkRegisteredAt::<T>::get(netuid);
 
-            // Cache miss (lending disabled, mid-block after target kill, or
-            // tests without a refresh): stay on the emission moving-price
-            // path only. Calling `dereg_rank_price` here would add Enabled /
-            // RankRingGeneration / RankPrice reads per candidate under the
-            // existing registration weight. Lending ranks are consumed only
-            // via the metered `PruneTarget` cache above; charging a cold
-            // RankPrice scan on registration needs explicit fee-baseline
-            // approval.
+            // Lending off: pre-lending emission moving-price path only.
             let price: U64F64 = Self::get_moving_alpha_price(netuid);
 
             // If tie on price, earliest registration wins.
