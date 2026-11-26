@@ -229,6 +229,12 @@ tools = service.tools()  # [{"name", "description", "input_schema"}], for an age
 `call` takes a tool's `name` and its inputs back. A `ServiceError` has the same
 `code` as above, and `response.raise_for_status()` makes one of an HTTP error.
 
+btcli keeps the url each of a subnet's services is at for ten minutes, so a run
+of calls reads the chain once, and an ordinary hotkey signs without it; a
+localnet's urls are always read. In Python, `bt.services.listing(client, netuid)`
+reads them, and `bt.services.load_listed(listing)` loads a service from them
+without the chain.
+
 A client trusts only the chain. It uses the document at the url a hotkey
 published only if `publishers` lists that hotkey and a `gamma` payment takes
 `btauth/1`. It sends only to https urls on public hosts (http and this machine

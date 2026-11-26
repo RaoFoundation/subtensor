@@ -811,6 +811,16 @@ class Output:
             for url in docs:
                 self._sub_diag("see", url, console=self._out)
 
+    def text_block(self, label: str, text: str) -> None:
+        """A field whose value is lines of text, as an answer a service wrote: its
+        label, then the text below it, indented and wrapped, its lines kept."""
+        self._out.print(Text("  " + label, style=STYLE_KEY))
+        for line in Text(text).wrap(self._out, max(self._out.width - 4, 20)):
+            line.rstrip()
+            self._out.print(
+                Text.assemble("    ", line) if line.plain else "", no_wrap=True, crop=False
+            )
+
     def kv_sections(
         self,
         title: Optional[str],

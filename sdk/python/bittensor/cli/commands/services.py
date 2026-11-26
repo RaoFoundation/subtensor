@@ -27,10 +27,11 @@ from typing import Any, Awaitable, Callable, NoReturn, Optional, TypeVar
 
 import typer
 
+from ... import config as cfg
 from ... import http_auth, services
 from ...keyfiles import KeyfileError
 from ...result import BittensorError
-from ...settings import guide_docs_url
+from ...settings import DEFAULT_NETWORK, guide_docs_url, resolve_endpoint
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals
 
@@ -436,23 +437,16 @@ def call(
         # A wallet or hotkey named on purpose is meant to sign; only the default may be absent.
         key = _hotkey(app_ctx, required=app_ctx.wallet_given or app_ctx.hotkey_given)
 
-    async def _signed(client) -> services.Response:
-        assert key is not None
-        signer = await http_auth.prepare_signer(key, client=client)
-        return await service.call(op.id, values, signer=signer, timeout=own["timeout"])
-
     def slow(error: services.ServiceError) -> Optional[str]:
         return "give it longer with --timeout SECONDS" if error.code == "timeout" else None
 
-    if key is not None:
-        response = _attempt(app_ctx, _signed, slow)
-    else:  # nothing to sign, so nothing to ask the chain
-        response = _offline(
-            app_ctx,
-            service.call(op.id, values, timeout=own["timeout"]),
-            f"calling {_short(service.name, 40)}…",
-            slow,
-        )
+    response = _signing(
+        app_ctx,
+        key,
+        lambda signer: service.call(op.id, values, signer=signer, timeout=own["timeout"]),
+        f"calling {_short(service.name, 40)}…",
+        slow,
+    )
     if op.auth == "optional":
         app_ctx.output.message(
             f"signed by hotkey {key.ss58_address}; --unsigned sends it unsigned"
@@ -503,11 +497,6 @@ def balance(
     service = _service(app_ctx, netuid, service_hotkey)
     key = None if hotkey_ss58 else _hotkey(app_ctx, required=True, or_else="--hotkey ADDRESS")
 
-    async def _signed(client) -> dict:
-        assert key is not None
-        signer = await http_auth.prepare_signer(key, client=client)
-        return await service.balance(signer=signer)
-
     def explain(error: services.ServiceError) -> Optional[str]:
         if error.status == 402:
             return _pay_help(app_ctx, service)
@@ -518,15 +507,13 @@ def balance(
             )
         return None
 
-    if key is not None:
-        record = _attempt(app_ctx, _signed, explain)
-    else:
-        record = _offline(
-            app_ctx,
-            service.balance(hotkey_ss58),
-            f"reading {_short(service.name, 40)}…",
-            explain,
-        )
+    record = _signing(
+        app_ctx,
+        key,
+        lambda signer: service.balance(hotkey_ss58, signer=signer),
+        f"reading {_short(service.name, 40)}…",
+        explain,
+    )
     with _rendering(app_ctx):
         if app_ctx.output.json_mode:
             _json(app_ctx.output, record)
@@ -578,7 +565,52 @@ def _service(
             data={"code": "input"},
         )
         raise typer.Exit(2)
-    return _attempt(app_ctx, lambda client: services.load(client, netuid, hotkey))
+    # Which url a subnet's services are at is kept a few minutes, so a run of calls
+    # does not open a chain connection each; a localnet's is always read.
+    endpoint = resolve_endpoint(app_ctx.network)[1]
+    label = f"reading netuid {netuid}'s service…"
+    cached = cfg.load_services(endpoint, netuid)
+    if cached is not None:
+        loaded = _offline(
+            app_ctx, _caught(services.load_listed(services.Listing(netuid, *cached), hotkey)), label
+        )
+        if isinstance(loaded, services.Service):
+            return loaded
+    listed = _attempt(app_ctx, lambda client: services.listing(client, netuid))
+    if not listed.local:
+        cfg.save_services(endpoint, netuid, dict(listed.urls), listed.owner)
+    if cached is not None and (dict(listed.urls), listed.owner) == cached:
+        _fail(app_ctx, loaded)  # what the chain says has not changed
+    return _offline(app_ctx, services.load_listed(listed, hotkey), label)
+
+
+async def _caught(work: Awaitable[T]) -> T | services.ServiceError:
+    try:
+        return await work
+    except services.ServiceError as error:
+        return error
+
+
+def _signing(
+    app_ctx: AppContext,
+    key,
+    work: Callable[[Any], Awaitable[T]],
+    label: str,
+    explain: Optional[Explain] = None,
+) -> T:
+    """``work(signer)``, with the chain only for a hashed hotkey, whose signing
+    generation is read from it; an ordinary one, or none, signs without it."""
+    if key is not None and key.crypto_type in http_auth.CLASSICAL_HASHED_CRYPTO_TYPES:
+
+        async def _prepared(client) -> T:
+            return await work(await http_auth.prepare_signer(key, client=client))
+
+        return _attempt(app_ctx, _prepared, explain)
+
+    async def _plain() -> T:
+        return await work(None if key is None else await http_auth.prepare_signer(key, client=None))
+
+    return _offline(app_ctx, _plain(), label, explain)
 
 
 def _offline(
@@ -593,6 +625,9 @@ def _offline(
         raise typer.Exit(130) from None
     except services.ServiceError as error:
         _fail(app_ctx, error, explain(error) if explain else None)
+    except ValueError as error:  # a hotkey that cannot sign, as a post-quantum one
+        app_ctx.output.error(str(error), data={"code": "wallet"})
+        raise typer.Exit(1) from None
 
 
 def _attempt(
@@ -1063,13 +1098,19 @@ def _render(output, op: services.Operation, value: Any) -> None:
         except _Clash:
             typer.echo(json.dumps(value, indent=2, ensure_ascii=False))
             return
+        texts = {k: v for k, v in fields.items() if isinstance(v, _Lines)}
+        fields = {k: v for k, v in fields.items() if k not in texts}
         if fields:
             output.detail(None, fields)
-        for index, (key, rows) in enumerate(tables.items()):
+        for index, (key, text) in enumerate(texts.items()):
             if fields or index:
                 typer.echo()
+            output.text_block(key, text)
+        for index, (key, rows) in enumerate(tables.items()):
+            if fields or texts or index:
+                typer.echo()
             _table(output, op, key, rows)
-        if not fields and not tables:
+        if not fields and not texts and not tables:
             typer.echo("{}")
     elif _is_records(value):
         _table(output, op, _line(op.summary) or op.command, value)
@@ -1100,8 +1141,14 @@ def _flatten(value: dict, prefix: str, fields: dict, tables: dict) -> None:
         elif item is None:
             if not prefix:  # a top-level null is an answer: a JSON-RPC result, say
                 fields[name] = "null"
+        elif isinstance(item, str) and "\n" in item.strip():
+            fields[name] = _Lines(_clean(item).strip())
         else:
             fields[name] = _line(_cell(item)) if not isinstance(item, dict) else "{}"
+
+
+class _Lines(str):
+    """A field's text of several lines, as an answer a model wrote, shown as a block."""
 
 
 def _table(output, op: services.Operation, title: str, rows: list[dict]) -> None:
@@ -1183,9 +1230,11 @@ def _http_error(
 
 
 def _pay_command(app_ctx: AppContext, service: services.Service) -> str:
+    default = os.getenv("BT_NETWORK") or cfg.get("network", DEFAULT_NETWORK)
+    network = "" if app_ctx.network == default else f"--network {app_ctx.network} "
     return (
-        f"btcli gamma spend --netuid {service.netuid} --service-hotkey {service.hotkey} "
-        f"--amount-gamma AMOUNT{_wallet_flags(app_ctx)}"
+        f"btcli {network}gamma spend --netuid {service.netuid} --service-hotkey "
+        f"{service.hotkey} --amount-gamma AMOUNT{_wallet_flags(app_ctx)}"
     )
 
 
@@ -1258,7 +1307,9 @@ def _flat(record: dict) -> dict:
         _flatten(_clean(record), "", fields, {})
     except _Clash:
         return {"record": _line(json.dumps(record, ensure_ascii=False))}
-    return fields
+    return {
+        key: _line(value) if isinstance(value, _Lines) else value for key, value in fields.items()
+    }
 
 
 def _line(value: Any) -> str:

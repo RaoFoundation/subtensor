@@ -1326,6 +1326,34 @@ class TestCli:
         assert result.exit_code == 0, result.output
         assert http_auth.HEADER_SIGNATURE not in cli.sent[-1][2]
 
+    def test_a_run_of_calls_reads_the_chain_once(self, cli, monkeypatch):
+        from bittensor.cli import context as cli_context
+
+        cli.pages["https://svc.example/api/v1/models"] = {"data": ["m"]}
+        cli.pages["https://svc.example/api/v1/jobs"] = {"data": []}
+        assert invoke("service", "show", "--netuid", "1").exit_code == 0
+
+        def no_chain(*args, **kwargs):
+            raise AssertionError("the chain was reached")
+
+        monkeypatch.setattr(cli_context, "Client", no_chain)
+        result = invoke("service", "call", "--netuid", "1", "list-models")
+        assert result.exit_code == 0, result.output
+        result = invoke("service", "call", "--netuid", "1", "list-jobs")
+        assert result.exit_code == 0, result.output
+        assert cli.sent[-1][2][http_auth.HEADER_HOTKEY] == wallet_hotkey()
+
+    def test_a_service_gone_from_the_cache_is_read_from_the_chain(self, cli, monkeypatch):
+        from bittensor import config as cfg
+        from bittensor.settings import resolve_endpoint
+
+        endpoint = resolve_endpoint("finney")[1]
+        cfg.save_services(endpoint, 1, {BOB_HOT: SPEC_URL}, BOB_HOT)
+        result = invoke("--network", "finney", "service", "show", "--netuid", "1")
+        assert result.exit_code == 0, result.output
+        assert "Example on netuid 1" in result.output
+        assert cfg.load_services(endpoint, 1) == ({ALICE_HOT: DOC_URL}, ALICE_HOT)
+
     def test_a_402_says_how_to_pay(self, cli):
         cli.pages["https://svc.example/api/v1/jobs"] = Response(
             402, {"content-type": "application/json"}, b'{"error":"insufficient_balance"}'
@@ -1337,13 +1365,32 @@ class TestCli:
         assert f"btcli gamma spend --netuid 1 --service-hotkey {ALICE_HOT}" in text
         assert text.endswith(f"--amount-gamma AMOUNT -w {_WALLET_NAME}")
 
+    def test_the_pay_hint_names_a_network_that_is_not_the_default(self, cli):
+        cli.pages["https://svc.example/api/v1/jobs"] = Response(
+            402, {"content-type": "application/json"}, b'{"error":"insufficient_balance"}'
+        )
+        result = invoke("--network", "test", "service", "call", "--netuid", "1", "list-jobs")
+        assert "btcli --network test gamma spend --netuid 1" in " ".join(result.output.split())
+
+    def test_an_answer_of_several_lines_keeps_them(self, cli):
+        cli.pages["https://svc.example/api/v1/models"] = {
+            "id": "c1",
+            "choices": [{"index": 0, "message": {"content": "one\n- two\n- three"}}],
+        }
+        result = invoke("service", "call", "--netuid", "1", "list-models")
+        assert result.exit_code == 0, result.output
+        assert "  message.content\n    one\n    - two\n    - three\n" in result.output
+
     def test_an_error_shows_the_message_the_service_sent(self, cli):
         cli.pages["https://svc.example/api/v1/jobs/j2"] = Response(
             404, {"content-type": "application/json"}, b'{"error":{"message":"no job j2"}}'
         )
         result = invoke("service", "call", "--netuid", "1", "get-job", "--id", "j2")
         assert result.exit_code == 1
-        assert "HTTP 404 from Example" in result.output and "note: the service says: no job j2" in result.output
+        assert (
+            "HTTP 404 from Example" in result.output
+            and "note: the service says: no job j2" in result.output
+        )
 
     def test_a_binary_response_goes_to_out(self, cli, tmp_path):
         cli.pages["https://svc.example/api/v1/models"] = Response(
@@ -1443,7 +1490,11 @@ class TestCli:
         error = json.loads(
             invoke("--json", "service", "call", "--netuid", "1", "list-models").output
         )
-        assert (error["status"], error["body"], error["note"]) == (503, {"detail": "down"}, "the service says: down")
+        assert (error["status"], error["body"], error["note"]) == (
+            503,
+            {"detail": "down"},
+            "the service says: down",
+        )
         assert (error["code"], error["signed"]) == ("http", None)
         cli.pages["https://svc.example/api/v1/models"] = Response(
             200, {"content-type": "text/plain"}, b"hello"

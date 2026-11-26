@@ -16,6 +16,7 @@ DEFAULT_MULTISIGS_PATH = Path.home() / ".bittensor" / "btcli_multisigs.json"
 DEFAULT_MULTISIG_CACHE_PATH = Path.home() / ".bittensor" / "btcli_multisig_cache.json"
 DEFAULT_SUBNET_NAMES_PATH = Path.home() / ".bittensor" / "btcli_subnet_names.json"
 DEFAULT_TOKEN_SYMBOLS_PATH = Path.home() / ".bittensor" / "btcli_token_symbols.json"
+DEFAULT_SERVICES_PATH = Path.home() / ".bittensor" / "btcli_services.json"
 
 # Cached subnet names older than this are refreshed on the next connected
 # command. Names change rarely; a day of staleness is invisible in practice.
@@ -25,6 +26,11 @@ SUBNET_NAMES_TTL_SECONDS = 24 * 3600
 # so the cache saves a full storage-map scan on every connect and only
 # refreshes weekly (a new subnet's symbol shows up on the next refresh).
 TOKEN_SYMBOLS_TTL_SECONDS = 7 * 24 * 3600
+
+# Which url each hotkey published as a subnet's service, and its owner. Read again
+# after this, or at once when a service cannot be loaded from it; the documents
+# and specs themselves are always read fresh.
+SERVICES_TTL_SECONDS = 600
 
 # Settable keys and the type each value coerces to.
 SETTABLE: dict[str, type] = {
@@ -481,3 +487,55 @@ def save_multisig_cache_entry(call_hash: str, entry: dict[str, Any]) -> None:
     data = load_multisig_cache()
     data[key] = entry
     save_multisig_cache(data)
+
+
+# --- Services cache (a subnet's published service urls and owner, per network) ---
+
+
+def services_path() -> Path:
+    return Path(os.getenv("BTCLI_SERVICES_CACHE") or DEFAULT_SERVICES_PATH)
+
+
+def _load_services_file() -> dict[str, Any]:
+    path = services_path()
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_services(network: str, netuid: int) -> Optional[tuple[dict[str, str], Optional[str]]]:
+    """The cached ``(urls by hotkey, owner hotkey)`` of ``netuid`` on ``network``, or
+    None when never read or older than the TTL."""
+    networks = _load_services_file().get(network)
+    entry = networks.get(str(netuid)) if isinstance(networks, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    fetched_at, urls, owner = entry.get("fetched_at"), entry.get("urls"), entry.get("owner")
+    if not isinstance(fetched_at, (int, float)) or not 0 <= time.time() - fetched_at < (
+        SERVICES_TTL_SECONDS
+    ):
+        return None
+    if not isinstance(urls, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in urls.items()
+    ):
+        return None
+    return urls, owner if isinstance(owner, str) else None
+
+
+def save_services(network: str, netuid: int, urls: dict[str, str], owner: Optional[str]) -> None:
+    data = _load_services_file()
+    networks = data.get(network)
+    networks = networks if isinstance(networks, dict) else {}
+    networks[str(netuid)] = {"fetched_at": int(time.time()), "urls": urls, "owner": owner}
+    data[network] = networks
+    path = services_path()
+    with contextlib.suppress(OSError):  # a cache it cannot write is only slower
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Several btcli runs at once each write a whole file, never half of one.
+        partial = path.with_name(f"{path.name}.{os.getpid()}")
+        partial.write_text(json.dumps(data, indent=2) + "\n")
+        os.replace(partial, path)

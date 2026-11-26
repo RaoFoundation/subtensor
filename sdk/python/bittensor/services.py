@@ -62,6 +62,7 @@ from .result import BittensorError
 
 __all__ = [
     "Input",
+    "Listing",
     "Operation",
     "Published",
     "Response",
@@ -69,7 +70,9 @@ __all__ = [
     "ServiceError",
     "Skipped",
     "discover",
+    "listing",
     "load",
+    "load_listed",
     "load_url",
 ]
 
@@ -368,6 +371,28 @@ class Service:
         return record
 
 
+@dataclass(frozen=True)
+class Listing:
+    """What the chain says of a subnet's services: the url each hotkey published there,
+    and the subnet owner's hotkey. :func:`load_listed` loads one without the chain."""
+
+    netuid: int
+    urls: Mapping[str, str]
+    owner: Optional[str] = None
+    local: bool = False  # the chain is a localnet on this machine
+
+
+async def listing(client, netuid: int) -> Listing:
+    """Read a subnet's services and its owner's hotkey from the chain."""
+    published, owner, local = await asyncio.gather(
+        client.read("services", netuid=netuid),
+        client.query(storage.SubtensorModule.SubnetOwnerHotkey, [netuid]),
+        _on_local_chain(client),
+    )
+    urls = {str(hotkey): str(entry["url"]) for hotkey, entry in published.items()}
+    return Listing(netuid, urls, str(owner) if owner else None, local)
+
+
 async def load(client, netuid: int, hotkey_ss58: Optional[str] = None) -> Service:
     """Read the service a hotkey published on a subnet, with its document and spec.
 
@@ -375,31 +400,31 @@ async def load(client, netuid: int, hotkey_ss58: Optional[str] = None) -> Servic
     A validator can publish a service too, under any name, so another is used only when
     named by its hotkey.
     """
-    published, owner = await asyncio.gather(
-        client.read("services", netuid=netuid),
-        client.query(storage.SubtensorModule.SubnetOwnerHotkey, [netuid]),
-    )
+    return await load_listed(await listing(client, netuid), hotkey_ss58)
+
+
+async def load_listed(listed: Listing, hotkey_ss58: Optional[str] = None) -> Service:
+    """:func:`load` from a :class:`Listing` read before, without the chain."""
+    netuid, urls, owner = listed.netuid, listed.urls, listed.owner
     if hotkey_ss58 is None:
-        if not published:
+        if not urls:
             raise ServiceError(f"netuid {netuid} has no services", code="no_service")
-        if owner in published:
+        if owner in urls:
             hotkey_ss58 = owner
-        elif len(published) > 1:
+        elif len(urls) > 1:
             raise ServiceError(
-                f"netuid {netuid} has {len(published)} services, none of them the subnet "
-                "owner's; name one by its hotkey: " + ", ".join(sorted(published)),
+                f"netuid {netuid} has {len(urls)} services, none of them the subnet "
+                "owner's; name one by its hotkey: " + ", ".join(sorted(urls)),
                 code="ambiguous",
             )
         else:
-            hotkey_ss58 = next(iter(published))
-    entry = published.get(hotkey_ss58)
-    if entry is None:
+            hotkey_ss58 = next(iter(urls))
+    url = urls.get(hotkey_ss58)
+    if url is None:
         raise ServiceError(
             f"{hotkey_ss58} has published no service on netuid {netuid}", code="no_service"
         )
-    service = await _threaded(
-        _fetch_service, netuid, hotkey_ss58, entry["url"], await _on_local_chain(client)
-    )
+    service = await _threaded(_fetch_service, netuid, hotkey_ss58, url, listed.local)
     return dataclasses.replace(service, owner=hotkey_ss58 == owner)
 
 
