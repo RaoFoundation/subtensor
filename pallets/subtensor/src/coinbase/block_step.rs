@@ -1,4 +1,5 @@
 use super::*;
+use codec::MaxEncodedLen;
 use pallet_lending::LendingInterface;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::NetUid;
@@ -39,10 +40,22 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             Self::populate_root_coldkey_staking_maps_v2();
         }
 
+        // Schedule / root-proportion call `alpha_issuance_for_schedule` up to
+        // three times per emit subnet (terms + nested root_proportion +
+        // update_root_prop). Charge the Enabled-path synthetic/residual
+        // adjustment for every live non-root subnet as a worst-case bound.
+        let issuance_lookups = Self::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|n| !n.is_root())
+            .count() as u64;
+        let issuance_w = Self::lending_issuance_adjust_weight()
+            .saturating_mul(issuance_lookups.saturating_mul(3));
+
         // Return the weight that the fixed block-step envelope does not include.
         Ok(basket_flush_weight
             .saturating_add(null_epoch_weight)
-            .saturating_add(Self::lending_dereg_tick_weight().saturating_mul(lending_ticks)))
+            .saturating_add(Self::lending_dereg_tick_weight().saturating_mul(lending_ticks))
+            .saturating_add(issuance_w))
     }
 
     fn try_set_pending_children(block_number: u64) {
@@ -86,6 +99,23 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         T::DbWeight::get()
             .reads_writes(12, 5)
             .saturating_add(Weight::from_parts(50_000_000, 4_096))
+    }
+
+    /// One `alpha_issuance_for_schedule` lookup's lending adjustment: Enabled
+    /// check plus SyntheticOutstanding + ResidualAlpha (Enabled path) with
+    /// trie proof. While lending is disabled the pallet short-circuits after
+    /// the Enabled read; this still charges the Enabled-path worst case.
+    pub(crate) fn lending_issuance_adjust_weight() -> Weight {
+        const TRIE_PATH: u64 = 3072;
+        let value = (bool::max_encoded_len() as u64)
+            .saturating_add(u64::max_encoded_len() as u64)
+            .saturating_add(u64::max_encoded_len() as u64);
+        T::DbWeight::get()
+            .reads(3)
+            .saturating_add(Weight::from_parts(
+                5_000_000,
+                value.saturating_add(TRIE_PATH.saturating_mul(3)),
+            ))
     }
 
     pub fn update_root_prop() {

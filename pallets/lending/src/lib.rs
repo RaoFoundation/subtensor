@@ -1528,21 +1528,22 @@ pub mod pallet {
         /// (warm-generation moving-price fallback + trie witness per key).
         pub fn prune_floor_refresh_weight(n: u64) -> Weight {
             let db = T::DbWeight::get();
-            // Shared once per refresh (not per candidate): RankGeneration +
-            // System Number. Per-candidate warm-miss path (no published
-            // RankPrice): NetworkRegisteredAt + NetworkImmunityPeriod +
-            // Dissolutions + RankRingGeneration + RankPrice-miss +
-            // SubnetMechanism + SubnetMovingPrice = 7. Charge 7 to match
-            // that access pattern after hoisting shared reads.
+            // Shared once per refresh: RankGeneration + System Number.
+            // Per-candidate warm-miss path: NetworkRegisteredAt +
+            // NetworkImmunityPeriod + Dissolutions + RankRingGeneration +
+            // RankPrice-miss + SubnetMechanism + SubnetMovingPrice = 7.
             //
-            // PoV: MaxEncodedLen(value) per key + one encoded trie path.
-            // Substrate compact-encoded branch nodes pack child hashes and
-            // key nibbles; 3 KiB is a conservative upper bound on a deep
-            // path of encoded nodes for one storage key (same order as a
-            // ~16-hash / nibble-heavy path, not a 64 B flat guess).
+            // PoV: MaxEncodedLen(value) + one encoded trie path per key.
+            // 3 KiB bounds a deep compact-encoded branch path (child hashes
+            // + key nibbles), not a 64 B flat guess.
+            //
+            // Ref-time: DB reads/writes plus a conservative per-candidate
+            // CPU envelope for eligibility, price compare, and winner
+            // selection (same order as a TWAP tick body).
             const TRIE_PATH_PER_KEY: u64 = 3072;
             const KEYS_PER_SUBNET: u64 = 7;
             const SHARED_READS: u64 = 2; // RankGeneration + System Number
+            const PER_SUBNET_CPU: u64 = 25_000_000;
             let per_subnet_value = (u64::max_encoded_len() as u64) // NetworkRegisteredAt
                 .saturating_add(u64::max_encoded_len() as u64) // NetworkImmunityPeriod
                 .saturating_add(Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
@@ -1552,23 +1553,30 @@ pub mod pallet {
                 .saturating_add(U64F64::max_encoded_len() as u64); // SubnetMovingPrice
             let per_subnet_proof =
                 per_subnet_value.saturating_add(TRIE_PATH_PER_KEY.saturating_mul(KEYS_PER_SUBNET));
-            // Floor + target writes (value + one trie path each).
-            let cache_write = (BlockNumberFor::<T>::max_encoded_len() as u64)
+            let shared_value =
+                (u32::max_encoded_len() as u64) // RankGeneration
+                    .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64); // Number
+            // Replace path: read existing floor/target values, then write new
+            // (populated-cache worst case).
+            let cache_value = (BlockNumberFor::<T>::max_encoded_len() as u64)
                 .saturating_add(u32::max_encoded_len() as u64)
                 .saturating_add(U64F64::max_encoded_len() as u64)
-                .saturating_add(NetUid::max_encoded_len() as u64)
+                .saturating_add(NetUid::max_encoded_len() as u64);
+            let cache_proof = cache_value
+                .saturating_mul(2) // old + new encoding
                 .saturating_add(TRIE_PATH_PER_KEY.saturating_mul(2));
             let proof = n
                 .saturating_mul(per_subnet_proof)
-                .saturating_add(cache_write)
-                .saturating_add(TRIE_PATH_PER_KEY.saturating_mul(SHARED_READS));
+                .saturating_add(shared_value)
+                .saturating_add(TRIE_PATH_PER_KEY.saturating_mul(SHARED_READS))
+                .saturating_add(cache_proof);
             db.reads(
                 n.saturating_mul(KEYS_PER_SUBNET)
                     .saturating_add(SHARED_READS)
-                    .saturating_add(2), // floor/target existence
+                    .saturating_add(2), // existing floor/target for replace
             )
             .saturating_add(db.writes(2))
-            .saturating_add(Weight::from_parts(0, proof))
+            .saturating_add(Weight::from_parts(PER_SUBNET_CPU.saturating_mul(n), proof))
         }
 
         /// Publish this block's lowest non-immune, non-dissolving prune rank
@@ -3795,6 +3803,11 @@ pub mod pallet {
             Self::active_rank_price(netuid)
         }
         fn synthetic_and_residual(netuid: NetUid) -> (u64, u64) {
+            // While lending is disabled, schedule/root lookups must not pay
+            // two map reads per subnet. `Enabled` is a shared StorageValue.
+            if !Enabled::<T>::get() {
+                return (0, 0);
+            }
             (
                 SyntheticOutstanding::<T>::get(netuid),
                 ResidualAlpha::<T>::get(netuid),

@@ -1751,7 +1751,7 @@ fn prune_floor_refresh_weight_charges_trie_witness_not_64b_guess() {
     // of the real keys plus trie-path overhead — far above a 64 B guess.
     let n = 4u64;
     let w = Lending::prune_floor_refresh_weight(n);
-    // 7 keys/candidate + 2 shared + 2 floor/target probes.
+    // 7 keys/candidate + 2 shared + 2 floor/target replace reads.
     let reads = n.saturating_mul(7).saturating_add(4);
     let undercount = reads.saturating_mul(64);
     assert!(
@@ -1760,6 +1760,10 @@ fn prune_floor_refresh_weight_charges_trie_witness_not_64b_guess() {
         w.proof_size(),
         reads,
         undercount
+    );
+    assert!(
+        w.ref_time() > 0,
+        "must charge per-candidate CPU, not only DB weight"
     );
     // Empty-ring pause path: TwapRing + two full spot quotes (9 reads). A
     // meter that only covers the old 2-read pause check must not start.
