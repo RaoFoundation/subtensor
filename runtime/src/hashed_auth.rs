@@ -885,11 +885,11 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
         );
         use pallet_evm::AddressMapping;
         let alias = sp_core::H160::from(crate::HashedAccounts::evm_alias(account));
-        setup_alias_gamma_benchmark(
-            &pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(
+        let backing =
+            pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(
                 alias,
-            ),
-        );
+            );
+        setup_alias_gamma_benchmark(&backing);
         for index in 0..crate::MaxProxies::get() {
             let delegate = AccountId::new(sp_io::hashing::blake2_256(
                 &(b"hashed-benchmark-proxy", index).encode(),
