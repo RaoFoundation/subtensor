@@ -2324,6 +2324,10 @@ def _yaml(text: str, url: str, what: str) -> Any:
     unquoted status code ``200:`` is, and values JSON has no type for are refused."""
     import yaml
 
+    # The pure Python parser takes time quadratic in nesting depth, so a few
+    # kilobytes of brackets would hold it for minutes; libyaml does not.
+    if not yaml.__with_libyaml__:
+        raise ServiceError(f"{what} at {url} is YAML, which needs PyYAML built with libyaml")
     loader = _yaml_loader()
     try:
         for count, _ in enumerate(yaml.parse(text, Loader=loader), 1):
@@ -2365,7 +2369,7 @@ def _yaml_loader() -> type:
     text, and so do ``on``, ``yes`` and ``no``, which YAML 1.1 reads as booleans."""
     import yaml
 
-    base = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    base = yaml.CSafeLoader
     kept = {"tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool"}
     loader = type("OpenAPILoader", (base,), {})
     loader.yaml_implicit_resolvers = {

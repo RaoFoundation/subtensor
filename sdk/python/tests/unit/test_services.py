@@ -489,6 +489,14 @@ class TestLoad:
         with pytest.raises(ServiceError, match="expands past 1000 nodes"):
             load()
 
+    def test_a_yaml_spec_needs_libyaml(self, web, monkeypatch):
+        import yaml
+
+        monkeypatch.setattr(yaml, "__with_libyaml__", False)
+        web.pages[SPEC_URL] = Response(200, {}, b"openapi: 3.0.3\n")
+        with pytest.raises(ServiceError, match="built with libyaml"):
+            load()
+
     def test_a_yaml_spec_is_counted_before_it_is_loaded(self, web, monkeypatch):
         monkeypatch.setattr(services, "MAX_YAML_EVENTS", 1000)
         flat = "a:\n" + "".join(f"  - {{k{i}: v}}\n" for i in range(300))
