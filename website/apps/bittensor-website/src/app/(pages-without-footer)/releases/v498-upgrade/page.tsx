@@ -24,18 +24,16 @@ export default function Page() {
         <section className={styles.section} id='compatibility'>
           <h2 className={styles.subtitle}>What changes</h2>
           <p>
-            V498 lets a coldkey hold gamma outside a deposit and send it to other coldkeys. A mint
-            with no hotkey credits the signer&apos;s gamma balance on the subnet, which no key can
-            spend until it is moved into a deposit. <code>deposit_gamma</code> and{' '}
+            V498 lets a coldkey hold gamma outside a deposit and send it to other coldkeys. Gamma
+            sent to a coldkey lands in its gamma balance on the subnet, which no key can spend
+            until it is moved into a deposit. <code>deposit_gamma</code> and{' '}
             <code>withdraw_gamma</code> move gamma between a balance and a deposit, and{' '}
             <code>transfer_gamma</code> sends an exact amount from a balance or deposit to another
             coldkey&apos;s balance or deposit. Another coldkey can open a deposit for a coldkey only
             while it holds fewer than 32 across subnets and has no coldkey swap underway.
           </p>
           <p>
-            <code>mint_gamma</code> and <code>mint_gamma_with_stake</code> take an optional hotkey
-            and move from call indices 166 and 167 to 178 and 179. The old indices are retired, so
-            update the Python SDK before minting. The release adds the <code>GammaBalances</code>{' '}
+            Minting is unchanged. The release adds the <code>GammaBalances</code>{' '}
             storage item and moves <code>GammaRuntimeApi</code> to version 3 with{' '}
             <code>get_gamma_balances</code>. It has no storage migrations or parameter changes.
           </p>

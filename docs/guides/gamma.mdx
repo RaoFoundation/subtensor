@@ -25,14 +25,15 @@ There is only one deposit per `(netuid, hotkey)`. If another coldkey has already
 opened that slot, use another hotkey; staking ownership does not grant control
 over the existing deposit.
 
-A coldkey can also hold gamma on no hotkey, as its **balance** on a subnet, and
-send it to other coldkeys (see [Balances and transfers](#balances-and-transfers)).
+Gamma sent to a coldkey lands in its **balance** on the subnet, held on no
+hotkey, as TAO lands in its free balance. A hotkey spends it once the coldkey
+moves it to a deposit (see [Balances and transfers](#balances-and-transfers)).
 Gamma cannot be converted back into alpha or TAO. Amounts are in gamma, with
 10^9 units per gamma.
 
 | Role | Can |
 |---|---|
-| Coldkey | mint into its deposits or its balance, move gamma between them and its balance, send gamma to other coldkeys, set each deposit's daily spend cap, close empty deposits |
+| Coldkey | mint into its deposits, move gamma between them and its balance, send gamma to other coldkeys, set each deposit's daily spend cap, close empty deposits |
 | Hotkey | spend its deposit at the subnet's services, without a fee; sign requests to them |
 | Validator or subnet owner hotkey | publish a [service](/docs/guides/services) on its subnet, signed by its coldkey |
 | Subnet owner | enable gamma on its subnet with [`gamma_enabled`](/docs/hyperparameters/gamma-enabled); pay shares of its subnet's emission into other subnets' gamma |
@@ -58,9 +59,7 @@ await client.execute(bt.MintGamma(netuid=1, hotkey_ss58=hotkey, amount_tao=10), 
 
 [`mint-gamma`](/docs/tx/mint-gamma) buys alpha with the TAO and burns it, with
 the same pool and flow accounting as [`stake-burn`](/docs/tx/stake-burn), and
-creates no stake position. With no hotkey, a mint credits your
-[balance](#balances-and-transfers) on the subnet instead, to deposit or send
-later.
+creates no stake position.
 [`mint-gamma-with-stake`](/docs/tx/mint-gamma-with-stake) burns stake you
 already hold instead:
 
@@ -91,7 +90,7 @@ The SDK quotes the mint first and fails it if the minted gamma would fall more
 than `rate_tolerance` (5% by default) below the quote. The with-stake quote
 assumes the whole amount is burned; the SDK quotes no more than the stake you
 hold. Once the mint runs, `result.data["minted"]` holds the deposit's
-`hotkey_ss58` (`None` for your balance) and `daily_spend_cap_gamma`, and the
+`hotkey_ss58` and `daily_spend_cap_gamma`, and the
 `alpha_burned`, `tao_value` and `gamma` minted, as exact decimal strings.
 
 A mint fails with [`GammaDisabled`](/docs/errors/chain/GammaDisabled) while
@@ -213,8 +212,7 @@ btcli gamma set-cap --netuid 1 --hotkey HOTKEY --daily-spend-cap-gamma 20
 A mint can name a new deposit's cap with `--daily-spend-cap-gamma 20`, so the
 deposit never opens without it. A deposit that already has another cap fails
 the mint with
-[`GammaDepositDailySpendCapMismatch`](/docs/errors/chain/GammaDepositDailySpendCapMismatch),
-and so does a mint into your balance, which has no cap.
+[`GammaDepositDailySpendCapMismatch`](/docs/errors/chain/GammaDepositDailySpendCapMismatch).
 
 ### Deposits that gamma emission opens
 

@@ -12,7 +12,7 @@ as much. A hotkey with no deposit opens one with no daily spend cap.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.deposit_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3299-L3308) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.deposit_gamma`](/code/pallets/subtensor/src/macros/dispatches.rs#L3294-L3303) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("deposit_gamma", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.deposit_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3301`](/code/pallets/subtensor/src/macros/dispatches.rs#L3299-L3308):
+`SubtensorModule.deposit_gamma` — [`pallets/subtensor/src/macros/dispatches.rs#L3296`](/code/pallets/subtensor/src/macros/dispatches.rs#L3294-L3303):
 
 ```rust
 #[pallet::call_index(175)]
@@ -82,6 +82,6 @@ pub fn deposit_gamma(
 }
 ```
 
-Delegates to [`do_deposit_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L722).
+Delegates to [`do_deposit_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L697).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

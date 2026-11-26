@@ -4012,7 +4012,7 @@ mod pallet_benchmarks {
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
-            Some(hotkey.clone()),
+            hotkey.clone(),
             netuid,
             TaoBalance::from(10_000_000_000_u64),
             GammaBalance::ZERO,
@@ -4045,7 +4045,7 @@ mod pallet_benchmarks {
         _(
             RawOrigin::Signed(coldkey.clone()),
             hotkey,
-            Some(destination.clone()),
+            destination.clone(),
             netuid,
             alpha,
             GammaBalance::ZERO,

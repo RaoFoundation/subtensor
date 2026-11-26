@@ -39,19 +39,17 @@ from .staking import (
 # (`MIN_GAMMA_AMOUNT`).
 MIN_GAMMA_AMOUNT = 100_000_000
 
-# First runtime ``spec_version`` that holds gamma balances. An earlier runtime credits minted
-# gamma to a deposit only.
+# First runtime ``spec_version`` that holds gamma balances.
 GAMMA_BALANCES_SPEC = 498
 
+MINT_HOTKEY_HELP = (
+    "Hotkey of the deposit credited: one kept for spending gamma, not a staking hotkey."
+)
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
 DAILY_SPEND_CAP_HELP = (
     "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A "
     "new deposit opens with it, and an existing one must already have it. Omit to keep the "
     "deposit's cap, which for a new deposit is none."
-)
-MINT_HOTKEY_HELP = (
-    "Hotkey of the deposit credited: one kept for spending gamma, not a staking hotkey. Omit to "
-    "credit your balance."
 )
 
 
@@ -74,24 +72,6 @@ def _daily_spend_cap(value: Optional[Money]) -> Optional[Money]:
     if 0 < gamma_units(cap) < MIN_GAMMA_AMOUNT:
         raise BittensorError("a daily spend cap is 0 or at least 0.1 gamma")
     return cap
-
-
-def _mint_daily_spend_cap(intent) -> Optional[Money]:
-    if intent.hotkey_ss58 is None and intent.daily_spend_cap_gamma is not None:
-        raise BittensorError(f"{intent.op}: a daily spend cap needs the hotkey of a deposit")
-    return _daily_spend_cap(intent.daily_spend_cap_gamma)
-
-
-async def _require_gamma_balances(substrate, intent) -> None:
-    """Refuse crediting a balance on a runtime that holds none."""
-    if intent.hotkey_ss58 is None and await substrate.spec_version() < GAMMA_BALANCES_SPEC:
-        raise BittensorError(
-            f"{intent.op}: this runtime has no gamma balances; name the hotkey of a deposit"
-        )
-
-
-def _credited(intent) -> str:
-    return "your balance" if intent.hotkey_ss58 is None else intent.hotkey_ss58
 
 
 def _cap_units(value: Optional[Money]) -> Optional[int]:
@@ -170,22 +150,11 @@ def _cap_text(units: Optional[int]) -> str:
 async def _mint_preflight(
     intent, preview: IntentPreflight, substrate, signer: str, quote
 ) -> IntentPreflight:
-    """A mint's preview: its quote, the deposit or balance it credits, and the hard stops the
-    chain would refuse it with."""
+    """A mint's preview: its quote, the deposit it credits, and the hard stops the chain
+    would refuse it with."""
     alpha, value, gamma = await quote
+    deposit = await _deposit(substrate, intent.netuid, intent.hotkey_ss58)
     cap = _cap_units(intent.daily_spend_cap_gamma)
-    if intent.hotkey_ss58 is None:
-        deposit = None
-        balance = await _balance(substrate, intent.netuid, signer)
-        credited = ("balance", f"holds {_gamma_text(balance)}")
-    else:
-        deposit = await _deposit(substrate, intent.netuid, intent.hotkey_ss58)
-        credited = (
-            "deposit",
-            "new" if deposit is None else f"holds {_gamma_text(int(deposit['balance']))}",
-        )
-        if deposit is None:
-            preview.blocks += await _new_deposit_blocks(substrate, intent.hotkey_ss58, signer)
     if deposit is not None and str(deposit["coldkey"]) != signer:
         preview.blocks.append(
             f"the gamma deposit at {intent.hotkey_ss58} belongs to another coldkey; "
@@ -197,6 +166,8 @@ async def _mint_preflight(
             f"{_cap_text(_cap(deposit))}; mint without a cap, or set its cap "
             "first"
         )
+    if deposit is None:
+        preview.blocks += await _new_deposit_blocks(substrate, intent.hotkey_ss58, signer)
     if deposit is not None:
         cap = _cap(deposit)
     minimum = _min_out(gamma, intent.rate_tolerance)
@@ -205,7 +176,7 @@ async def _mint_preflight(
         ("minimum", _gamma_text(minimum)),
         ("alpha burned", f"~{Balance.from_rao(alpha, intent.netuid)}"),
         ("value", f"~{Balance.from_rao(value)}"),
-        credited,
+        ("deposit", "new" if deposit is None else f"holds {_gamma_text(int(deposit['balance']))}"),
         ("daily spend cap", "none" if cap is None else _gamma_text(cap)),
         *preview.facts,
     ]
@@ -224,23 +195,22 @@ async def _mint_preflight(
 @register
 @dataclass
 class MintGamma(Intent):
-    """Mint gamma with TAO into your deposit at a hotkey, or your balance.
+    """Mint gamma with TAO into your deposit at a hotkey.
 
     Buys the subnet's alpha with ``amount_tao``, burns it, and credits its value
     in gamma, one per US dollar, to the deposit at ``hotkey_ss58``, opening it
-    when absent, or with no hotkey to your gamma balance on the subnet. The
-    alpha is valued at the lower of the subnet's gamma price and its spot price
-    before the buy. The hotkey spends the deposit with ``spend_gamma``. A new
-    deposit has no daily spend cap unless ``daily_spend_cap_gamma`` sets one, a
-    mint naming a cap fails on a deposit with another, and a balance takes none.
+    when absent. The alpha is valued at the lower of the subnet's gamma price
+    and its spot price before the buy. The hotkey spends the deposit with
+    ``spend_gamma``. A new deposit has no daily spend cap unless
+    ``daily_spend_cap_gamma`` sets one, and a mint naming a cap fails on a
+    deposit with another.
     Fails rather than minting less than the current quote less
     ``rate_tolerance``. A plan's ``preview`` holds the quote's ``gamma``,
     ``minimum_gamma``, ``alpha_burned`` and ``tao_value``, and the deposit's
-    balance and cap as ``deposit_balance_gamma`` (None when the mint opens it or
-    credits your balance) and ``daily_spend_cap_gamma``. The result's
-    ``data["minted"]`` holds the deposit's ``hotkey_ss58`` (None for your
-    balance) and ``daily_spend_cap_gamma``, and the ``alpha_burned``,
-    ``tao_value`` and ``gamma`` minted.
+    balance and cap as ``deposit_balance_gamma`` (None when the mint opens it)
+    and ``daily_spend_cap_gamma``. The result's ``data["minted"]`` holds the
+    deposit's ``hotkey_ss58`` and ``daily_spend_cap_gamma``, and the
+    ``alpha_burned``, ``tao_value`` and ``gamma`` minted.
     """
 
     op = "mint_gamma"
@@ -249,9 +219,7 @@ class MintGamma(Intent):
     mev_shield_default = True
 
     netuid: int = field(metadata={"help": "Subnet whose alpha is bought and burned."})
-    hotkey_ss58: Optional[str] = field(
-        default=None, kw_only=True, metadata={"help": MINT_HOTKEY_HELP}
-    )
+    hotkey_ss58: str = field(metadata={"help": MINT_HOTKEY_HELP})
     amount_tao: Money = field(metadata={"help": "TAO spent buying the alpha that is burned."})
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
@@ -263,13 +231,12 @@ class MintGamma(Intent):
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
-        self.daily_spend_cap_gamma = _mint_daily_spend_cap(self)
+        self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     def _quote(self, substrate):
         return _quote(substrate, GammaRuntimeApi.sim_mint_gamma, self.netuid, self.amount_tao.rao)
 
     async def build(self, substrate, wallet: Any):
-        await _require_gamma_balances(substrate, self)
         _, _, gamma = await self._quote(substrate)
         return await substrate.compose(
             calls.SubtensorModule.mint_gamma(
@@ -291,7 +258,7 @@ class MintGamma(Intent):
 
     def summary(self) -> str:
         return (
-            f"mint gamma with {self.amount_tao} on netuid {self.netuid} to {_credited(self)}"
+            f"mint gamma with {self.amount_tao} on netuid {self.netuid} to {self.hotkey_ss58}"
             f" (fails if the quote falls >{self.rate_tolerance:.2%})"
         )
 
@@ -302,12 +269,11 @@ class MintGamma(Intent):
 @register
 @dataclass
 class MintGammaWithStake(Intent):
-    """Mint gamma by burning your stake into your deposit at a hotkey, or your balance.
+    """Mint gamma by burning your stake into your deposit at a hotkey.
 
     Burns up to ``amount_alpha`` (``all`` for the whole stake) of your stake
     on ``origin_hotkey_ss58`` and credits its value in gamma to the deposit at
-    ``hotkey_ss58``, or with no hotkey to your gamma balance on the subnet,
-    valued as ``mint_gamma`` values bought alpha. The stake is
+    ``hotkey_ss58``, valued as ``mint_gamma`` values bought alpha. The stake is
     destroyed, not moved. ``daily_spend_cap_gamma`` names the deposit's cap as
     for ``mint_gamma``. Fails rather than minting less than the current quote
     less ``rate_tolerance``. Its plan's ``preview`` and result's
@@ -320,9 +286,7 @@ class MintGammaWithStake(Intent):
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     netuid: int = field(metadata={"help": "Subnet of the stake burned."})
-    hotkey_ss58: Optional[str] = field(
-        default=None, kw_only=True, metadata={"help": MINT_HOTKEY_HELP}
-    )
+    hotkey_ss58: str = field(metadata={"help": MINT_HOTKEY_HELP})
     amount_alpha: Money = field(metadata={"help": "Alpha of stake burned."})
     origin_hotkey_ss58: str = field(metadata={"help": STAKE_HOTKEY_HELP})
     rate_tolerance: float = field(
@@ -335,7 +299,7 @@ class MintGammaWithStake(Intent):
     def __post_init__(self):
         self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
-        self.daily_spend_cap_gamma = _mint_daily_spend_cap(self)
+        self.daily_spend_cap_gamma = _daily_spend_cap(self.daily_spend_cap_gamma)
 
     def _burned(self, staked: int) -> int:
         """The alpha the chain burns: at most the stake held."""
@@ -345,7 +309,6 @@ class MintGammaWithStake(Intent):
         return _quote(substrate, GammaRuntimeApi.sim_mint_gamma_with_stake, self.netuid, alpha)
 
     async def build(self, substrate, wallet: Any):
-        await _require_gamma_balances(substrate, self)
         staked = await _staked_rao(
             substrate, wallet, self.origin_hotkey_ss58, self.netuid, action="burn into gamma"
         )
@@ -388,7 +351,7 @@ class MintGammaWithStake(Intent):
         amount = "all" if self.amount_alpha == ALL else self.amount_alpha
         return (
             f"burn {amount} of stake into gamma on netuid {self.netuid}"
-            f" to {_credited(self)} (fails if the quote falls >{self.rate_tolerance:.2%})"
+            f" to {self.hotkey_ss58} (fails if the quote falls >{self.rate_tolerance:.2%})"
         )
 
     def spend(self) -> Spend:

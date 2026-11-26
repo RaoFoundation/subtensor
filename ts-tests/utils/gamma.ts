@@ -80,7 +80,7 @@ export async function enableGamma(api: TypedApi<typeof subtensor>, netuid: numbe
 export async function mintGamma(
     api: TypedApi<typeof subtensor>,
     coldkey: KeyringPair,
-    hotkey: string | undefined,
+    hotkey: string,
     netuid: number,
     amount: bigint
 ): Promise<void> {

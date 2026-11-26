@@ -943,11 +943,11 @@ mod events {
         GammaMinted {
             /// Subnet of the alpha and the gamma.
             netuid: NetUid,
-            /// Coldkey that burned the alpha and owns the gamma.
+            /// Coldkey that burned the alpha and owns the deposit.
             coldkey: T::AccountId,
-            /// Hotkey of the deposit credited, or `None` for the coldkey's balance.
-            hotkey: Option<T::AccountId>,
-            /// The deposit's daily spend cap; `None` for a balance.
+            /// Hotkey of the deposit credited.
+            hotkey: T::AccountId,
+            /// The deposit's daily spend cap.
             daily_spend_cap: Option<GammaBalance>,
             /// TAO taken from the coldkey's balance; zero when minting with stake.
             tao: TaoBalance,
