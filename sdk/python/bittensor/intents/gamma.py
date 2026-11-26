@@ -46,7 +46,7 @@ DAILY_SPEND_CAP_HELP = (
     "deposit's cap, which for a new deposit is none."
 )
 MINT_HOTKEY_HELP = (
-    "Hotkey of the deposit credited: an API key, not a staking hotkey. Omit to credit your balance."
+    "Hotkey of the deposit credited: one kept for spending gamma, not a staking hotkey. Omit to credit your balance."
 )
 
 
@@ -211,7 +211,7 @@ async def _mint_preflight(
 @register
 @dataclass
 class MintGamma(Intent):
-    """Mint gamma with TAO into your deposit at an API-key hotkey, or your balance.
+    """Mint gamma with TAO into your deposit at a hotkey, or your balance.
 
     Buys the subnet's alpha with ``amount_tao``, burns it, and credits its value
     in gamma, one per US dollar, to the deposit at ``hotkey_ss58``, opening it
@@ -288,7 +288,7 @@ class MintGamma(Intent):
 @register
 @dataclass
 class MintGammaWithStake(Intent):
-    """Mint gamma by burning your stake into your deposit at an API-key hotkey, or your balance.
+    """Mint gamma by burning your stake into your deposit at a hotkey, or your balance.
 
     Burns up to ``amount_alpha`` (``all`` for the whole stake) of your stake
     on ``origin_hotkey_ss58`` and credits its value in gamma to the deposit at

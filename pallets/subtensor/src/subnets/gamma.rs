@@ -53,7 +53,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// Only `deposit.coldkey` sets the deposit's daily cap, moves its balance between API
     /// keys, and closes it when empty; only the hotkey spends it. The funding coldkey can
-    /// revoke an API key's access by moving the balance away. Being the hotkey's staking
+    /// revoke a hotkey's access by moving the balance away. Being the hotkey's staking
     /// owner grants no deposit administration.
     ///
     /// There is one deposit per `(netuid, hotkey)`: the first opener occupies that
