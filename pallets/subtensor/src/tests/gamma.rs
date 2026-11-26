@@ -448,7 +448,7 @@ fn opening_a_gamma_deposit_allows_owned_and_unassociated_hotkeys() {
                     Error::<Test>::NonAssociatedColdKey
                 );
                 assert_eq!(deposit(netuid, api_key).balance, funded.balance);
-                // The funder can revoke the API key by moving all its credits away.
+                // The funder can revoke the hotkey's access by moving all its credits away.
                 let destination_balance =
                     GammaDeposits::<Test>::get(netuid, U256::from(funding_hotkey))
                         .map_or(GammaBalance::ZERO, |deposit| deposit.balance);
