@@ -928,6 +928,13 @@ impl<T: Config> Pallet<T> {
                         status.dissolution_price_bits =
                             T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                     }
+                    // Reserve the phase-status write before settlement so a
+                    // terminal sweep that spends the last of the meter still
+                    // leaves room to persist LendingFinish.
+                    let status_w = T::DbWeight::get().writes(1);
+                    if weight_meter.try_consume(status_w).is_err() {
+                        return (false, weight_meter.consumed());
+                    }
                     let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
                     if done {
                         // Persist settlement completion before finish so a
@@ -936,7 +943,6 @@ impl<T: Config> Pallet<T> {
                         // idle budget.
                         status.last_key = None;
                         status.set_phase(DissolveCleanupPhase::LendingFinish);
-                        weight_meter.consume(T::DbWeight::get().writes(1));
                     }
                     done
                 }
