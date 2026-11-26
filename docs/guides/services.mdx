@@ -60,11 +60,12 @@ are, how to reach them, and how they are paid for:
   Readers ignore one that is not listed, and customers spend only at listed
   hotkeys, since anyone can publish the url.
   Without `publishers`, any may point to it.
-- An `openapi` service is the OpenAPI 3 spec at `endpoint`. An `http` service
-  is an HTTP API at `endpoint`, with its OpenAPI 3 spec at `spec`. A document
-  names one spec, which covers every paid route, so an agent can use the whole
-  product from the document alone. The spec's first `servers` url, relative to
-  the spec, is where its operations are.
+- An `openapi` service is the OpenAPI 3 spec at `endpoint`, or at `spec` when
+  it names one apart. An `http` service is an HTTP API at `endpoint`, with its
+  OpenAPI 3 spec at `spec`. The specs a document names, in JSON or YAML, cover
+  every paid route, so an agent can use the whole product from the document
+  alone, and clients offer the operations of all of them. A spec's first
+  `servers` url, relative to the spec, is where its operations are.
 - `pricing` is the url of the prices in JSON, unless the spec states them.
   `docs` is the url of docs for people.
 - A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), spent at
@@ -128,9 +129,9 @@ Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
   header, under any name in `securitySchemes`. An operation a hotkey pays for
   lists it in a `security` requirement, with `{}` beside it when the operation
   also works unsigned. One anyone can call has `security: []`, and needs no
-  wallet. Without the scheme, an operation with no `security` is signed when
-  the caller names a hotkey, and one that needs other credentials only is not
-  offered.
+  wallet. Without the scheme, clients sign every operation with a `security`
+  requirement or the `X-Bittensor-*` headers as parameters, and one with
+  neither when the caller names a hotkey.
 - Give each operation a short, unique `operationId` and a `summary`. Clients
   call it by that name, so `rentBySpec` beats a generated
   `rent_by_spec_executors_rent_by_spec_post`; without one it is named by its
@@ -140,14 +141,15 @@ Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
   read them as tool arguments.
 - Tag operations. Clients list them by their first tag, in the order of the
   spec's top-level `tags`, with the first sentence of each tag's `description`.
-- Parameters go in the path, query or headers, and bodies are JSON; an
-  operation with another kind of body is not offered. A client
-  takes an operation's inputs as one set of names, its parameters and the
-  top-level fields of its body, so no two of them should share a name, not even
-  in another case (`gpuType` and `gpu_type`); when two do, the body is taken
-  whole, as `--body`.
+- Parameters go in the path, query, headers or cookies, in any style OpenAPI
+  defines. A body is JSON, a form, multipart with files, or bytes or text of any
+  type, and clients send JSON when an operation takes several. A client takes an
+  operation's inputs as one set of names, its parameters and the top-level
+  fields of its body, so give them distinct names, not even differing in case
+  (`gpuType` and `gpu_type`): when two share one, the later in that order is
+  renamed after where it goes (`query_id`).
 - A path or an operation may name its own `servers`, and a server variable
-  takes its `default`.
+  takes its `default`, or its first `enum` value.
 - A signed request is answered where it was sent, without a redirect, since its
   signature covers the path.
 
@@ -192,12 +194,14 @@ btcli service balance --netuid 1 -H HOTKEY
 An operation's inputs follow it as flags (`max_tokens` is `--max-tokens`), or
 all at once as a JSON object with `--inputs '{"max_tokens": 5}'`, which also
 takes names btcli keeps for itself, such as `help`. `--body` gives the whole
-JSON body, with fields no flag names. `call` without an operation lists the
-operations, and `OPERATION --help` its inputs. A text input takes text, any
-other takes JSON (`--n 2`, `--temperature 0.5`). A boolean is `--flag` or
-`--no-flag`, and an array input is repeated or takes a JSON array. `--inputs`
-and `--body` read a file with `@FILE`, or stdin with `@-`; a flag never reads a
-file, so a value starting with `@` is taken as it is.
+body: JSON, with fields no flag names, or the text of a body that is not JSON.
+`call` without an operation lists the operations, and `OPERATION --help` its
+inputs. A text input takes text, any other takes JSON (`--n 2`,
+`--temperature 0.5`). A boolean is `--flag` or `--no-flag`, and an array input
+is repeated or takes a JSON array. A file input takes a file with
+`--file NAME=PATH`, repeated for several. `--inputs` and `--body` read a file
+with `@FILE`, or stdin with `@-`; a flag never reads a file, so a value starting
+with `@` is taken as it is.
 
 An `optional` operation is signed only when `-w` or `-H` names the hotkey, and
 `--unsigned` sends it unsigned even then. `--dry-run` shows the request without
@@ -207,7 +211,9 @@ again.
 
 An object prints as fields, nested ones by dotted name, and a list as a table. A
 binary response goes to `--out FILE` (`--out -` for stdout, without `--json`),
-or to a temporary file without it.
+or to a temporary file without it, and a stream of events prints as it arrives.
+A body written out as it arrives may take as long as it keeps coming, each wait
+for more at most `--timeout`.
 
 With `--json`, for scripts and agents:
 
@@ -238,10 +244,12 @@ balance = await service.balance(signer=signer)
 tools = service.tools()  # [{"name", "description", "input_schema"}], for an agent
 ```
 
-`call` takes a tool's `name` and its inputs back, or `body=` the whole body.
-btcli checks that a call fits the operation, and the service checks the rest. A
-`ServiceError` has the same
-`code` as above, and `response.raise_for_status()` makes one of an HTTP error.
+`call` takes a tool's `name` and its inputs back, or `body=` the whole body. A
+file input takes bytes, a `(filename, bytes)` pair, a binary file or base64
+text, which is how a tool's schema describes it, and `into=` writes a successful
+body to a file as it arrives. btcli checks that a call fits the operation, and
+the service checks the rest. A `ServiceError` has the same `code` as above, and
+`response.raise_for_status()` makes one of an HTTP error.
 
 btcli reads which url each hotkey published, and the subnet's owner, from the
 chain on every run. It keeps a document and its spec as long as their

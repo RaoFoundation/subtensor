@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import gzip
+import io
 import json
 import os
 import socket
@@ -139,16 +141,22 @@ class FakeWeb:
         self.pages = pages
         self.sent: list[tuple[str, str, dict, bytes]] = []
 
-    def __call__(self, method, url, headers, data, local=False, limit=None, timeout=None):
+    def __call__(
+        self, method, url, headers, data, local=False, limit=None, timeout=None, into=None
+    ):
         self.sent.append((method, url, dict(headers), data))
         page = self.pages.get(url.split("?")[0] if url not in self.pages else url)
         if callable(page):  # answers by the request's headers
             page = page(headers)
-        if isinstance(page, Response):
-            return page
         if page is None:
-            return Response(404, {}, b"")
-        return Response(200, {"content-type": "application/json"}, json.dumps(page).encode())
+            page = Response(404, {}, b"")
+        elif not isinstance(page, Response):
+            page = Response(200, {"content-type": "application/json"}, json.dumps(page).encode())
+        sink = into(dataclasses.replace(page, content=b"")) if into and page.ok else None
+        if sink is None:
+            return page
+        sink.write(page.content)
+        return dataclasses.replace(page, content=b"")
 
 
 def signed_only(page: dict):
@@ -278,38 +286,69 @@ class TestLoad:
         )
         assert load().api_url == "https://svc.example/api/v1"
 
-    @pytest.mark.parametrize(
-        "entries,found",
-        [
-            ([{"type": "mcp", "endpoint": "https://svc.example/mcp"}], "no OpenAPI spec"),
-            (
-                [
-                    {"type": "openapi", "endpoint": SPEC_URL},
-                    {"type": "http", "endpoint": "https://svc.example", "spec": SPEC_URL},
-                ],
-                "2 OpenAPI specs",
-            ),
-        ],
-        ids=["none", "two"],
-    )
-    def test_the_document_names_one_spec(self, web, entries, found):
-        web.pages[DOC_URL] = document(services=entries)
-        with pytest.raises(ServiceError, match=found):
+    def test_a_document_without_a_spec_is_refused(self, web):
+        web.pages[DOC_URL] = document(
+            services=[{"type": "mcp", "endpoint": "https://svc.example/mcp"}]
+        )
+        with pytest.raises(ServiceError, match="names no OpenAPI spec"):
             load()
+
+    def test_a_document_may_name_several_specs(self, web):
+        other_url = "https://svc.example/training.json"
+        other = spec(servers=[{"url": "https://train.svc.example"}])
+        other["paths"] = {
+            "/models": {
+                "post": {
+                    "operationId": "trainModel",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Run"}}
+                        }
+                    },
+                }
+            },
+        }
+        other["components"]["schemas"] = {"Run": {"type": "object", "properties": {"epochs": {}}}}
+        other["tags"] = [{"name": "training", "description": "Training runs"}]
+        web.pages[other_url] = other
+        entries = [
+            {"type": "openapi", "endpoint": SPEC_URL},
+            {"type": "http", "endpoint": "https://svc.example", "spec": other_url},
+            {"type": "openapi", "endpoint": "https://svc.example/gone.json"},
+        ]
+        web.pages[DOC_URL] = document(services=entries)
+        service = load()
+        assert service.spec_urls == (SPEC_URL, other_url)
+        assert (service.spec_url, service.api_url) == (SPEC_URL, "https://svc.example/api/v1")
+        train = service.operation("train-model")
+        assert train.api_url == "https://train.svc.example"
+        assert [i.name for i in train.inputs] == ["epochs"]
+        assert service.tool("train-model")["input_schema"]["properties"]["body"] == {
+            "type": "object",
+            "properties": {"epochs": {}},
+        }
+        assert "listJobs" in service.operations and service.tags["training"] == "Training runs"
+        assert any(s.path == "https://svc.example/gone.json" for s in service.skipped)
 
     def test_the_spec_must_be_openapi_3(self, web):
         web.pages[SPEC_URL] = {"swagger": "2.0", "paths": {}}
         with pytest.raises(ServiceError, match=r"not an OpenAPI 3 spec \(swagger '2.0'\)"):
             load()
 
-    def test_without_btauth_other_credentials_are_not_signed(self, web):
+    def test_without_a_btauth_scheme_every_operation_not_marked_open_is_signed(self, web):
         undeclared = spec()
-        del undeclared["security"]
-        undeclared["components"]["securitySchemes"] = {"key": {"type": "http", "scheme": "bearer"}}
+        undeclared["components"]["securitySchemes"] = {"key": {"type": "http"}}
         web.pages[SPEC_URL] = undeclared
         auth = {op.id: op.auth for op in load().operations.values()}
-        assert (auth["listModels"], auth["listJobs"], auth["maybe"]) == ("open", "optional", "open")
-        assert "admin" not in auth and "both" not in auth
+        assert (auth["listModels"], auth["listJobs"], auth["admin"], auth["maybe"]) == (
+            "open",
+            "hotkey",
+            "hotkey",
+            "optional",
+        )
+        del undeclared["security"]
+        auth = {op.id: op.auth for op in load().operations.values()}
+        assert auth["listJobs"] == "optional"
 
     def test_a_server_variable_takes_its_default(self, web):
         server = {"url": "https://{region}.svc.example", "variables": {"region": {"default": "eu"}}}
@@ -415,6 +454,43 @@ class TestLoad:
         with pytest.raises(ServiceError, match="HTTP 500"):
             load()
 
+    def test_a_spec_may_be_yaml(self, web):
+        yaml_spec = (
+            "openapi: 3.1\n"
+            "servers: [{url: 'https://svc.example/api'}]\n"
+            "paths:\n"
+            "  /on:\n"
+            "    get:\n"
+            "      operationId: listOn\n"
+            "      security: []\n"
+            "      parameters:\n"
+            "        - {name: on, in: query, schema: {type: string, example: 2024-01-01}}\n"
+        )
+        web.pages[SPEC_URL] = Response(
+            200, {"content-type": "application/yaml"}, yaml_spec.encode()
+        )
+        op = load().operation("list-on")
+        assert [(i.name, i.schema["example"]) for i in op.inputs] == [("on", "2024-01-01")]
+        assert "application/yaml" in web.sent[-1][2]["Accept"]
+        web.pages[SPEC_URL] = Response(200, {}, b"a: [1\n")
+        with pytest.raises(ServiceError, match="neither JSON nor YAML"):
+            load()
+
+    def test_a_yaml_spec_cannot_expand_past_its_bound(self, web, monkeypatch):
+        monkeypatch.setattr(services, "MAX_YAML_NODES", 1000)
+        bomb = (
+            "a: &a [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]\nb: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a, *a]\n"
+        )
+        bomb += "c: [*b, *b, *b, *b, *b, *b, *b, *b, *b, *b]\n"
+        web.pages[SPEC_URL] = Response(200, {}, bomb.encode())
+        with pytest.raises(ServiceError, match="expands past 1000 nodes"):
+            load()
+
+    def test_an_openapi_service_may_name_its_spec_apart_from_its_endpoint(self, web):
+        entry = {"type": "openapi", "endpoint": "https://svc.example/api", "spec": SPEC_URL}
+        web.pages[DOC_URL] = document(services=[entry])
+        assert load().spec_url == SPEC_URL
+
     def test_discover_loads_every_service_and_says_why_one_cannot_be_used(self, web):
         client = Client("finney", substrate=every_service({ALICE_HOT: DOC_URL, BOB_HOT: SPEC_URL}))
         found = {item.hotkey: item for item in asyncio.run(services.discover(client))}
@@ -441,12 +517,12 @@ class TestOperations:
             "createJob",
             "getJob",
             "GET /unnamed",
+            "upload",
         }
         assert {name for name, kind in auth.items() if kind == "open"} == {"listModels", "maybe"}
         assert set(map(str, service.skipped)) == {
             "GET /admin (admin) needs credentials other than btauth/1",
             "GET /both (both) needs credentials other than btauth/1",
-            "POST /upload (upload) takes a body that is multipart/form-data, not JSON",
         }
         assert service.tags == {"jobs": "Your jobs"}
         assert service.operations["createJob"].tags == ("jobs", "write")
@@ -482,40 +558,36 @@ class TestOperations:
         (body,) = load().operations["batch"].inputs
         assert (body.name, body.location, body.required) == ("body", "body", True)
 
-    @pytest.mark.parametrize(
-        "path,operation,reason",
-        [
-            ("/again", {"operationId": "listJobs"}, "repeats the operationId 'listJobs'"),
-            (
-                "/file",
-                {
-                    "operationId": "file",
-                    "requestBody": {"content": {"multipart/form-data": {"schema": {}}}},
-                },
-                "takes a body that is multipart/form-data, not JSON",
-            ),
-            (
-                "/cookie",
-                {
-                    "operationId": "cookie",
-                    "parameters": [{"name": "s", "in": "cookie", "required": True}],
-                },
-                "needs 's' in 'cookie'",
-            ),
-        ],
-        ids=["repeat", "not-json", "cookie"],
-    )
-    def test_operations_that_break_the_standard_are_skipped_with_why(
-        self, web, path, operation, reason
-    ):
-        broken = spec()
-        broken["paths"][path] = {"post": operation}
-        web.pages[SPEC_URL] = broken
+    def test_a_repeated_operation_id_goes_by_its_method_and_path(self, web):
+        repeated = spec()
+        repeated["paths"]["/again"] = {"post": {"operationId": "listJobs"}}
+        repeated["paths"]["/user"] = {"get": {"operationId": "getUser", "security": []}}
+        repeated["paths"]["/user2"] = {"get": {"operationId": "get_user", "security": []}}
+        web.pages[SPEC_URL] = repeated
         service = load()
-        assert f"POST {path} ({operation['operationId']}) {reason}" in map(str, service.skipped)
-        assert "listModels" in service.operations
-        if path == "/again":
-            assert "listJobs" not in service.operations
+        assert service.operations["listJobs"].path == "/jobs"
+        assert service.operations["POST /again"].path == "/again"
+        assert service.operations["getUser"].path == "/user"
+        assert service.operations["GET /user2"].command == "get-user2"
+        assert not service.skipped or all(
+            "admin" in str(s) or "both" in str(s) for s in service.skipped
+        )
+
+    def test_a_cookie_parameter_is_sent_as_a_cookie(self, web):
+        cookies = spec()
+        cookies["paths"]["/cookie"] = {
+            "get": {
+                "operationId": "cookie",
+                "security": [],
+                "parameters": [
+                    {"name": "session", "in": "cookie", "required": True},
+                    {"name": "ids", "in": "cookie", "explode": False, "schema": {"type": "array"}},
+                ],
+            }
+        }
+        web.pages[SPEC_URL] = cookies
+        headers = load().operation("cookie").prepare({"session": "s1", "ids": [1, 2]})[3]
+        assert headers["Cookie"] == "session=s1; ids=1,2"
 
     def test_independent_parameter_and_body_values(self, web):
         example = spec()
@@ -565,36 +637,41 @@ class TestOperations:
         assert exported == schema
         body = {"model": "m", "extra": literal}
         assert json.loads(service.operation("createJob").prepare({"body": body})[-1]) == body
-        with pytest.raises(ServiceError, match="separate JSON body"):
+        with pytest.raises(ServiceError, match="separate body"):
             service.operation("createJob").prepare({"model": "m", "body": body})
 
-    def test_a_literal_with_hidden_characters_is_not_exported(self, web):
+    def test_a_literal_is_exported_as_the_spec_writes_it(self, web):
         example = spec()
-        example["components"]["schemas"]["Job"]["properties"]["model"]["enum"] = ["m\u200b"]
+        example["components"]["schemas"]["Job"]["properties"]["model"]["example"] = "a,b\r\nc,d"
         web.pages[SPEC_URL] = example
-        with pytest.raises(ServiceError, match="hidden characters"):
-            load().tool("createJob")
+        body = load().tool("createJob")["input_schema"]["properties"]["body"]
+        assert body["properties"]["model"]["example"] == "a,b\r\nc,d"
 
-    def test_export_rejects_external_refs_and_bounds_all_tools(self, web, monkeypatch):
+    def test_export_never_fails_and_drops_what_a_tool_cannot_use(self, web, monkeypatch):
         example = spec()
-        example["components"]["schemas"]["Job"]["properties"]["input"] = {"$ref": "other.json"}
+        job = example["components"]["schemas"]["Job"]
+        job["properties"]["input"] = {"$ref": "other.json", "description": "elsewhere"}
+        job["properties"]["broken"] = {"$ref": "#/components/schemas/Missing"}
+        job["$id"] = "https://svc.example/job"
         web.pages[SPEC_URL] = example
         service = load()
-        with pytest.raises(ServiceError, match="unsupported reference"):
-            service.tool("createJob")
+        body = service.tool("createJob")["input_schema"]["properties"]["body"]
+        assert body["properties"]["input"] == {"description": "elsewhere"}
+        assert "$id" not in body
+        assert service.tool("createJob")["input_schema"]["$defs"]["Missing"] == {}
         monkeypatch.setattr(services, "RESOLVE_BUDGET", 2)
-        assert service.tool("listModels")["name"] == "list-models"
-        with pytest.raises(ServiceError, match="limit"):
-            service.tools()
+        assert [t["name"] for t in service.tools()] == [
+            op.tool_name for op in service.operations.values()
+        ]
 
-    def test_operations_named_alike_are_skipped(self, web):
-        alike = spec()
-        alike["paths"]["/user"] = {"get": {"operationId": "getUser", "security": []}}
-        alike["paths"]["/user2"] = {"get": {"operationId": "get_user", "security": []}}
-        web.pages[SPEC_URL] = alike
+    def test_a_long_operation_name_fits_a_tool_name(self, web):
+        long = spec()
+        name = "get" + "VeryLongOperationName" * 5
+        long["paths"]["/long"] = {"get": {"operationId": name, "security": []}}
+        web.pages[SPEC_URL] = long
         service = load()
-        assert "getUser" not in service.operations and "get_user" not in service.operations
-        assert "GET /user2 (get_user) shares the name 'get-user'" in map(str, service.skipped)
+        tool = service.tool(name)
+        assert len(tool["name"]) == 64 and service.operation(tool["name"]).id == name
 
     def test_an_operation_is_found_by_its_command_name(self, web):
         service = load()
@@ -623,11 +700,10 @@ class TestOperations:
     def test_malformed_operations_are_left_out(self, web):
         odd = spec()
         odd["paths"]["/odd"] = {"get": {"operationId": "odd", "security": "btauth"}}
-        odd["paths"]["/frag#x"] = {"get": {"operationId": "frag", "security": []}}
         odd["paths"]["/models"]["get"]["parameters"] = 5
         web.pages[SPEC_URL] = odd
         service = load()
-        assert "odd" not in service.operations and "frag" not in service.operations
+        assert service.operations["odd"].auth == "hotkey"  # malformed: as if it said nothing
         assert service.operations["listModels"].inputs == ()
 
     def test_allof_and_nullable_bodies_are_fields(self, web):
@@ -662,7 +738,7 @@ class TestOperations:
         assert inputs("nullable") == [("name", "field", True)]
         assert inputs("either") == [("body", "body", True)]
 
-    def test_an_object_parameter_is_not_offered(self, web):
+    def test_an_object_parameter_is_sent_as_its_style_says(self, web):
         objects = spec()
         objects["paths"]["/filter"] = {
             "get": {
@@ -684,8 +760,11 @@ class TestOperations:
         }
         web.pages[SPEC_URL] = objects
         service = load()
-        assert [i.name for i in service.operations["filter"].inputs] == ["q"]
-        assert "GET /deep (deep) takes 'o' as an object in the query" in map(str, service.skipped)
+        assert [i.name for i in service.operations["filter"].inputs] == ["f", "q"]
+        url = service.operation("filter").prepare({"f": {"a": [1]}, "q": "x y"})[1]
+        assert url.endswith("/filter?f=%7B%22a%22%3A%5B1%5D%7D&q=x%20y")
+        url = service.operation("deep").prepare({"o": {"a": 1, "b": "c"}})[1]
+        assert url.endswith("/deep?a=1&b=c")
 
     def test_a_spec_that_is_wrong_in_any_way_loses_only_that_operation(self, web):
         broken = spec()
@@ -714,13 +793,13 @@ class TestOperations:
         )
         assert "listModels" in service.operations
 
-    def test_a_path_parameter_must_be_declared(self, web):
+    def test_a_path_parameter_the_spec_forgot_is_still_an_input(self, web):
         undeclared = spec()
         undeclared["paths"]["/items/{item}"] = {"get": {"operationId": "item", "security": []}}
         web.pages[SPEC_URL] = undeclared
-        assert "GET /items/{item} (item) does not declare its path parameter 'item'" in map(
-            str, load().skipped
-        )
+        item = load().operation("item")
+        assert [(i.name, i.location, i.required) for i in item.inputs] == [("item", "path", True)]
+        assert item.prepare({"item": "a b"})[1].endswith("/items/a%20b")
 
     def test_a_skipped_operation_says_why_when_called(self, web):
         with pytest.raises(ServiceError, match=r"'admin' is not offered by Example: GET /admin"):
@@ -1015,6 +1094,305 @@ class TestCall:
         )
         response = asyncio.run(service.call("listJobs", signer=key))
         assert response.status == 402 and not response.ok and response.is_json
+
+
+def with_operation(path: str, method: str, operation: dict) -> dict:
+    """The example spec with one more operation."""
+    value = spec()
+    value["paths"][path] = {method: operation}
+    return value
+
+
+def multipart_body(data: bytes, boundary: str) -> list[tuple[dict, bytes]]:
+    """Each part of a multipart body as its headers and content."""
+    parts = []
+    for chunk in data.split(b"--" + boundary.encode())[1:-1]:
+        head, _, content = chunk.strip(b"\r\n").partition(b"\r\n\r\n")
+        headers = dict(line.split(": ", 1) for line in head.decode().split("\r\n"))
+        parts.append((headers, content))
+    return parts
+
+
+class TestBodies:
+    def test_a_multipart_body_sends_files_and_fields(self, web):
+        upload = {
+            "type": "object",
+            "required": ["file", "model"],
+            "properties": {
+                "file": {"type": "string", "format": "binary"},
+                "model": {"type": "string"},
+                "options": {"type": "object"},
+                "extra": {"type": "array", "items": {"type": "string", "format": "binary"}},
+            },
+        }
+        web.pages[SPEC_URL] = with_operation(
+            "/transcribe",
+            "post",
+            {
+                "operationId": "transcribe",
+                "requestBody": {
+                    "required": True,
+                    "content": {"multipart/form-data": {"schema": upload}},
+                },
+            },
+        )
+        op = load().operation("transcribe")
+        assert [(i.name, i.binary) for i in op.inputs] == [
+            ("file", True),
+            ("model", False),
+            ("options", False),
+            ("extra", True),
+        ]
+        method, _, _, headers, data = op.prepare(
+            {
+                "file": ("talk.mp3", b"\x00\xffaudio"),
+                "model": "m",
+                "options": {"a": 1},
+                "extra": [b"one", services.base64.b64encode(b"two").decode()],
+            }
+        )
+        kind, _, boundary = headers["Content-Type"].partition("; boundary=")
+        assert (method, kind) == ("POST", "multipart/form-data")
+        parts = multipart_body(data, boundary)
+        assert parts[0] == (
+            {
+                "Content-Disposition": 'form-data; name="file"; filename="talk.mp3"',
+                "Content-Type": "audio/mpeg",
+            },
+            b"\x00\xffaudio",
+        )
+        assert parts[1] == ({"Content-Disposition": 'form-data; name="model"'}, b"m")
+        assert parts[2][1] == b'{"a":1}' and parts[2][0]["Content-Type"] == "application/json"
+        assert [content for _, content in parts[3:]] == [b"one", b"two"]
+        with pytest.raises(ServiceError, match="as a file") as error:
+            op.prepare({"file": "not base64!", "model": "m"})
+        assert error.value.code == "input"
+
+    def test_a_form_body_is_urlencoded_as_its_encoding_says(self, web):
+        form = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "tags": {"type": "array"},
+                "meta": {"type": "object"},
+            },
+        }
+        web.pages[SPEC_URL] = with_operation(
+            "/form",
+            "post",
+            {
+                "operationId": "form",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": form,
+                            "encoding": {"meta": {"style": "deepObject", "explode": True}},
+                        }
+                    }
+                },
+            },
+        )
+        headers, data = (
+            load()
+            .operation("form")
+            .prepare({"name": "a b", "tags": ["x", "y"], "meta": {"k": "v"}})[3:]
+        )
+        assert headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert data == b"name=a%20b&tags=x&tags=y&meta%5Bk%5D=v"
+
+    @pytest.mark.parametrize(
+        "media,value,sent",
+        [
+            ("application/octet-stream", b"\x00\x01", b"\x00\x01"),
+            ("image/*", ("photo.png", b"png"), b"png"),
+            ("text/plain", "hello", b"hello"),
+            ("application/xml", "<a/>", b"<a/>"),
+            ("*/*", b"any", b"any"),
+        ],
+    )
+    def test_a_body_that_is_not_json_is_sent_as_it_is(self, web, media, value, sent):
+        web.pages[SPEC_URL] = with_operation(
+            "/raw",
+            "put",
+            {
+                "operationId": "raw",
+                "requestBody": {"required": True, "content": {media: {}}},
+            },
+        )
+        op = load().operation("raw")
+        headers, data = op.prepare(body=value)[3:]
+        assert data == sent
+        assert headers["Content-Type"] == (
+            media if "*" not in media else "application/octet-stream"
+        )
+        assert op.prepare({"body": value})[4] == sent
+
+    def test_json_is_chosen_over_other_media_types(self, web):
+        web.pages[SPEC_URL] = with_operation(
+            "/both",
+            "post",
+            {
+                "operationId": "either",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {"schema": {"type": "object"}},
+                        "application/json": {"schema": {"type": "object"}},
+                    }
+                },
+            },
+        )
+        op = load().operation("either")
+        assert (op.body_kind, op.body_type) == ("json", "application/json")
+
+
+class TestParameters:
+    def operation(self, web, parameters, path="/p/{id}"):
+        web.pages[SPEC_URL] = with_operation(
+            path, "get", {"operationId": "p", "security": [], "parameters": parameters}
+        )
+        return load().operation("p")
+
+    @pytest.mark.parametrize(
+        "style,explode,value,sent",
+        [
+            ("simple", False, ["a", "b"], "/p/a,b"),
+            ("simple", True, {"x": 1, "y": 2}, "/p/x=1,y=2"),
+            ("simple", False, {"x": 1, "y": 2}, "/p/x,1,y,2"),
+            ("label", False, ["a", "b"], "/p/.a,b"),
+            ("label", True, ["a", "b"], "/p/.a.b"),
+            ("matrix", False, "a", "/p/;id=a"),
+            ("matrix", True, ["a", "b"], "/p/;id=a;id=b"),
+            ("matrix", True, {"x": 1}, "/p/;x=1"),
+        ],
+    )
+    def test_a_path_parameter_follows_its_style(self, web, style, explode, value, sent):
+        param = {"name": "id", "in": "path", "style": style, "explode": explode}
+        url = self.operation(web, [param]).prepare({"id": value})[1]
+        assert urllib.parse.urlsplit(url).path == "/api/v1" + sent
+
+    @pytest.mark.parametrize(
+        "param,value,query",
+        [
+            (
+                {"style": "deepObject"},
+                {"a": {"b": 1}, "c": [1, 2]},
+                "q%5Ba%5D%5Bb%5D=1&q%5Bc%5D=1&q%5Bc%5D=2",
+            ),
+            ({"style": "form", "explode": False}, {"a": 1, "b": 2}, "q=a%2C1%2Cb%2C2"),
+            ({"style": "spaceDelimited", "explode": False}, ["a", "b"], "q=a%20b"),
+            (
+                {"schema": {"type": "array", "items": {"type": "object"}}},
+                [{"a": 1}],
+                "q=%7B%22a%22%3A1%7D",
+            ),
+        ],
+    )
+    def test_a_query_parameter_follows_its_style(self, web, param, value, query):
+        op = self.operation(web, [{"name": "q", "in": "query", **param}], path="/p")
+        assert urllib.parse.urlsplit(op.prepare({"q": value})[1]).query == query
+
+    def test_headers_openapi_ignores_never_hold_an_operation_back(self, web):
+        op = self.operation(
+            web,
+            [
+                {"name": "Content-Type", "in": "header", "required": True},
+                {"name": "Authorization", "in": "header", "required": True},
+                {"name": "Accept", "in": "header"},
+                {"name": "X-Meta", "in": "header", "explode": True, "schema": {"type": "object"}},
+            ],
+            path="/p",
+        )
+        assert [i.name for i in op.inputs] == ["X-Meta"]
+        assert op.prepare({"X-Meta": {"a": 1, "b": 2}})[3]["X-Meta"] == "a=1,b=2"
+
+    def test_parameters_that_share_a_name_are_renamed_and_sent_by_it(self, web):
+        op = self.operation(
+            web,
+            [
+                {"name": "id", "in": "query"},
+                {"name": "id", "in": "path"},
+                {"name": "maxResults", "in": "query"},
+                {"name": "MaxResults", "in": "query"},
+                {"name": "$", "in": "query"},
+            ],
+        )
+        assert [(i.name, i.command) for i in op.inputs] == [
+            ("id", "id"),
+            ("query_id", "query-id"),
+            ("maxResults", "max-results"),
+            ("MaxResults", "query-max-results"),
+            ("$", "query"),
+        ]
+        url = op.prepare(
+            {"id": "p", "query_id": "q", "query-max-results": 2, "maxResults": 1, "$": "d"}
+        )[1]
+        assert url.endswith("/p/p?id=q&maxResults=1&MaxResults=2&%24=d")
+
+    def test_a_path_with_a_fragment_or_its_own_query_is_sent_without_them(self, web):
+        value = spec()
+        value["paths"]["/#X-Amz-Target=Service.List"] = {
+            "post": {"operationId": "list", "security": []}
+        }
+        value["paths"]["/?Action=Describe&Version=1"] = {
+            "get": {
+                "operationId": "describe",
+                "security": [],
+                "parameters": [{"name": "Id", "in": "query"}],
+            }
+        }
+        web.pages[SPEC_URL] = value
+        service = load()
+        assert service.operation("list").prepare()[1] == "https://svc.example/api/v1/"
+        url = service.operation("describe").prepare({"Id": "i"})[1]
+        assert url == "https://svc.example/api/v1/?Action=Describe&Version=1&Id=i"
+
+    def test_a_reference_may_be_percent_encoded(self, web):
+        value = spec()
+        value["paths"]["/jobs/{id}"]["get"]["parameters"].append(
+            {"$ref": "#/paths/~1jobs~1%7Bid%7D/get/parameters/1"}
+        )
+        value["paths"]["/jobs/{id}"]["get"]["parameters"][1] = {"name": "X-Trace", "in": "header"}
+        web.pages[SPEC_URL] = value
+        assert [i.name for i in load().operation("getJob").inputs] == ["id", "X-Trace"]
+
+    def test_btauth_headers_as_parameters_mean_the_operation_is_signed(self, web):
+        undeclared = with_operation(
+            "/paid",
+            "get",
+            {
+                "operationId": "paid",
+                "parameters": [{"name": "X-Bittensor-Signature", "in": "header", "required": True}],
+            },
+        )
+        undeclared["components"]["securitySchemes"] = {}
+        del undeclared["security"]
+        web.pages[SPEC_URL] = undeclared
+        op = load().operation("paid")
+        assert (op.auth, op.inputs) == ("hotkey", ())
+
+    def test_a_server_variable_without_a_default_takes_its_first_choice(self, web):
+        server = {"url": "https://{region}.svc.example", "variables": {"region": {"enum": ["us"]}}}
+        web.pages[SPEC_URL] = spec(servers=[server])
+        assert load().api_url == "https://us.svc.example"
+
+
+class TestStreaming:
+    def test_a_streamed_body_is_not_cut_off_while_it_keeps_arriving(self):
+        head = b"HTTP/1.0 200 OK\r\ncontent-type: text/event-stream\r\n\r\n"
+        sink = io.BytesIO()
+        with serving(head, b"data: x\n\n") as url:
+            response = services._send(
+                "GET", url, {}, b"", True, 1 << 20, 0.5, into=lambda head: sink
+            )
+        assert response.content == b"" and sink.getvalue() == b"data: x\n\n" * 30
+
+    def test_a_failed_response_is_never_streamed(self, web):
+        web.pages["https://svc.example/api/v1/models"] = Response(500, {}, b"broken")
+        calls = []
+        response = asyncio.run(
+            load().call("listModels", into=lambda head: calls.append(head) or io.BytesIO())
+        )
+        assert (response.status, response.content, calls) == (500, b"broken", [])
 
 
 class TestBalance:
@@ -1865,6 +2243,111 @@ class TestCli:
         assert "wrote 8 bytes of image/png to" in text
         Path(text.rsplit(" to ", 1)[1].replace(" ", "")).unlink()
 
+    def test_a_file_input_takes_a_file_only_through_file(self, cli, tmp_path):
+        upload = {
+            "type": "object",
+            "required": ["audio"],
+            "properties": {
+                "audio": {"type": "string", "format": "binary"},
+                "model": {"type": "string"},
+            },
+        }
+        cli.pages[SPEC_URL] = with_operation(
+            "/transcribe",
+            "post",
+            {
+                "operationId": "transcribe",
+                "requestBody": {
+                    "required": True,
+                    "content": {"multipart/form-data": {"schema": upload}},
+                },
+            },
+        )
+        cli.pages["https://svc.example/api/v1/transcribe"] = {"text": "hi"}
+        audio = tmp_path / "talk.png"
+        audio.write_bytes(b"PNG")
+        help_text = " ".join(
+            invoke("service", "call", "--netuid", "1", "transcribe", "-h").output.split()
+        )
+        assert "--file audio=PATH FILE yes" in help_text
+        refused = invoke("service", "call", "--netuid", "1", "transcribe", "--audio", str(audio))
+        assert refused.exit_code == 2 and "--file audio=PATH" in refused.output
+        result = invoke(
+            "service",
+            "call",
+            "--netuid",
+            "1",
+            "transcribe",
+            "--model",
+            "m",
+            "--file",
+            f"audio={audio}",
+        )
+        assert result.exit_code == 0, result.output
+        headers, data = cli.sent[-1][2], cli.sent[-1][3]
+        parts = multipart_body(data, headers["Content-Type"].partition("boundary=")[2])
+        assert (
+            {
+                "Content-Disposition": 'form-data; name="audio"; filename="talk.png"',
+                "Content-Type": "image/png",
+            },
+            b"PNG",
+        ) in parts
+        dry = invoke(
+            "--json",
+            "service",
+            "call",
+            "--netuid",
+            "1",
+            "transcribe",
+            "--dry-run",
+            "--file",
+            f"audio={audio}",
+        )
+        preview = json.loads(dry.output)
+        assert preview["body"].endswith(" bytes")
+        assert preview["content_type"].startswith("multipart/form-data; boundary=")
+
+    def test_a_body_that_is_not_json_is_sent_as_written_or_from_a_file(self, cli, tmp_path):
+        cli.pages[SPEC_URL] = with_operation(
+            "/notes",
+            "put",
+            {"operationId": "note", "requestBody": {"content": {"text/markdown": {}}}},
+        )
+        cli.pages["https://svc.example/api/v1/notes"] = Response(204, {}, b"")
+        assert invoke("service", "call", "--netuid", "1", "note", "--body", "# hi").exit_code == 0
+        assert cli.sent[-1][2]["Content-Type"] == "text/markdown" and cli.sent[-1][3] == b"# hi"
+        note = tmp_path / "note.md"
+        note.write_bytes(b"\xef\xbb\xbf# file")
+        for flag in (["--body", f"@{note}"], ["--file", f"body={note}"]):
+            assert invoke("service", "call", "--netuid", "1", "note", *flag).exit_code == 0
+            assert cli.sent[-1][3] == b"\xef\xbb\xbf# file"
+
+    def test_a_body_larger_than_memory_holds_goes_to_a_file(self, cli, monkeypatch):
+        monkeypatch.setattr(services, "MAX_RESPONSE_BYTES", 4)
+        body = b'{"data": "large"}'
+        cli.pages["https://svc.example/api/v1/models"] = Response(
+            200, {"content-type": "application/json", "content-length": str(len(body))}, body
+        )
+        record = json.loads(
+            invoke("--json", "service", "call", "--netuid", "1", "list-models").output
+        )
+        assert record["bytes"] == len(body) and Path(record["out"]).read_bytes() == body
+        Path(record["out"]).unlink()
+
+    def test_a_stream_of_events_is_printed_as_it_arrives(self, cli):
+        events = b"data: one\n\ndata: two\x1b[2J\n\n"
+        cli.pages["https://svc.example/api/v1/models"] = Response(
+            200, {"content-type": "text/event-stream"}, events
+        )
+        result = invoke("service", "call", "--netuid", "1", "list-models")
+        assert result.exit_code == 0, result.output
+        assert "data: one\n\ndata: two[2J\n" in result.output
+        record = json.loads(
+            invoke("--json", "service", "call", "--netuid", "1", "list-models").output
+        )
+        assert record["text"] == events.decode()
+
     def test_a_content_type_prints_as_text_not_markup(self, cli):
         cli.pages["https://svc.example/api/v1/models"] = Response(
             200, {"content-type": "video/[/x][link=https://evil.example]x[/link]"}, b"\x00\x01"
@@ -2073,7 +2556,7 @@ class TestDocumentCache:
         assert web.sent[-1][2]["Accept-Encoding"] == "gzip"
 
     def test_gzip_that_inflates_past_the_limit_is_refused(self, web, monkeypatch):
-        monkeypatch.setattr(services, "MAX_DOCUMENT_BYTES", 1 << 16)
+        monkeypatch.setattr(services, "MAX_SPEC_BYTES", 1 << 16)
         fields = {"content-type": "application/json", "content-encoding": "gzip"}
         web.pages[SPEC_URL] = Response(200, fields, gzip.compress(b" " * (1 << 20)))
         with pytest.raises(ServiceError) as error:

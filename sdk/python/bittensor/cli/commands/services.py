@@ -10,8 +10,11 @@ can precede the operation. Common call controls also work after it; use
 from __future__ import annotations
 
 import asyncio
+import codecs
 import contextlib
+import dataclasses
 import difflib
+import io
 import json
 import mimetypes
 import os
@@ -234,7 +237,7 @@ def _show(app_ctx: AppContext, service: services.Service, schemas: bool = False)
                 "description": service.description,
                 "document": service.url,
                 "api": service.api_url,
-                "spec": service.spec_url,
+                "specs": list(service.spec_urls),
                 "balance": service.balance_url,
                 **links,
                 "pay": _pay_command(app_ctx, service),
@@ -267,7 +270,7 @@ def _show(app_ctx: AppContext, service: services.Service, schemas: bool = False)
                 }.get(service.owner),
                 "document": service.url,
                 "api": service.api_url,
-                "spec": service.spec_url,
+                "spec": ", ".join(service.spec_urls),
                 "balance": service.balance_url,
                 **links,
                 "operations": f"{len(service.operations)}: "
@@ -383,7 +386,16 @@ def call(
     ),
     service_hotkey: Optional[str] = _service_option(),
     body: Optional[str] = typer.Option(
-        None, "--body", help="The complete JSON body (@FILE or @-)."
+        None,
+        "--body",
+        help="The whole body: JSON, or the text or bytes of a body that is not JSON "
+        "(@FILE, @- for stdin).",
+    ),
+    files: Optional[list[str]] = typer.Option(
+        None,
+        "--file",
+        metavar="NAME=PATH",
+        help="Send a file as the file input NAME (PATH - for stdin); repeat it for more.",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate and preview without sending."),
     unsigned: bool = typer.Option(
@@ -439,10 +451,24 @@ def call(
     values = _inputs(app_ctx, service, op, ctx.args, inputs)
     body_kw = {}
     if body is not None:
-        raw = _loads(_read(app_ctx, service, op, body))
-        if raw is _NOT_JSON:
-            _input_error(app_ctx, service, op, "--body takes a JSON value")
-        body_kw["body"] = raw
+        if op.body_kind == "raw":
+            body_kw["body"] = _read_bytes(app_ctx, service, op, body)
+        else:
+            raw = _loads(_read(app_ctx, service, op, body))
+            if raw is _NOT_JSON:
+                _input_error(app_ctx, service, op, "--body takes a JSON value")
+            body_kw["body"] = raw
+    for name, file in _files(app_ctx, service, op, files or []):
+        if op.body_input is not None and name == op.body_input.name:
+            if "body" in body_kw:
+                _input_error(app_ctx, service, op, "the body is given twice")
+            body_kw["body"] = file
+        elif _types(op.resolve(_input(op, name).schema)) == {"array"}:
+            values.setdefault(name, []).append(file)
+        elif name in values:
+            _input_error(app_ctx, service, op, f"{name!r} is given twice")
+        else:
+            values[name] = file
     try:
         prepared = op.prepare(values, **body_kw)
     except services.ServiceError as error:
@@ -464,13 +490,14 @@ def call(
             + ("" if op.auth == "hotkey" else "; --unsigned sends it unsigned"),
         )
     if app_ctx.dry_run or dry_run:
-        method, url, _, _, data = prepared
+        method, url, _, headers, data = prepared
         preview = {
             "dry_run": True,
             "operation": op.command,
             "method": method,
             "url": url,
-            "body": json.loads(data) if data else None,
+            "content_type": headers.get("Content-Type"),
+            "body": _preview(op, data),
             "auth": op.auth,
             "netuid": service.netuid,
             "service_hotkey": service.hotkey,
@@ -498,13 +525,43 @@ def call(
             else None
         )
 
-    response = _signing(
-        app_ctx,
-        key,
-        lambda signer: service.call(op.id, values, signer=signer, timeout=timeout, **body_kw),
-        f"calling {_short(service.name, 40)}…",
-        slow,
-    )
+    sinks: list[_Sink] = []
+
+    def into(head: services.Response) -> Optional[IO[bytes]]:
+        """Where a successful body goes as it arrives: the file it was asked for, the
+        terminal for a stream of events, a file for one that is not text, or None to
+        read it whole."""
+        temporary = None
+        if out is not None:
+            target: IO[bytes] = sys.stdout.buffer if str(out) == "-" else staged
+        elif _is_stream(head):
+            target = _Kept() if app_ctx.output.json_mode else _Echo()
+        elif not _is_text(head) or _too_large(head):
+            target = ctx.with_resource(_temporary(_suffix(head)))
+            temporary = Path(target.name)
+        else:
+            return None
+        sinks.append(_Sink(target, temporary))
+        return sinks[-1]
+
+    try:
+        response = _signing(
+            app_ctx,
+            key,
+            lambda signer: service.call(
+                op.id, values, signer=signer, timeout=timeout, into=into, **body_kw
+            ),
+            f"calling {_short(service.name, 40)}…",
+            slow,
+        )
+    except BaseException:
+        for sink in sinks:
+            sink.discard()
+        raise
+    sink = sinks[-1] if sinks else None
+    if sink is not None and isinstance(sink.target, _Kept):
+        response = dataclasses.replace(response, content=sink.target.getvalue())
+        sink = None
     if op.auth == "optional":
         app_ctx.output.message(
             f"signed by hotkey {key.ss58_address}; --unsigned sends it unsigned"
@@ -522,6 +579,7 @@ def call(
             staged,
             cleanup,
             signed=key.ss58_address if key else None,
+            sink=sink,
         )
 
 
@@ -730,7 +788,9 @@ def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
                 f"{op.command} has no input {_short(token, 60)!r}"
                 + (f"; did you mean {', '.join(close)}?" if close else ""),
             )
-        schema = service.resolve(item.schema)
+        if item.binary:
+            _input_error(app_ctx, service, op, f"{flag} takes a file: --file {item.name}=PATH")
+        schema = op.resolve(item.schema)
         types = _types(schema)
         if types == {"boolean"} and not has_value:
             value: Any = not negated
@@ -774,17 +834,78 @@ def _given(app_ctx, service, op, text: Optional[str], by_option: dict) -> dict[s
 
 
 def _read(app_ctx, service, op, text: str) -> str:
-    """JSON as written, or read from the file an @ names (@- is stdin). Only --inputs
-    and --body read files: a JSON value never starts with @, while a flag's text can,
-    and an agent a spec steers must not send a local file by filling in an input."""
-    if text.startswith("@"):
-        try:
-            if text == "@-":
-                return sys.stdin.buffer.read().decode("utf-8")
-            return Path(text[1:]).expanduser().read_bytes().decode("utf-8")
-        except (OSError, UnicodeDecodeError) as error:
-            _input_error(app_ctx, service, op, f"cannot read {text}: {error}")
-    return text
+    """JSON as written, or read from the file an @ names (@- is stdin). Only --inputs,
+    --body and --file read files: a JSON value never starts with @, while a flag's text
+    can, and an agent a spec steers must not send a local file by filling in an input."""
+    try:
+        return _read_bytes(app_ctx, service, op, text).decode("utf-8")
+    except UnicodeDecodeError as error:
+        _input_error(app_ctx, service, op, f"cannot read {text}: {error}")
+
+
+def _read_bytes(app_ctx, service, op, text: str) -> bytes:
+    """Text as written, or the bytes of the file an @ names (@- is stdin)."""
+    if not text.startswith("@"):
+        return text.encode()
+    return _file_bytes(app_ctx, service, op, text[1:], text)
+
+
+def _file_bytes(app_ctx, service, op, path: str, given: str) -> bytes:
+    try:
+        if path == "-":
+            return sys.stdin.buffer.read()
+        return Path(path).expanduser().read_bytes()
+    except OSError as error:
+        _input_error(app_ctx, service, op, f"cannot read {given}: {error}")
+
+
+def _files(app_ctx, service, op, given: list[str]) -> list[tuple[str, Any]]:
+    """The file inputs ``--file NAME=PATH`` names, each as its input's name and value:
+    a file input takes its filename and bytes, a body that is not JSON its bytes."""
+    takers = [i for i in op.inputs if i.binary]
+    if op.body_input is not None and op.body_kind == "raw":
+        takers.append(op.body_input)
+    by_name = {key: item for item in takers for key in (item.sent_as, item.command, item.name)}
+    found = []
+    for text in given:
+        name, _, path = text.partition("=")
+        item = by_name.get(name)
+        if not path:
+            _input_error(app_ctx, service, op, f"--file takes NAME=PATH, not {_short(text, 60)!r}")
+        if item is None:
+            names = ", ".join(dict.fromkeys(i.name for i in takers))
+            _input_error(
+                app_ctx,
+                service,
+                op,
+                f"{op.command} has no file input {_short(name, 60)!r}"
+                + (f"; its file inputs are {names}" if names else ""),
+            )
+        data = _file_bytes(app_ctx, service, op, path, text)
+        if item is op.body_input:
+            found.append((item.name, data))
+        else:
+            found.append((item.name, (item.name if path == "-" else Path(path).name, data)))
+    return found
+
+
+def _input(op: services.Operation, name: str) -> services.Input:
+    return next(item for item in op.inputs if item.name == name)
+
+
+def _preview(op: services.Operation, data: bytes) -> Any:
+    """A request body as a dry run shows it: JSON, or the text of a form or of a text
+    body, else its size."""
+    if not data:
+        return None
+    if op.body_kind == "json":
+        with contextlib.suppress(ValueError):
+            return json.loads(data)
+    binary = op.body_kind == "multipart" or (op.body_input is not None and op.body_input.binary)
+    if not binary:
+        with contextlib.suppress(UnicodeDecodeError):
+            return data.decode("utf-8")
+    return f"{len(data)} bytes"
 
 
 def _value(app_ctx, service, op, item: services.Input, schema: Any, text: str) -> Any:
@@ -794,7 +915,7 @@ def _value(app_ctx, service, op, item: services.Input, schema: Any, text: str) -
         return None
     if _types(schema) != {"array"}:
         return _typed(app_ctx, service, op, item, schema, _parse(text, schema))
-    items = service.resolve(schema.get("items") or {})
+    items = op.resolve(schema.get("items") or {})
     whole = _loads(text)
     values = whole if isinstance(whole, list) else [_parse(text, items)]
     return [_typed(app_ctx, service, op, item, items, value) for value in values]
@@ -992,18 +1113,25 @@ def _help(app_ctx: AppContext, service: services.Service, op: services.Operation
     reserved = {flag for param in ctx.command.params for flag in param.opts}
     rows = []
     for item in op.inputs:
-        schema = service.resolve(item.schema)
+        schema = op.resolve(item.schema)
         schema = schema if isinstance(schema, dict) else {}
         default = schema.get("const", schema.get("default"))
         flag = _option(item)
-        if flag in reserved:
+        takes_file = item.binary or (item.location == "body" and op.body_kind == "raw")
+        if takes_file:
+            flag = f"--file {item.name}=PATH"
+        elif flag in reserved:
             flag = f"--inputs ({item.name})"
         elif _types(schema) == {"boolean"}:
             flag = f"{_option(item)} / --no-{_option(item)[2:]}"
         rows.append(
             [
                 _line(flag),
-                "" if _types(schema) == {"boolean"} else _placeholder(schema),
+                "FILE"
+                if takes_file
+                else ""
+                if _types(schema) == {"boolean"}
+                else _placeholder(schema),
                 "yes" if item.required and default is None else "",
                 "" if default is None else _line(_cell(default)),
                 _short(item.description or _line(_cell(schema.get("example") or ""))),
@@ -1033,9 +1161,11 @@ def _show_response(
     cleanup: Optional[contextlib.ExitStack],
     *,
     signed: Optional[str],
+    sink: Optional[_Sink] = None,
 ) -> None:
     """Show a response; under --json always as ``{status, content_type, signed, ...}``
-    with its ``body`` (JSON), ``text``, or the file it went ``out`` to."""
+    with its ``body`` (JSON), ``text``, or the file it went ``out`` to. ``sink`` is
+    where its body already went as it arrived."""
     output = app_ctx.output
     about = {
         "status": response.status,
@@ -1044,19 +1174,25 @@ def _show_response(
     }
     if not response.ok:
         _http_error(app_ctx, service, response, about, open_to_all=op.auth == "open")
-    if out is not None and str(out) == "-":
-        try:
-            sys.stdout.buffer.write(response.content)
-            sys.stdout.flush()
-        except OSError as error:
-            _recover_response(output, response, "stdout", error)
+    if sink is not None and isinstance(sink.target, _Echo):
+        typer.echo()
         return
-    parsed = _parsed(response) if out is None else _NOT_JSON
+    if out is not None and str(out) == "-":
+        if sink is None:
+            try:
+                sys.stdout.buffer.write(response.content)
+                sys.stdout.flush()
+            except OSError as error:
+                _recover_response(output, response, "stdout", error)
+        return
+    size = sink.written if sink is not None else len(response.content)
+    parsed = _parsed(response) if out is None and sink is None else _NOT_JSON
     if staged is not None and out is not None and cleanup is not None:
         path = Path(staged.name)
         try:
             with staged:
-                staged.write(response.content)
+                if sink is None:
+                    staged.write(response.content)
         except OSError as error:
             _recover_response(output, response, str(out), error)
         try:
@@ -1069,16 +1205,18 @@ def _show_response(
                 help=f"the response was saved to {path}",
             )
             raise typer.Exit(1) from None
+    elif sink is not None and sink.temporary is not None:
+        sink.close()
+        out = sink.temporary
     elif out is None and parsed is _NOT_JSON and response.content and not _is_text(response):
         out = _save_response(response)
     if out is not None:
         if output.json_mode:
-            output.value({**about, "bytes": len(response.content), "out": str(out)})
+            output.value({**about, "bytes": size, "out": str(out)})
         else:
             kind = escape(_line(response.content_type))
             output.message(
-                f"wrote {len(response.content)} bytes{f' of {kind}' if kind else ''} "
-                f"to {escape(str(out))}"
+                f"wrote {size} bytes{f' of {kind}' if kind else ''} to {escape(str(out))}"
             )
     elif parsed is not _NOT_JSON:
         if output.json_mode:
@@ -1096,8 +1234,100 @@ def _show_response(
         typer.echo(_clean(response.text))
 
 
+# Responses that are a stream of events, shown as they arrive.
+_STREAMS = frozenset(
+    [
+        "text/event-stream",
+        "application/x-ndjson",
+        "application/ndjson",
+        "application/jsonl",
+        "application/x-jsonlines",
+        "application/stream+json",
+    ]
+)
+
+
+def _is_stream(response: services.Response) -> bool:
+    return response.content_type in _STREAMS
+
+
+def _too_large(response: services.Response) -> bool:
+    """Whether a body says it is larger than a response held in memory may be."""
+    length = response.headers.get("content-length", "")
+    return length.isdigit() and int(length) > services.MAX_RESPONSE_BYTES
+
+
+def _suffix(response: services.Response) -> str:
+    return mimetypes.guess_extension(response.content_type) or ".bin"
+
+
+class _Sink:
+    """Where a body goes as it arrives, counting what it wrote; a write that fails is
+    btcli's output error, not the service's."""
+
+    def __init__(self, target: IO[bytes], temporary: Optional[Path] = None):
+        self.target = target
+        self.temporary = temporary  # the file btcli made for it, if it made one
+        self.written = 0
+
+    def write(self, data: bytes) -> int:
+        try:
+            self.target.write(data)
+        except OSError as error:
+            raise services.ServiceError(
+                f"cannot write the response: {error}", code="output"
+            ) from None
+        self.written += len(data)
+        return len(data)
+
+    def flush(self) -> None:
+        with contextlib.suppress(OSError):
+            self.target.flush()
+
+    def close(self) -> None:
+        if self.temporary is not None:
+            self.target.close()
+
+    def discard(self) -> None:
+        if self.temporary is not None:
+            self.target.close()
+            self.temporary.unlink(missing_ok=True)
+
+
+class _Kept(io.BytesIO):
+    """A stream of events kept whole for --json, as large as a response may be."""
+
+    def write(self, data) -> int:
+        if self.tell() + len(data) > services.MAX_RESPONSE_BYTES:
+            raise services.ServiceError(
+                f"the response is over {services.MAX_RESPONSE_BYTES >> 20} MiB", code="too_large"
+            )
+        return super().write(data)
+
+
+class _Echo:
+    """A stream of events printed as it arrives, without the controls a terminal acts on."""
+
+    def __init__(self) -> None:
+        self._text = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def write(self, data: bytes) -> int:
+        sys.stdout.write(_clean(self._text.decode(data)))
+        return len(data)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
+@contextlib.contextmanager
+def _temporary(suffix: str):
+    """A file a response that is not text is kept in, closed when the command ends."""
+    with tempfile.NamedTemporaryFile(prefix="btcli-service-", suffix=suffix, delete=False) as file:
+        yield file
+
+
 def _save_response(response: services.Response) -> Path:
-    suffix = mimetypes.guess_extension(response.content_type) or ".bin"
+    suffix = _suffix(response)
     with tempfile.NamedTemporaryFile(prefix="btcli-service-", suffix=suffix, delete=False) as file:
         path = Path(file.name)
         try:
@@ -1378,6 +1608,8 @@ def _clean(value: Any) -> Any:
     """``value`` with control and format characters removed from every string:
     the service writes them, and a terminal would act on them."""
     if isinstance(value, str):
+        if value.isprintable() or value.replace("\n", "").replace("\t", "").isprintable():
+            return value
         return "".join(ch for ch in value if ch in "\n\t" or unicodedata.category(ch)[0] != "C")
     if isinstance(value, dict):
         return {_clean(k): _clean(v) for k, v in value.items()}

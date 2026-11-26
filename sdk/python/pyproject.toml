@@ -29,6 +29,8 @@ dependencies = [
     # UOS QR rendering for the Polkadot Vault signer (`--signer vault`).
     # Pure Python; SVG output needs no imaging extras.
     "qrcode>=8.0,<9",
+    # OpenAPI specs a service writes in YAML (`bittensor.services`).
+    "pyyaml>=6.0,<7",
 ]
 
 # Former extras, kept as no-ops so `pip install 'bittensor[cli]'` (the old

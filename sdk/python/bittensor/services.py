@@ -1,18 +1,19 @@
 """Call the services that validators and subnet owners publish on a subnet.
 
 A published service is a url, on chain, to its document (see the services
-guide). The document names an OpenAPI 3 spec, either as an ``openapi`` service
-whose ``endpoint`` is the spec or as an ``http`` service with the spec at
-``spec``, and the spec's servers are where the API is. An operation the spec
+guide). The document names OpenAPI 3 specs, in JSON or YAML, as ``openapi``
+services whose ``endpoint`` is the spec or ``http`` services with the spec at
+``spec``, and each spec's servers are where its API is. An operation a spec
 secures with the ``btauth/1`` scheme (``apiKey`` headers, ``X-Bittensor-Signature``
 among them) is signed by the caller's hotkey, optionally when it also allows
 ``{}``, and one with no security requirement is open to anyone; when a spec
-declares no such scheme, every operation it does not mark ``security: []`` is
-signed. Each operation is called by its ``operationId`` (``"GET /path"`` when it
-has none) or that name as a command line writes it (``rent-by-spec``), with one
-flat set of named inputs: its path, query and header parameters and the fields
-of its JSON body, so the same names serve code, forms, command lines and agent
-tools.
+declares no such scheme, every operation it secures is signed, and one it says
+nothing about is signed when a signer is given. Each operation is called by its
+``operationId`` (``"GET /path"`` when it has none, or shares it) or that name as
+a command line writes it (``rent-by-spec``), with one flat set of named inputs:
+its path, query, header and cookie parameters and the fields of its body, JSON,
+a form or multipart, so the same names serve code, forms, command lines and
+agent tools.
 
 The document, the spec and the responses come from the service and are not
 trusted: the document must list its on-chain hotkey in ``publishers``, every
@@ -37,6 +38,8 @@ not fit the operation), ``no_service``, ``ambiguous`` (name one by its hotkey),
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import dataclasses
 import difflib
@@ -46,9 +49,12 @@ import hashlib
 import http.client
 import io
 import ipaddress
+import itertools
 import json
+import mimetypes
 import os
 import re
+import secrets
 import socket
 import ssl
 import tempfile
@@ -62,7 +68,7 @@ import zlib
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Union
+from typing import IO, Any, Callable, Mapping, Optional, Union
 
 from . import http_auth
 from ._generated import storage
@@ -88,6 +94,9 @@ __all__ = [
 ]
 
 MAX_DOCUMENT_BYTES = 8 << 20
+# A spec can be large: Microsoft Graph's is 74 MB.
+MAX_SPEC_BYTES = 128 << 20
+# A response held in memory; one written to a file as it arrives has no limit.
 MAX_RESPONSE_BYTES = 64 << 20
 # Seconds a request may take in all, however slowly the host answers: a call or
 # the fetch of a spec, which can be megabytes, and the fetch of a document or a balance.
@@ -96,14 +105,14 @@ FETCH_TIMEOUT = 20.0
 # A document or spec is kept as long as its Cache-Control max-age says, up to this.
 CACHE_MAX_SECONDS = 600
 # The bytes a cache directory holds at most; the least recently written entries go first.
-CACHE_MAX_BYTES = 64 << 20
+CACHE_MAX_BYTES = 256 << 20
 # A directory for documents and specs their Cache-Control lets a client keep; None keeps none.
 CacheDir = Optional[Union[str, Path]]
 # How many schema nodes one resolve expands, at most, when it replaces $refs.
 RESOLVE_BUDGET = 200_000
 RESOLVE_DEPTH = 32
 
-_METHODS = ("get", "put", "post", "delete", "patch", "head", "options")
+_METHODS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
 _JSON = "application/json"
 _NOT_GIVEN = object()
 # JSON Schema keywords whose values contain schemas, rather than literal instance data.
@@ -137,6 +146,19 @@ _SCHEMA_KEYWORDS = frozenset(
         "contentSchema",
     ]
 )
+# Keywords a standalone tool schema cannot use: identifiers and dynamic references
+# that resolve against the spec, and the spec's dialect.
+_UNPORTABLE_KEYWORDS = frozenset(
+    [
+        "$schema",
+        "$id",
+        "$anchor",
+        "$dynamicAnchor",
+        "$dynamicRef",
+        "$recursiveAnchor",
+        "$recursiveRef",
+    ]
+)
 _BTAUTH_HEADERS = frozenset(
     h.lower()
     for h in (
@@ -148,7 +170,17 @@ _BTAUTH_HEADERS = frozenset(
         http_auth.HEADER_CRYPTO,
     )
 )
-_RESERVED_HEADERS = {"host", "content-length", "content-type", "transfer-encoding", "connection"}
+# Headers the client writes itself, and those OpenAPI says a parameter cannot name.
+_RESERVED_HEADERS = {
+    "accept",
+    "authorization",
+    "connection",
+    "content-length",
+    "content-type",
+    "host",
+    "transfer-encoding",
+}
+_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 _USER_AGENT = "bittensor-services/1"
 
 
@@ -169,18 +201,25 @@ class Input:
     """A named input of an operation."""
 
     name: str
-    # path, query or header: a parameter; field: a field of the JSON body object;
-    # body: the whole JSON body, when it is not an object of named fields
+    # path, query, header or cookie: a parameter; field: a field of the body object;
+    # body: the whole body, when it is not an object of named fields
     location: str
     required: bool
     description: str
     schema: Mapping[str, Any] = field(repr=False)
-    # A query array is sent as one value joined by this, as its style says, or,
-    # when "", as the parameter repeated
-    joined: str = field(default="", repr=False)
+    # How a parameter or a form field is written, by its OpenAPI style and explode;
+    # "json" for one whose content is JSON
+    style: str = field(default="", repr=False)
+    explode: bool = field(default=False, repr=False)
     # A path parameter the JSON body has a field of the same name for, which it fills too
     in_body: bool = field(default=False, repr=False)
     required_in_body: bool = field(default=False, repr=False)
+    # The name it is sent by, when it shares one with another input and was renamed
+    wire: str = field(default="", repr=False)
+    # A file: bytes, a (filename, bytes) pair, a binary file, or base64 text
+    binary: bool = field(default=False, repr=False)
+    content_type: str = field(default="", repr=False)  # of its multipart part
+    flag: str = field(default="", repr=False)  # its command name, when its own is taken
 
     @property
     def must_supply(self) -> bool:
@@ -190,16 +229,20 @@ class Input:
         )
 
     @property
+    def sent_as(self) -> str:
+        return self.wire or self.name
+
+    @property
     def command(self) -> str:
         """The name as a command line writes it: ``gpu_type`` is ``gpu-type``."""
-        return _kebab(self.name)
+        return self.flag or _kebab(self.name)
 
 
 @dataclass(frozen=True)
 class Operation:
     """An operation a service offers, called with :meth:`Service.call`."""
 
-    id: str  # its operationId, or "GET /path" when it has none
+    id: str  # its operationId, or "GET /path" when it has none or shares it
     method: str
     path: str
     # hotkey: signed by the caller's hotkey; optional: signed when a signer is
@@ -210,20 +253,27 @@ class Operation:
     inputs: tuple[Input, ...] = field(repr=False)
     api_url: str = field(repr=False)  # its server: its own, its path's, or the spec's
     body_required: bool = field(default=False, repr=False)
-    body_type: str = field(default="", repr=False)
+    body_type: str = field(default="", repr=False)  # the Content-Type of its body
     tags: tuple[str, ...] = ()
     body_input: Optional[Input] = field(default=None, repr=False)
+    # json, form (urlencoded), multipart, or raw: bytes or text as they are
+    body_kind: str = field(default="json", repr=False)
+    # The path as it is sent and the query it fixes: a path's # part is not sent,
+    # and its ? part is a query of its own (/?Action=List)
+    route: str = field(default="", repr=False)
+    fixed_query: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    spec: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def tool_inputs(self) -> tuple[Input, ...]:
-        """Parameters and an exact JSON body, as named by the tool schema."""
+        """Parameters and an exact body, as named by the tool schema."""
         params = tuple(i for i in self.inputs if i.location not in ("field", "body"))
         return (*params, self.body_input) if self.body_input is not None else params
 
     def prepare(self, inputs: Optional[Mapping[str, Any]] = None, *, body: Any = _NOT_GIVEN):
         """Construct the unsigned request without network or wallet access.
 
-        Pass body to supply exact JSON, including null, instead of flattened fields.
+        Pass body to supply the exact body, including JSON null, instead of its fields.
         """
         return _request(self, {} if inputs is None else inputs, body)
 
@@ -231,6 +281,19 @@ class Operation:
     def command(self) -> str:
         """The name as a command line writes it: ``rentBySpec`` is ``rent-by-spec``."""
         return _kebab(self.id)
+
+    def resolve(self, schema: Any) -> Any:
+        """``schema`` with the local ``$ref`` of this operation's spec replaced by their
+        targets, as :meth:`Service.resolve` does."""
+        return _resolve(self.spec, schema, [RESOLVE_BUDGET])
+
+    @property
+    def tool_name(self) -> str:
+        """Its command name within the 64 characters agent tools allow."""
+        command = self.command
+        if len(command) <= 64:
+            return command
+        return command[:55].rstrip("-") + "-" + hashlib.sha256(command.encode()).hexdigest()[:8]
 
 
 @dataclass(frozen=True)
@@ -387,22 +450,23 @@ class ServiceDocument:
 
 @dataclass(frozen=True)
 class Service(ServiceDocument):
-    """A published service with the operations its API spec offers or skips."""
+    """A published service with the operations its API specs offer or skip."""
 
-    spec_url: str = field(repr=False)
+    spec_url: str = field(repr=False)  # its first spec, whose servers place ``api_url``
     api_url: str
     operations: Mapping[str, Operation] = field(repr=False)
     tags: Mapping[str, str] = field(default_factory=dict, repr=False)
     skipped: tuple[Skipped, ...] = field(default=(), repr=False)
     spec: Mapping[str, Any] = field(default_factory=dict, repr=False)
+    spec_urls: tuple[str, ...] = field(default=(), repr=False)  # every spec it offers from
 
     def operation(self, name: str) -> Operation:
-        """An operation by its id or its command name (``rent-by-spec``)."""
+        """An operation by its id, its command name (``rent-by-spec``) or its tool name."""
+        wanted = _kebab(name)
         op = self.operations.get(name) or next(
-            (op for op in self.operations.values() if op.command == _kebab(name)), None
+            (op for op in self.operations.values() if wanted in (op.command, op.tool_name)), None
         )
         if op is None:
-            wanted = _kebab(name)
             for skip in self.skipped:
                 if wanted and wanted in (_kebab(f"{skip.method} {skip.path}"), _kebab(skip.id)):
                     raise ServiceError(
@@ -418,67 +482,59 @@ class Service(ServiceDocument):
 
     def tool(self, operation: str) -> dict:
         """An operation as a tool definition, as agent frameworks take one: its
-        ``name`` (the command name, which :meth:`call` takes back), its
-        ``description`` and ``input_schema``, the JSON Schema of its inputs."""
-        return self._tool(self.operation(operation), [RESOLVE_BUDGET])
+        ``name`` (which :meth:`call` takes back), its ``description`` and
+        ``input_schema``, the JSON Schema of its inputs. A file input is base64 text."""
+        return self._tool(self.operation(operation), {})
 
-    def _tool(self, op: Operation, budget: list[int]) -> dict:
-        # Keep reachable definitions once. Recursive schemas remain finite and all
-        # local references resolve against this tool, independently of the spec.
-        refs: dict[str, str] = {}
-        pending: list[str] = []
+    def tools(self) -> list[dict]:
+        """Every operation's standalone tool definition."""
+        definitions: dict[tuple[int, str], tuple[Any, set[str]]] = {}
+        return [self._tool(op, definitions) for op in self.operations.values()]
 
-        def copy(node, mode="schema", depth=0):
+    def _tool(
+        self, op: Operation, definitions: dict[tuple[int, str], tuple[Any, set[str]]]
+    ) -> dict:
+        # Each schema a reference reaches is copied once into ``definitions``, which the
+        # tools of one call share, and every tool takes those it reaches as its $defs,
+        # so recursive schemas stay finite and each tool stands alone. A copy keeps the
+        # spec's literals as they are and only drops what a tool cannot use.
+
+        def copy(node: Any, refs: set[str], budget: list[int], mode="schema", depth=0) -> Any:
             budget[0] -= 1 + (len(node) >> 6 if isinstance(node, str) else 0)
             if budget[0] < 0 or depth > 128:
-                raise ServiceError(f"tool schema export exceeds its size or depth limit at {op.id}")
+                return {} if mode == "schema" else node
+            child = "schema" if mode == "schemas" else "literal"
             if isinstance(node, list):
-                child = "schema" if mode == "schemas" else "literal"
-                return [copy(v, child, depth + 1) for v in node]
-            if isinstance(node, str) and _plain(node) != node:
-                # A value is sent as written, so it cannot be cleaned like a description.
-                raise ServiceError(f"{op.id} has a tool schema with hidden characters")
+                return [copy(v, refs, budget, child, depth + 1) for v in node]
             if not isinstance(node, dict):
                 return node
             out = {}
             for key, value in node.items():
-                if _plain(key) != key:
-                    raise ServiceError(f"{op.id} has a tool schema with hidden characters")
-                budget[0] -= 1 + (len(key) >> 6)
                 child = "schema" if mode == "schemas" else "literal"
                 if mode == "schema":
                     if key == "$ref":
-                        if not isinstance(value, str) or not value.startswith("#/"):
-                            raise ServiceError(
-                                f"{op.id} has a tool schema with an unsupported reference"
-                            )
-                        if value not in refs:
-                            refs[value] = str(len(refs))
-                            pending.append(value)
-                        value = "#/$defs/" + refs[value]
-                    elif key == "$schema" and value not in (
-                        "https://json-schema.org/draft/2020-12/schema",
-                        "https://json-schema.org/draft/2019-09/schema",
-                        "http://json-schema.org/draft-07/schema#",
-                    ):
-                        raise ServiceError(f"{op.id} uses an unsupported schema dialect")
-                    elif key in ("$dynamicRef", "$recursiveRef", "$id"):
-                        raise ServiceError(f"{op.id} uses unsupported schema keyword {key}")
-                    elif key in ("description", "title") and isinstance(value, str):
+                        if isinstance(value, str) and value.startswith("#/"):
+                            refs.add(value)
+                            out[key] = "#/$defs/" + _definition_name(value)
+                        continue  # a reference outside the spec says nothing here
+                    if key in _UNPORTABLE_KEYWORDS:
+                        continue
+                    if key == "format" and value == "binary":
+                        out["contentEncoding"] = "base64"
+                        continue
+                    if key in ("description", "title") and isinstance(value, str):
                         value = _plain(value)
                     elif key in _SCHEMA_COLLECTIONS:
                         child = "schemas"
                     elif key in _SCHEMA_KEYWORDS:
                         child = "schemas" if isinstance(value, list) else "schema"
-                out[key] = copy(value, child, depth + 1)
+                out[key] = copy(value, refs, budget, child, depth + 1)
             return out
 
+        refs: set[str] = set()
         properties = {}
         for item in op.tool_inputs:
-            if _plain(item.name) != item.name:
-                raise ServiceError(f"{op.id} has a tool schema with hidden characters")
-            schema = copy(item.schema)
-            budget[0] -= 1 + ((len(item.name) + len(item.description)) >> 6)
+            schema = copy(item.schema, refs, [RESOLVE_BUDGET])
             if isinstance(schema, dict) and item.description:
                 schema.setdefault("description", _plain(item.description))
             properties[item.name] = schema
@@ -488,33 +544,37 @@ class Service(ServiceDocument):
             "properties": properties,
             "required": [item.name for item in op.tool_inputs if item.must_supply],
         }
-        if pending:
-            definitions = {}
-            while pending:
-                ref = pending.pop()
-                definitions[refs[ref]] = copy(_pointer(self.spec, ref))
-            input_schema["$defs"] = definitions
+        spec = op.spec or self.spec
+        reached: dict[str, Any] = {}
+        pending = sorted(refs)
+        while pending:
+            ref = pending.pop()
+            if ref in reached:
+                continue
+            key = (id(spec), ref)
+            if key not in definitions:
+                try:
+                    target = _pointer(spec, ref)
+                except ServiceError:
+                    target = {}
+                found: set[str] = set()
+                definitions[key] = (copy(target, found, [RESOLVE_BUDGET]), found)
+            reached[ref], more = definitions[key]
+            pending.extend(more - reached.keys())
+        if reached:
+            input_schema["$defs"] = {_definition_name(ref): reached[ref] for ref in sorted(reached)}
         description = "\n\n".join(
             t for t in (op.summary, op.description if op.description != op.summary else "") if t
         )
-        budget[0] -= 1 + ((len(description) + len(op.id)) >> 6)
-        if budget[0] < 0:
-            raise ServiceError(f"tool schema export exceeds its size limit at {op.id}")
         return {
-            "name": op.command,
+            "name": op.tool_name,
             "description": _plain(description),
             "input_schema": input_schema,
         }
 
-    def tools(self) -> list[dict]:
-        """Every operation's standalone tool definition. They share one RESOLVE_BUDGET,
-        so that many operations cannot multiply the work; a spec too large to export
-        whole raises ServiceError, and :meth:`tool` still exports each one."""
-        budget = [RESOLVE_BUDGET]
-        return [self._tool(op, budget) for op in self.operations.values()]
-
     def resolve(self, schema: Any) -> Any:
-        """``schema`` with the spec's local ``$ref`` replaced by their targets, up to
+        """``schema`` with the first spec's local ``$ref`` replaced by their targets
+        (:meth:`Operation.resolve` for an operation's own spec), up to
         RESOLVE_BUDGET nodes; past it, and for a cyclic ref, a ref stays a ref."""
         return _resolve(self.spec, schema, [RESOLVE_BUDGET])
 
@@ -526,21 +586,35 @@ class Service(ServiceDocument):
         signer: Any = None,
         body: Any = _NOT_GIVEN,
         timeout: float = TIMEOUT,
+        into: Optional[Callable[[Response], Optional[IO[bytes]]]] = None,
     ) -> Response:
         """Call an operation with its inputs by name; returns the response whatever its status.
 
-        A list repeats a query parameter. A ``hotkey`` operation needs ``signer``,
-        and an ``optional`` one is signed when it is given: anything
-        :func:`bittensor.http_auth.sign` accepts, prepared with
+        A list repeats a query parameter, and a file input takes bytes, a
+        ``(filename, bytes)`` pair, a binary file or base64 text. A ``hotkey``
+        operation needs ``signer``, and an ``optional`` one is signed when it is
+        given: anything :func:`bittensor.http_auth.sign` accepts, prepared with
         :func:`bittensor.http_auth.prepare_signer`.
+
+        ``into`` streams a successful body: called with the response before its
+        body, it returns a binary file to write the body to as it arrives, or None
+        to read it into ``content``. A streamed body has no size limit and no
+        deadline of its own, each wait for more taking at most ``timeout``, so a
+        long answer, as a stream of events, is not cut off; its ``content`` is empty.
         """
         op = self.operation(operation)
         return await self._send_prepared(
-            op, op.prepare(inputs, body=body), signer=signer, timeout=timeout
+            op, op.prepare(inputs, body=body), signer=signer, timeout=timeout, into=into
         )
 
     async def _send_prepared(
-        self, op: Operation, prepared, *, signer: Any = None, timeout: float = TIMEOUT
+        self,
+        op: Operation,
+        prepared,
+        *,
+        signer: Any = None,
+        timeout: float = TIMEOUT,
+        into: Optional[Callable[[Response], Optional[IO[bytes]]]] = None,
     ) -> Response:
         _check_timeout(timeout)
         method, url, target, headers, data = prepared
@@ -557,7 +631,7 @@ class Service(ServiceDocument):
                         signer, method=method, path=target, body=data, receiver_ss58=self.hotkey
                     )
                 )
-            return _send(method, url, headers, data, self.local, MAX_RESPONSE_BYTES, timeout)
+            return _send(method, url, headers, data, self.local, MAX_RESPONSE_BYTES, timeout, into)
 
         return await _threaded(send)
 
@@ -722,6 +796,8 @@ def _plain(value: Any) -> Any:
     text reaches people and agents, and these hide or reorder what they read: bidi
     overrides, zero-width characters, the invisible tag characters."""
     if isinstance(value, str):
+        if value.isprintable() or value.replace("\n", "").replace("\t", "").isprintable():
+            return value
         return "".join(ch for ch in value if ch in "\n\t" or unicodedata.category(ch)[0] != "C")
     if isinstance(value, dict):
         return {_plain(key): _plain(item) for key, item in value.items()}
@@ -743,22 +819,46 @@ def _service(
     netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir
 ) -> Service:
     metadata = _document(netuid, hotkey, url, local, cache)
-    document, document_url = metadata.document, metadata.document_url
-    spec_url = _checked_url(_spec_url(document, document_url), "the OpenAPI spec", local)
-    spec, spec_url = _get_json(spec_url, "the OpenAPI spec", local, cache, TIMEOUT)
-    operations, skipped = _operations(spec, spec_url, local)
+    named = _spec_urls(metadata.document, metadata.document_url)
+    operations: dict[str, Operation] = {}
+    skipped: list[Skipped] = []
+    tags: dict[str, str] = {}
+    loaded: list[tuple[str, Mapping[str, Any], str]] = []
+    for spec_url in named:
+        # A spec that cannot be read loses only its own operations.
+        try:
+            spec, spec_url = _get_json(
+                _checked_url(spec_url, "the OpenAPI spec", local),
+                "the OpenAPI spec",
+                local,
+                cache,
+                TIMEOUT,
+                MAX_SPEC_BYTES,
+                yaml=True,
+            )
+            api_url = _checked_url(_server(spec_url, spec), "the API", local)
+            skipped.extend(_operations(spec, spec_url, local, operations))
+        except (ServiceError, ValueError) as error:
+            if len(named) == 1:
+                raise
+            skipped.append(Skipped("", _line(spec_url), "", _line(str(error))))
+            continue
+        loaded.append((spec_url, spec, api_url))
+        for tag in _list(spec.get("tags")):
+            if isinstance(tag, dict) and isinstance(tag.get("name"), str):
+                tags.setdefault(tag["name"], _text(tag.get("description")))
+    if not loaded:
+        raise ServiceError(f"none of the specs {url} names can be read: {skipped[0].reason}")
+    spec_url, spec, api_url = loaded[0]
     return Service(
         **vars(metadata),
         spec_url=spec_url,
-        api_url=_checked_url(_server(spec_url, spec), "the API", local),
+        api_url=api_url,
         operations=operations,
-        tags={
-            tag["name"]: _text(tag.get("description"))
-            for tag in _list(spec.get("tags"))
-            if isinstance(tag, dict) and isinstance(tag.get("name"), str)
-        },
-        skipped=skipped,
+        tags=tags,
+        skipped=tuple(skipped),
         spec=spec,
+        spec_urls=tuple(found for found, _, _ in loaded),
     )
 
 
@@ -837,21 +937,23 @@ def _gamma_balance(document: Mapping[str, Any], url: str) -> str:
     raise ServiceError(f"the document at {url} has no gamma payment signed with btauth/1")
 
 
-def _spec_url(document: Mapping[str, Any], url: str) -> str:
-    """The url of the one OpenAPI spec the document names."""
+def _spec_urls(document: Mapping[str, Any], url: str) -> list[str]:
+    """The urls of the OpenAPI specs the document names, each once."""
     specs = []
     services = document.get("services")
     for service in services if isinstance(services, list) else []:
         if not isinstance(service, dict):
             continue
-        if service.get("type") == "openapi" and isinstance(service.get("endpoint"), str):
-            specs.append(service["endpoint"])
-        elif service.get("type") == "http" and isinstance(service.get("spec"), str):
+        if service.get("type") not in ("openapi", "http"):
+            continue
+        # An openapi service's endpoint is its spec unless it names the spec apart.
+        if isinstance(service.get("spec"), str):
             specs.append(service["spec"])
-    if len(specs) != 1:
-        found = "no OpenAPI spec" if not specs else f"{len(specs)} OpenAPI specs"
-        raise ServiceError(f"the document at {url} names {found}; it must name one")
-    return urllib.parse.urljoin(url, specs[0])
+        elif service.get("type") == "openapi" and isinstance(service.get("endpoint"), str):
+            specs.append(service["endpoint"])
+    if not specs:
+        raise ServiceError(f"the document at {url} names no OpenAPI spec")
+    return list(dict.fromkeys(urllib.parse.urljoin(url, spec) for spec in specs))
 
 
 class _Unusable(Exception):
@@ -859,9 +961,13 @@ class _Unusable(Exception):
 
 
 def _operations(
-    spec: Mapping[str, Any], spec_url: str, local: bool
-) -> tuple[dict[str, Operation], tuple[Skipped, ...]]:
+    spec: Mapping[str, Any], spec_url: str, local: bool, operations: dict[str, Operation]
+) -> list[Skipped]:
+    """Add the operations of ``spec`` to ``operations``, by names of their own among
+    them, and return those it does not offer, and why."""
     version = spec.get("openapi")
+    if isinstance(version, float):  # YAML reads an unquoted 3.1 as a number
+        version = str(version)
     if not isinstance(version, str) or not version.startswith("3."):
         found = (
             f"swagger {spec['swagger']!r}"
@@ -881,18 +987,18 @@ def _operations(
         names = [_btauth_header(_deref(spec, schemes.get(name))) for name in requirement]
         return http_auth.HEADER_SIGNATURE.lower() in names and all(names)
 
-    duplicates: set[str] = set()
     declared = any(btauth({name: []}) for name in schemes)
     root_security = spec.get("security")
-    operations: dict[str, Operation] = {}
+    commands = {op.command for op in operations.values()}
     skipped: list[Skipped] = []
     budget = [RESOLVE_BUDGET]  # schema nodes the bodies of the whole spec may take to read
     paths = spec.get("paths")
     for path, item in paths.items() if isinstance(paths, dict) else []:
+        path = str(path)
         try:
-            item = _deref(spec, item)
+            item = _deref(spec, item, strict=True)
         except ServiceError as error:
-            skipped.append(Skipped("", _line(str(path)), "", str(error)))
+            skipped.append(Skipped("", _line(path), "", str(error)))
             continue
         if not isinstance(item, dict):
             continue
@@ -903,47 +1009,36 @@ def _operations(
             name = f"{method.upper()} {path}"
             op_id = op.get("operationId")
             op_id = op_id.strip() if isinstance(op_id, str) and _kebab(op_id) else name
-
             given = "" if op_id == name else _line(op_id)
-
-            skip = functools.partial(Skipped, method.upper(), _line(str(path)), given)
+            skip = functools.partial(Skipped, method.upper(), _line(path), given)
             try:
-                if not path.startswith("/") or not _plain_path(path):
-                    raise _Unusable("has a path that is not plain")
+                route, fixed_query = _route(path)
                 security = op.get("security", root_security)
-                if security is not None and not isinstance(security, list):
-                    raise _Unusable("has a malformed security requirement")
+                if not isinstance(security, list):  # malformed, so as if it said nothing
+                    security = root_security if isinstance(root_security, list) else None
                 requirements = security or []
                 anonymous = not requirements or {} in requirements
-                if not declared and security is None:  # v1.3 without explicit credentials
-                    auth = "optional"
-                elif any(btauth(r) for r in requirements):
+                api_url = _checked_url(_server(spec_url, op, item, spec), "the API", local)
+                inputs, body_input, body_type, body_kind, signs = _inputs(
+                    spec,
+                    [*_list(item.get("parameters")), *_list(op.get("parameters"))],
+                    op,
+                    budget,
+                    route,
+                )
+                if any(btauth(r) for r in requirements):
                     auth = "optional" if anonymous else "hotkey"
+                elif not declared:
+                    # Without the scheme, every operation the spec secures is signed, as
+                    # is one that takes the btauth/1 headers as parameters.
+                    if signs is not None:
+                        auth = "hotkey" if signs else "optional"
+                    else:
+                        auth = "open" if security == [] else "optional" if anonymous else "hotkey"
                 elif anonymous:
                     auth = "open"
                 else:
                     raise _Unusable("needs credentials other than btauth/1")
-                if op_id in operations or op_id in duplicates:
-                    first = operations.pop(op_id, None)
-                    if first is not None:
-                        skipped.append(
-                            Skipped(
-                                first.method,
-                                first.path,
-                                op_id,
-                                f"repeats the operationId {op_id!r}",
-                            )
-                        )
-                    duplicates.add(op_id)
-                    raise _Unusable(f"repeats the operationId {op_id!r}")
-                api_url = _checked_url(_server(spec_url, op, item, spec), "the API", local)
-                inputs, body_input, body_type = _inputs(
-                    spec, [*_list(item.get("parameters")), *_list(op.get("parameters"))], op, budget
-                )
-                in_path = {i.name for i in inputs if i.location == "path"}
-                undeclared = set(re.findall(r"\{([^{}]*)\}", path)) - in_path
-                if undeclared:
-                    raise _Unusable(f"does not declare its path parameter {min(undeclared)!r}")
             except (_Unusable, ServiceError) as reason:
                 skipped.append(skip(str(reason)))
                 continue
@@ -953,6 +1048,16 @@ def _operations(
             except Exception:  # whatever else the spec gets wrong is this operation's
                 skipped.append(skip("has a malformed definition"))
                 continue
+            # A name another operation has, or writes the same way, goes by its method
+            # and path instead, so every operation is called by a name of its own.
+            op_id = next(
+                candidate
+                for candidate in itertools.chain(
+                    (op_id, name), (f"{name} {n}" for n in itertools.count(2))
+                )
+                if candidate not in operations and _kebab(candidate) not in commands
+            )
+            commands.add(_kebab(op_id))
             operations[op_id] = Operation(
                 id=op_id,
                 method=method.upper(),
@@ -965,21 +1070,13 @@ def _operations(
                 body_input=body_input,
                 body_required=body_input is not None and body_input.required,
                 body_type=body_type,
+                body_kind=body_kind,
                 tags=tuple(tag for tag in _list(op.get("tags")) if isinstance(tag, str)),
+                route=route,
+                fixed_query=fixed_query,
+                spec=spec,
             )
-    # Names that a command line or a tool would write the same way call nothing reliably.
-    commands: dict[str, list[str]] = {}
-    for op_id, op in operations.items():
-        commands.setdefault(op.command, []).append(op_id)
-    for command, ids in commands.items():
-        if len(ids) > 1:
-            for op_id in ids:
-                op = operations.pop(op_id)
-                given = "" if op_id == f"{op.method} {op.path}" else _line(op_id)
-                skipped.append(
-                    Skipped(op.method, _line(op.path), given, f"shares the name {command!r}")
-                )
-    return operations, tuple(skipped)
+    return skipped
 
 
 def _btauth_header(scheme: Any) -> str:
@@ -1003,8 +1100,12 @@ def _server(spec_url: str, *nodes: Any) -> str:
         raise ServiceError(f"{spec_url} has a server without a url")
 
     def default(match: re.Match) -> str:
-        value = _get(variables, match.group(1), "default")
+        variable = _get(variables, match.group(1))
+        value = _get(variable, "default")
         if not isinstance(value, str):
+            choices = _list(_get(variable, "enum"))
+            value = choices[0] if choices and isinstance(choices[0], str) else None
+        if value is None:
             raise ServiceError(
                 f"{spec_url} has a server variable {match.group(1)!r} with no default"
             )
@@ -1013,8 +1114,13 @@ def _server(spec_url: str, *nodes: Any) -> str:
     return urllib.parse.urljoin(spec_url, re.sub(r"\{([^{}]*)\}", default, url))
 
 
-def _plain_path(path: str) -> bool:
-    return not any(ch in "?#" or ch.isspace() or not ch.isprintable() for ch in path)
+def _route(path: str) -> tuple[str, tuple[tuple[str, str], ...]]:
+    """A spec's path as it is sent, and the query it fixes: what follows ``#`` is not
+    sent, as in a url, and ``?`` starts a query of its own (``/?Action=List``)."""
+    path, _, query = path.partition("#")[0].partition("?")
+    if not path.startswith("/"):
+        path = "/" + path
+    return path, tuple(urllib.parse.parse_qsl(query, keep_blank_values=True))
 
 
 def _list(value: Any) -> list:
@@ -1022,130 +1128,204 @@ def _list(value: Any) -> list:
 
 
 def _inputs(
-    spec, parameters: list, op: Mapping[str, Any], budget: list
-) -> tuple[tuple[Input, ...], Optional[Input], str]:
-    """An operation's inputs, one flat set of names, whether its body is required,
-    and its body's media type."""
-    merged: dict[tuple[str, str], Input] = {}
-    # Operation-level definitions override path-level parameters before validation.
+    spec, parameters: list, op: Mapping[str, Any], budget: list, route: str
+) -> tuple[tuple[Input, ...], Optional[Input], str, str, Optional[bool]]:
+    """An operation's inputs, each with a name of its own, its body as one input, the
+    Content-Type and kind of its body, and whether it takes the btauth/1 headers as
+    parameters (None when it does not, else whether it requires them)."""
+    # Operation-level definitions override path-level parameters.
     definitions = {}
     for raw in parameters:
         param = _deref(spec, raw)
         if isinstance(param, dict) and isinstance(param.get("name"), str):
             definitions[(param["name"], str(param.get("in")))] = param
-    for param in definitions.values():
-        location = str(param.get("in"))
-        required = location == "path" or bool(param.get("required"))
-        schema = _deref(spec, param.get("schema") or {}, schema=True)
-        schema = schema if isinstance(schema, dict) else {}
-        if location not in ("path", "query", "header") or (
-            location == "header" and not _sendable_header(param["name"])
-        ):
-            why = f"needs {param['name']!r} in {location!r}"
-        elif "content" in param or _is_object(spec, schema):
-            why = f"takes {param['name']!r} as an object in the {location}"
-        elif param.get("style", "simple") != "simple" and location in ("path", "header"):
-            why = f"uses unsupported {location} style {param['style']!r}"
-        elif location == "query" and param.get("style", "form") not in (
-            "form",
-            "pipeDelimited",
-            "spaceDelimited",
-        ):
-            why = f"uses unsupported query style {param['style']!r}"
-        else:
-            why = ""
-        if why:
-            if required:
-                raise _Unusable(why)
+    in_route = set(re.findall(r"\{([^{}]*)\}", route))
+    params: list[Input] = []
+    signs: Optional[bool] = None
+    for (name, location), param in definitions.items():
+        if location == "header" and name.lower() in _BTAUTH_HEADERS:
+            signs = bool(signs) or bool(param.get("required"))
             continue
-        merged[(param["name"], location)] = Input(
-            name=param["name"],
-            location=location,
-            required=required,
-            description=_text(param.get("description")),
-            schema=schema,
-            joined=_joined(param) if location == "query" else "",
+        if (
+            location not in ("path", "query", "header", "cookie")
+            or (location == "path" and name not in in_route)
+            or (location in ("header", "cookie") and not _TOKEN.fullmatch(name))
+            or (location == "header" and not _sendable_header(name))
+        ):
+            continue  # nowhere to send it, or a header the client writes itself
+        content = param.get("content")
+        media = next(iter(content), "") if isinstance(content, dict) and content else ""
+        raw_schema = _get(content, media, "schema") if media else param.get("schema")
+        schema = _deref(spec, raw_schema or {}, schema=True)
+        style = param.get("style")
+        if media:
+            style = "json" if _is_json(str(media)) else "simple"
+        elif not isinstance(style, str):
+            style = "form" if location in ("query", "cookie") else "simple"
+        explode = param.get("explode")
+        params.append(
+            Input(
+                name=name,
+                location=location,
+                required=location == "path" or bool(param.get("required")),
+                description=_text(param.get("description")),
+                schema=schema if isinstance(schema, dict) else {},
+                style=style,
+                explode=explode if isinstance(explode, bool) else style == "form",
+            )
         )
-    inputs = list(merged.values())
+    declared = {item.name for item in params if item.location == "path"}
+    for name in sorted(in_route - declared):  # a path parameter the spec forgot to declare
+        params.append(Input(name, "path", True, "", {"type": "string"}, style="simple"))
     body = _deref(spec, op.get("requestBody"))
     content = body.get("content") if isinstance(body, dict) else None
     body_required = isinstance(body, dict) and bool(body.get("required"))
-    body_type = ""
-    body_input = None
+    fields: list[Input] = []
+    body_type, kind, body_input = "", "json", None
     if isinstance(content, dict) and content:
-        media_type = next((kind for kind in content if _is_json(kind)), None)
-        if media_type is None:
-            kinds = ", ".join(sorted(_line(str(kind)) for kind in content))
-            raise _Unusable(f"takes a body that is {kinds}, not JSON")
-        body_type = media_type.split(";")[0].strip()
-        media = content[media_type] if isinstance(content[media_type], dict) else {}
+        key, body_type, kind = _media(content)
+        media = content[key] if isinstance(content[key], dict) else {}
         schema = _deref(spec, media.get("schema", {}), schema=True)
         if schema is False:
             schema = {"not": {}}
-        elif schema is True:
+        elif schema is True or not isinstance(schema, dict):
             schema = {}
-        fields = _object(spec, schema, budget)
-        if fields and fields[0]:
-            properties, required = fields
-            for name, raw in properties.items():
-                prop = _deref(spec, raw, schema=True)
-                prop = prop if isinstance(prop, dict) else {}
-                if not isinstance(name, str) or prop.get("readOnly") is True:
-                    continue
-                if (
-                    (name, "path") in merged
-                    and name in required
-                    and merged[(name, "path")].schema == prop
-                ):
-                    # PUT /items/{id} with the id in the body too: one input fills both.
-                    at = inputs.index(merged[(name, "path")])
-                    inputs[at] = dataclasses.replace(inputs[at], in_body=True)
-                    continue
-                inputs.append(
-                    Input(
-                        name=name,
-                        location="field",
-                        required=body_required and name in required,
-                        required_in_body=name in required,
-                        description=_text(prop.get("description")),
-                        schema=prop,
-                    )
+        found = _object(spec, schema, budget) if kind != "raw" else None
+        encoding = media.get("encoding") if isinstance(media.get("encoding"), dict) else {}
+        properties, required = found if found and found[0] else ({}, set())
+        path_inputs = {item.name: at for at, item in enumerate(params) if item.location == "path"}
+        for name, raw in properties.items():
+            prop = _deref(spec, raw, schema=True)
+            prop = prop if isinstance(prop, dict) else {}
+            if not isinstance(name, str) or prop.get("readOnly") is True:
+                continue
+            at = path_inputs.get(name)
+            if kind == "json" and at is not None and name in required and params[at].schema == prop:
+                # PUT /items/{id} with the id in the body too: one input fills both.
+                params[at] = dataclasses.replace(params[at], in_body=True)
+                continue
+            how = encoding.get(name) if isinstance(encoding.get(name), dict) else {}
+            style = how.get("style") if isinstance(how.get("style"), str) else "form"
+            explode = how.get("explode")
+            content_type = how.get("contentType")
+            fields.append(
+                Input(
+                    name=name,
+                    location="field",
+                    required=body_required and name in required,
+                    required_in_body=name in required,
+                    description=_text(prop.get("description")),
+                    schema=prop,
+                    style="json"
+                    if isinstance(content_type, str) and _is_json(content_type)
+                    else style,
+                    explode=explode if isinstance(explode, bool) else style == "form",
+                    binary=kind == "multipart" and _is_binary(spec, prop),
+                    content_type=content_type if isinstance(content_type, str) else "",
                 )
-        # A body with colliding field names remains usable as one JSON value.
-        commands = [item.command for item in inputs]
-        use_whole = not fields or not fields[0] or len(commands) != len(set(commands))
-        if use_whole:
-            inputs = list(merged.values())
-        name = "body"
-        occupied = {item.command for item in inputs}
-        while name in occupied:
-            name = "request-" + name
-        body_input = Input(name, "body", body_required, _text(body.get("description")), schema)
-        if use_whole:
-            inputs.append(body_input)
-    seen: dict[str, str] = {}
-    for item in inputs:
-        if not item.command:
-            raise _Unusable(f"has an input {item.name!r} with no letter or digit in its name")
-        if item.command in seen:
-            alike = seen[item.command]
-            raise _Unusable(
-                f"has two inputs named {alike!r}"
-                if alike == item.name
-                else f"has inputs {alike!r} and {item.name!r}, named alike"
             )
-        seen[item.command] = item.name
-    return tuple(inputs), body_input, body_type
+        binary = kind == "raw" and not (_is_text(body_type) and not _is_binary(spec, schema))
+        if binary and not _is_binary(spec, schema):
+            schema = {"type": "string", "format": "binary", **schema}
+        body_input = Input(
+            "body", "body", body_required, _text(body.get("description")), schema, binary=binary
+        )
+    inputs = _named([*params, *fields])
+    if body_input is not None:
+        names = {item.name for item in inputs}
+        commands = {item.command for item in inputs}
+        name = next(
+            n
+            for n in itertools.chain(["body"], (f"request_body_{i}" for i in itertools.count(2)))
+            if n not in names and _kebab(n) not in commands
+        )
+        body_input = dataclasses.replace(body_input, name=name)
+        if not fields:
+            inputs = (*inputs, body_input)
+    return tuple(inputs), body_input, body_type, kind, signs
 
 
-def _joined(param: Mapping[str, Any]) -> str:
-    """What a query array is joined by, as its style says, or "" when each item
-    repeats the parameter."""
-    style = param.get("style", "form")
-    explode = param.get("explode", style == "form")
-    if explode is True:
-        return ""
-    return {"form": ",", "spaceDelimited": " ", "pipeDelimited": "|"}.get(style, ",")
+def _named(inputs: list[Input]) -> list[Input]:
+    """``inputs`` each with a name and a command name of its own. One that repeats an
+    earlier name is renamed after where it is sent (``query_id``), and still sent by
+    its own; one whose command name is taken, or has no letter or digit, gets one."""
+    order = {"path": 0, "query": 1, "header": 2, "cookie": 3, "field": 4}
+    names: set[str] = set()
+    commands: set[str] = set()
+    named = []
+    for item in sorted(inputs, key=lambda i: order[i.location]):
+        name = item.name
+        if name in names:
+            name = next(n for n in _numbered(f"{item.location}_{item.name}", "_") if n not in names)
+        command, flag = _kebab(name), ""
+        if not command or command in commands:
+            base = _kebab(f"{item.location} {name}")
+            flag = command = next(c for c in _numbered(base, "-") if c not in commands)
+        names.add(name)
+        commands.add(command)
+        named.append(
+            dataclasses.replace(item, name=name, wire=item.sent_as, flag=flag)
+            if name != item.name or flag
+            else item
+        )
+    return named
+
+
+def _numbered(base: str, separator: str):
+    yield base
+    for n in itertools.count(2):
+        yield f"{base}{separator}{n}"
+
+
+def _media(content: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Which of a body's media types to send, the Content-Type it goes as, and its kind:
+    JSON first, then a form, then multipart, else the first as bytes or text."""
+    kinds = [key for key in content if isinstance(key, str)]
+    for kind, fits in (
+        ("json", _is_json),
+        ("form", lambda t: _base_type(t) == "application/x-www-form-urlencoded"),
+        ("multipart", lambda t: _base_type(t).startswith("multipart/")),
+    ):
+        for key in kinds:
+            if fits(key):
+                sent = _base_type(key) if kind == "multipart" else key.strip()
+                return key, sent if _header_safe(sent) else _JSON, kind
+    key = kinds[0] if kinds else next(iter(content))
+    sent = str(key).strip()
+    if "*" in sent or "/" not in sent or not _header_safe(sent):
+        sent = "application/octet-stream"
+    return key, sent, "raw"
+
+
+def _base_type(media_type: str) -> str:
+    return media_type.split(";")[0].strip().lower()
+
+
+def _header_safe(text: str) -> bool:
+    return text.isprintable() and text.isascii()
+
+
+def _is_text(media_type: str) -> bool:
+    kind = _base_type(media_type)
+    return (
+        kind.startswith("text/")
+        or _is_json(kind)
+        or kind.endswith(("+xml", "/xml", "+yaml", "/yaml", "/x-yaml", "/csv", "ndjson", "jsonl"))
+        or kind in ("application/javascript", "application/graphql", "application/sql")
+    )
+
+
+def _is_binary(spec, schema: Any) -> bool:
+    """Whether a schema describes a file: ``format: binary``, a ``contentMediaType``
+    without an encoding, or an array of them."""
+    schema = _deref(spec, schema, schema=True)
+    if not isinstance(schema, dict):
+        return False
+    if schema.get("format") == "binary":
+        return True
+    if "contentMediaType" in schema and "contentEncoding" not in schema:
+        return True
+    return schema.get("type") == "array" and _is_binary(spec, schema.get("items"))
 
 
 def _object(spec, schema: Any, budget: list, depth: int = 0) -> Optional[tuple[dict, set]]:
@@ -1200,14 +1380,12 @@ def _request(op: Operation, inputs: Mapping[str, Any], body: Any = _NOT_GIVEN):
     inputs = given
     if op.body_input is not None and op.body_input.name in given:
         if body is not _NOT_GIVEN:
-            raise ServiceError(f"{op.id} received its JSON body twice", code="input")
+            raise ServiceError(f"{op.id} received its body twice", code="input")
         body = given.pop(op.body_input.name)
     raw = body is not _NOT_GIVEN
     body_inputs = {i.name for i in op.inputs if i.location in ("body", "field")}
     if raw and (not op.body_type or body_inputs.intersection(inputs)):
-        raise ServiceError(
-            f"{op.id} cannot take a separate JSON body with these inputs", code="input"
-        )
+        raise ServiceError(f"{op.id} cannot take a separate body with these inputs", code="input")
     with_body = op.body_required or bool(body_inputs.intersection(inputs))
     required = [
         i
@@ -1221,83 +1399,286 @@ def _request(op: Operation, inputs: Mapping[str, Any], body: Any = _NOT_GIVEN):
                 if key in item.schema:
                     inputs[item.name] = item.schema[key]
                     break
-    missing = [i.name for i in required if i.name not in inputs]
+    missing = [i.name for i in required if inputs.get(i.name) is None and i.location != "field"]
+    missing += [i.name for i in required if i.location == "field" and i.name not in inputs]
     if missing:
         raise ServiceError(f"{op.id} needs {', '.join(map(repr, missing))}", code="input")
-    path, query, headers = op.path, [], {"User-Agent": _USER_AGENT}
+    path = op.route or op.path
+    query: list[tuple[str, str]] = list(op.fixed_query)
+    headers = {"User-Agent": _USER_AGENT}
+    cookies: list[str] = []
     fields: dict[str, Any] = {}
     whole: Any = body
     for item in op.inputs:
         if item.name not in inputs:
             continue
         value = inputs[item.name]
-        if item.location == "path":
-            parts = value if isinstance(value, (list, tuple)) else [value]
-            text = ",".join(urllib.parse.quote(_scalar(v), safe="") for v in parts)
+        if item.location == "field":
+            fields[item.sent_as] = value
+        elif item.location == "body":
+            whole = value
+        elif value is None:  # a parameter left out
+            continue
+        elif item.location == "path":
+            text = _path_text(item, value)
             if text in ("", ".", ".."):  # each would reach another route
                 raise ServiceError(f"{op.id} cannot take {text!r} as {item.name}", code="input")
-            path = path.replace("{" + item.name + "}", text)
+            path = path.replace("{" + item.sent_as + "}", text)
             if item.in_body and with_body and not raw:
-                fields[item.name] = value
+                fields[item.sent_as] = value
         elif item.location == "query":
-            values = value if isinstance(value, (list, tuple)) else [value]
-            if item.joined and isinstance(value, (list, tuple)):
-                values = [item.joined.join(_scalar(v) for v in values)]
-            query.extend((item.name, _scalar(v)) for v in values)
+            query.extend(_pairs(item.sent_as, item.style, item.explode, value))
         elif item.location == "header":
-            text = (
-                ",".join(_scalar(v) for v in value)
-                if isinstance(value, (list, tuple))
-                else _scalar(value)
-            )
-            if not text.isprintable():
-                raise ServiceError(f"{item.name} cannot hold control characters", code="input")
-            try:
-                text.encode("latin-1")
-            except UnicodeEncodeError:
-                raise ServiceError(
-                    f"{item.name} is a header, which holds Latin-1 text only", code="input"
-                ) from None
-            headers[item.name] = text
-        elif item.location == "field":
-            fields[item.name] = value
+            headers[item.sent_as] = _header_text(item, _joined_text(item, value, ","))
         else:
-            whole = value
+            cookies.extend(
+                f"{key}={_header_text(item, text)}" for key, text in _cookie_pairs(item, value)
+            )
+    if cookies:
+        headers["Cookie"] = "; ".join(cookies)
     data = b""
     if whole is not _NOT_GIVEN or fields or op.body_required:
-        try:
-            data = json.dumps(
-                fields if whole is _NOT_GIVEN else whole,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            ).encode()
-        except (TypeError, ValueError) as error:
-            raise ServiceError(
-                f"{op.id} cannot send its inputs as JSON: {error}", code="input"
-            ) from None
-        headers["Content-Type"] = op.body_type
+        data, content_type = _body(op, fields if whole is _NOT_GIVEN else whole)
+        headers["Content-Type"] = content_type
     if "{" in path:
         raise ServiceError(f"{op.id} has a path parameter it does not declare")
     base = urllib.parse.urlsplit(op.api_url)
     full_path = urllib.parse.quote(base.path.rstrip("/") + path, safe="/%!$&'()*+,;=:@-._~")
-    query_text = "&".join(part for part in (base.query, urllib.parse.urlencode(query)) if part)
+    query_text = "&".join(
+        part
+        for part in (base.query, urllib.parse.urlencode(query, quote_via=urllib.parse.quote))
+        if part
+    )
     target = full_path + ("?" + query_text if query_text else "")
     url = urllib.parse.urlunsplit((base.scheme, base.netloc, full_path, query_text, ""))
     return op.method, url, target, headers, data
 
 
+def _text_of(value: Any) -> str:
+    """A value as the text of a parameter: ``true`` and ``false`` for booleans, and
+    JSON for an object or a list within another."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple)):
+        return _json_text(value)
+    return str(value)
+
+
+def _json_text(value: Any) -> str:
+    try:
+        return json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise ServiceError(f"cannot send {value!r} as JSON: {error}", code="input") from None
+
+
+def _entries(value: Any) -> list[str]:
+    """An object as its names and values in turn, a list as its items, else the value."""
+    if isinstance(value, Mapping):
+        return [_text_of(x) for pair in value.items() for x in pair]
+    if isinstance(value, (list, tuple)):
+        return [_text_of(v) for v in value]
+    return [_text_of(value)]
+
+
+def _joined_text(item: Input, value: Any, separator: str) -> str:
+    """A header's or a simple path parameter's text: ``k=v,k2=v2`` for an exploded
+    object, else its entries joined."""
+    if item.style == "json":
+        return _json_text(value)
+    if isinstance(value, Mapping) and item.explode:
+        return separator.join(f"{_text_of(k)}={_text_of(v)}" for k, v in value.items())
+    return separator.join(_entries(value))
+
+
+def _path_text(item: Input, value: Any) -> str:
+    """A path parameter as its style writes it, each part percent-encoded."""
+
+    def quoted(text: Any) -> str:
+        return urllib.parse.quote(_text_of(text), safe="")
+
+    if item.style == "json":
+        return quoted(_json_text(value))
+    if isinstance(value, Mapping):
+        pairs = [(quoted(k), quoted(v)) for k, v in value.items()]
+        parts = [f"{k}={v}" for k, v in pairs] if item.explode else [x for p in pairs for x in p]
+    elif isinstance(value, (list, tuple)):
+        parts = [quoted(v) for v in value]
+    else:
+        parts = [quoted(value)]
+    if item.style == "label":
+        return "." + ("." if item.explode else ",").join(parts)
+    if item.style == "matrix":
+        name = urllib.parse.quote(item.sent_as, safe="")
+        if item.explode and isinstance(value, Mapping):
+            return "".join(f";{part}" for part in parts)
+        if item.explode and isinstance(value, (list, tuple)):
+            return "".join(f";{name}={part}" for part in parts)
+        joined = ",".join(parts)
+        return f";{name}={joined}" if joined else f";{name}"
+    return ",".join(parts)
+
+
+def _pairs(name: str, style: str, explode: bool, value: Any) -> list[tuple[str, str]]:
+    """A query parameter or a form field as name and value pairs, by its style."""
+    if style == "json":
+        return [(name, _json_text(value))]
+    if isinstance(value, Mapping):
+        if style == "deepObject":
+            return _deep(name, value)
+        if explode and style == "form":
+            return [(str(k), _text_of(v)) for k, v in value.items() if v is not None]
+    elif isinstance(value, (list, tuple)):
+        if explode or style == "deepObject":
+            return [(name, _text_of(v)) for v in value]
+    else:
+        return [(name, _text_of(value))]
+    separator = {"spaceDelimited": " ", "pipeDelimited": "|"}.get(style, ",")
+    return [(name, separator.join(_entries(value)))]
+
+
+def _deep(name: str, value: Mapping) -> list[tuple[str, str]]:
+    """An object as ``name[key]=value`` pairs, nested objects by more keys."""
+    pairs: list[tuple[str, str]] = []
+    for key, item in value.items():
+        if item is None:
+            continue
+        inner = f"{name}[{key}]"
+        if isinstance(item, Mapping):
+            pairs.extend(_deep(inner, item))
+        elif isinstance(item, (list, tuple)):
+            pairs.extend((inner, _text_of(v)) for v in item)
+        else:
+            pairs.append((inner, _text_of(item)))
+    return pairs
+
+
+def _cookie_pairs(item: Input, value: Any) -> list[tuple[str, str]]:
+    if item.style != "json" and item.explode:
+        if isinstance(value, Mapping):
+            return [(str(k), _text_of(v)) for k, v in value.items()]
+        if isinstance(value, (list, tuple)):
+            return [(item.sent_as, _text_of(v)) for v in value]
+    return [(item.sent_as, _joined_text(item, value, ","))]
+
+
+def _header_text(item: Input, text: str) -> str:
+    if not text.isprintable():
+        raise ServiceError(f"{item.name} cannot hold control characters", code="input")
+    try:
+        text.encode("latin-1")
+    except UnicodeEncodeError:
+        raise ServiceError(
+            f"{item.name} is a header, which holds Latin-1 text only", code="input"
+        ) from None
+    return text
+
+
+def _body(op: Operation, value: Any) -> tuple[bytes, str]:
+    """A request body as its operation's kind of body is written, and its Content-Type."""
+    if op.body_kind == "raw":
+        item = op.body_input
+        if item is not None and item.binary:
+            return _file(op, item.name, value)[1], op.body_type
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            return bytes(value), op.body_type
+        return ("" if value is None else _text_of(value)).encode(), op.body_type
+    if op.body_kind in ("form", "multipart"):
+        if not isinstance(value, Mapping):
+            raise ServiceError(f"{op.id} takes its body as an object of fields", code="input")
+        if op.body_kind == "form":
+            items = {i.sent_as: i for i in op.inputs if i.location == "field"}
+            pairs = []
+            for key, item in value.items():
+                spec = items.get(key)
+                if item is not None:
+                    style = spec.style if spec is not None else "form"
+                    explode = spec.explode if spec is not None else True
+                    pairs.extend(_pairs(str(key), style, explode, item))
+            data = urllib.parse.urlencode(pairs, quote_via=urllib.parse.quote)
+            return data.encode(), op.body_type
+        return _multipart(op, value)
+    return _json_text(value).encode(), op.body_type
+
+
+def _multipart(op: Operation, value: Mapping) -> tuple[bytes, str]:
+    """``multipart/form-data``: a part for each field, and for each item of a list."""
+    items = {i.sent_as: i for i in op.inputs if i.location == "field"}
+    boundary = secrets.token_hex(16)
+    chunks: list[bytes] = []
+    for key, field_value in value.items():
+        if field_value is None:
+            continue
+        spec = items.get(key)
+        binary = spec is not None and spec.binary
+        parts = (
+            field_value
+            if isinstance(field_value, list) or (isinstance(field_value, tuple) and not binary)
+            else [field_value]
+        )
+        for part in parts:
+            disposition = f'form-data; name="{_quoted(str(key))}"'
+            kind = _concrete(spec.content_type) if spec is not None else ""
+            if binary:
+                filename, data = _file(op, str(key), part)
+                disposition += f'; filename="{_quoted(filename)}"'
+                kind = kind or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            elif isinstance(part, (bytes, bytearray, memoryview)):
+                data, kind = bytes(part), kind or "application/octet-stream"
+            elif isinstance(part, (dict, list, tuple)) or (
+                spec is not None and spec.style == "json"
+            ):
+                data, kind = _json_text(part).encode(), kind or _JSON
+            else:
+                data = _text_of(part).encode()
+            head = f"--{boundary}\r\nContent-Disposition: {disposition}\r\n"
+            if kind:
+                head += f"Content-Type: {kind}\r\n"
+            chunks += [head.encode() + b"\r\n", data, b"\r\n"]
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks), f"{op.body_type}; boundary={boundary}"
+
+
+def _quoted(name: str) -> str:
+    """A multipart name or filename within its quotes, as browsers write one."""
+    return name.replace('"', "%22").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _concrete(media_types: str) -> str:
+    """The first concrete media type of a list of them, or ""."""
+    for kind in media_types.split(","):
+        kind = kind.strip()
+        if kind and "*" not in kind and _header_safe(kind):
+            return kind
+    return ""
+
+
+def _file(op: Operation, name: str, value: Any) -> tuple[str, bytes]:
+    """A file input as its filename and bytes: bytes, a binary file, base64 text, or a
+    ``(filename, any of those)`` pair."""
+    filename = name
+    if isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], str):
+        filename, value = value
+    elif isinstance(getattr(value, "name", None), str):
+        filename = os.path.basename(value.name) or name
+    if hasattr(value, "read"):
+        value = value.read()
+    if isinstance(value, str):
+        try:
+            value = base64.b64decode(value, validate=True)
+        except (binascii.Error, ValueError):
+            raise ServiceError(
+                f"{op.id} takes {name} as a file: bytes, or base64 text", code="input"
+            ) from None
+    if not isinstance(value, (bytes, bytearray, memoryview)):
+        raise ServiceError(f"{op.id} takes {name} as a file: bytes, or base64 text", code="input")
+    return filename, bytes(value)
+
+
 def _sendable_header(name: str) -> bool:
     lowered = name.lower()
     return lowered not in _RESERVED_HEADERS and not lowered.startswith("x-bittensor-")
-
-
-def _scalar(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if value is None or isinstance(value, (dict, list, tuple)):
-        raise ServiceError(f"cannot send {json.dumps(value)} as a parameter", code="input")
-    return str(value)
 
 
 def _is_json(media_type: str) -> bool:
@@ -1316,8 +1697,11 @@ def _kebab(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-").lower()
 
 
-def _deref(spec: Mapping[str, Any], node: Any, *, schema: bool = False) -> Any:
-    """``node``, or the target of the local ``$ref`` it is, followed to the end."""
+def _deref(
+    spec: Mapping[str, Any], node: Any, *, schema: bool = False, strict: bool = False
+) -> Any:
+    """``node``, or the target of the local ``$ref`` it is, followed to the end. A
+    reference to nothing is an empty object, one that says nothing, unless ``strict``."""
     seen = set()
     while isinstance(node, dict) and isinstance(node.get("$ref"), str):
         ref = node["$ref"]
@@ -1327,7 +1711,12 @@ def _deref(spec: Mapping[str, Any], node: Any, *, schema: bool = False) -> Any:
         if schema and len(node) > 1 and not str(spec.get("openapi", "")).startswith("3.0."):
             # In 3.1 the sibling constraints apply together with the target schema.
             return {"allOf": [{"$ref": ref}, {k: v for k, v in node.items() if k != "$ref"}]}
-        node = _pointer(spec, ref)
+        try:
+            node = _pointer(spec, ref)
+        except ServiceError:
+            if strict:
+                raise
+            return {}
     return node
 
 
@@ -1349,9 +1738,19 @@ def _is_object(spec: Mapping[str, Any], schema: Any) -> bool:
     return False
 
 
+def _definition_name(ref: str) -> str:
+    """A tool's $defs name for a reference: a component schema's own name, else a hash."""
+    prefix = "#/components/schemas/"
+    name = ref[len(prefix) :]
+    if ref.startswith(prefix) and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", name):
+        return name
+    return "ref-" + hashlib.sha256(ref.encode()).hexdigest()[:12]
+
+
 def _pointer(spec: Mapping[str, Any], ref: str) -> Any:
     target: Any = spec
-    for part in ref[2:].split("/"):
+    # A reference is a url fragment, so its pointer may be percent-encoded (RFC 6901).
+    for part in urllib.parse.unquote(ref[2:]).split("/"):
         part = part.replace("~1", "/").replace("~0", "~")
         if (
             isinstance(target, list)
@@ -1534,6 +1933,11 @@ class _Deadline:
         if self.passed:
             self.shut()
 
+    def lift(self) -> None:
+        """No end for the rest: a body written as it arrives may take as long as it
+        keeps arriving, each read still waiting at most the timeout."""
+        self._timer.cancel()
+
     def shut(self) -> None:
         self.passed = True
         for sock in self.sockets:
@@ -1707,6 +2111,7 @@ def _send(
     local: bool = False,
     limit: int = MAX_RESPONSE_BYTES,
     timeout: float = TIMEOUT,
+    into: Optional[Callable[[Response], Optional[IO[bytes]]]] = None,
 ) -> Response:
     _check_timeout(timeout)
     request = urllib.request.Request(url, data=data or None, headers=dict(headers), method=method)
@@ -1721,7 +2126,13 @@ def _send(
                 fields = _headers(reply.headers)
                 body = b""
                 if method != "HEAD" and status not in (204, 304):
-                    body = _read(reply, limit, url, fields)
+                    head = Response(status, fields, b"", reply.geturl())
+                    sink = into(head) if into is not None and head.ok else None
+                    if sink is None:
+                        body = _read(reply, limit, url, fields)
+                    else:
+                        deadline.lift()
+                        _stream(reply, sink, url, fields)
                 response = Response(status, fields, body, reply.geturl())
             if deadline.passed:  # a body that ends with the connection may be cut off
                 raise ServiceError(f"{url} did not answer within {timeout:g} s", code="timeout")
@@ -1749,37 +2160,38 @@ def _get_json(
     local: bool = False,
     cache: CacheDir = None,
     timeout: float = FETCH_TIMEOUT,
+    limit: int = MAX_DOCUMENT_BYTES,
+    yaml: bool = False,
 ) -> tuple[dict, str]:
+    """The JSON object at ``url``, or the YAML one when ``yaml``, and where it was."""
     checked = _checked_url(url, what, local)
-    cached = _cached(cache, checked)
+    cached = _cached(cache, checked, limit)
     if cached is not None:
         try:
-            return _json_object(Response(200, {"content-type": _JSON}, cached), url, what), checked
+            response = Response(200, {"content-type": _JSON}, cached)
+            return _json_object(response, url, what, yaml), checked
         except ServiceError:
             pass  # A damaged cache entry is a miss.
-    headers = {"User-Agent": _USER_AGENT, "Accept": _JSON, "Accept-Encoding": "gzip"}
-    response = _gunzipped(
-        _send("GET", checked, headers, b"", local, MAX_DOCUMENT_BYTES, timeout), url
-    )
-    document = _json_object(response, url, what)
+    accept = f"{_JSON}, application/yaml;q=0.9, text/yaml;q=0.9" if yaml else _JSON
+    headers = {"User-Agent": _USER_AGENT, "Accept": accept, "Accept-Encoding": "gzip"}
+    response = _gunzipped(_send("GET", checked, headers, b"", local, limit, timeout), url, limit)
+    document = _json_object(response, url, what, yaml)
     effective = response.url or checked
     if effective == checked:
-        _keep(cache, checked, response)
+        _keep(cache, checked, response, limit)
     return document, effective
 
 
-def _gunzipped(response: Response, url: str) -> Response:
+def _gunzipped(response: Response, url: str, limit: int) -> Response:
     if response.headers.get("content-encoding", "").strip().lower() != "gzip":
         return response
     try:
         with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as stream:
-            content = stream.read(MAX_DOCUMENT_BYTES + 1)
+            content = stream.read(limit + 1)
     except (OSError, EOFError, zlib.error):
         raise ServiceError(f"the response from {url} is not valid gzip") from None
-    if len(content) > MAX_DOCUMENT_BYTES:
-        raise ServiceError(
-            f"the response from {url} is over {MAX_DOCUMENT_BYTES >> 20} MiB", code="too_large"
-        )
+    if len(content) > limit:
+        raise ServiceError(f"the response from {url} is over {limit >> 20} MiB", code="too_large")
     headers = {k: v for k, v in response.headers.items() if k != "content-encoding"}
     return Response(response.status, headers, content, response.url)
 
@@ -1836,7 +2248,7 @@ def _sweep(cache: Union[str, Path]) -> None:
             total -= size
 
 
-def _cached(cache: CacheDir, url: str) -> Optional[bytes]:
+def _cached(cache: CacheDir, url: str, limit: int = MAX_SPEC_BYTES) -> Optional[bytes]:
     if cache is None:
         return None
     key = _cache_key(url)
@@ -1846,17 +2258,17 @@ def _cached(cache: CacheDir, url: str) -> Optional[bytes]:
             now = time.time()
             if identity != key or not now < float(expires) <= now + CACHE_MAX_SECONDS:
                 return None
-            content = stream.read(MAX_DOCUMENT_BYTES + 1)
+            content = stream.read(limit + 1)
     except (OSError, ValueError):
         return None
-    return content if len(content) <= MAX_DOCUMENT_BYTES else None
+    return content if len(content) <= limit else None
 
 
-def _keep(cache: CacheDir, url: str, response: Response) -> None:
+def _keep(cache: CacheDir, url: str, response: Response, limit: int = MAX_SPEC_BYTES) -> None:
     if cache is None or any(v.strip() == "*" for v in response.headers.get("vary", "").split(",")):
         return
     seconds = _max_age(response.headers)
-    if not seconds or len(response.content) > MAX_DOCUMENT_BYTES:
+    if not seconds or len(response.content) > limit:
         return
     key = _cache_key(url)
     path = _cache_file(cache, key)
@@ -1874,7 +2286,8 @@ def _keep(cache: CacheDir, url: str, response: Response) -> None:
         _sweep(path.parent)
 
 
-def _json_object(response: Response, url: str, what: str) -> dict:
+def _json_object(response: Response, url: str, what: str, yaml: bool = False) -> dict:
+    """A response as the JSON object it is, or, when ``yaml``, the YAML one."""
     if not response.ok:
         message = response.message[:200]
         raise ServiceError(
@@ -1886,14 +2299,59 @@ def _json_object(response: Response, url: str, what: str) -> dict:
     try:
         value = response.json()
     except (ValueError, RecursionError):
-        yaml = re.match(r"\s*[\w\"'-]+\s*:", response.text[:200])
-        raise ServiceError(
-            f"{what} at {url} is not JSON"
-            + (" (it reads as YAML, which is not read)" if yaml else "")
-        ) from None
+        if not yaml:
+            raise ServiceError(f"{what} at {url} is not JSON") from None
+        value = _yaml(response.text, url, what)
     if not isinstance(value, dict):
         raise ServiceError(f"{what} at {url} is not a JSON object")
     return value
+
+
+# Nodes a YAML spec may have once its aliases are expanded: ten times Microsoft Graph's.
+# An alias makes a node appear again without its text, so a short spec could
+# otherwise stand for more than any walk of it could finish.
+MAX_YAML_NODES = 16_000_000
+
+
+def _yaml(text: str, url: str, what: str) -> Any:
+    import yaml
+
+    try:
+        value = yaml.load(text, Loader=_yaml_loader())
+    except (yaml.YAMLError, RecursionError, ValueError):
+        raise ServiceError(f"{what} at {url} is neither JSON nor YAML") from None
+    count, pending = 0, [value]
+    while pending:
+        node = pending.pop()
+        count += 1
+        if count > MAX_YAML_NODES:
+            raise ServiceError(f"{what} at {url} expands past {MAX_YAML_NODES} nodes")
+        if isinstance(node, dict):
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return value
+
+
+@functools.cache
+def _yaml_loader() -> type:
+    """A safe YAML loader of the 1.2 core schema, as OpenAPI is written: a date stays
+    text, and so do ``on``, ``yes`` and ``no``, which YAML 1.1 reads as booleans."""
+    import yaml
+
+    base = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    kept = {"tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool"}
+    loader = type("OpenAPILoader", (base,), {})
+    loader.yaml_implicit_resolvers = {
+        first: [(tag, pattern) for tag, pattern in resolvers if tag not in kept]
+        for first, resolvers in base.yaml_implicit_resolvers.items()
+    }
+    loader.add_implicit_resolver(
+        "tag:yaml.org,2002:bool",
+        re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
+        list("tTfF"),
+    )
+    return loader
 
 
 def _headers(headers) -> dict[str, str]:
@@ -1902,6 +2360,21 @@ def _headers(headers) -> dict[str, str]:
         if name in fields:
             fields[name] = ",".join(headers.get_all(name))
     return fields
+
+
+def _stream(reply, sink: IO[bytes], url: str, headers: Mapping[str, str]) -> None:
+    """Write a body to ``sink`` as it arrives, checking it is as long as it said."""
+    raw = headers.get("content-length")
+    if raw is not None and ("transfer-encoding" in headers or not re.fullmatch(r"[0-9]+", raw)):
+        raise ServiceError(f"the response from {url} has an invalid Content-Length")
+    read = getattr(reply, "read1", reply.read)
+    written = 0
+    while chunk := read(1 << 16):
+        sink.write(chunk)
+        sink.flush()
+        written += len(chunk)
+    if raw is not None and written != int(raw):
+        raise ServiceError(f"the response from {url} ended early", code="unreachable")
 
 
 def _read(reply, limit: int, url: str, headers: Mapping[str, str]) -> bytes:
