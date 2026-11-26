@@ -904,4 +904,17 @@ impl<T: Config> Pallet<T> {
             .map(|netuid| ColdkeyGammaHotkeys::<T>::decode_len(netuid, coldkey).unwrap_or(0) as u32)
             .fold(0, u32::saturating_add)
     }
+
+    /// Whether `coldkey` holds a gamma balance on any subnet.
+    pub(crate) fn coldkey_has_gamma_balance(coldkey: &T::AccountId) -> bool {
+        Self::get_all_subnet_netuids()
+            .into_iter()
+            .any(|netuid| !GammaBalances::<T>::get(netuid, coldkey).is_zero())
+    }
+
+    /// Whether `coldkey` holds gamma on any subnet, in a deposit or as a balance.
+    #[cfg(test)]
+    pub(crate) fn coldkey_holds_gamma(coldkey: &T::AccountId) -> bool {
+        Self::coldkey_gamma_deposit_count(coldkey) != 0 || Self::coldkey_has_gamma_balance(coldkey)
+    }
 }

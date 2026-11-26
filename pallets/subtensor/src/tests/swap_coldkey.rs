@@ -487,6 +487,7 @@ fn test_swap_coldkey_bounded_and_priced_per_position() {
                     registration_queue_scan: 0,
                     gamma_deposits: 0,
                     destination_gamma_deposits: 0,
+                    destination_holds_gamma: false,
                     destination_has_non_balance_policy_protection: false,
                     destination_rejects_unsolicited_policy_import: false,
                 }
@@ -2365,6 +2366,42 @@ fn gamma_only_destination_does_not_receive_source_policy_or_lineage() {
             &source,
             &destination
         ));
+    });
+}
+
+// A destination holding only a gamma balance is in use too: it keeps its default reward
+// route and takes no source flags or lineage.
+#[test]
+fn gamma_balance_only_destination_does_not_receive_source_policy_or_lineage() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(1);
+        let destination = U256::from(2);
+        let source_hotkey = U256::from(10);
+        let auto_stake_hotkey = U256::from(20);
+        let netuid = add_dynamic_network(&source_hotkey, &source);
+
+        GammaBalances::<Test>::insert(netuid, destination, GammaBalance::from(1u64));
+        AutoStakeDestination::<Test>::insert(source, netuid, auto_stake_hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(auto_stake_hotkey, netuid, vec![source]);
+        AccountFlags::<Test>::insert(source, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+
+        assert!(SubtensorModule::coldkey_rejects_unsolicited_policy_import(
+            &destination
+        ));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+
+        assert!(AutoStakeDestination::<Test>::get(destination, netuid).is_none());
+        assert!(AutoStakeDestinationColdkeys::<Test>::get(auto_stake_hotkey, netuid).is_empty());
+        assert!(!AccountFlags::<Test>::contains_key(destination));
+        assert!(!ColdkeyRoot::<Test>::contains_key(destination));
+        assert!(!SubtensorModule::same_coldkey_lineage(
+            &source,
+            &destination
+        ));
+        assert_eq!(
+            GammaBalances::<Test>::get(netuid, destination),
+            GammaBalance::from(1u64)
+        );
     });
 }
 

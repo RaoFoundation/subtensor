@@ -49,6 +49,8 @@ pub struct ColdkeySwapWork {
     pub gamma_deposits: u32,
     /// Gamma deposits already held by the destination.
     pub destination_gamma_deposits: u32,
+    /// Destination holds gamma, in a deposit or as a balance.
+    pub destination_holds_gamma: bool,
     /// Destination has non-balance state that makes the swap a merge.
     pub destination_has_non_balance_policy_protection: bool,
     /// Destination presence prevents importing source policies.
@@ -122,10 +124,10 @@ impl<T: Config> Pallet<T> {
                     .reads_writes(2, 3)
                     .saturating_mul(u64::from(work.gamma_deposits)),
             )
-            // Per subnet: the gamma balance merge.
+            // Per subnet: the destination's gamma balance check and the balance merge.
             .saturating_add(
                 T::DbWeight::get()
-                    .reads_writes(2, 2)
+                    .reads_writes(3, 2)
                     .saturating_mul(u64::from(TotalNetworks::<T>::get())),
             )
     }
@@ -140,6 +142,7 @@ impl<T: Config> Pallet<T> {
             registration_queue_scan: crate::MAX_COLDKEY_SWAP_REGISTRATION_QUEUE_SCAN,
             gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
             destination_gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
+            destination_holds_gamma: true,
             destination_has_non_balance_policy_protection: true,
             destination_rejects_unsolicited_policy_import: true,
         }
@@ -497,11 +500,11 @@ impl<T: Config> Pallet<T> {
     /// no other state or preferences of its own.
     fn coldkey_has_non_balance_policy_protection_with_gamma(
         coldkey: &T::AccountId,
-        has_gamma_deposits: bool,
+        holds_gamma: bool,
         source: Option<&T::AccountId>,
     ) -> bool {
         Self::coldkey_has_configured_account_flags(coldkey)
-            || Self::coldkey_has_non_lineage_presence(coldkey, has_gamma_deposits)
+            || Self::coldkey_has_non_lineage_presence(coldkey, holds_gamma)
             || (Self::coldkey_has_established_lineage(coldkey)
                 && source.is_none_or(|source| {
                     ColdkeySuccessor::<T>::contains_key(source)
@@ -513,10 +516,10 @@ impl<T: Config> Pallet<T> {
                 }))
     }
 
-    fn coldkey_has_non_lineage_presence(coldkey: &T::AccountId, has_gamma_deposits: bool) -> bool {
+    fn coldkey_has_non_lineage_presence(coldkey: &T::AccountId, holds_gamma: bool) -> bool {
         Self::coldkey_already_in_use(coldkey)
             || IdentitiesV2::<T>::contains_key(coldkey)
-            || has_gamma_deposits
+            || holds_gamma
             || T::ProxyInterface::has_delegator_proxies(coldkey)
     }
 
@@ -524,7 +527,7 @@ impl<T: Config> Pallet<T> {
     fn coldkey_has_non_balance_policy_protection(coldkey: &T::AccountId) -> bool {
         Self::coldkey_has_non_balance_policy_protection_with_gamma(
             coldkey,
-            Self::coldkey_gamma_deposit_count(coldkey) != 0,
+            Self::coldkey_holds_gamma(coldkey),
             None,
         )
     }
@@ -548,11 +551,11 @@ impl<T: Config> Pallet<T> {
     fn coldkey_can_retain_active_lock_terms(
         destination: &T::AccountId,
         flags: u128,
-        has_gamma_deposits: bool,
+        holds_gamma: bool,
     ) -> bool {
         flags & !crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA == 0
             && !Self::coldkey_has_established_lineage(destination)
-            && !Self::coldkey_has_non_lineage_presence(destination, has_gamma_deposits)
+            && !Self::coldkey_has_non_lineage_presence(destination, holds_gamma)
     }
 
     /// Capture the destination's policy and eligibility for keeping active lock terms.
@@ -566,7 +569,7 @@ impl<T: Config> Pallet<T> {
             retain_lock_terms: Self::coldkey_can_retain_active_lock_terms(
                 destination,
                 AccountFlags::<T>::get(destination),
-                work.destination_gamma_deposits != 0,
+                work.destination_holds_gamma,
             ),
         }
     }
@@ -784,10 +787,12 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::ColdkeySwapTooHeavy,
             ));
         }
+        work.destination_holds_gamma =
+            work.destination_gamma_deposits != 0 || Self::coldkey_has_gamma_balance(new_coldkey);
         work.destination_has_non_balance_policy_protection =
             Self::coldkey_has_non_balance_policy_protection_with_gamma(
                 new_coldkey,
-                work.destination_gamma_deposits != 0,
+                work.destination_holds_gamma,
                 Some(old_coldkey),
             );
         work.destination_rejects_unsolicited_policy_import = work
@@ -979,7 +984,7 @@ impl<T: Config> Pallet<T> {
                 } && Self::coldkey_can_retain_active_lock_terms(
                     new_coldkey,
                     saved_dest_flags,
-                    work.destination_gamma_deposits != 0,
+                    work.destination_holds_gamma,
                 );
                 // A reverse rename inside an already-established lineage may repoint its tip.
                 // Existing state must otherwise prevent an unsolicited source from asserting
