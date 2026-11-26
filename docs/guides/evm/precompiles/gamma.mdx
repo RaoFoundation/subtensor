@@ -54,7 +54,7 @@ gamma.transferGamma(user, false, 0, true, userHotkey, netuid, credited);
 
 The deposit opens with no daily spend cap if the user has none at that hotkey,
 unless another coldkey owns the hotkey. A contract can open one for a user only
-while the user holds fewer than 32 deposits on the subnet, and not during the
+while the user holds fewer than 32 deposits across subnets, and not during the
 user's coldkey swap; sending to an open deposit, or with no hotkey to the
 user's balance, is not limited.
 

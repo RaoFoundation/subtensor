@@ -80,7 +80,7 @@ interface IGamma {
     /// Sends exactly `amount` gamma from the caller's balance, or its deposit at
     /// `originHotkey`, to `destinationColdkey`'s balance, or its deposit at
     /// `destinationHotkey`, opening one with no daily spend cap. Another coldkey opens one only
-    /// while the receiver holds fewer than 32 on the subnet, and not during its coldkey swap.
+    /// while the receiver holds fewer than 32 across subnets, and not during its coldkey swap.
     function transferGamma(
         bytes32 destinationColdkey,
         bool hasOriginHotkey,
