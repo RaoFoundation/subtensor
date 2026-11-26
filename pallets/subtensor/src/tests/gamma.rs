@@ -2076,6 +2076,12 @@ fn emission_split_v2_sets_gamma_shares_and_refuses_bad_splits() {
             SubnetGammaEmission::<Test>::get(source).into_inner(),
             vec![(target, share)]
         );
+        assert_eq!(
+            SubtensorModule::get_subnet_emission_weights_info_v2(source)
+                .unwrap()
+                .gamma_shares,
+            vec![(target.into(), share.into())]
+        );
         let miner = SubtensorModule::get_subnet_miner_emission_cut(source);
         assert_eq!(
             miner,

@@ -86,3 +86,7 @@ class ExtrinsicNotFound(SubstrateRequestException):
 
 class StorageFunctionNotFound(ValueError):
     pass
+
+
+class RuntimeApiNotFound(ValueError):
+    """The runtime at the block read has no such runtime API method."""

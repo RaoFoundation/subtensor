@@ -17,8 +17,8 @@ use pallet_subtensor::rpc_info::{
     show_subnet::SubnetState,
     stake_info::{StakeAvailability, StakeInfo},
     subnet_info::{
-        SubnetEmissionWeightsInfo, SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3,
-        SubnetInfo, SubnetInfov2,
+        SubnetEmissionWeightsInfo, SubnetEmissionWeightsInfoV2, SubnetHyperparams,
+        SubnetHyperparamsV2, SubnetHyperparamsV3, SubnetInfo, SubnetInfov2,
     },
 };
 use pallet_subtensor::staking::lock::LockState;
@@ -74,7 +74,12 @@ sp_api::decl_runtime_apis! {
         /// top of the validator slot this block. `None` when the subnet does not
         /// exist.
         #[api_version(3)]
+        #[deprecated(note = "Use `get_subnet_emission_weights_v2` instead.")]
         fn get_subnet_emission_weights(netuid: NetUid) -> Option<SubnetEmissionWeightsInfo>;
+        /// `get_subnet_emission_weights` with the subnet's gamma shares: by target subnet, the
+        /// part of its emission that buys that subnet's gamma.
+        #[api_version(4)]
+        fn get_subnet_emission_weights_v2(netuid: NetUid) -> Option<SubnetEmissionWeightsInfoV2>;
     }
 
     pub trait StakeInfoRuntimeApi {

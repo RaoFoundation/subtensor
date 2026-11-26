@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .codec import RuntimeCodec, ss58_decode, ss58_encode
-from .errors import SubstrateRequestException
+from .errors import RuntimeApiNotFound, SubstrateRequestException
 from .rpc import RpcSession
 
 
@@ -223,7 +223,9 @@ def _legacy_definition(api: str, method: str) -> dict:
     try:
         return LEGACY_RUNTIME_APIS[api][method]
     except KeyError:
-        raise ValueError(f"Runtime API Call '{api}.{method}' not found in registry") from None
+        raise RuntimeApiNotFound(
+            f"Runtime API Call '{api}.{method}' not found in registry"
+        ) from None
 
 
 async def call_runtime_api(

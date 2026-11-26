@@ -128,7 +128,7 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
     substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_network_registration_cost", 10**9)
     substrate.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
     substrate.seed_runtime(
-        "SubnetInfoRuntimeApi", "get_subnet_emission_weights", EMISSION_WEIGHTS_INFO
+        "SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", EMISSION_WEIGHTS_INFO
     )
     substrate.seed("SubtensorModule", "SubnetLimit", [], 16)
     substrate.seed("SubtensorModule", "DissolveCleanupQueue", [], [])

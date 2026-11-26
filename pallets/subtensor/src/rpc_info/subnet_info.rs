@@ -196,6 +196,24 @@ pub struct SubnetEmissionWeightsInfo {
     pub created_via_lease: bool,
 }
 
+/// [`SubnetEmissionWeightsInfo`] with the subnet's gamma shares: by target subnet, the part of
+/// its emission that buys that subnet's gamma. The five slots sum to one less the gamma shares.
+#[freeze_struct("5cbadea1182957f8")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct SubnetEmissionWeightsInfoV2 {
+    pub netuid: Compact<NetUid>,
+    pub weights: Vec<Compact<u64>>,
+    pub burn: Compact<u64>,
+    pub recycle: Compact<u64>,
+    pub owner: Compact<u64>,
+    pub validator: Compact<u64>,
+    pub miner: Compact<u64>,
+    pub root_baseline_share: Compact<u64>,
+    pub root_share: Compact<u64>,
+    pub created_via_lease: bool,
+    pub gamma_shares: Vec<(Compact<NetUid>, Compact<u64>)>,
+}
+
 impl<T: Config> Pallet<T> {
     pub fn get_subnet_info(netuid: NetUid) -> Option<SubnetInfo<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
@@ -508,6 +526,29 @@ impl<T: Config> Pallet<T> {
             root_baseline_share: Compact(root_baseline_share),
             root_share: Compact(root_baseline_share.min(validator.0)),
             created_via_lease: view.created_via_lease,
+        })
+    }
+
+    /// [`Self::get_subnet_emission_weights_info`] with the subnet's gamma shares.
+    pub fn get_subnet_emission_weights_info_v2(
+        netuid: NetUid,
+    ) -> Option<SubnetEmissionWeightsInfoV2> {
+        let info = Self::get_subnet_emission_weights_info(netuid)?;
+        Some(SubnetEmissionWeightsInfoV2 {
+            netuid: info.netuid,
+            weights: info.weights,
+            burn: info.burn,
+            recycle: info.recycle,
+            owner: info.owner,
+            validator: info.validator,
+            miner: info.miner,
+            root_baseline_share: info.root_baseline_share,
+            root_share: info.root_share,
+            created_via_lease: info.created_via_lease,
+            gamma_shares: SubnetGammaEmission::<T>::get(netuid)
+                .into_iter()
+                .map(|(target, share)| (target.into(), Compact(share)))
+                .collect(),
         })
     }
 
