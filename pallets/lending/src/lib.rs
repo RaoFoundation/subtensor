@@ -3803,11 +3803,9 @@ pub mod pallet {
             Self::active_rank_price(netuid)
         }
         fn synthetic_and_residual(netuid: NetUid) -> (u64, u64) {
-            // While lending is disabled, schedule/root lookups must not pay
-            // two map reads per subnet. `Enabled` is a shared StorageValue.
-            if !Enabled::<T>::get() {
-                return (0, 0);
-            }
+            // Always subtract outstanding synthetic/residual from schedule
+            // issuance — even while lending is disabled. A pause must not
+            // reclassify leftover short/residual alpha as organic issuance.
             (
                 SyntheticOutstanding::<T>::get(netuid),
                 ResidualAlpha::<T>::get(netuid),

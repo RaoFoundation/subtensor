@@ -106,20 +106,18 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             .saturating_add(Weight::from_parts(50_000_000, 4_096))
     }
 
-    /// One `alpha_issuance_for_schedule` lookup's lending adjustment: Enabled
-    /// check plus SyntheticOutstanding + ResidualAlpha (Enabled path) with
-    /// trie proof. While lending is disabled the pallet short-circuits after
-    /// the Enabled read; this still charges the Enabled-path worst case.
+    /// One `alpha_issuance_for_schedule` lookup's lending adjustment:
+    /// SyntheticOutstanding + ResidualAlpha (always read — outstanding
+    /// balances must stay excluded from schedule issuance even while lending
+    /// is paused) with trie proof.
     pub(crate) fn lending_issuance_adjust_weight() -> Weight {
         const TRIE_PATH: u64 = 3072;
-        let value = (bool::max_encoded_len() as u64)
-            .saturating_add(u64::max_encoded_len() as u64)
-            .saturating_add(u64::max_encoded_len() as u64);
+        let value = (u64::max_encoded_len() as u64).saturating_add(u64::max_encoded_len() as u64);
         T::DbWeight::get()
-            .reads(3)
+            .reads(2)
             .saturating_add(Weight::from_parts(
                 5_000_000,
-                value.saturating_add(TRIE_PATH.saturating_mul(3)),
+                value.saturating_add(TRIE_PATH.saturating_mul(2)),
             ))
     }
 
