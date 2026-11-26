@@ -1,0 +1,11 @@
+{
+  "kind": "python",
+  "packages": [
+    {"name": "bittensor", "version": "11.3.7"},
+    {"name": "bittensor-core", "version": "0.1.14"}
+  ],
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v497-upgrade/page.tsx",
+  "public_path": "/releases/v497-upgrade",
+  "audiences": ["Python SDK users", "sudo signers"],
+  "summary": "Bittensor 11.3.7 ships the SDK and btcli changes introduced in V496. Raw multisig approvals can pin the call hash, runtime spec version, and exact operation timepoint; signing refuses mismatches rather than approving a different operation. The sudo parameter countersigner uses these checks. Sync and async snapshots expose the spec version of their pinned block. Bittensor-core 0.1.14 is a version-only companion release for the paired Python release train."
+}
