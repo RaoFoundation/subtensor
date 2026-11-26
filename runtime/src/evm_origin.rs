@@ -100,7 +100,8 @@ fn legacy_backing_account(address: H160) -> AccountId32 {
 
 /// Check freshness before changing an alias's backing account. The caller must
 /// run this inside the same storage transaction as the permanent alias binding.
-/// Pure TAO donations are swept, so prefunding cannot prevent registration.
+/// Pure TAO and gamma balance donations are swept, so prefunding cannot prevent
+/// registration.
 /// Previously used addresses must instead use a fresh Hashed key.
 pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
     let address = H160::from_slice(&AsRef::<[u8; 32]>::as_ref(account)[..20]);
@@ -131,11 +132,13 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
                 .is_none(),
         DispatchError::Other("HashedEvmAliasAlreadyUsed")
     );
-    // Incoming stake and ownership transfers can create economic state without
-    // touching the backing account's System nonce or references. Remapping that
-    // account would remove its EVM authorization route without moving its assets.
-    // Check index presence rather than decoding or walking the hotkey vectors;
-    // root-swap claim-only credits have their own index and need a separate probe.
+    // Incoming stake, gamma deposits and ownership transfers can create economic
+    // state without touching the backing account's System nonce or references.
+    // Remapping that account would remove its EVM authorization route without
+    // moving its assets. Check index presence rather than decoding or walking the
+    // hotkey vectors; root-swap claim-only credits have their own index and need a
+    // separate probe, and gamma deposits are indexed per subnet. Gamma balances
+    // are funds like TAO and move with it.
     ensure!(
         !pallet_subtensor::StakingHotkeys::<crate::Runtime>::contains_key(&backing)
             && !pallet_subtensor::OwnedHotkeys::<crate::Runtime>::contains_key(&backing)
@@ -144,9 +147,11 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
                 &backing,
             )
             .next()
-            .is_none(),
+            .is_none()
+            && !pallet_subtensor::Pallet::<crate::Runtime>::coldkey_has_gamma_deposits(&backing),
         DispatchError::Other("HashedEvmAliasAlreadyUsed")
     );
+    pallet_subtensor::Pallet::<crate::Runtime>::move_gamma_balances(&backing, account)?;
     if !state.data.free.is_zero() {
         <crate::Balances as Currency<AccountId32>>::transfer(
             &backing,
@@ -386,6 +391,40 @@ mod tests {
             );
             assert_eq!(crate::Balances::free_balance(&owner), TaoBalance::new(0));
             assert!(hashed_owner(&alias).is_none());
+        });
+    }
+
+    #[test]
+    fn registration_moves_gamma_balances_and_refuses_gamma_deposits() {
+        use frame_support::assert_ok;
+        use subtensor_runtime_common::{GammaBalance, NetUid};
+
+        sp_io::TestExternalities::default().execute_with(|| {
+            let owner = AccountId::new([31; 32]);
+            let backing = legacy_backing_account(H160::repeat_byte(31));
+            let netuid = NetUid::from(1);
+            pallet_subtensor::NetworksAdded::<Runtime>::insert(netuid, true);
+            pallet_subtensor::GammaBalances::<Runtime>::insert(
+                netuid,
+                &backing,
+                GammaBalance::from(500),
+            );
+            pallet_subtensor::ColdkeyGammaHotkeys::<Runtime>::insert(
+                netuid,
+                &backing,
+                frame_support::BoundedVec::truncate_from(alloc::vec![AccountId::new([32; 32])]),
+            );
+            assert_eq!(
+                prepare_hashed_alias(&owner),
+                Err(DispatchError::Other("HashedEvmAliasAlreadyUsed"))
+            );
+            pallet_subtensor::ColdkeyGammaHotkeys::<Runtime>::remove(netuid, &backing);
+            assert_ok!(prepare_hashed_alias(&owner));
+            assert!(pallet_subtensor::GammaBalances::<Runtime>::get(netuid, &backing).is_zero());
+            assert_eq!(
+                pallet_subtensor::GammaBalances::<Runtime>::get(netuid, &owner),
+                GammaBalance::from(500)
+            );
         });
     }
 

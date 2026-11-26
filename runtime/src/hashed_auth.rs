@@ -883,6 +883,13 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
             account,
             crate::TaoBalance::new(1_000_000_000_000),
         );
+        use pallet_evm::AddressMapping;
+        let alias = sp_core::H160::from(crate::HashedAccounts::evm_alias(account));
+        setup_alias_gamma_benchmark(
+            &pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(
+                alias,
+            ),
+        );
         for index in 0..crate::MaxProxies::get() {
             let delegate = AccountId::new(sp_io::hashing::blake2_256(
                 &(b"hashed-benchmark-proxy", index).encode(),
@@ -1285,5 +1292,20 @@ fn setup_pq_registration_benchmark(account: &AccountId) -> DispatchResult {
     let backing =
         pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(alias);
     let _ = crate::Balances::make_free_balance_be(&backing, crate::TaoBalance::new(1_000_000_000));
+    setup_alias_gamma_benchmark(&backing);
     Ok(())
+}
+
+/// Registration moves the old backing account's gamma balance on every subnet.
+#[cfg(feature = "runtime-benchmarks")]
+fn setup_alias_gamma_benchmark(backing: &AccountId) {
+    for netuid in 0..pallet_subtensor::SubnetLimit::<Runtime>::get() {
+        let netuid = subtensor_runtime_common::NetUid::from(netuid);
+        pallet_subtensor::NetworksAdded::<Runtime>::insert(netuid, true);
+        pallet_subtensor::GammaBalances::<Runtime>::insert(
+            netuid,
+            backing,
+            subtensor_runtime_common::GammaBalance::from(1),
+        );
+    }
 }

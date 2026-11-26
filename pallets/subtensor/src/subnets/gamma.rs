@@ -933,6 +933,24 @@ impl<T: Config> Pallet<T> {
             })
     }
 
+    /// Whether `coldkey` holds a gamma deposit on any subnet.
+    pub fn coldkey_has_gamma_deposits(coldkey: &T::AccountId) -> bool {
+        Self::get_all_subnet_netuids()
+            .into_iter()
+            .any(|netuid| ColdkeyGammaHotkeys::<T>::contains_key(netuid, coldkey))
+    }
+
+    /// Moves every gamma balance `from` holds to `to`.
+    pub fn move_gamma_balances(from: &T::AccountId, to: &T::AccountId) -> DispatchResult {
+        for netuid in Self::get_all_subnet_netuids() {
+            let balance = GammaBalances::<T>::take(netuid, from);
+            if !balance.is_zero() {
+                Self::credit_gamma_balance(netuid, to, balance)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Whether `coldkey` holds a gamma balance on any subnet.
     pub(crate) fn coldkey_has_gamma_balance(coldkey: &T::AccountId) -> bool {
         Self::get_all_subnet_netuids()
