@@ -839,18 +839,19 @@ impl<T: Config> Pallet<T> {
                     );
 
                     if done {
+                        // Persist scan completion before the freeze so a spent
+                        // meter cannot force the next idle pass to re-scan the
+                        // final basket segment. Freeze is opportunistic here;
+                        // alpha-count / LendingSettle refill bits when None.
+                        status.last_key = None;
+                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
                         // Refreeze `r` after basket sales have changed pool TAO so the
                         // staker rate reflects post-sale economics (HIGH 1A).
                         let freeze_w = T::Lending::freeze_dissolution_weight();
-                        if weight_meter.try_consume(freeze_w).is_err() {
-                            // Stay on this phase; basket work is done but freeze
-                            // waits for the next idle budget.
-                            return (false, weight_meter.consumed());
+                        if weight_meter.try_consume(freeze_w).is_ok() {
+                            status.dissolution_price_bits =
+                                T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                         }
-                        status.dissolution_price_bits =
-                            T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
-                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
-                        status.last_key = None;
                     } else {
                         status.last_key = new_key;
                     }
@@ -892,20 +893,20 @@ impl<T: Config> Pallet<T> {
                     );
                     if done {
                         status.subnet_distributed_tao = Some(0);
-                        // If basket phase did not set bits (no Dissolutions entry yet),
-                        // freeze now. Prefer existing bits from post-basket freeze.
+                        status.last_key = None;
+                        // Persist alpha-count completion even when freeze must
+                        // wait; LendingSettle freezes when bits are still None.
                         if status.dissolution_price_bits.is_none() {
                             let freeze_w = T::Lending::freeze_dissolution_weight();
-                            if weight_meter.try_consume(freeze_w).is_err() {
-                                return (false, weight_meter.consumed());
+                            if weight_meter.try_consume(freeze_w).is_ok() {
+                                status.dissolution_price_bits =
+                                    T::Lending::freeze_dissolution_price(netuid)
+                                        .map(|p| p.to_bits());
                             }
-                            status.dissolution_price_bits =
-                                T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                         }
                         // §13: settle lending positions on dissolution after
                         // count, before staker payout.
                         status.set_phase(DissolveCleanupPhase::LendingSettle);
-                        status.last_key = None;
                         weight_meter.consume(T::DbWeight::get().writes(2));
                     } else {
                         status.last_key = new_key;
