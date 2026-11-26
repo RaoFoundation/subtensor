@@ -351,7 +351,39 @@ fn test_swap_weight_commits() {
         ));
         assert_eq!(
             WeightCommits::<Test>::get(NetUidStorageIndex::from(netuid), new_hotkey),
-            Some(weight_commits)
+            None
+        );
+    });
+}
+
+#[test]
+fn test_swap_weight_commits_preserves_destination_queue() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let netuid = add_dynamic_network(&old_hotkey, &coldkey);
+        let index = NetUidStorageIndex::from(netuid);
+        let old_commits = VecDeque::from([(H256::from_low_u64_be(100), 0, 1, 0)]);
+        let new_commits = VecDeque::from([(H256::from_low_u64_be(200), 0, 1, 0)]);
+        // A destination can retain commits from a previous registration on this subnet.
+        WeightCommits::<Test>::insert(index, old_hotkey, old_commits);
+        WeightCommits::<Test>::insert(index, new_hotkey, new_commits.clone());
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
+
+        assert_ok!(SubtensorModule::swap_hotkey_v2(
+            RuntimeOrigin::signed(coldkey),
+            old_hotkey,
+            new_hotkey,
+            Some(netuid),
+            false,
+        ));
+
+        assert!(!WeightCommits::<Test>::contains_key(index, old_hotkey));
+        assert_eq!(
+            WeightCommits::<Test>::get(index, new_hotkey),
+            Some(new_commits)
         );
     });
 }

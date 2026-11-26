@@ -2085,6 +2085,7 @@ mod pallet_benchmarks {
 
         let alpha_amount = AlphaBalance::from(1_000_000_u64);
         let subnet_alpha = AlphaBalance::from(1_000_000_000_000_u64);
+        let pending_commits = VecDeque::from([(H256::zero(), 0_u64, 0_u64, 0_u64); 10]);
 
         // Populate the reduced topology and make the old hotkey a member
         // everywhere so the benchmark includes the per-subnet metadata path.
@@ -2096,6 +2097,11 @@ mod pallet_benchmarks {
             seed_swap_reserves::<T>(netuid);
             SubnetAlphaOut::<T>::insert(netuid, subnet_alpha);
             Subtensor::<T>::append_neuron(netuid, &old, 0);
+            WeightCommits::<T>::insert(
+                NetUidStorageIndex::from(netuid),
+                &old,
+                pending_commits.clone(),
+            );
         }
 
         // Use distinct coldkeys so execution performs the reduced number
@@ -2118,7 +2124,18 @@ mod pallet_benchmarks {
         add_balance_to_coldkey_account::<T>(&coldkey, cost + ed);
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey.clone()), old, new, None);
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            old.clone(),
+            new.clone(),
+            None,
+        );
+
+        for i in 1..=INCIDENT_SUBNETS {
+            let index = NetUidStorageIndex::from(NetUid::from(i));
+            assert!(!WeightCommits::<T>::contains_key(index, &old));
+            assert!(!WeightCommits::<T>::contains_key(index, &new));
+        }
     }
 
     #[benchmark]
@@ -3672,6 +3689,7 @@ mod pallet_benchmarks {
         let coldkey: T::AccountId = whitelisted_caller();
         let old_hotkey: T::AccountId = account("old_hotkey", 0, 1);
         let new_hotkey: T::AccountId = account("new_hotkey", 0, 1);
+        let pending_commits = VecDeque::from([(H256::zero(), 0_u64, 0_u64, 0_u64); 10]);
 
         for netuid_raw in 1..=GLOBAL_MAX_SUBNET_COUNT {
             let netuid = NetUid::from(netuid_raw);
@@ -3687,6 +3705,11 @@ mod pallet_benchmarks {
                 netuid,
                 old_hotkey.clone(),
             ));
+            WeightCommits::<T>::insert(
+                NetUidStorageIndex::from(netuid),
+                &old_hotkey,
+                pending_commits.clone(),
+            );
 
             let alpha_amount = AlphaBalance::from(1_000_000_u64);
             SubnetAlphaOut::<T>::insert(netuid, alpha_amount * 2.into());
@@ -3735,11 +3758,24 @@ mod pallet_benchmarks {
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
-            old_hotkey,
-            new_hotkey,
+            old_hotkey.clone(),
+            new_hotkey.clone(),
             Some(NetUid::from(1)),
             false,
         );
+
+        for netuid_raw in 1..=GLOBAL_MAX_SUBNET_COUNT {
+            let index = NetUidStorageIndex::from(NetUid::from(netuid_raw));
+            if netuid_raw == 1 {
+                assert!(!WeightCommits::<T>::contains_key(index, &old_hotkey));
+            } else {
+                assert_eq!(
+                    WeightCommits::<T>::get(index, &old_hotkey),
+                    Some(pending_commits.clone()),
+                );
+            }
+            assert!(!WeightCommits::<T>::contains_key(index, &new_hotkey));
+        }
     }
 
     #[benchmark]
