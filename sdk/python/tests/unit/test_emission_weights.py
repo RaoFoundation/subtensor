@@ -9,6 +9,7 @@ import json
 import pytest
 
 from bittensor import emission_weights as ew
+from bittensor._transport.errors import RuntimeApiNotFound
 from bittensor.cli import context as cli_context
 from bittensor.client import Client
 from bittensor.intents import SetSubnetEmissionWeights, SetSubnetGammaEmissionWhitelisted
@@ -712,6 +713,43 @@ def test_intent_counts_the_gamma_shares_in_the_sum():
     plan = asyncio.run(client.plan(full, dev_wallet()))
     assert [v.split(":")[0] for v in plan.violations] == ["EmissionWeightsDoNotSumToOne"]
     assert "and the gamma shares (10.00%)" in plan.violations[0]
+
+
+def _seed_first_runtime_api(fake: FakeSubstrate) -> None:
+    """A runtime with only the first emission weights method: the shares are in storage."""
+
+    def absent(params):
+        raise RuntimeApiNotFound("SubnetInfoRuntimeApi.get_subnet_emission_weights_v2")
+
+    info = dict(EMISSION_WEIGHTS_INFO, weights=GAMMA_WEIGHTS, validator=GAMMA_WEIGHTS[ew.VALIDATOR])
+    del info["gamma_shares"]
+    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights_v2", absent)
+    fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_emission_weights", info)
+    fake.seed("SubtensorModule", "SubnetGammaEmission", [1], [(2, GAMMA_SHARE)])
+    fake.seed("SubtensorModule", "SubnetGammaEmissionWhitelisted", [2], True)
+    fake.seed("SubtensorModule", "SubnetGammaEnabled", [2], True)
+
+
+def test_a_runtime_without_the_second_method_is_read_and_planned():
+    client, fake = _client()
+    _seed_first_runtime_api(fake)
+    info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
+    assert info.gamma_shares == {2: GAMMA_SHARE}
+
+    owner = SetSubnetEmissionWeights(netuid=1, slots=["owner"], values=["10%"], renormalize=True)
+    plan = asyncio.run(client.plan(owner, dev_wallet()))
+    assert plan.ok, plan.violations
+    split = asyncio.run(owner.build(fake, dev_wallet())).params["split"]
+    assert sum(share for _, share in split[:5]) == ONE - GAMMA_SHARE
+
+
+def test_a_runtime_from_before_gamma_has_no_shares():
+    client, fake = _client()
+    _seed_first_runtime_api(fake)
+    fake._storage.pop(("SubtensorModule", "SubnetGammaEmission"))
+    fake.missing_storage.add(("SubtensorModule", "SubnetGammaEmission"))
+    info = asyncio.run(client.read("subnet_emission_weights", netuid=1))
+    assert info.gamma_shares == {} and info.weights == GAMMA_WEIGHTS
 
 
 def _seed_gamma_targets(fake: FakeSubstrate) -> None:

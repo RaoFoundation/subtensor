@@ -21,9 +21,9 @@ from typing import Any, Optional
 
 from .. import emission_weights as ew
 from .._generated import calls
-from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..reads.subnets import (
+    emission_weights_info,
     emission_weights_rate_limit_blocks,
     emission_weights_rate_limit_key,
     gamma_emission_shares,
@@ -164,8 +164,10 @@ class SetSubnetEmissionWeights(Intent):
     async def _current(self, substrate) -> Optional[dict]:
         if self.netuid == 0:
             return None  # the runtime API answers for the root subnet, which has no vector
-        return await substrate.runtime_call(
-            *api.SubnetInfoRuntimeApi.get_subnet_emission_weights_v2, [self.netuid]
+        return await emission_weights_info(
+            lambda method, params: substrate.runtime_call(*method, params),
+            lambda item, keys: substrate.query(*item, keys),
+            self.netuid,
         )
 
     def _gamma_shares(self, current: Optional[dict]) -> tuple[dict[int, int], dict[int, int]]:

@@ -10,7 +10,7 @@ from typing import Optional
 from .._generated import constants
 from .._generated import runtime_apis as api
 from .._generated import storage as st
-from .._transport.errors import StorageFunctionNotFound
+from .._transport.errors import RuntimeApiNotFound, StorageFunctionNotFound
 from ..balance import Balance
 from ..emission_weights import (
     DEFAULT_OWNER,
@@ -326,10 +326,31 @@ async def root_preservation_inputs(query, netuid: int) -> tuple[int, int, float]
     return int(root_tao or 0), issuance, share_to_float(int(tao_weight or 0))
 
 
+async def emission_weights_info(runtime, query, netuid: int) -> Optional[dict]:
+    """The subnet's ``get_subnet_emission_weights_v2`` info, or None if it does not exist.
+    A runtime from before that method answers with the first one and the gamma shares
+    in storage. ``runtime(method, params)`` and ``query(item, keys)`` are async reads."""
+    try:
+        return await runtime(api.SubnetInfoRuntimeApi.get_subnet_emission_weights_v2, [netuid])
+    except RuntimeApiNotFound:
+        pass
+    info, shares = await asyncio.gather(
+        runtime(api.SubnetInfoRuntimeApi.get_subnet_emission_weights, [netuid]),
+        _stored_gamma_shares(query, netuid),
+    )
+    return None if info is None else {**info, "gamma_shares": shares}
+
+
+async def _stored_gamma_shares(query, netuid: int) -> list:
+    try:
+        return list(await query(st.SubtensorModule.SubnetGammaEmission, [netuid]) or [])
+    except StorageFunctionNotFound:
+        return []  # a runtime from before gamma
+
+
 def gamma_emission_shares(info: dict) -> dict[int, int]:
     """The subnet's gamma shares in u64 parts, by target netuid, from its
-    ``get_subnet_emission_weights_v2`` info; its five emission slots sum to one less
-    their sum."""
+    :func:`emission_weights_info`; its five emission slots sum to one less their sum."""
     return {int(target): int(share) for target, share in info["gamma_shares"]}
 
 
@@ -430,7 +451,7 @@ async def subnet_emission_weights(view, netuid: int) -> Optional[SubnetEmissionW
     if netuid == 0:
         return None  # the runtime API answers for the root subnet, which has no vector
     view = await view.at()
-    info = await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_emission_weights_v2, [netuid])
+    info = await emission_weights_info(view.runtime, view.query, netuid)
     if info is None:
         return None
     weights = normalize_weights(info["weights"])
