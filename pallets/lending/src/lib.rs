@@ -3261,23 +3261,27 @@ pub mod pallet {
 
         /// O(1) weight for [`Self::start_dissolution`]: Enabled check, optional
         /// Dissolutions probe/insert, rate reads (pool tao, PoolTaoEma,
-        /// issuance), System Number, and floor/target kills — with trie proof.
+        /// three issuance keys), System Number, and floor/target kills —
+        /// with trie proof.
         pub fn start_dissolution_weight() -> Weight {
             let db = T::DbWeight::get();
             const TRIE_PATH: u64 = 3072;
-            // Enabled + Dissolutions + PoolTaoEma + pool_tao + issuance + Number
-            // + PruneFloor + PruneTarget (existence) = 8 reads; Dissolutions +
-            // two kills = up to 3 writes.
+            // Enabled + Dissolutions + PoolTaoEma + pool_tao + SubnetAlphaIn +
+            // SubnetAlphaOut + BalancerAlphaReservoir + Number + PruneFloor +
+            // PruneTarget = 10 reads; Dissolutions + two kills = up to 3 writes.
+            // `alpha_issuance` is three separate storage reads (not one aggregate).
             let value = (bool::max_encoded_len() as u64)
                 .saturating_add(Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
                 .saturating_add(U64F64::max_encoded_len() as u64) // PoolTaoEma
                 .saturating_add(u64::max_encoded_len() as u64) // pool tao
-                .saturating_add(u64::max_encoded_len() as u64) // issuance
+                .saturating_add(u64::max_encoded_len() as u64) // SubnetAlphaIn
+                .saturating_add(u64::max_encoded_len() as u64) // SubnetAlphaOut
+                .saturating_add(u64::max_encoded_len() as u64) // BalancerAlphaReservoir
                 .saturating_add(BlockNumberFor::<T>::max_encoded_len() as u64)
                 .saturating_add(U64F64::max_encoded_len() as u64) // floor
                 .saturating_add(NetUid::max_encoded_len() as u64); // target
-            db.reads_writes(8, 3)
-                .saturating_add(Weight::from_parts(0, value.saturating_add(TRIE_PATH * 8)))
+            db.reads_writes(10, 3)
+                .saturating_add(Weight::from_parts(0, value.saturating_add(TRIE_PATH * 10)))
         }
 
         pub fn start_dissolution(netuid: NetUid) -> DispatchResult {
@@ -3428,16 +3432,21 @@ pub mod pallet {
         }
 
         /// O(1) weight for [`Self::freeze_dissolution_price`]: Dissolutions
-        /// mutate + pool tao / PoolTaoEma / issuance reads + trie proof.
+        /// mutate + pool tao / PoolTaoEma / three issuance keys + trie proof.
+        ///
+        /// `alpha_issuance` reads `SubnetAlphaIn`, `SubnetAlphaOut`, and
+        /// `BalancerAlphaReservoir` separately — budget all three.
         pub fn freeze_dissolution_weight() -> Weight {
             let db = T::DbWeight::get();
             const TRIE_PATH: u64 = 3072;
             let value = (Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
-                .saturating_add(u64::max_encoded_len() as u64)
-                .saturating_add(U64F64::max_encoded_len() as u64)
-                .saturating_add(u64::max_encoded_len() as u64);
-            db.reads_writes(4, 1)
-                .saturating_add(Weight::from_parts(0, value.saturating_add(TRIE_PATH * 4)))
+                .saturating_add(u64::max_encoded_len() as u64) // pool tao
+                .saturating_add(U64F64::max_encoded_len() as u64) // PoolTaoEma
+                .saturating_add(u64::max_encoded_len() as u64) // SubnetAlphaIn
+                .saturating_add(u64::max_encoded_len() as u64) // SubnetAlphaOut
+                .saturating_add(u64::max_encoded_len() as u64); // BalancerAlphaReservoir
+            db.reads_writes(6, 1)
+                .saturating_add(Weight::from_parts(0, value.saturating_add(TRIE_PATH * 6)))
         }
 
         /// O(1) weight for [`Self::finish_dissolution`]: six storage removals
