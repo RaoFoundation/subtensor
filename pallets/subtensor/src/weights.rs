@@ -40,6 +40,9 @@ pub trait WeightInfo {
     fn pow_register() -> Weight { Self::register() }
     fn check_pow_registration() -> Weight { Self::register() }
     fn spend_gamma() -> Weight { Self::move_gamma() }
+    fn deposit_gamma() -> Weight { Self::move_gamma() }
+    fn withdraw_gamma() -> Weight { Self::move_gamma() }
+    fn transfer_gamma() -> Weight { Self::move_gamma() }
 
 	fn feed_tao_usd_price() -> Weight;
 	fn mint_gamma() -> Weight;

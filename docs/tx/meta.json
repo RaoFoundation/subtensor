@@ -65,6 +65,7 @@
     "commit-weight-hash",
     "commit-weights",
     "decrease-take",
+    "deposit-gamma",
     "dispute-coldkey-swap",
     "increase-take",
     "lock-stake",
@@ -111,10 +112,12 @@
     "swap-hotkey",
     "swap-stake",
     "terminate-lease",
+    "transfer-gamma",
     "transfer-stake",
     "unstake-all",
     "unstake-all-alpha",
     "update-symbol",
+    "withdraw-gamma",
     "---Utility---",
     "batch"
   ]

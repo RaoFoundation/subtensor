@@ -67,7 +67,7 @@ def _typed(field: str, help: Optional[str], before: str) -> PromptRule:
     return PromptRule(field, lambda: spec, before=before)
 
 
-# A gamma deposit's hotkey is an API key, never the wallet's own hotkey.
+# A gamma deposit's hotkey is one kept for spending, never the wallet's own hotkey.
 _GAMMA_DEPOSIT = IntentPromptPolicy(required_after_prompt=("hotkey_ss58",))
 
 
@@ -143,6 +143,16 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
     ),
     "close_gamma_deposit": _GAMMA_DEPOSIT,
     "set_gamma_deposit_daily_spend_cap": _GAMMA_DEPOSIT,
+    "deposit_gamma": _GAMMA_DEPOSIT,
+    "withdraw_gamma": _GAMMA_DEPOSIT,
+    "transfer_gamma": IntentPromptPolicy(
+        rules=(
+            PromptRule(
+                "dest_coldkey_ss58",
+                functools.partial(dest_account_spec, "dest_coldkey_ss58"),
+            ),
+        )
+    ),
 }
 
 

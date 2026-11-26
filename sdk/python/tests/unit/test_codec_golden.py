@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from bittensor._transport import codec as codec_mod
-from codegen.emit_python import emit_storage
+from codegen.emit_python import emit_calls, emit_storage
 from tests.conftest import GOLDEN_FIXTURE, golden
 from tests.conftest import golden_codec as codec
 
@@ -246,3 +246,11 @@ def test_emitted_storage_descriptors_carry_value_idents():
     assert "value_type_ident: str = ''" in content
     assert "Tempo = Item('SubtensorModule', 'Tempo', 'u16')" in content
     compile(content, "storage.py", "exec")
+
+
+def test_emitted_call_builders_keep_optional_types():
+    content = emit_calls(codec().metadata_ir())
+    assert "target_address: 'AccountId32 | None'" in content
+    assert "maybe_timepoint: 'Timepoint | None'" in content
+    assert "\nTimepoint = Any\n" in content
+    compile(content, "calls.py", "exec")

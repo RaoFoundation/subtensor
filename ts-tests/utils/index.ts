@@ -6,6 +6,7 @@ export * from "./basket.js";
 export * from "./coldkey_swap.ts";
 export * from "./evm-config.ts";
 export * from "./evm.ts";
+export * from "./gamma.ts";
 export * from "./shield_helpers.ts";
 export * from "./staking.js";
 export * from "./subnet.js";

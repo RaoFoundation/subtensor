@@ -12,7 +12,8 @@ did-you-mean error for anything unresolvable. Account-typed values are
 recognized two ways:
 
 - generated call builders (``bittensor.calls``) annotate scalar account
-  params as ``AccountId32`` / ``MultiAddress``; known signatory-list fields
+  params as ``AccountId32`` / ``MultiAddress``, with ``| None`` when optional;
+  known signatory-list fields
   are resolved explicitly because structural ``Vec<AccountId32>`` annotations
   currently degrade to ``Any`` in codegen;
 - intent specs resolve their ``*_ss58`` args and signatory lists.
@@ -76,6 +77,7 @@ def _builder(target: str):
 
 
 def _resolve_value(app_ctx, param: str, annotation: Optional[str], value: Any, hint: str) -> Any:
+    annotation = annotation.removesuffix(" | None") if annotation else annotation
     if isinstance(value, str) and annotation in _ACCOUNT_ANNOTATIONS:
         return _resolve_account(app_ctx, param, value, hint, allow_receiving=False)
     if annotation == "MultiAddress" and isinstance(value, dict) and set(value) == {"Id"}:

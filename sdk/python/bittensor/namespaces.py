@@ -266,7 +266,7 @@ class Collateral(_ReadNamespace):
 
 
 class Gamma(_ReadNamespace):
-    """Gamma deposits, mint quotes, and the TAO/USD price."""
+    """Gamma deposits, balances, mint quotes, and the TAO/USD price."""
 
     _category = "Gamma"
 

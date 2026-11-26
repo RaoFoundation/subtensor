@@ -49,6 +49,8 @@ pub struct ColdkeySwapWork {
     pub gamma_deposits: u32,
     /// Gamma deposits already held by the destination.
     pub destination_gamma_deposits: u32,
+    /// Destination holds a gamma balance, which like TAO is funds, not account state.
+    pub destination_has_gamma_balance: bool,
     /// Destination has non-balance state that makes the swap a merge.
     pub destination_has_non_balance_policy_protection: bool,
     /// Destination presence prevents importing source policies.
@@ -122,6 +124,12 @@ impl<T: Config> Pallet<T> {
                     .reads_writes(2, 3)
                     .saturating_mul(u64::from(work.gamma_deposits)),
             )
+            // Per subnet: the destination's gamma balance check and the balance merge.
+            .saturating_add(
+                T::DbWeight::get()
+                    .reads_writes(3, 2)
+                    .saturating_mul(u64::from(TotalNetworks::<T>::get())),
+            )
     }
 
     /// The largest swap one call admits, used as the pre-dispatch envelope.
@@ -134,6 +142,7 @@ impl<T: Config> Pallet<T> {
             registration_queue_scan: crate::MAX_COLDKEY_SWAP_REGISTRATION_QUEUE_SCAN,
             gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
             destination_gamma_deposits: crate::MAX_COLDKEY_SWAP_GAMMA_DEPOSITS,
+            destination_has_gamma_balance: true,
             destination_has_non_balance_policy_protection: true,
             destination_rejects_unsolicited_policy_import: true,
         }
@@ -179,9 +188,9 @@ impl<T: Config> Pallet<T> {
         // Pending-registration discovery: one queue read + total-scan sentinel
         // (not only owned rows — unrelated entries are still visited).
         let pending_reads = u64::from(max.registration_queue_scan).saturating_add(1);
-        // Gamma deposit counts of both coldkeys: the subnet list plus one index length per
-        // subnet, each.
-        let gamma_reads = networks.saturating_mul(4);
+        // Per subnet: the subnet list and both coldkeys' index lengths for the gamma deposit
+        // counts, then the subnet list and the destination's gamma balance.
+        let gamma_reads = networks.saturating_mul(5);
         T::DbWeight::get()
             .reads(4)
             .saturating_add(Self::hotkey_owner_policy_weight())
@@ -532,11 +541,12 @@ impl<T: Config> Pallet<T> {
     /// Balance uses total account funds (`Inspect::balance`), including
     /// reserved/held deposits — not reducible/transferable only. A pending
     /// multisig (or similar) deposit with zero free balance is still prior
-    /// presence.
+    /// presence. A gamma balance on any subnet counts as funds too.
     #[cfg(test)]
     pub(crate) fn coldkey_rejects_unsolicited_policy_import(coldkey: &T::AccountId) -> bool {
         Self::coldkey_has_non_balance_policy_protection(coldkey)
             || !Self::coldkey_total_balance(coldkey).is_zero()
+            || Self::coldkey_has_gamma_balance(coldkey)
     }
 
     fn coldkey_can_retain_active_lock_terms(
@@ -761,8 +771,10 @@ impl<T: Config> Pallet<T> {
         // source association and would not early-return).
         let mut work = Self::coldkey_swap_work(old_coldkey, new_coldkey);
         work.dest_locks = dest_locks;
-        work.gamma_deposits = Self::coldkey_gamma_deposit_count(old_coldkey);
-        work.destination_gamma_deposits = Self::coldkey_gamma_deposit_count(new_coldkey);
+        let (gamma_deposits, destination_gamma_deposits, gamma_deposits_fit) =
+            Self::coldkey_swap_gamma_deposits(old_coldkey, new_coldkey);
+        work.gamma_deposits = gamma_deposits;
+        work.destination_gamma_deposits = destination_gamma_deposits;
         if work.dest_locks > crate::MAX_COLDKEY_SWAP_DEST_LOCKS
             || work.hotkeys > crate::MAX_COLDKEY_SWAP_HOTKEYS
             || work.positions > crate::MAX_COLDKEY_SWAP_POSITIONS
@@ -778,6 +790,13 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::ColdkeySwapTooHeavy,
             ));
         }
+        if !gamma_deposits_fit {
+            return Err((
+                Self::coldkey_swap_failed_weight(Some(work), false),
+                Error::<T>::TooManyGammaDeposits,
+            ));
+        }
+        work.destination_has_gamma_balance = Self::coldkey_has_gamma_balance(new_coldkey);
         work.destination_has_non_balance_policy_protection =
             Self::coldkey_has_non_balance_policy_protection_with_gamma(
                 new_coldkey,
@@ -786,7 +805,8 @@ impl<T: Config> Pallet<T> {
             );
         work.destination_rejects_unsolicited_policy_import = work
             .destination_has_non_balance_policy_protection
-            || !Self::coldkey_total_balance(new_coldkey).is_zero();
+            || !Self::coldkey_total_balance(new_coldkey).is_zero()
+            || work.destination_has_gamma_balance;
 
         let (owned_regs, queue_scan) = Self::coldkey_pending_registrations_bounded(old_coldkey);
         work.pending_registrations = owned_regs;
@@ -955,8 +975,8 @@ impl<T: Config> Pallet<T> {
                         !work.destination_rejects_unsolicited_policy_import
                     }
                 };
-                // TAO alone does not establish Subtensor account state. A transfer
-                // during the delay must not prevent lock migration or clear source flags.
+                // Funds alone, TAO or gamma, do not establish Subtensor account state. A
+                // transfer during the delay must not prevent lock migration or clear source flags.
                 let preserve_destination_flags =
                     policy_import_mode.preserve_destination_flags(&work);
                 // Preserve the position's active terms independently of payment flags.
@@ -969,7 +989,10 @@ impl<T: Config> Pallet<T> {
                         reservation_live: true,
                         ..
                     } => true,
-                    _ => Self::coldkey_total_balance(new_coldkey).is_zero(),
+                    _ => {
+                        Self::coldkey_total_balance(new_coldkey).is_zero()
+                            && !work.destination_has_gamma_balance
+                    }
                 } && Self::coldkey_can_retain_active_lock_terms(
                     new_coldkey,
                     saved_dest_flags,

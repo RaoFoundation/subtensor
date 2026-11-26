@@ -25,10 +25,10 @@ const releases: Release[] = [
   {
     tag: 'v498',
     date: 'Proposed',
-    title: 'Runtime Version Bump',
+    title: 'Gamma Balances and Transfers',
     summary:
-      'Raises the runtime spec to 498 without changing calls or parameters relative to V497. ' +
-      'Refresh metadata and rebuild signing payloads after activation.',
+      'Coldkeys can hold gamma outside a deposit and send it to each other. Minting is ' +
+      'unchanged.',
     href: '/releases/v498-upgrade',
   },
   {

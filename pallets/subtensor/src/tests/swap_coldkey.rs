@@ -487,6 +487,7 @@ fn test_swap_coldkey_bounded_and_priced_per_position() {
                     registration_queue_scan: 0,
                     gamma_deposits: 0,
                     destination_gamma_deposits: 0,
+                    destination_has_gamma_balance: false,
                     destination_has_non_balance_policy_protection: false,
                     destination_rejects_unsolicited_policy_import: false,
                 }
@@ -2368,6 +2369,41 @@ fn gamma_only_destination_does_not_receive_source_policy_or_lineage() {
     });
 }
 
+// A gamma balance is funds, like TAO: a destination holding only one keeps its default reward
+// route but takes the source's flags and lineage.
+#[test]
+fn gamma_balance_only_destination_receives_source_flags_and_lineage() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(1);
+        let destination = U256::from(2);
+        let source_hotkey = U256::from(10);
+        let auto_stake_hotkey = U256::from(20);
+        let netuid = add_dynamic_network(&source_hotkey, &source);
+
+        GammaBalances::<Test>::insert(netuid, destination, GammaBalance::from(1u64));
+        AutoStakeDestination::<Test>::insert(source, netuid, auto_stake_hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(auto_stake_hotkey, netuid, vec![source]);
+        AccountFlags::<Test>::insert(source, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+
+        assert!(SubtensorModule::coldkey_rejects_unsolicited_policy_import(
+            &destination
+        ));
+        assert_ok!(SubtensorModule::do_swap_coldkey(&source, &destination));
+
+        assert!(AutoStakeDestination::<Test>::get(destination, netuid).is_none());
+        assert_eq!(
+            AccountFlags::<Test>::get(destination),
+            ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH,
+        );
+        assert_eq!(ColdkeyRoot::<Test>::get(destination), Some(source));
+        assert!(SubtensorModule::same_coldkey_lineage(&source, &destination));
+        assert_eq!(
+            GammaBalances::<Test>::get(netuid, destination),
+            GammaBalance::from(1u64)
+        );
+    });
+}
+
 // PROTECTED_REGRESSION: a TAO-only destination must preserve source flags and lineage on a
 // current-destination swap; changes require explicit human approval.
 #[test]
@@ -2545,7 +2581,8 @@ fn test_do_swap_coldkey_migrates_gamma_deposits() {
     });
 }
 
-// Gamma deposits merge into the new coldkey's, up to `MAX_GAMMA_DEPOSITS` per subnet.
+// Gamma deposits merge into the new coldkey's, up to `MAX_GAMMA_DEPOSITS` per subnet, and
+// gamma balances add up.
 #[test]
 fn test_do_swap_coldkey_merges_gamma_deposits() {
     new_test_ext(1).execute_with(|| {
@@ -2554,6 +2591,8 @@ fn test_do_swap_coldkey_merges_gamma_deposits() {
         let held = 200..200 + u64::from(MAX_GAMMA_DEPOSITS) - 1;
         seed_gamma_deposits(netuid, old_coldkey, 100..102);
         seed_gamma_deposits(netuid, new_coldkey, held.clone());
+        GammaBalances::<Test>::insert(netuid, old_coldkey, GammaBalance::from(3u64));
+        GammaBalances::<Test>::insert(netuid, new_coldkey, GammaBalance::from(4u64));
         assert_noop!(
             SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
             Error::<Test>::TooManyGammaDeposits
@@ -2575,6 +2614,11 @@ fn test_do_swap_coldkey_merges_gamma_deposits() {
         assert_eq!(
             GammaDeposits::<Test>::get(netuid, U256::from(100)).map(|deposit| deposit.coldkey),
             Some(new_coldkey)
+        );
+        assert!(!GammaBalances::<Test>::contains_key(netuid, old_coldkey));
+        assert_eq!(
+            GammaBalances::<Test>::get(netuid, new_coldkey),
+            GammaBalance::from(7u64)
         );
     });
 }

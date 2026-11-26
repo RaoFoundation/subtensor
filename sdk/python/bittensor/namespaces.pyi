@@ -237,7 +237,14 @@ class Epochs(_ReadNamespace):
         """
 
 class Gamma(_ReadNamespace):
-    """Gamma deposits, mint quotes, and the TAO/USD price."""
+    """Gamma deposits, balances, mint quotes, and the TAO/USD price."""
+
+    async def gamma_balances(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """The gamma a coldkey holds on no hotkey, on every subnet where it holds some.
+
+        Each has its `netuid` and `balance_gamma` as an exact decimal string. A balance is sent
+        with `transfer_gamma` and spent once moved to a deposit with `deposit_gamma`.
+        """
 
     async def gamma_deposit(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
         """The gamma deposit at a hotkey on a subnet, or None.

@@ -1,4 +1,4 @@
-"""Gamma reads: deposits, mint quotes, and the TAO/USD price."""
+"""Gamma reads: deposits, balances, mint quotes, and the TAO/USD price."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..balance import Balance
 from ..intents._money import gamma_from_units
+from ..intents.gamma import GAMMA_BALANCES_SPEC
 from ..result import chain_error_from_dispatch
 from .base import read
 
@@ -71,6 +72,28 @@ async def gamma_deposits(view, coldkey_ss58: str) -> list[dict]:
     """Every gamma deposit of a coldkey, on every subnet."""
     infos = await view.runtime(api.GammaRuntimeApi.get_gamma_deposits_for_coldkey, [coldkey_ss58])
     return [_deposit_record(info) for info in infos or []]
+
+
+@read(
+    "gamma_balances",
+    {"coldkey_ss58": "string"},
+    category="Gamma",
+    param_docs={"coldkey_ss58": "Coldkey holding the balances."},
+)
+async def gamma_balances(view, coldkey_ss58: str) -> list[dict]:
+    """The gamma a coldkey holds on no hotkey, on every subnet where it holds some.
+
+    Each has its `netuid` and `balance_gamma` as an exact decimal string. A balance is sent
+    with `transfer_gamma` and spent once moved to a deposit with `deposit_gamma`. A runtime
+    before 498 holds none.
+    """
+    if await view.spec_version() < GAMMA_BALANCES_SPEC:
+        return []
+    balances = await view.runtime(api.GammaRuntimeApi.get_gamma_balances, [coldkey_ss58])
+    return [
+        {"netuid": int(netuid), "balance_gamma": gamma_from_units(balance)}
+        for netuid, balance in balances or []
+    ]
 
 
 @read(

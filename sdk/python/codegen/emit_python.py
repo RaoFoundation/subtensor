@@ -71,6 +71,7 @@ def _annotation(type_ident: str) -> str:
     Named idents ("TaoBalance", "NetUid", "AccountId32") and primitives
     annotate as themselves via module-level aliases; structural idents that
     are not Python identifiers ("Vec<u16>", "(u16, u16)") degrade to ``Any``.
+    An optional one keeps its type: "Option<AccountId32>" is ``AccountId32 | None``.
 
     Annotations are emitted as string literals so the ident survives to
     runtime in ``__annotations__`` (an evaluated ``TaoBalance`` alias would
@@ -80,7 +81,17 @@ def _annotation(type_ident: str) -> str:
         return type_ident
     if type_ident.isidentifier() and not keyword.iskeyword(type_ident):
         return type_ident
+    inner = _optional(type_ident)
+    if inner != type_ident and _annotation(inner) != "Any":
+        return f"{_annotation(inner)} | None"
     return "Any"
+
+
+def _optional(type_ident: str) -> str:
+    """The type inside ``Option<...>``, or the ident itself."""
+    if type_ident.startswith("Option<") and type_ident.endswith(">"):
+        return type_ident[len("Option<") : -1]
+    return type_ident
 
 
 def _check_unique(scope: str, names: list[str], reserved: tuple[str, ...] = ()) -> None:
@@ -130,7 +141,12 @@ def emit_calls(ir: MetadataIR) -> str:
     # add_stake's amount_staked is a TaoBalance while remove_stake's
     # amount_unstaked is an AlphaBalance), not to constrain callers.
     idents = sorted(
-        {arg.type_ident for pallet in ir.pallets for call in pallet.calls for arg in call.args}
+        {
+            _optional(arg.type_ident)
+            for pallet in ir.pallets
+            for call in pallet.calls
+            for arg in call.args
+        }
     )
     aliases = [i for i in idents if i not in _BUILTIN_IDENTS and _annotation(i) == i]
     _check_unique("calls.py type aliases", aliases, reserved=("Call", "Any", "NamedTuple"))

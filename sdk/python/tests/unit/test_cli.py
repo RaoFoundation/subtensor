@@ -370,6 +370,18 @@ class TestAddressResolution:
         assert params["new_coldkey"] == expected.address
         assert expected.source == "saved multisig 'treasury'"
 
+    def test_raw_call_resolves_an_optional_account(self, fake, wallet_dir):
+        app_ctx = self.app_context(wallet_dir)
+        expected = app_ctx.resolve_address_ref("hotkey", "default")
+
+        named = resolve_builder_params(
+            app_ctx, "SubtensorModule.mint_gamma", {"hotkey": "default", "daily_spend_cap": None}
+        )
+        absent = resolve_builder_params(app_ctx, "SubtensorModule.mint_gamma", {"hotkey": None})
+
+        assert named == {"hotkey": expected.address, "daily_spend_cap": None}
+        assert absent == {"hotkey": None}
+
     def test_raw_call_does_not_guess_arbitrary_string_lists_are_accounts(self, fake, wallet_dir):
         app_ctx = self.app_context(wallet_dir)
         params = {"remark": [BOB, "ordinary memo text"]}

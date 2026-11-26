@@ -1087,5 +1087,42 @@ mod events {
             /// Authorized account, or `None` after revocation.
             delegate: Option<T::AccountId>,
         },
+        /// Gamma moved from a coldkey's balance to its deposit at a hotkey.
+        GammaDeposited {
+            /// Subnet of the balance and the deposit.
+            netuid: NetUid,
+            /// Coldkey owning both.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit credited.
+            hotkey: T::AccountId,
+            /// Gamma moved.
+            amount: GammaBalance,
+        },
+        /// Gamma moved from a coldkey's deposit at a hotkey to its balance.
+        GammaWithdrawn {
+            /// Subnet of the deposit and the balance.
+            netuid: NetUid,
+            /// Coldkey owning both.
+            coldkey: T::AccountId,
+            /// Hotkey of the deposit debited.
+            hotkey: T::AccountId,
+            /// Gamma moved.
+            amount: GammaBalance,
+        },
+        /// Gamma sent from one coldkey to another.
+        GammaTransferred {
+            /// Subnet of the gamma.
+            netuid: NetUid,
+            /// Coldkey that sent it.
+            origin_coldkey: T::AccountId,
+            /// Coldkey that received it.
+            destination_coldkey: T::AccountId,
+            /// Hotkey of the sender's deposit debited, or `None` for its balance.
+            origin_hotkey: Option<T::AccountId>,
+            /// Hotkey of the receiver's deposit credited, or `None` for its balance.
+            destination_hotkey: Option<T::AccountId>,
+            /// Gamma sent.
+            amount: GammaBalance,
+        },
     }
 }

@@ -98,6 +98,7 @@ class GammaRuntimeApi:
     get_gamma_deposits_for_coldkey = Method('GammaRuntimeApi', 'get_gamma_deposits_for_coldkey')
     sim_mint_gamma = Method('GammaRuntimeApi', 'sim_mint_gamma')
     sim_mint_gamma_with_stake = Method('GammaRuntimeApi', 'sim_mint_gamma_with_stake')
+    get_gamma_balances = Method('GammaRuntimeApi', 'get_gamma_balances')
 
 class GenesisBuilder:
     build_state = Method('GenesisBuilder', 'build_state')

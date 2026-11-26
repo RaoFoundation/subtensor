@@ -2821,6 +2821,9 @@ impl_runtime_apis! {
         fn sim_mint_gamma_with_stake(netuid: NetUid, alpha_amount: AlphaBalance) -> Result<(AlphaBalance, TaoBalance, GammaBalance), sp_runtime::DispatchError> {
             SubtensorModule::sim_mint_gamma_with_stake(netuid, alpha_amount)
         }
+        fn get_gamma_balances(coldkey: AccountId32) -> Vec<(NetUid, GammaBalance)> {
+            SubtensorModule::get_gamma_balances(&coldkey)
+        }
     }
 
     impl subtensor_custom_rpc_runtime_api::ProxyFilterRuntimeApi<Block> for Runtime {

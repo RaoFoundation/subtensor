@@ -316,7 +316,8 @@ def _make_command(intent_cls: type[Intent]):
             fill_missing(app_ctx, missing, kwargs)
         for f in specs:
             if f.name.endswith("_ss58"):
-                kwargs[f.name] = app_ctx.resolve_address(f.name, kwargs.get(f.name))
+                if kwargs.get(f.name) is not None or falls_back_to_wallet(intent_cls.op, f.name):
+                    kwargs[f.name] = app_ctx.resolve_address(f.name, kwargs.get(f.name))
             elif is_money(str(f.type)) and kwargs.get(f.name) is not None:
                 # Money options parse as strings so the amount stays exact (and
                 # the flag form accepts `all` where allowed); bad values are
