@@ -574,7 +574,7 @@ class Output:
         self._err.print(line, soft_wrap=True)
 
     def _json(self, payload: Any) -> None:
-        self._out.print_json(_json.dumps(payload, default=str))
+        self._out.print_json(data=payload, default=str, ensure_ascii=self._out.is_terminal)
 
     def mnemonic(self, role: str, mnemonic: str) -> None:
         """A freshly generated mnemonic — the only moment it is ever shown.
@@ -721,7 +721,7 @@ class Output:
             if see:
                 payload["see"] = see
             payload.update(data or {})
-            self._err.print_json(_json.dumps(payload))
+            self._err.print_json(data=payload, ensure_ascii=self._err.is_terminal)
             return
         line = Text()
         line.append("error:", style=STYLE_ERROR)
@@ -1226,8 +1226,6 @@ class Output:
                     )
                 line.append("  ")
             line.rstrip()
-            if self._out.is_terminal and line.cell_len > self._out.width:
-                line.truncate(self._out.width, overflow="ellipsis")
             self._out.print(line, soft_wrap=True)
         if footer:
             self._out.print()
@@ -2546,7 +2544,7 @@ class Output:
             payload = error.to_dict()
             if explorer_url:
                 payload["explorer_url"] = explorer_url
-            self._err.print_json(_json.dumps(payload))
+            self._err.print_json(data=payload, ensure_ascii=self._err.is_terminal)
             return
         header = Text()
         header.append("error", style=STYLE_ERROR)

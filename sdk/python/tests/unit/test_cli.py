@@ -172,6 +172,7 @@ class TestOffline:
             run_app(app)
         assert exit.value.code == 2
         record = json.loads(capsys.readouterr().err)
+        assert record["code"] == "input"
         assert record["error"].startswith(error)
         assert record["help"] == f"see `{command} -h`"
 

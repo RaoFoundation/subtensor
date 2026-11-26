@@ -41,14 +41,17 @@ import contextlib
 import dataclasses
 import difflib
 import functools
+import gzip
 import hashlib
 import http.client
+import io
 import ipaddress
 import json
 import os
 import re
 import socket
 import ssl
+import tempfile
 import threading
 import time
 import unicodedata
@@ -57,12 +60,14 @@ import urllib.parse
 import urllib.request
 import zlib
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Callable, Mapping, Optional, Union
 
 from . import http_auth
 from ._generated import storage
 from .result import BittensorError
+from .wallets import is_bittensor_address
 
 __all__ = [
     "Input",
@@ -71,11 +76,13 @@ __all__ = [
     "Published",
     "Response",
     "Service",
+    "ServiceDocument",
     "ServiceError",
     "Skipped",
     "discover",
     "listing",
     "load",
+    "load_document",
     "load_listed",
     "load_url",
 ]
@@ -88,6 +95,8 @@ TIMEOUT = 60.0
 FETCH_TIMEOUT = 20.0
 # A document or spec is kept as long as its Cache-Control max-age says, up to this.
 CACHE_MAX_SECONDS = 600
+# The bytes a cache directory holds at most; the least recently written entries go first.
+CACHE_MAX_BYTES = 64 << 20
 # A directory for documents and specs their Cache-Control lets a client keep; None keeps none.
 CacheDir = Optional[Union[str, Path]]
 # How many schema nodes one resolve expands, at most, when it replaces $refs.
@@ -96,6 +105,49 @@ RESOLVE_DEPTH = 32
 
 _METHODS = ("get", "put", "post", "delete", "patch", "head", "options")
 _JSON = "application/json"
+_NOT_GIVEN = object()
+# JSON Schema keywords whose values contain schemas, rather than literal instance data.
+_SCHEMA_COLLECTIONS = frozenset(
+    [
+        "properties",
+        "patternProperties",
+        "$defs",
+        "definitions",
+        "dependentSchemas",
+        "dependencies",
+        "allOf",
+        "oneOf",
+        "anyOf",
+        "prefixItems",
+    ]
+)
+_SCHEMA_KEYWORDS = frozenset(
+    [
+        "items",
+        "additionalProperties",
+        "unevaluatedProperties",
+        "additionalItems",
+        "unevaluatedItems",
+        "contains",
+        "propertyNames",
+        "if",
+        "then",
+        "else",
+        "not",
+        "contentSchema",
+    ]
+)
+_BTAUTH_HEADERS = frozenset(
+    h.lower()
+    for h in (
+        http_auth.HEADER_SIGNATURE,
+        http_auth.HEADER_VERSION,
+        http_auth.HEADER_HOTKEY,
+        http_auth.HEADER_RECEIVER,
+        http_auth.HEADER_NONCE,
+        http_auth.HEADER_CRYPTO,
+    )
+)
 _RESERVED_HEADERS = {"host", "content-length", "content-type", "transfer-encoding", "connection"}
 _USER_AGENT = "bittensor-services/1"
 
@@ -128,6 +180,14 @@ class Input:
     joined: str = field(default="", repr=False)
     # A path parameter the JSON body has a field of the same name for, which it fills too
     in_body: bool = field(default=False, repr=False)
+    required_in_body: bool = field(default=False, repr=False)
+
+    @property
+    def must_supply(self) -> bool:
+        """Whether a caller must provide this value explicitly."""
+        return self.required and (
+            self.location == "body" or not any(k in self.schema for k in ("const", "default"))
+        )
 
     @property
     def command(self) -> str:
@@ -150,8 +210,22 @@ class Operation:
     inputs: tuple[Input, ...] = field(repr=False)
     api_url: str = field(repr=False)  # its server: its own, its path's, or the spec's
     body_required: bool = field(default=False, repr=False)
-    body_type: str = field(default=_JSON, repr=False)
+    body_type: str = field(default="", repr=False)
     tags: tuple[str, ...] = ()
+    body_input: Optional[Input] = field(default=None, repr=False)
+
+    @property
+    def tool_inputs(self) -> tuple[Input, ...]:
+        """Parameters and an exact JSON body, as named by the tool schema."""
+        params = tuple(i for i in self.inputs if i.location not in ("field", "body"))
+        return (*params, self.body_input) if self.body_input is not None else params
+
+    def prepare(self, inputs: Optional[Mapping[str, Any]] = None, *, body: Any = _NOT_GIVEN):
+        """Construct the unsigned request without network or wallet access.
+
+        Pass body to supply exact JSON, including null, instead of flattened fields.
+        """
+        return _request(self, {} if inputs is None else inputs, body)
 
     @property
     def command(self) -> str:
@@ -180,6 +254,7 @@ class Response:
     status: int
     headers: Mapping[str, str]  # by lowercase name
     content: bytes = field(repr=False)
+    url: str = ""  # effective URL after redirects
 
     @property
     def ok(self) -> bool:
@@ -236,27 +311,90 @@ class Response:
         )
 
 
-@dataclass(frozen=True)
-class Service:
-    """A published service, as :func:`load` reads it: its document, its spec and the
-    operations it offers by id; ``skipped`` says which it does not offer, and why."""
+@dataclass(frozen=True, kw_only=True)
+class ServiceDocument:
+    """A publisher's payment and identity metadata, independent of its API spec."""
 
     netuid: int
     hotkey: str
     url: str
     name: str
     description: str = field(repr=False)
+    balance_url: str = field(repr=False)
+    document_url: str = field(repr=False)
+    document: Mapping[str, Any] = field(repr=False)
+    local: bool = field(default=False, repr=False)
+    owner: Optional[bool] = field(default=None, repr=False)
+
+    @property
+    def signable(self) -> bool:
+        """Whether requests to it may be signed. The chain ties a published service's
+        hotkey to its url. A document read by its url can name any hotkey, and a
+        request signed for that hotkey could be passed on to its real service, so
+        only one on this machine is signed for."""
+        return self.owner is not None or self.local
+
+    def _check_signable(self) -> None:
+        if not self.signable:
+            raise ServiceError(
+                f"{self.url} was read by its url, so nothing ties hotkey {self.hotkey} to it; "
+                "only its open operations can be called",
+                code="input",
+            )
+
+    async def balance(self, hotkey_ss58: Optional[str] = None, *, signer: Any = None) -> dict:
+        """The hotkey's balance at the service, as its ``balance`` url answers it.
+
+        The url is read unsigned, then signed by ``signer`` (whose hotkey is the
+        default) when the service answers that it needs a signature.
+        """
+        if signer is not None:
+            signer = http_auth.resolve_signer(signer, role="hotkey")
+            hotkey_ss58 = hotkey_ss58 or signer.ss58_address
+        if not hotkey_ss58:
+            raise ServiceError("name the hotkey whose balance to read", code="input")
+        if not is_bittensor_address(hotkey_ss58):
+            raise ServiceError("the balance needs a valid Bittensor hotkey address", code="input")
+        split = urllib.parse.urlsplit(self.balance_url)
+        params = urllib.parse.parse_qsl(split.query, keep_blank_values=True)
+        query = urllib.parse.urlencode(
+            [(k, v) for k, v in params if k != "hotkey"] + [("hotkey", hotkey_ss58)]
+        )
+        url = urllib.parse.urlunsplit(split._replace(query=query))
+        target = urllib.parse.urlunsplit(("", "", split.path or "/", query, ""))
+
+        def read(key=None) -> Response:
+            headers = {"User-Agent": _USER_AGENT, "Accept": _JSON}
+            if key is not None:
+                headers.update(
+                    http_auth.sign(key, method="GET", path=target, receiver_ss58=self.hotkey)
+                )
+            return _send("GET", url, headers, b"", self.local, MAX_DOCUMENT_BYTES, FETCH_TIMEOUT)
+
+        response = await _threaded(read)
+        if response.status in (401, 403) and signer is not None:
+            if signer.ss58_address != hotkey_ss58:
+                raise ServiceError(
+                    "the balance must be signed by the requested hotkey", code="input"
+                )
+            self._check_signable()
+            response = await _threaded(read, signer)
+        record = _json_object(response, url, "the balance")
+        if "hotkey" in record and record["hotkey"] != hotkey_ss58:
+            raise ServiceError(f"the balance at {url} is {record['hotkey']}'s, not {hotkey_ss58}'s")
+        return record
+
+
+@dataclass(frozen=True)
+class Service(ServiceDocument):
+    """A published service with the operations its API spec offers or skips."""
+
     spec_url: str = field(repr=False)
     api_url: str
-    balance_url: str = field(repr=False)
     operations: Mapping[str, Operation] = field(repr=False)
-    tags: Mapping[str, str] = field(default_factory=dict, repr=False)  # descriptions, spec order
-    skipped: tuple[Skipped, ...] = field(default=(), repr=False)  # operations not offered
-    document: Mapping[str, Any] = field(default_factory=dict, repr=False)
+    tags: Mapping[str, str] = field(default_factory=dict, repr=False)
+    skipped: tuple[Skipped, ...] = field(default=(), repr=False)
     spec: Mapping[str, Any] = field(default_factory=dict, repr=False)
-    local: bool = field(default=False, repr=False)  # on a localnet on this machine: any host
-    # Published by the subnet owner's hotkey, or by a validator's; None when read by url.
-    owner: Optional[bool] = field(default=None, repr=False)
 
     def operation(self, name: str) -> Operation:
         """An operation by its id or its command name (``rent-by-spec``)."""
@@ -282,31 +420,98 @@ class Service:
         """An operation as a tool definition, as agent frameworks take one: its
         ``name`` (the command name, which :meth:`call` takes back), its
         ``description`` and ``input_schema``, the JSON Schema of its inputs."""
-        op = self.operation(operation)
-        budget = [RESOLVE_BUDGET]
+        return self._tool(self.operation(operation), [RESOLVE_BUDGET])
+
+    def _tool(self, op: Operation, budget: list[int]) -> dict:
+        # Keep reachable definitions once. Recursive schemas remain finite and all
+        # local references resolve against this tool, independently of the spec.
+        refs: dict[str, str] = {}
+        pending: list[str] = []
+
+        def copy(node, mode="schema", depth=0):
+            budget[0] -= 1 + (len(node) >> 6 if isinstance(node, str) else 0)
+            if budget[0] < 0 or depth > 128:
+                raise ServiceError(f"tool schema export exceeds its size or depth limit at {op.id}")
+            if isinstance(node, list):
+                child = "schema" if mode == "schemas" else "literal"
+                return [copy(v, child, depth + 1) for v in node]
+            if isinstance(node, str) and _plain(node) != node:
+                # A value is sent as written, so it cannot be cleaned like a description.
+                raise ServiceError(f"{op.id} has a tool schema with hidden characters")
+            if not isinstance(node, dict):
+                return node
+            out = {}
+            for key, value in node.items():
+                if _plain(key) != key:
+                    raise ServiceError(f"{op.id} has a tool schema with hidden characters")
+                budget[0] -= 1 + (len(key) >> 6)
+                child = "schema" if mode == "schemas" else "literal"
+                if mode == "schema":
+                    if key == "$ref":
+                        if not isinstance(value, str) or not value.startswith("#/"):
+                            raise ServiceError(
+                                f"{op.id} has a tool schema with an unsupported reference"
+                            )
+                        if value not in refs:
+                            refs[value] = str(len(refs))
+                            pending.append(value)
+                        value = "#/$defs/" + refs[value]
+                    elif key == "$schema" and value not in (
+                        "https://json-schema.org/draft/2020-12/schema",
+                        "https://json-schema.org/draft/2019-09/schema",
+                        "http://json-schema.org/draft-07/schema#",
+                    ):
+                        raise ServiceError(f"{op.id} uses an unsupported schema dialect")
+                    elif key in ("$dynamicRef", "$recursiveRef", "$id"):
+                        raise ServiceError(f"{op.id} uses unsupported schema keyword {key}")
+                    elif key in ("description", "title") and isinstance(value, str):
+                        value = _plain(value)
+                    elif key in _SCHEMA_COLLECTIONS:
+                        child = "schemas"
+                    elif key in _SCHEMA_KEYWORDS:
+                        child = "schemas" if isinstance(value, list) else "schema"
+                out[key] = copy(value, child, depth + 1)
+            return out
+
         properties = {}
-        for item in op.inputs:
-            schema = _resolve(self.spec, item.schema, budget)
-            schema = dict(schema) if isinstance(schema, dict) else {}
-            if item.description:
-                schema.setdefault("description", item.description)
+        for item in op.tool_inputs:
+            if _plain(item.name) != item.name:
+                raise ServiceError(f"{op.id} has a tool schema with hidden characters")
+            schema = copy(item.schema)
+            budget[0] -= 1 + ((len(item.name) + len(item.description)) >> 6)
+            if isinstance(schema, dict) and item.description:
+                schema.setdefault("description", _plain(item.description))
             properties[item.name] = schema
-        about = [op.summary] + ([op.description] if op.description != op.summary else [])
-        return _plain(
-            {
-                "name": op.command,
-                "description": "\n\n".join(text for text in about if text),
-                "input_schema": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": [item.name for item in op.inputs if item.required],
-                },
-            }
+        input_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+            "required": [item.name for item in op.tool_inputs if item.must_supply],
+        }
+        if pending:
+            definitions = {}
+            while pending:
+                ref = pending.pop()
+                definitions[refs[ref]] = copy(_pointer(self.spec, ref))
+            input_schema["$defs"] = definitions
+        description = "\n\n".join(
+            t for t in (op.summary, op.description if op.description != op.summary else "") if t
         )
+        budget[0] -= 1 + ((len(description) + len(op.id)) >> 6)
+        if budget[0] < 0:
+            raise ServiceError(f"tool schema export exceeds its size limit at {op.id}")
+        return {
+            "name": op.command,
+            "description": _plain(description),
+            "input_schema": input_schema,
+        }
 
     def tools(self) -> list[dict]:
-        """Every operation as :meth:`tool` defines one."""
-        return [self.tool(op_id) for op_id in self.operations]
+        """Every operation's standalone tool definition. They share one RESOLVE_BUDGET,
+        so that many operations cannot multiply the work; a spec too large to export
+        whole raises ServiceError, and :meth:`tool` still exports each one."""
+        budget = [RESOLVE_BUDGET]
+        return [self._tool(op, budget) for op in self.operations.values()]
 
     def resolve(self, schema: Any) -> Any:
         """``schema`` with the spec's local ``$ref`` replaced by their targets, up to
@@ -319,6 +524,7 @@ class Service:
         inputs: Optional[Mapping[str, Any]] = None,
         *,
         signer: Any = None,
+        body: Any = _NOT_GIVEN,
         timeout: float = TIMEOUT,
     ) -> Response:
         """Call an operation with its inputs by name; returns the response whatever its status.
@@ -329,9 +535,19 @@ class Service:
         :func:`bittensor.http_auth.prepare_signer`.
         """
         op = self.operation(operation)
-        method, url, target, headers, data = _request(op, inputs or {})
+        return await self._send_prepared(
+            op, op.prepare(inputs, body=body), signer=signer, timeout=timeout
+        )
+
+    async def _send_prepared(
+        self, op: Operation, prepared, *, signer: Any = None, timeout: float = TIMEOUT
+    ) -> Response:
+        _check_timeout(timeout)
+        method, url, target, headers, data = prepared
         if op.auth == "hotkey" and signer is None:
             raise ServiceError(f"{op.id} is signed by a hotkey; pass a signer", code="input")
+        if signer is not None and op.auth != "open":
+            self._check_signable()
 
         def send() -> Response:
             # Signed as it is sent: a signature made before a wait for a thread goes stale.
@@ -344,39 +560,6 @@ class Service:
             return _send(method, url, headers, data, self.local, MAX_RESPONSE_BYTES, timeout)
 
         return await _threaded(send)
-
-    async def balance(self, hotkey_ss58: Optional[str] = None, *, signer: Any = None) -> dict:
-        """The hotkey's balance at the service, as its ``balance`` url answers it.
-
-        The url is read unsigned, then signed by ``signer`` (whose hotkey is the
-        default) when the service answers that it needs a signature.
-        """
-        if signer is not None:
-            signer = http_auth.resolve_signer(signer, role="hotkey")
-            hotkey_ss58 = hotkey_ss58 or signer.ss58_address
-        if not hotkey_ss58:
-            raise ServiceError("name the hotkey whose balance to read", code="input")
-        split = urllib.parse.urlsplit(self.balance_url)
-        query = urllib.parse.urlencode(
-            [*urllib.parse.parse_qsl(split.query), ("hotkey", hotkey_ss58)]
-        )
-        url = urllib.parse.urlunsplit(split._replace(query=query))
-        headers = {"User-Agent": _USER_AGENT, "Accept": _JSON}
-
-        def read() -> Response:
-            return _send("GET", url, headers, b"", self.local, MAX_DOCUMENT_BYTES, FETCH_TIMEOUT)
-
-        response = await _threaded(read)
-        if response.status in (401, 403) and signer is not None:
-            target = urllib.parse.urlunsplit(("", "", split.path or "/", query, ""))
-            headers.update(
-                http_auth.sign(signer, method="GET", path=target, receiver_ss58=self.hotkey)
-            )
-            response = await _threaded(read)
-        record = _json_object(response, url, "the balance")
-        if isinstance(record.get("hotkey"), str) and record["hotkey"] != hotkey_ss58:
-            raise ServiceError(f"the balance at {url} is {record['hotkey']}'s, not {hotkey_ss58}'s")
-        return record
 
 
 @dataclass(frozen=True)
@@ -392,13 +575,11 @@ class Listing:
 
 async def listing(client, netuid: int) -> Listing:
     """Read a subnet's services and its owner's hotkey from the chain."""
-    published, owner, local = await asyncio.gather(
-        client.read("services", netuid=netuid),
-        client.query(storage.SubtensorModule.SubnetOwnerHotkey, [netuid]),
-        _on_local_chain(client),
-    )
-    urls = {str(hotkey): str(entry["url"]) for hotkey, entry in published.items()}
-    return Listing(netuid, urls, str(owner) if owner else None, local)
+    snapshot, local = await asyncio.gather(client.at(), _on_local_chain(client))
+    published = await snapshot.read("services", netuid=netuid)
+    urls = {hotkey: entry["url"] for hotkey, entry in published.items()}
+    owner = next((hotkey for hotkey, entry in published.items() if entry["owner"]), None)
+    return Listing(netuid, urls, owner, local)
 
 
 async def load(
@@ -406,7 +587,7 @@ async def load(
 ) -> Service:
     """Read the service a hotkey published on a subnet, with its document and spec.
 
-    Without ``hotkey_ss58`` it is the subnet owner's service, or the subnet's only one.
+    Without ``hotkey_ss58`` it is the subnet owner's service.
     A validator can publish a service too, under any name, so another is used only when
     named by its hotkey. With ``cache``, a directory, a document or spec is kept there
     as long as its Cache-Control max-age allows, up to CACHE_MAX_SECONDS.
@@ -418,27 +599,39 @@ async def load_listed(
     listed: Listing, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
 ) -> Service:
     """:func:`load` from a :class:`Listing` read before, without the chain."""
+    hotkey, url = _select(listed, hotkey_ss58)
+    service = await _threaded(_fetch_service, listed.netuid, hotkey, url, listed.local, cache)
+    return dataclasses.replace(service, owner=hotkey == listed.owner)
+
+
+async def load_document(
+    client, netuid: int, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
+) -> ServiceDocument:
+    """Read current publisher and payment metadata without fetching its OpenAPI spec."""
+    listed = await listing(client, netuid)
+    hotkey, url = _select(listed, hotkey_ss58)
+    document = await _threaded(_document, netuid, hotkey, url, listed.local, cache)
+    return dataclasses.replace(document, owner=hotkey == listed.owner)
+
+
+def _select(listed: Listing, hotkey_ss58: Optional[str]) -> tuple[str, str]:
     netuid, urls, owner = listed.netuid, listed.urls, listed.owner
     if hotkey_ss58 is None:
         if not urls:
             raise ServiceError(f"netuid {netuid} has no services", code="no_service")
-        if owner in urls:
-            hotkey_ss58 = owner
-        elif len(urls) > 1:
+        if owner is None or owner not in urls:
             raise ServiceError(
-                f"netuid {netuid} has {len(urls)} services, none of them the subnet "
-                "owner's; name one by its hotkey: " + ", ".join(sorted(urls)),
+                f"netuid {netuid} has no service from its subnet owner; name a validator's "
+                "hotkey: " + ", ".join(sorted(urls)),
                 code="ambiguous",
             )
-        else:
-            hotkey_ss58 = next(iter(urls))
+        hotkey_ss58 = owner
     url = urls.get(hotkey_ss58)
     if url is None:
         raise ServiceError(
             f"{hotkey_ss58} has published no service on netuid {netuid}", code="no_service"
         )
-    service = await _threaded(_fetch_service, netuid, hotkey_ss58, url, listed.local, cache)
-    return dataclasses.replace(service, owner=hotkey_ss58 == owner)
+    return hotkey_ss58, url
 
 
 async def load_url(
@@ -455,6 +648,7 @@ async def load_url(
     may use http and private hosts, as on a localnet, any other only https to
     public hosts. It must list ``netuid`` and ``hotkey_ss58`` in ``publishers``,
     and without them it must list exactly one publisher, whose service it is.
+    Only a document on this machine is :attr:`~ServiceDocument.signable`.
     """
     return await _threaded(_fetch_service, netuid, hotkey_ss58, url, _is_local(url), cache)
 
@@ -472,41 +666,46 @@ class Published:
 
 
 async def discover(
-    client, netuid: Optional[int] = None, *, cache: CacheDir = None
-) -> list[Published]:
-    """Every service published on chain, or on ``netuid``, each loaded as :func:`load`
-    loads one, by netuid; one that cannot be used says why."""
-    local = await _on_local_chain(client)
-    few = asyncio.Semaphore(8)  # at a time, so slow services do not take every thread
-
-    async def find(netuid: int, hotkey: str, url: str) -> Published:
-        owner = hotkey == owners.get(netuid)
-        try:
-            async with few:
-                service = await _threaded(_fetch_service, netuid, hotkey, url, local, cache)
-        except Exception as error:  # one service's failure is never the listing's
-            problem = str(ServiceError(str(error)))
-            return Published(netuid, hotkey, url, problem=problem, owner=owner)
-        return Published(
-            netuid, hotkey, url, dataclasses.replace(service, owner=owner), owner=owner
-        )
-
+    client,
+    netuid: Optional[int] = None,
+    *,
+    cache: CacheDir = None,
+    select: Optional[Callable[[Published], Any]] = None,
+) -> list:
+    """Read the services published on ``netuid``, or on every subnet, as
+    :class:`Published`, or as what ``select`` makes of each, to keep only what a
+    caller needs."""
+    snapshot, local = await asyncio.gather(client.at(), _on_local_chain(client))
     if netuid is None:
-        rows = await client.query_map(storage.SubtensorModule.Services)
+        rows = await snapshot.query_map(storage.SubtensorModule.Services)
+        netuids = sorted({int(n) for (n, _), _ in rows})
     else:
-        published = await client.read("services", netuid=netuid)
-        rows = [((netuid, hotkey), entry) for hotkey, entry in published.items()]
-    netuids = sorted({int(netuid) for (netuid, _), _ in rows})
-    found = await asyncio.gather(
-        *(client.query(storage.SubtensorModule.SubnetOwnerHotkey, [n]) for n in netuids)
-    )
-    owners = dict(zip(netuids, found))
-    return await asyncio.gather(
-        *(
-            find(int(netuid), str(hotkey), info["url"])
-            for (netuid, hotkey), info in sorted(rows, key=lambda row: row[0])
-        )
-    )
+        netuids = [netuid]
+    listings = await asyncio.gather(*(snapshot.read("services", netuid=n) for n in netuids))
+    entries = [
+        (n, hotkey, entry["url"], entry["owner"])
+        for n, published in zip(netuids, listings)
+        for hotkey, entry in published.items()
+    ]
+
+    pending = iter(enumerate(sorted(entries)))
+    found = [None] * len(entries)
+
+    async def worker():
+        for index, (n, hotkey, url, owner) in pending:
+            try:
+                service = await _threaded(_fetch_service, n, hotkey, url, local, cache)
+            except Exception as error:  # one service's failure is never the listing's
+                problem = str(ServiceError(str(error)))
+                item = Published(n, hotkey, url, problem=problem, owner=owner)
+            else:
+                item = Published(
+                    n, hotkey, url, dataclasses.replace(service, owner=owner), owner=owner
+                )
+            found[index] = select(item) if select else item
+
+    await asyncio.gather(*(worker() for _ in range(min(8, len(entries)))))
+    return found
 
 
 async def _on_local_chain(client) -> bool:
@@ -543,21 +742,15 @@ def _fetch_service(
 def _service(
     netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir
 ) -> Service:
-    document = _get_json(url, "the services document", local, cache)
-    netuid, hotkey = _publisher(document, url, netuid, hotkey)
-    balance_url = _checked_url(_gamma_balance(document, url), "the balance", local)
-    spec_url = _checked_url(_spec_url(document, url), "the OpenAPI spec", local)
-    spec = _get_json(spec_url, "the OpenAPI spec", local, cache, TIMEOUT)
+    metadata = _document(netuid, hotkey, url, local, cache)
+    document, document_url = metadata.document, metadata.document_url
+    spec_url = _checked_url(_spec_url(document, document_url), "the OpenAPI spec", local)
+    spec, spec_url = _get_json(spec_url, "the OpenAPI spec", local, cache, TIMEOUT)
     operations, skipped = _operations(spec, spec_url, local)
     return Service(
-        netuid=netuid,
-        hotkey=hotkey,
-        url=url,
-        name=_text(document.get("name")) or url,
-        description=_text(document.get("description")),
+        **vars(metadata),
         spec_url=spec_url,
         api_url=_checked_url(_server(spec_url, spec), "the API", local),
-        balance_url=balance_url,
         operations=operations,
         tags={
             tag["name"]: _text(tag.get("description"))
@@ -565,8 +758,30 @@ def _service(
             if isinstance(tag, dict) and isinstance(tag.get("name"), str)
         },
         skipped=skipped,
-        document=document,
         spec=spec,
+    )
+
+
+def _document(
+    netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir
+) -> ServiceDocument:
+    try:
+        document, document_url = _get_json(
+            url, "the services document", local, None if local else cache
+        )
+        netuid, hotkey = _publisher(document, url, netuid, hotkey)
+        balance = _checked_url(_gamma_balance(document, document_url), "the balance", local)
+    except ValueError as error:
+        raise ServiceError(f"the service at {url} has a bad url: {error}") from None
+    return ServiceDocument(
+        netuid=netuid,
+        hotkey=hotkey,
+        url=url,
+        name=_text(document.get("name")) or url,
+        description=_text(document.get("description")),
+        balance_url=balance,
+        document_url=document_url,
+        document=document,
         local=local,
     )
 
@@ -580,7 +795,9 @@ def _publisher(
         for p in _list(document.get("publishers"))
         if isinstance(p, dict)
         and type(p.get("netuid")) is int
+        and 0 <= p["netuid"] <= 65535
         and isinstance(p.get("hotkey"), str)
+        and is_bittensor_address(p["hotkey"])
         and netuid in (None, p["netuid"])
         and hotkey in (None, p["hotkey"])
     ]
@@ -664,6 +881,7 @@ def _operations(
         names = [_btauth_header(_deref(spec, schemes.get(name))) for name in requirement]
         return http_auth.HEADER_SIGNATURE.lower() in names and all(names)
 
+    duplicates: set[str] = set()
     declared = any(btauth({name: []}) for name in schemes)
     root_security = spec.get("security")
     operations: dict[str, Operation] = {}
@@ -697,18 +915,29 @@ def _operations(
                     raise _Unusable("has a malformed security requirement")
                 requirements = security or []
                 anonymous = not requirements or {} in requirements
-                if not declared:  # v1.3: every paid route takes btauth/1
-                    auth = "open" if security == [] else "optional" if anonymous else "hotkey"
+                if not declared and security is None:  # v1.3 without explicit credentials
+                    auth = "optional"
                 elif any(btauth(r) for r in requirements):
                     auth = "optional" if anonymous else "hotkey"
                 elif anonymous:
                     auth = "open"
                 else:
                     raise _Unusable("needs credentials other than btauth/1")
-                if op_id in operations:
+                if op_id in operations or op_id in duplicates:
+                    first = operations.pop(op_id, None)
+                    if first is not None:
+                        skipped.append(
+                            Skipped(
+                                first.method,
+                                first.path,
+                                op_id,
+                                f"repeats the operationId {op_id!r}",
+                            )
+                        )
+                    duplicates.add(op_id)
                     raise _Unusable(f"repeats the operationId {op_id!r}")
                 api_url = _checked_url(_server(spec_url, op, item, spec), "the API", local)
-                inputs, body_required, body_type = _inputs(
+                inputs, body_input, body_type = _inputs(
                     spec, [*_list(item.get("parameters")), *_list(op.get("parameters"))], op, budget
                 )
                 in_path = {i.name for i in inputs if i.location == "path"}
@@ -733,7 +962,8 @@ def _operations(
                 description=_text(op.get("description")),
                 inputs=inputs,
                 api_url=api_url,
-                body_required=body_required,
+                body_input=body_input,
+                body_required=body_input is not None and body_input.required,
                 body_type=body_type,
                 tags=tuple(tag for tag in _list(op.get("tags")) if isinstance(tag, str)),
             )
@@ -756,7 +986,7 @@ def _btauth_header(scheme: Any) -> str:
     """The lowercase header name of a btauth/1 ``apiKey`` scheme, else ""."""
     if isinstance(scheme, dict) and scheme.get("type") == "apiKey" and scheme.get("in") == "header":
         name = str(scheme.get("name", "")).lower()
-        return name if name.startswith("x-bittensor-") else ""
+        return name if name in _BTAUTH_HEADERS else ""
     return ""
 
 
@@ -793,24 +1023,35 @@ def _list(value: Any) -> list:
 
 def _inputs(
     spec, parameters: list, op: Mapping[str, Any], budget: list
-) -> tuple[tuple[Input, ...], bool, str]:
+) -> tuple[tuple[Input, ...], Optional[Input], str]:
     """An operation's inputs, one flat set of names, whether its body is required,
     and its body's media type."""
     merged: dict[tuple[str, str], Input] = {}
+    # Operation-level definitions override path-level parameters before validation.
+    definitions = {}
     for raw in parameters:
         param = _deref(spec, raw)
-        if not isinstance(param, dict) or not isinstance(param.get("name"), str):
-            continue
+        if isinstance(param, dict) and isinstance(param.get("name"), str):
+            definitions[(param["name"], str(param.get("in")))] = param
+    for param in definitions.values():
         location = str(param.get("in"))
         required = location == "path" or bool(param.get("required"))
-        schema = _deref(spec, param.get("schema") or {})
+        schema = _deref(spec, param.get("schema") or {}, schema=True)
         schema = schema if isinstance(schema, dict) else {}
         if location not in ("path", "query", "header") or (
             location == "header" and not _sendable_header(param["name"])
         ):
             why = f"needs {param['name']!r} in {location!r}"
-        elif "content" in param or schema.get("type") == "object" or "properties" in schema:
+        elif "content" in param or _is_object(spec, schema):
             why = f"takes {param['name']!r} as an object in the {location}"
+        elif param.get("style", "simple") != "simple" and location in ("path", "header"):
+            why = f"uses unsupported {location} style {param['style']!r}"
+        elif location == "query" and param.get("style", "form") not in (
+            "form",
+            "pipeDelimited",
+            "spaceDelimited",
+        ):
+            why = f"uses unsupported query style {param['style']!r}"
         else:
             why = ""
         if why:
@@ -829,7 +1070,8 @@ def _inputs(
     body = _deref(spec, op.get("requestBody"))
     content = body.get("content") if isinstance(body, dict) else None
     body_required = isinstance(body, dict) and bool(body.get("required"))
-    body_type = _JSON
+    body_type = ""
+    body_input = None
     if isinstance(content, dict) and content:
         media_type = next((kind for kind in content if _is_json(kind)), None)
         if media_type is None:
@@ -837,16 +1079,24 @@ def _inputs(
             raise _Unusable(f"takes a body that is {kinds}, not JSON")
         body_type = media_type.split(";")[0].strip()
         media = content[media_type] if isinstance(content[media_type], dict) else {}
-        schema = _deref(spec, media.get("schema") or {})
+        schema = _deref(spec, media.get("schema", {}), schema=True)
+        if schema is False:
+            schema = {"not": {}}
+        elif schema is True:
+            schema = {}
         fields = _object(spec, schema, budget)
         if fields and fields[0]:
             properties, required = fields
             for name, raw in properties.items():
-                prop = _deref(spec, raw)
+                prop = _deref(spec, raw, schema=True)
                 prop = prop if isinstance(prop, dict) else {}
                 if not isinstance(name, str) or prop.get("readOnly") is True:
                     continue
-                if (name, "path") in merged:
+                if (
+                    (name, "path") in merged
+                    and name in required
+                    and merged[(name, "path")].schema == prop
+                ):
                     # PUT /items/{id} with the id in the body too: one input fills both.
                     at = inputs.index(merged[(name, "path")])
                     inputs[at] = dataclasses.replace(inputs[at], in_body=True)
@@ -856,20 +1106,23 @@ def _inputs(
                         name=name,
                         location="field",
                         required=body_required and name in required,
+                        required_in_body=name in required,
                         description=_text(prop.get("description")),
                         schema=prop,
                     )
                 )
-        else:
-            inputs.append(
-                Input(
-                    name="body",
-                    location="body",
-                    required=body_required,
-                    description=_text(body.get("description")),
-                    schema=schema if isinstance(schema, dict) else {},
-                )
-            )
+        # A body with colliding field names remains usable as one JSON value.
+        commands = [item.command for item in inputs]
+        use_whole = not fields or not fields[0] or len(commands) != len(set(commands))
+        if use_whole:
+            inputs = list(merged.values())
+        name = "body"
+        occupied = {item.command for item in inputs}
+        while name in occupied:
+            name = "request-" + name
+        body_input = Input(name, "body", body_required, _text(body.get("description")), schema)
+        if use_whole:
+            inputs.append(body_input)
     seen: dict[str, str] = {}
     for item in inputs:
         if not item.command:
@@ -882,7 +1135,7 @@ def _inputs(
                 else f"has inputs {alike!r} and {item.name!r}, named alike"
             )
         seen[item.command] = item.name
-    return tuple(inputs), body_required, body_type
+    return tuple(inputs), body_input, body_type
 
 
 def _joined(param: Mapping[str, Any]) -> str:
@@ -899,7 +1152,7 @@ def _object(spec, schema: Any, budget: list, depth: int = 0) -> Optional[tuple[d
     """The fields of an object schema and which are required, with ``allOf`` merged and
     a nullable ``anyOf`` or ``oneOf`` read as its one other choice; None when it is
     not an object, is one of several shapes, or takes more than ``budget[0]`` nodes."""
-    schema = _deref(spec, schema)
+    schema = _deref(spec, schema, schema=True)
     budget[0] -= 1
     if not isinstance(schema, dict) or depth > RESOLVE_DEPTH or budget[0] < 0:
         return None
@@ -925,13 +1178,15 @@ def _object(spec, schema: Any, budget: list, depth: int = 0) -> Optional[tuple[d
     return properties, required
 
 
-def _request(op: Operation, inputs: Mapping[str, Any]):
+def _request(op: Operation, inputs: Mapping[str, Any], body: Any = _NOT_GIVEN):
     if not isinstance(inputs, Mapping):
         raise ServiceError(
             f"{op.id} takes its inputs as a mapping of names to values", code="input"
         )
     known = {i.name: i for i in op.inputs}
-    by_command = {i.command: i.name for i in op.inputs}
+    if op.body_input is not None:
+        known[op.body_input.name] = op.body_input
+    by_command = {i.command: i.name for i in known.values()}
     given: dict[str, Any] = {}
     for name, value in inputs.items():
         name = name if name in known else by_command.get(_kebab(str(name)), name)
@@ -939,31 +1194,50 @@ def _request(op: Operation, inputs: Mapping[str, Any]):
             close = difflib.get_close_matches(str(name), list(known), n=2)
             hint = f"; did you mean {', '.join(close)}?" if close else ""
             raise ServiceError(f"{op.id} has no input {name!r}{hint}", code="input")
+        if name in given:
+            raise ServiceError(f"{op.id} received {name!r} twice", code="input")
         given[name] = value
     inputs = given
-    for item in op.inputs:
-        # A fixed or defaulted value need not be given: "jsonrpc": "2.0" every time.
-        if item.required and item.name not in inputs:
+    if op.body_input is not None and op.body_input.name in given:
+        if body is not _NOT_GIVEN:
+            raise ServiceError(f"{op.id} received its JSON body twice", code="input")
+        body = given.pop(op.body_input.name)
+    raw = body is not _NOT_GIVEN
+    body_inputs = {i.name for i in op.inputs if i.location in ("body", "field")}
+    if raw and (not op.body_type or body_inputs.intersection(inputs)):
+        raise ServiceError(
+            f"{op.id} cannot take a separate JSON body with these inputs", code="input"
+        )
+    with_body = op.body_required or bool(body_inputs.intersection(inputs))
+    required = [
+        i
+        for i in op.inputs
+        if (i.required or (with_body and i.required_in_body))
+        and not (raw and i.name in body_inputs)
+    ]
+    for item in required:
+        if item.name not in inputs:
             for key in ("const", "default"):
                 if key in item.schema:
                     inputs[item.name] = item.schema[key]
                     break
-    missing = [i.name for i in op.inputs if i.required and i.name not in inputs]
+    missing = [i.name for i in required if i.name not in inputs]
     if missing:
         raise ServiceError(f"{op.id} needs {', '.join(map(repr, missing))}", code="input")
     path, query, headers = op.path, [], {"User-Agent": _USER_AGENT}
     fields: dict[str, Any] = {}
-    whole: Any = _NOT_GIVEN
+    whole: Any = body
     for item in op.inputs:
         if item.name not in inputs:
             continue
         value = inputs[item.name]
         if item.location == "path":
-            text = _scalar(value)
+            parts = value if isinstance(value, (list, tuple)) else [value]
+            text = ",".join(urllib.parse.quote(_scalar(v), safe="") for v in parts)
             if text in ("", ".", ".."):  # each would reach another route
                 raise ServiceError(f"{op.id} cannot take {text!r} as {item.name}", code="input")
-            path = path.replace("{" + item.name + "}", urllib.parse.quote(text, safe=""))
-            if item.in_body:
+            path = path.replace("{" + item.name + "}", text)
+            if item.in_body and with_body and not raw:
                 fields[item.name] = value
         elif item.location == "query":
             values = value if isinstance(value, (list, tuple)) else [value]
@@ -971,7 +1245,11 @@ def _request(op: Operation, inputs: Mapping[str, Any]):
                 values = [item.joined.join(_scalar(v) for v in values)]
             query.extend((item.name, _scalar(v)) for v in values)
         elif item.location == "header":
-            text = _scalar(value)
+            text = (
+                ",".join(_scalar(v) for v in value)
+                if isinstance(value, (list, tuple))
+                else _scalar(value)
+            )
             if not text.isprintable():
                 raise ServiceError(f"{item.name} cannot hold control characters", code="input")
             try:
@@ -1009,9 +1287,6 @@ def _request(op: Operation, inputs: Mapping[str, Any]):
     return op.method, url, target, headers, data
 
 
-_NOT_GIVEN = object()
-
-
 def _sendable_header(name: str) -> bool:
     lowered = name.lower()
     return lowered not in _RESERVED_HEADERS and not lowered.startswith("x-bittensor-")
@@ -1041,7 +1316,7 @@ def _kebab(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-").lower()
 
 
-def _deref(spec: Mapping[str, Any], node: Any) -> Any:
+def _deref(spec: Mapping[str, Any], node: Any, *, schema: bool = False) -> Any:
     """``node``, or the target of the local ``$ref`` it is, followed to the end."""
     seen = set()
     while isinstance(node, dict) and isinstance(node.get("$ref"), str):
@@ -1049,8 +1324,29 @@ def _deref(spec: Mapping[str, Any], node: Any) -> Any:
         if ref in seen or not ref.startswith("#/"):
             return node
         seen.add(ref)
+        if schema and len(node) > 1 and not str(spec.get("openapi", "")).startswith("3.0."):
+            # In 3.1 the sibling constraints apply together with the target schema.
+            return {"allOf": [{"$ref": ref}, {k: v for k, v in node.items() if k != "$ref"}]}
         node = _pointer(spec, ref)
     return node
+
+
+def _is_object(spec: Mapping[str, Any], schema: Any) -> bool:
+    """Whether ``schema``, or a schema it takes all of, describes an object. Reads at
+    most 256 schemas, as ``allOf`` branches can repeat through references."""
+    pending, read = [schema], 0
+    while pending and read < 256:
+        node = _deref(spec, pending.pop())
+        read += 1
+        if not isinstance(node, dict):
+            continue
+        kind = node.get("type")
+        if kind == "object" or (isinstance(kind, list) and "object" in kind):
+            return True
+        if "properties" in node:
+            return True
+        pending.extend(_list(node.get("allOf")))
+    return False
 
 
 def _pointer(spec: Mapping[str, Any], ref: str) -> Any:
@@ -1091,7 +1387,11 @@ def _resolve(spec: Mapping[str, Any], node: Any, budget: list) -> Any:
                     target = _pointer(spec, ref)
                 except ServiceError:
                     return node
-                return walk(target, depth + 1, seen | {ref})
+                resolved = walk(target, depth + 1, seen | {ref})
+                if len(node) > 1 and not str(spec.get("openapi", "")).startswith("3.0."):
+                    siblings = {k: v for k, v in node.items() if k != "$ref"}
+                    return {"allOf": [resolved, walk(siblings, depth + 1, seen)]}
+                return resolved
             return {key: walk(value, depth + 1, seen) for key, value in node.items()}
         if isinstance(node, list):
             return [walk(value, depth + 1, seen) for value in node]
@@ -1122,7 +1422,7 @@ def _checked_url(url: str, what: str, local: bool = False) -> str:
         raise ServiceError(f"{what} url {url!r} is not a plain url")
     split = urllib.parse.urlsplit(url)
     host = split.hostname or ""
-    if split.username or split.password or not host:
+    if split.username is not None or split.password is not None or not host:
         raise ServiceError(f"{what} url {url!r} is not a plain url")
     if not local and _is_private(host):
         raise ServiceError(f"{what} url {url!r} is not a public host")
@@ -1165,11 +1465,15 @@ class _Redirects(urllib.request.HTTPRedirectHandler):
         self.local = local
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if req.get_method() != "GET" or req.get_header(http_auth.HEADER_SIGNATURE.capitalize()):
+        if (
+            req.get_method() != "GET"
+            or req.data is not None
+            or req.get_header(http_auth.HEADER_SIGNATURE.capitalize())
+        ):
             return None
         _checked_url(newurl, "a redirect", self.local)
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and new.host != req.host:
+        if new is not None and (new.type, new.host) != (req.type, req.host):
             # A header input, such as an API key, is for the host it was sent to.
             new.headers = {k: v for k, v in new.headers.items() if k in ("User-agent", "Accept")}
         return new
@@ -1267,16 +1571,10 @@ class _Connection(http.client.HTTPConnection):
     def _connect(self, address, timeout=None, source_address=None, *args, **kwargs):
         deadline = getattr(_local, "deadline", None)
         timeout = timeout if isinstance(timeout, (int, float)) else None
-        # Through a proxy the peer is the proxy; the host is what it reaches.
-        tunnel = getattr(self, "_tunnel_host", None)
-        if self.public and tunnel:
-            found = _lookup(tunnel, None, deadline)
-            if not all(_is_global(info[4][0]) for info in found):
-                raise ServiceError(f"{tunnel} is not a public host")
         host, port = address
         error: Exception = OSError(f"{host} has no address")
         for family, kind, proto, _, peer in _lookup(host, port, deadline):
-            if self.public and not tunnel and not _is_global(peer[0]):
+            if self.public and not _is_global(peer[0]):
                 error = ServiceError(f"{self.host} is not a public host")
                 continue
             left = deadline.left() if deadline is not None else timeout
@@ -1299,6 +1597,12 @@ class _Connection(http.client.HTTPConnection):
         raise error
 
 
+# A lookup past its deadline keeps its thread until the system resolver gives up. This
+# bounds how many can pile up; it is well above the 8 lookups `discover` runs at once,
+# so a few stalled hosts do not hold up the others.
+_resolver_slots = threading.BoundedSemaphore(64)
+
+
 def _lookup(host: str, port: Any, deadline: Optional[_Deadline]) -> list:
     """The addresses of ``host``, looked up within the deadline: the lookup itself
     cannot be stopped, so it runs on in its own thread when time is up."""
@@ -1311,9 +1615,18 @@ def _lookup(host: str, port: Any, deadline: Optional[_Deadline]) -> list:
             found.append(socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM))
         except OSError as error:
             found.append(error)
+        finally:
+            _resolver_slots.release()
 
     worker = threading.Thread(target=look_up, daemon=True)
-    worker.start()
+    while not _resolver_slots.acquire(timeout=min(deadline.left(), 0.05)):
+        if deadline.left() <= 0:
+            raise TimeoutError(f"looking up {host} took too long")
+    try:
+        worker.start()
+    except RuntimeError:
+        _resolver_slots.release()
+        raise
     while worker.is_alive() and deadline.left() > 0:
         worker.join(min(deadline.left(), 0.05))
     if not found:
@@ -1334,7 +1647,7 @@ def _is_global(address: Any) -> bool:
             ip = ip.ipv4_mapped
         elif ip in _NAT64:
             ip = ipaddress.ip_address(int(ip) & 0xFFFFFFFF)
-    return ip.is_global
+    return ip.is_global and not ip.is_multicast
 
 
 class _TLSConnection(_Connection, http.client.HTTPSConnection):
@@ -1349,9 +1662,6 @@ class _LocalTLSConnection(_LocalConnection, http.client.HTTPSConnection):
     pass
 
 
-_TLS = ssl.create_default_context()
-
-
 class _HTTP(urllib.request.HTTPHandler):
     def __init__(self, connection: type[http.client.HTTPConnection]):
         super().__init__()
@@ -1363,22 +1673,30 @@ class _HTTP(urllib.request.HTTPHandler):
 
 class _HTTPS(urllib.request.HTTPSHandler):
     def __init__(self, connection: type[http.client.HTTPSConnection]):
-        super().__init__(context=_TLS)
+        self._tls = ssl.create_default_context()
+        super().__init__(context=self._tls)
         self._connection = connection
 
     def https_open(self, req):
-        return self.do_open(self._connection, req, context=_TLS)
+        return self.do_open(self._connection, req, context=self._tls)
 
 
-_openers = {
-    False: urllib.request.build_opener(
-        _Redirects(False), _HTTP(_Connection), _HTTPS(_TLSConnection)
-    ),
-    # On a localnet on this machine a service may use it and private hosts.
-    True: urllib.request.build_opener(
-        _Redirects(True), _HTTP(_LocalConnection), _HTTPS(_LocalTLSConnection)
-    ),
-}
+@functools.lru_cache(maxsize=2)
+def _opener(local: bool) -> urllib.request.OpenerDirector:
+    # Connect to the address we checked. A proxy would resolve the name again.
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _Redirects(local),
+        _HTTP(_LocalConnection if local else _Connection),
+        _HTTPS(_LocalTLSConnection if local else _TLSConnection),
+    )
+
+
+def _check_timeout(timeout: float) -> None:
+    if type(timeout) not in (int, float) or not 0 < timeout < threading.TIMEOUT_MAX:
+        raise ServiceError(
+            f"timeout must be positive and below {threading.TIMEOUT_MAX:g} seconds", code="input"
+        )
 
 
 def _send(
@@ -1390,16 +1708,21 @@ def _send(
     limit: int = MAX_RESPONSE_BYTES,
     timeout: float = TIMEOUT,
 ) -> Response:
+    _check_timeout(timeout)
     request = urllib.request.Request(url, data=data or None, headers=dict(headers), method=method)
     with _Deadline(timeout) as deadline:
         try:
             try:
-                reply = _openers[local].open(request, timeout=timeout)
+                reply = _opener(local).open(request, timeout=timeout)
             except urllib.error.HTTPError as error:
                 reply = error
             with reply:
                 status = reply.getcode() or 0
-                response = Response(status, _headers(reply.headers), _read(reply, limit, url))
+                fields = _headers(reply.headers)
+                body = b""
+                if method != "HEAD" and status not in (204, 304):
+                    body = _read(reply, limit, url, fields)
+                response = Response(status, fields, body, reply.geturl())
             if deadline.passed:  # a body that ends with the connection may be cut off
                 raise ServiceError(f"{url} did not answer within {timeout:g} s", code="timeout")
             return response
@@ -1426,87 +1749,129 @@ def _get_json(
     local: bool = False,
     cache: CacheDir = None,
     timeout: float = FETCH_TIMEOUT,
-) -> dict:
+) -> tuple[dict, str]:
     checked = _checked_url(url, what, local)
     cached = _cached(cache, checked)
     if cached is not None:
-        return _json_object(Response(200, {"content-type": _JSON}, cached), url, what)
+        try:
+            return _json_object(Response(200, {"content-type": _JSON}, cached), url, what), checked
+        except ServiceError:
+            pass  # A damaged cache entry is a miss.
     headers = {"User-Agent": _USER_AGENT, "Accept": _JSON, "Accept-Encoding": "gzip"}
     response = _gunzipped(
         _send("GET", checked, headers, b"", local, MAX_DOCUMENT_BYTES, timeout), url
     )
     document = _json_object(response, url, what)
-    _keep(cache, checked, response)
-    return document
+    effective = response.url or checked
+    if effective == checked:
+        _keep(cache, checked, response)
+    return document, effective
 
 
 def _gunzipped(response: Response, url: str) -> Response:
     if response.headers.get("content-encoding", "").strip().lower() != "gzip":
         return response
-    inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
     try:
-        content = inflate.decompress(response.content, MAX_DOCUMENT_BYTES + 1)
-    except zlib.error:
+        with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as stream:
+            content = stream.read(MAX_DOCUMENT_BYTES + 1)
+    except (OSError, EOFError, zlib.error):
         raise ServiceError(f"the response from {url} is not valid gzip") from None
-    if len(content) > MAX_DOCUMENT_BYTES or inflate.unconsumed_tail:
+    if len(content) > MAX_DOCUMENT_BYTES:
         raise ServiceError(
             f"the response from {url} is over {MAX_DOCUMENT_BYTES >> 20} MiB", code="too_large"
         )
     headers = {k: v for k, v in response.headers.items() if k != "content-encoding"}
-    return Response(response.status, headers, content)
+    return Response(response.status, headers, content, response.url)
 
 
 def _max_age(headers: Mapping[str, str]) -> int:
     """Seconds a response may be kept, by its Cache-Control and Age, up to CACHE_MAX_SECONDS."""
-    directives = [d.strip().lower() for d in headers.get("cache-control", "").split(",")]
-    if "no-store" in directives or "no-cache" in directives:
-        return 0
-    ages = [d.partition("=")[2].strip('" ') for d in directives if d.startswith("max-age=")]
-    if len(ages) != 1 or not ages[0].isdigit():
-        return 0
+    directives = urllib.request.parse_http_list(headers.get("cache-control", "").lower())
+    ages = []
+    for directive in directives:
+        name, _, value = directive.partition("=")
+        if name.strip() in ("no-store", "no-cache"):
+            return 0
+        if name.strip() == "max-age":
+            match = re.fullmatch(r'([0-9]{1,18})|"([0-9]{1,18})"', value.strip())
+            if not match:
+                return 0
+            ages.append(match[1] or match[2])
     age = headers.get("age", "0").strip()
-    return max(0, min(int(ages[0]), CACHE_MAX_SECONDS) - (int(age) if age.isdigit() else 0))
+    if len(ages) != 1 or not re.fullmatch(r"[0-9]{1,18}", age):
+        return 0
+    elapsed = int(age)
+    if "date" in headers:
+        try:
+            stamp = parsedate_to_datetime(headers["date"])
+            if stamp.tzinfo is None:
+                return 0
+            elapsed = max(elapsed, int(time.time() - stamp.timestamp()))
+        except (OverflowError, OSError, TypeError, ValueError):
+            return 0
+    return min(CACHE_MAX_SECONDS, max(0, int(ages[0]) - elapsed))
 
 
-def _cache_file(cache: Union[str, Path], url: str) -> Path:
-    return Path(cache) / (hashlib.sha256(url.encode()).hexdigest() + ".json")
+def _cache_key(url: str) -> bytes:
+    return hashlib.sha256(url.encode()).hexdigest().encode("ascii")
+
+
+def _cache_file(cache: Union[str, Path], key: bytes) -> Path:
+    return Path(cache) / f"{key.decode('ascii')}.cache"
+
+
+def _sweep(cache: Union[str, Path]) -> None:
+    """Remove the least recently written entries past CACHE_MAX_BYTES."""
+    entries = []
+    for path in Path(cache).glob("*.cache"):
+        with contextlib.suppress(OSError):
+            stat = path.stat()
+            entries.append((stat.st_mtime, stat.st_size, path))
+    total = sum(size for _, size, _ in entries)
+    for _, size, path in sorted(entries):
+        if total <= CACHE_MAX_BYTES:
+            break
+        with contextlib.suppress(OSError):
+            path.unlink()
+            total -= size
 
 
 def _cached(cache: CacheDir, url: str) -> Optional[bytes]:
     if cache is None:
         return None
+    key = _cache_key(url)
     try:
-        entry = json.loads(_cache_file(cache, url).read_text())
-    except (OSError, ValueError, UnicodeDecodeError):
+        with _cache_file(cache, key).open("rb") as stream:
+            identity, expires = stream.readline(96).rstrip(b"\n").split(b" ")
+            now = time.time()
+            if identity != key or not now < float(expires) <= now + CACHE_MAX_SECONDS:
+                return None
+            content = stream.read(MAX_DOCUMENT_BYTES + 1)
+    except (OSError, ValueError):
         return None
-    if (
-        not isinstance(entry, dict)
-        or entry.get("url") != url
-        or not isinstance(entry.get("expires"), (int, float))
-        or not time.time() < entry["expires"] <= time.time() + CACHE_MAX_SECONDS
-        or not isinstance(entry.get("content"), str)
-    ):
-        return None
-    content = entry["content"].encode()
     return content if len(content) <= MAX_DOCUMENT_BYTES else None
 
 
 def _keep(cache: CacheDir, url: str, response: Response) -> None:
+    if cache is None or any(v.strip() == "*" for v in response.headers.get("vary", "").split(",")):
+        return
     seconds = _max_age(response.headers)
-    if cache is None or not seconds:
+    if not seconds or len(response.content) > MAX_DOCUMENT_BYTES:
         return
-    try:
-        text = response.content.decode("utf-8")
-    except UnicodeDecodeError:
-        return
-    path = _cache_file(cache, url)
-    entry = {"url": url, "expires": time.time() + seconds, "content": text}
+    key = _cache_key(url)
+    path = _cache_file(cache, key)
+    header = key + f" {time.time() + seconds}\n".encode("ascii")
     with contextlib.suppress(OSError):  # a cache it cannot write is only slower
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Several runs at once each write a whole file, never half of one.
-        partial = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}")
-        partial.write_text(json.dumps(entry))
-        os.replace(partial, path)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as partial:
+            try:
+                partial.write(header)
+                partial.write(response.content)
+                partial.close()
+                os.replace(partial.name, path)
+            finally:
+                Path(partial.name).unlink(missing_ok=True)
+        _sweep(path.parent)
 
 
 def _json_object(response: Response, url: str, what: str) -> dict:
@@ -1532,14 +1897,28 @@ def _json_object(response: Response, url: str, what: str) -> dict:
 
 
 def _headers(headers) -> dict[str, str]:
-    return {key.lower(): value for key, value in (headers.items() if headers else [])}
+    fields = {key.lower(): value for key, value in (headers.items() if headers else [])}
+    for name in ("cache-control", "age", "vary", "content-length"):
+        if name in fields:
+            fields[name] = ",".join(headers.get_all(name))
+    return fields
 
 
-def _read(reply, limit: int, url: str) -> bytes:
+def _read(reply, limit: int, url: str, headers: Mapping[str, str]) -> bytes:
+    raw = headers.get("content-length")
+    expected = None
+    if raw is not None:
+        if "transfer-encoding" in headers or not re.fullmatch(r"[0-9]+", raw):
+            raise ServiceError(f"the response from {url} has an invalid Content-Length")
+        digits = raw.lstrip("0") or "0"
+        if len(digits) > len(str(limit)) or int(digits) > limit:
+            raise ServiceError(
+                f"the response from {url} is over {limit >> 20} MiB", code="too_large"
+            )
+        expected = int(digits)
     content = reply.read(limit + 1)
     if len(content) > limit:
         raise ServiceError(f"the response from {url} is over {limit >> 20} MiB", code="too_large")
-    length = (getattr(reply, "headers", None) or {}).get("content-length", "")
-    if content and length.isdigit() and len(content) < int(length):
+    if expected is not None and len(content) != expected:
         raise ServiceError(f"the response from {url} ended early", code="unreachable")
     return content

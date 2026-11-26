@@ -83,7 +83,9 @@ that a client reads a large spec once and quickly.
 Check a document before publishing it with
 `btcli service show --url URL --netuid 1 --service-hotkey HOTKEY`. It reads the
 document and its spec as a client would and lists the operations a client
-offers, and why it leaves any out.
+offers, and why it leaves any out. Nothing ties a document read by its url to
+the hotkey it names, so btcli signs calls to it only when the url is on this
+machine.
 
 A `gamma` payment with `"signature": "btauth/1"` accepts
 [signed requests](/docs/guides/signed-requests). The hotkey that spent signs
@@ -126,8 +128,9 @@ Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
   header, under any name in `securitySchemes`. An operation a hotkey pays for
   lists it in a `security` requirement, with `{}` beside it when the operation
   also works unsigned. One anyone can call has `security: []`, and needs no
-  wallet. Without the scheme, clients sign every operation not marked `[]`, and
-  do not offer one that needs other credentials only.
+  wallet. Without the scheme, an operation with no `security` is signed when
+  the caller names a hotkey, and one that needs other credentials only is not
+  offered.
 - Give each operation a short, unique `operationId` and a `summary`. Clients
   call it by that name, so `rentBySpec` beats a generated
   `rent_by_spec_executors_rent_by_spec_post`; without one it is named by its
@@ -140,8 +143,9 @@ Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
 - Parameters go in the path, query or headers, and bodies are JSON; an
   operation with another kind of body is not offered. A client
   takes an operation's inputs as one set of names, its parameters and the
-  top-level fields of its body, so no two of them share a name, not even in
-  another case (`gpuType` and `gpu_type`).
+  top-level fields of its body, so no two of them should share a name, not even
+  in another case (`gpuType` and `gpu_type`); when two do, the body is taken
+  whole, as `--body`.
 - A path or an operation may name its own `servers`, and a server variable
   takes its `default`.
 - A signed request is answered where it was sent, without a redirect, since its
@@ -180,24 +184,30 @@ btcli service list                                     # the services you can us
 btcli service show --netuid 1                          # the service and its operations
 btcli service call --netuid 1 list-models
 btcli service call --netuid 1 create-chat-completion --help
-btcli gamma spend --netuid 1 --service-hotkey SERVICE --amount-gamma 5 -H API_KEY
-btcli service call --netuid 1 -H API_KEY create-chat-completion --model m --messages @chat.json
-btcli service balance --netuid 1 -H API_KEY
+btcli gamma spend --netuid 1 --service-hotkey SERVICE --amount-gamma 5 -H HOTKEY
+btcli service call --netuid 1 -H HOTKEY create-chat-completion --model m --inputs @chat.json
+btcli service balance --netuid 1 -H HOTKEY
 ```
 
 An operation's inputs follow it as flags (`max_tokens` is `--max-tokens`), or
-all at once as a JSON object with `--inputs '{"max_tokens": 5}'`; `call` without
-an operation lists the operations, and `OPERATION --help` its inputs. A text
-input takes text, any other takes JSON (`--n 2`, `--temperature 0.5`), and a
-value starting with `@` is read from that file (`@-` is stdin, `@@` starts a
-value with `@`). A boolean is `--flag` or `--no-flag`, and an array input is
-repeated or takes a JSON array. An `optional` operation is signed when the
-wallet has the hotkey, and `--unsigned` sends it unsigned. A subnet with several
-services needs `--service-hotkey`.
+all at once as a JSON object with `--inputs '{"max_tokens": 5}'`, which also
+takes names btcli keeps for itself, such as `help`. `--body` gives the whole
+JSON body, with fields no flag names. `call` without an operation lists the
+operations, and `OPERATION --help` its inputs. A text input takes text, any
+other takes JSON (`--n 2`, `--temperature 0.5`). A boolean is `--flag` or
+`--no-flag`, and an array input is repeated or takes a JSON array. `--inputs`
+and `--body` read a file with `@FILE`, or stdin with `@-`; a flag never reads a
+file, so a value starting with `@` is taken as it is.
+
+An `optional` operation is signed only when `-w` or `-H` names the hotkey, and
+`--unsigned` sends it unsigned even then. `--dry-run` shows the request without
+signing or sending it. A subnet with several services needs `--service-hotkey`.
+A call that timed out may still have been done, so check before paying for it
+again.
 
 An object prints as fields, nested ones by dotted name, and a list as a table. A
-binary response goes to `--out FILE` (`--out -` for stdout), or to a temporary
-file without it.
+binary response goes to `--out FILE` (`--out -` for stdout, without `--json`),
+or to a temporary file without it.
 
 With `--json`, for scripts and agents:
 
@@ -213,7 +223,8 @@ With `--json`, for scripts and agents:
   the operation (exit code 2), and with exit code 1 `http` (with the `status`
   and the `body` the service sent), `no_service`, `ambiguous`, `unusable` (the
   publisher has to fix the document or spec), `unreachable`, `timeout`,
-  `too_large` and `wallet`.
+  `too_large`, `output` and `wallet`. When the response could not be written
+  where asked, `out` is the file it was saved to instead.
 
 ```python
 published = await bt.services.discover(client)  # every service, or why it is unusable
@@ -227,25 +238,28 @@ balance = await service.balance(signer=signer)
 tools = service.tools()  # [{"name", "description", "input_schema"}], for an agent
 ```
 
-`call` takes a tool's `name` and its inputs back. A `ServiceError` has the same
+`call` takes a tool's `name` and its inputs back, or `body=` the whole body.
+btcli checks that a call fits the operation, and the service checks the rest. A
+`ServiceError` has the same
 `code` as above, and `response.raise_for_status()` makes one of an HTTP error.
 
-btcli keeps the url each of a subnet's services is at for ten minutes, so a run
-of calls reads the chain once, and an ordinary hotkey signs without it; a
-localnet's urls are always read. It keeps a document and its spec as long as
-their `Cache-Control: max-age` allows, ten minutes at most, and `show --url`
-always reads them. In Python, `bt.services.listing(client, netuid)` reads the
-urls, `bt.services.load_listed(listing)` loads a service from them without the
-chain, and `cache=` a directory keeps documents and specs there.
+btcli reads which url each hotkey published, and the subnet's owner, from the
+chain on every run. It keeps a document and its spec as long as their
+`Cache-Control: max-age` allows, ten minutes at most, and `show --url` always
+reads them. In Python, `bt.services.listing(client, netuid)` reads the urls,
+`bt.services.load_listed(listing)` loads a service from them without the chain,
+and `cache=` a directory keeps documents and specs there.
 
 A client trusts only the chain. It uses the document at the url a hotkey
 published only if `publishers` lists that hotkey and a `gamma` payment takes
-`btauth/1`. It sends only to https urls on public hosts (http and this machine
-too on a localnet on this machine, but not on mainnet, testnet or a devnet
-through a local node), gives each request a deadline, and signs each request
-with the service's hotkey as the receiver, so no other service can replay it.
-`bt.services.load_url(url)` reads a document by its url without the chain,
-under the same rules: a url on this machine counts as a localnet.
+`btauth/1`. It connects only to https urls on public hosts, itself and never
+through a proxy, so the host it checked is the one it reaches (http and this
+machine too on a localnet on this machine, but not on mainnet, testnet or a
+devnet through a local node). It gives each request a deadline, and signs each
+request with the service's hotkey as the receiver, so no other service can
+replay it. `bt.services.load_url(url)` reads a document by its url without the
+chain, under the same rules: a url on this machine counts as a localnet, and
+only a document there is signed for.
 
 A service follows these rules and still is not vetted. The subnet owner's hotkey
 can publish one, and so can any hotkey with a validator permit on the subnet,

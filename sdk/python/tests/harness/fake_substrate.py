@@ -316,7 +316,22 @@ class FakeSubstrate:
     ) -> list[tuple[Any, Any]]:
         item = (module, storage_function)
         if item in self._maps:
-            return list(self._maps[item])
+            pairs = list(self._maps[item])
+            if not params:
+                return pairs
+            # Keys seeded in full are filtered by the prefix and returned without it.
+            prefix = tuple(params)
+            return [
+                (rest[0] if len(rest) == 1 else rest, value)
+                if isinstance(key, tuple)
+                and key[: len(prefix)] == prefix
+                and (rest := key[len(prefix) :])
+                else (key, value)
+                for key, value in pairs
+                if not isinstance(key, tuple)
+                or len(key) <= len(prefix)
+                or key[: len(prefix)] == prefix
+            ]
         # Seeded point entries double as map contents (single-key maps only).
         return [
             (key[0] if len(key) == 1 else key, value)

