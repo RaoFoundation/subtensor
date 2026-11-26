@@ -5,6 +5,7 @@ use frame_support::dispatch::{
 };
 use frame_support::storage::StorageNMap as _;
 use frame_support::weights::Weight;
+use pallet_lending::LendingInterface;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
 use sp_core::Get;
@@ -50,6 +51,27 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Alpha issuance that drives the emission schedule and root proportion:
+    /// [`Self::get_alpha_issuance`] minus lending's synthetic short alpha still
+    /// outstanding and its residual alpha, so minting shorts cannot advance the
+    /// halving schedule or dilute root.
+    ///
+    /// Call sites: `get_subnet_terms` (alpha emission per block),
+    /// `root_proportion`, and `baseline_root_emission_share`.
+    pub fn alpha_issuance_for_schedule(netuid: NetUid) -> AlphaBalance {
+        let (synthetic, residual) = T::Lending::synthetic_and_residual(netuid);
+        Self::get_alpha_issuance(netuid)
+            .saturating_sub(synthetic.into())
+            .saturating_sub(residual.into())
+    }
+
+    /// Spot price fed to subnet emission's moving EMA ([`SubnetMovingPrice`]).
+    /// Synthetic shorts sell real alpha into the pool, so live spot already
+    /// carries their effect.
+    pub fn emission_alpha_price(netuid: NetUid) -> U64F64 {
+        T::SwapInterface::current_alpha_price(netuid.into())
+    }
+
     pub fn update_moving_price(netuid: NetUid) {
         let Some(first_emission_block) = FirstEmissionBlockNumber::<T>::get(netuid) else {
             // Basket price protection needs a live fast anchor even before start_call.
@@ -77,8 +99,7 @@ impl<T: Config> Pallet<T> {
         // We can use unsigned type here: U96F32
         let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
         let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
-            T::SwapInterface::current_alpha_price(netuid.into())
-                .min(U64F64::saturating_from_num(1.0)),
+            Self::emission_alpha_price(netuid).min(U64F64::saturating_from_num(1.0)),
         ));
         let current_moving: U64F64 = one_minus_alpha.saturating_mul(U64F64::saturating_from_num(
             Self::get_moving_alpha_price(netuid),
@@ -1279,7 +1300,7 @@ impl<T: Config> Pallet<T> {
 
         Self::maybe_remove_staking_hotkey(hotkey, coldkey);
 
-        // Record TAO outflow
+        // Record TAO outflow for flow-based shares (dormant today).
         Self::record_tao_outflow(
             netuid,
             swap_result
@@ -1388,7 +1409,7 @@ impl<T: Config> Pallet<T> {
             Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
         }
 
-        // Record TAO inflow
+        // Record TAO inflow for flow-based shares (dormant today).
         Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
 
         // Cleanup locks if needed
@@ -1875,6 +1896,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotKeyAccountNotExists
         );
 
+        // §14: reject third-party stake onto the lending custody hotkey.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
+        );
+
         // Staking to a new hotkey appends it to the coldkey's `StakingHotkeys`; keep that
         // list within the bound every unstake-side call is weighted for.
         Self::ensure_staking_hotkeys_can_grow(coldkey, hotkey)?;
@@ -2094,6 +2121,15 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::hotkey_account_exists(destination_hotkey),
             Error::<T>::HotKeyAccountNotExists
+        );
+
+        ensure!(
+            !T::Lending::is_custody_hotkey(origin_hotkey),
+            Error::<T>::CustodyHotkey
+        );
+        ensure!(
+            !T::Lending::is_custody_hotkey(destination_hotkey),
+            Error::<T>::CustodyHotkey
         );
 
         // Ensure there is enough stake in the origin subnet.

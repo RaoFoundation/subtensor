@@ -17,7 +17,7 @@ burn, the commitment is free apart from the normal transaction fee.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Commitments | [`Commitments.set_commitment_to`](/code/pallets/commitments/src/lib.rs#L675-L742) |
+| `coldkey` | signed account (pallet role may apply) | Commitments | [`Commitments.set_commitment_to`](/code/pallets/commitments/src/lib.rs#L684-L751) |
 
 ## Verify
 
@@ -82,7 +82,7 @@ result = sub.execute_tool("set_channel_commitment", {...}, wallet)
 
 ## On-chain implementation
 
-`Commitments.set_commitment_to` — [`pallets/commitments/src/lib.rs#L683`](/code/pallets/commitments/src/lib.rs#L675-L742):
+`Commitments.set_commitment_to` — [`pallets/commitments/src/lib.rs#L692`](/code/pallets/commitments/src/lib.rs#L684-L751):
 
 ```rust
 #[pallet::call_index(3)]
@@ -155,6 +155,6 @@ pub fn set_commitment_to(
 }
 ```
 
-Delegates to [`channel_migration_pending`](/code/pallets/commitments/src/lib.rs#L1622).
+Delegates to [`channel_migration_pending`](/code/pallets/commitments/src/lib.rs#L1631).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -34,10 +34,10 @@ const releases: Release[] = [
   {
     tag: 'v496',
     date: 'Proposed',
-    title: 'Root Parameter Proposals',
+    title: 'Root Parameters and Short-Only Lending',
     summary:
-      'Tracks 51 root-controlled settings across three networks and produces read-only proposals ' +
-      'with a verified call hash and pinned multisig approvals. Merging does not change live settings.',
+      'Runtime spec 496: reviewed root parameter proposals, plus short-only synthetic lending ' +
+      '(dark launch) with flat APR, whole-book coverage, TWAP health, and paced buy-backs.',
     href: '/releases/v496-upgrade',
   },
   {

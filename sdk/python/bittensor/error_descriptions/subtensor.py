@@ -370,6 +370,7 @@ DESCRIPTIONS: dict[str, str] = {
         "Check with `btcli hparams check-start`; if the subnet is already emitting, no action is "
         "needed."
     ),
+    "CustodyHotkey": ("Third-party stake onto the lending custody hotkey is rejected (§14)."),
     "HotKeyAccountNotExists": (
         "The hotkey has no on-chain account, meaning it was never created through registration, "
         "so staking or delegation operations cannot reference it. Check the `Owner` storage for "

@@ -1,4 +1,6 @@
 use super::*;
+use codec::MaxEncodedLen;
+use pallet_lending::LendingInterface;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::NetUid;
 
@@ -26,7 +28,9 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // --- 4c. The background beta-index sweep advances one bounded page per block from
         // `on_initialize` (not here), so its work is charged into the hook's weight.
         // --- 5. Update moving prices AFTER using them for emissions.
-        Self::update_moving_prices();
+        // Reuse the non-root count from this pass for issuance-weight charging
+        // (no second NetworksAdded scan).
+        let (lending_ticks, non_root_subnets) = Self::update_moving_prices();
         // --- 6. Update roop prop AFTER using them for emissions.
         Self::update_root_prop();
         // --- 7. Set pending children on the epoch; but only after the coinbase has been run.
@@ -38,8 +42,18 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             Self::populate_root_coldkey_staking_maps_v2();
         }
 
+        // Schedule / root-proportion call `alpha_issuance_for_schedule` up to
+        // three times per emit subnet (terms + nested root_proportion +
+        // update_root_prop). Charge the Enabled-path synthetic/residual
+        // adjustment for every live non-root subnet as a worst-case bound.
+        let issuance_w = Self::lending_issuance_adjust_weight()
+            .saturating_mul(non_root_subnets.saturating_mul(3));
+
         // Return the weight that the fixed block-step envelope does not include.
-        Ok(basket_flush_weight.saturating_add(null_epoch_weight))
+        Ok(basket_flush_weight
+            .saturating_add(null_epoch_weight)
+            .saturating_add(Self::lending_dereg_tick_weight().saturating_mul(lending_ticks))
+            .saturating_add(issuance_w))
     }
 
     fn try_set_pending_children(block_number: u64) {
@@ -52,19 +66,59 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             }
         }
     }
-    pub fn update_moving_prices() {
+    /// Advances emission EMAs and lending dereg ticks.
+    /// Returns `(lending_ticks, non_root_subnets)` from the same
+    /// `NetworksAdded` pass so callers can charge issuance weight without a
+    /// second full scan.
+    pub fn update_moving_prices() -> (u64, u64) {
         let netuids = Self::get_all_subnet_netuids();
+        let mut lending_ticks = 0u64;
+        let mut non_root_subnets = 0u64;
         // Price anchors protect basket valuation and trading even when a subnet is not
         // currently eligible for emission (for example, registration was disabled). Keep
         // every live dynamic subnet's EMA moving so governance cannot freeze its anchor.
         for netuid in netuids.iter().copied() {
-            if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+            if netuid.is_root() {
+                continue;
+            }
+            non_root_subnets = non_root_subnets.saturating_add(1);
+            if SubnetMechanism::<T>::get(netuid) == 1 {
                 Self::update_moving_price(netuid);
+                T::Lending::update_dereg_moving_price(netuid);
+                lending_ticks = lending_ticks.saturating_add(1);
             }
         }
         for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {
             Self::update_gamma_price(netuid);
         }
+        (lending_ticks, non_root_subnets)
+    }
+
+    /// Storage + CPU work for one lending dereg-price / pool-TAO EMA /
+    /// notional-EMA tick (worst case with ranking rollover). Reads params,
+    /// pool TAO, prior EMA, enabled, spot (mechanism + reserves + balancer),
+    /// ranking ring, and notional EMA; writes EMA, notional EMA, ring, and
+    /// optionally RankPrice. Includes a fixed envelope for full-ring SMA
+    /// recomputation. Charged into `block_step`.
+    pub(crate) fn lending_dereg_tick_weight() -> Weight {
+        T::DbWeight::get()
+            .reads_writes(12, 5)
+            .saturating_add(Weight::from_parts(50_000_000, 4_096))
+    }
+
+    /// One `alpha_issuance_for_schedule` lookup's lending adjustment:
+    /// SyntheticOutstanding + ResidualAlpha (always read — outstanding
+    /// balances must stay excluded from schedule issuance even while lending
+    /// is paused) with trie proof.
+    pub(crate) fn lending_issuance_adjust_weight() -> Weight {
+        const TRIE_PATH: u64 = 3072;
+        let value = (u64::max_encoded_len() as u64).saturating_add(u64::max_encoded_len() as u64);
+        T::DbWeight::get()
+            .reads(2)
+            .saturating_add(Weight::from_parts(
+                5_000_000,
+                value.saturating_add(TRIE_PATH.saturating_mul(2)),
+            ))
     }
 
     pub fn update_root_prop() {
@@ -87,7 +141,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
     /// weight vector: changing the validator share must not move TAO-in,
     /// alpha-in, the pool cap or root's payout.
     pub fn root_proportion(netuid: NetUid) -> U96F32 {
-        let alpha_issuance = U96F32::from_num(Self::get_alpha_issuance(netuid));
+        let alpha_issuance = U96F32::from_num(Self::alpha_issuance_for_schedule(netuid));
         let root_tao: U96F32 = U96F32::from_num(Self::get_subnet_tao(NetUid::ROOT));
         let weighted_root_tao: U96F32 = root_tao.saturating_mul(Self::get_tao_weight());
 

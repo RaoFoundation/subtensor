@@ -105,8 +105,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 237,
-          "url": "/code/pallets/commitments/src/lib.rs#L237",
+          "line": 246,
+          "url": "/code/pallets/commitments/src/lib.rs#L246",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -123,8 +123,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 247,
-          "url": "/code/pallets/commitments/src/lib.rs#L247",
+          "line": 256,
+          "url": "/code/pallets/commitments/src/lib.rs#L256",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -759,6 +759,24 @@
         }
       ]
     },
+    "BelowMinNotional": {
+      "code": "invalid_argument",
+      "description": "The position's minted alpha times the EMA price is below SynthParams.min_notional (10 TAO by default). Mint more alpha.",
+      "docs_url": "/docs/errors/chain/BelowMinNotional",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinNotional/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 973,
+          "url": "/code/pallets/lending/src/lib.rs#L973",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
       "description": "When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns.",
@@ -879,8 +897,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 249,
-          "url": "/code/pallets/commitments/src/lib.rs#L249",
+          "line": 258,
+          "url": "/code/pallets/commitments/src/lib.rs#L258",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -1149,8 +1167,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 253,
-          "url": "/code/pallets/commitments/src/lib.rs#L253",
+          "line": 262,
+          "url": "/code/pallets/commitments/src/lib.rs#L262",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -1659,6 +1677,24 @@
         }
       ]
     },
+    "CoverageNotMet": {
+      "code": "insufficient_balance",
+      "description": "Collateral plus sale proceeds miss the position's share of buying the whole subnet book back after a stressed pump, or the pumped pool cannot supply the book at all. Check lending_open_quote for the required collateral, add collateral, or mint less.",
+      "docs_url": "/docs/errors/chain/CoverageNotMet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CoverageNotMet/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 976,
+          "url": "/code/pallets/lending/src/lib.rs#L976",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "CreateOriginNotAllowed": {
       "code": "not_authorized",
       "description": "A CREATE, or a CALL that performs a nested CREATE, was attempted from an EVM address not permitted to deploy contracts. Check whether the deploying address is in the chain's allowed-deployers list.",
@@ -1675,6 +1711,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/CurrencyError/content.md",
       "pallets": [
         "SafeMode"
+      ]
+    },
+    "CustodyHotkey": {
+      "code": "invalid_argument",
+      "description": "Third-party stake onto the lending custody hotkey is rejected (\u00a714).",
+      "docs_url": "/docs/errors/chain/CustodyHotkey",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CustodyHotkey/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 514,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L514",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "CustodyUnavailable": {
+      "code": "internal",
+      "description": "The lending custody hotkey is unavailable. Governance or runtime maintenance must restore it.",
+      "docs_url": "/docs/errors/chain/CustodyUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CustodyUnavailable/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 986,
+          "url": "/code/pallets/lending/src/lib.rs#L986",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "DeadAccount": {
@@ -1882,13 +1954,32 @@
         }
       ]
     },
+    "DilutionBreakerActive": {
+      "code": "policy_violation",
+      "description": "Residual alpha from defaulted shorts exceeds the breaker threshold (2% of issuance by default), so new opens and increases are paused until it falls below 1%. Check lending_subnet.",
+      "docs_url": "/docs/errors/chain/DilutionBreakerActive",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DilutionBreakerActive/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 989,
+          "url": "/code/pallets/lending/src/lib.rs#L989",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "Disabled": {
       "code": "disabled",
-      "description": "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; creating a wallet locally does not activate runtime support.",
+      "description": "This feature is switched off on chain. For hashed accounts, check AdminUtils.HashedAccountsEnabled (creating a wallet locally does not activate runtime support). For lending, new borrowing including position increases is disabled until governance re-enables it; closes and repays remain available.",
       "docs_url": "/docs/errors/chain/Disabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
       "pallets": [
-        "HashedAccounts"
+        "HashedAccounts",
+        "Lending"
       ],
       "sources": [
         {
@@ -1897,6 +1988,13 @@
           "line": 259,
           "url": "/code/pallets/hashed-accounts/src/lib.rs#L259",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        },
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 969,
+          "url": "/code/pallets/lending/src/lib.rs#L969",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -1915,6 +2013,24 @@
           "line": 299,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L299",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "DissolutionInProgress": {
+      "code": "expired",
+      "description": "The subnet is deregistering. Its shorts settle at the stakers' rate and no short call is accepted.",
+      "docs_url": "/docs/errors/chain/DissolutionInProgress",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DissolutionInProgress/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 984,
+          "url": "/code/pallets/lending/src/lib.rs#L984",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -2380,8 +2496,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 251,
-          "url": "/code/pallets/commitments/src/lib.rs#L251",
+          "line": 260,
+          "url": "/code/pallets/commitments/src/lib.rs#L260",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -2908,6 +3024,24 @@
         }
       ]
     },
+    "InsufficientFunds": {
+      "code": "insufficient_balance",
+      "description": "Custody cannot pay: the buy-back costs more than proceeds plus collateral, or the withdrawal exceeds the collateral. Close less alpha or add collateral first.",
+      "docs_url": "/docs/errors/chain/InsufficientFunds",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientFunds/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 999,
+          "url": "/code/pallets/lending/src/lib.rs#L999",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "InsufficientGammaBalance": {
       "code": "insufficient_balance",
       "description": "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives `spendable_gamma`, what the hotkey can spend now.",
@@ -3354,6 +3488,24 @@
           "line": 265,
           "url": "/code/pallets/crowdloan/src/lib.rs#L265",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidParams": {
+      "code": "invalid_argument",
+      "description": "SynthParams are out of range. Check set_synth_params bounds against the live lending_params.",
+      "docs_url": "/docs/errors/chain/InvalidParams",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 985,
+          "url": "/code/pallets/lending/src/lib.rs#L985",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -4116,8 +4268,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 245,
-          "url": "/code/pallets/commitments/src/lib.rs#L245",
+          "line": 254,
+          "url": "/code/pallets/commitments/src/lib.rs#L254",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         },
         {
@@ -4522,6 +4674,24 @@
           "line": 914,
           "url": "/code/pallets/proxy/src/lib.rs#L914",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
+        }
+      ]
+    },
+    "NoPosition": {
+      "code": "not_found",
+      "description": "This coldkey has no short on the subnet. Check lending_position and the signing account.",
+      "docs_url": "/docs/errors/chain/NoPosition",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 981,
+          "url": "/code/pallets/lending/src/lib.rs#L981",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -4995,6 +5165,24 @@
         "System"
       ]
     },
+    "OpenImpactTooHigh": {
+      "code": "rate_limited",
+      "description": "This block's net minted alpha on the subnet would exceed SynthParams.open_net_mint_bps of pool alpha (1% by default). Retry next block or mint less.",
+      "docs_url": "/docs/errors/chain/OpenImpactTooHigh",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OpenImpactTooHigh/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 980,
+          "url": "/code/pallets/lending/src/lib.rs#L980",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "OrderAccountMissing": {
       "code": "not_found",
       "description": "The approval owner has no live System account. Fund the owner with the normal existential balance before approving an order; no registration or extra deposit is required.",
@@ -5200,7 +5388,8 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/Overflow/content.md",
       "pallets": [
         "SubtensorModule",
-        "Crowdloan"
+        "Crowdloan",
+        "Lending"
       ],
       "sources": [
         {
@@ -5216,6 +5405,13 @@
           "line": 255,
           "url": "/code/pallets/crowdloan/src/lib.rs#L255",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        },
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 987,
+          "url": "/code/pallets/lending/src/lib.rs#L987",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -5234,6 +5430,24 @@
           "line": 442,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L442",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "OwnerNotAllowed": {
+      "code": "policy_violation",
+      "description": "The owner has a pending coldkey swap. Shorts cannot open or grow until it completes.",
+      "docs_url": "/docs/errors/chain/OwnerNotAllowed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OwnerNotAllowed/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 1001,
+          "url": "/code/pallets/lending/src/lib.rs#L1001",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -5343,6 +5557,60 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PaymentOverflow/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "PoolTooShallow": {
+      "code": "insufficient_liquidity",
+      "description": "Pool TAO is below SynthParams.min_pool_depth. Wait for a deeper pool or pick another subnet.",
+      "docs_url": "/docs/errors/chain/PoolTooShallow",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PoolTooShallow/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 991,
+          "url": "/code/pallets/lending/src/lib.rs#L991",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "PositionDeleveraging": {
+      "code": "policy_violation",
+      "description": "The short is in a forced close. It cannot grow or withdraw collateral; you may still add collateral or close it.",
+      "docs_url": "/docs/errors/chain/PositionDeleveraging",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PositionDeleveraging/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 982,
+          "url": "/code/pallets/lending/src/lib.rs#L982",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "PositionExists": {
+      "code": "already_exists",
+      "description": "This coldkey already shorts the subnet. Grow the position with increase_short.",
+      "docs_url": "/docs/errors/chain/PositionExists",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PositionExists/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 995,
+          "url": "/code/pallets/lending/src/lib.rs#L995",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "PreLogExists": {
@@ -5930,6 +6198,24 @@
         "Multisig"
       ]
     },
+    "SlippageExceeded": {
+      "code": "insufficient_liquidity",
+      "description": "The sale returned less than min_tao_out (zero is always refused), or the buy-back would cost more than max_tao_in. Re-quote with lending_open_quote / lending_close_quote and widen the tolerance, or reduce size.",
+      "docs_url": "/docs/errors/chain/SlippageExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SlippageExceeded/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 978,
+          "url": "/code/pallets/lending/src/lib.rs#L978",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "SlippageTooHigh": {
       "code": "insufficient_liquidity",
       "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, raise `--rate-tolerance`, or, for stake, disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
@@ -5960,8 +6246,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 239,
-          "url": "/code/pallets/commitments/src/lib.rs#L239",
+          "line": 248,
+          "url": "/code/pallets/commitments/src/lib.rs#L248",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6161,6 +6447,24 @@
           "line": 261,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L261",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "SubnetNotEligible": {
+      "code": "subnet_not_exists",
+      "description": "The subnet is absent, root, or not trading yet (the owner has not called start). Shorts need a live dynamic subnet.",
+      "docs_url": "/docs/errors/chain/SubnetNotEligible",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SubnetNotEligible/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 970,
+          "url": "/code/pallets/lending/src/lib.rs#L970",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -6364,8 +6668,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 243,
-          "url": "/code/pallets/commitments/src/lib.rs#L243",
+          "line": 252,
+          "url": "/code/pallets/commitments/src/lib.rs#L252",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6482,8 +6786,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 235,
-          "url": "/code/pallets/commitments/src/lib.rs#L235",
+          "line": 244,
+          "url": "/code/pallets/commitments/src/lib.rs#L244",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -6557,6 +6861,24 @@
           "line": 242,
           "url": "/code/pallets/shield/src/lib.rs#L242",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
+        }
+      ]
+    },
+    "TooManyPositions": {
+      "code": "limit_exceeded",
+      "description": "The subnet or pallet has reached its bounded position count. Wait for another short to close.",
+      "docs_url": "/docs/errors/chain/TooManyPositions",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyPositions/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 996,
+          "url": "/code/pallets/lending/src/lib.rs#L996",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -6969,8 +7291,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 241,
-          "url": "/code/pallets/commitments/src/lib.rs#L241",
+          "line": 250,
+          "url": "/code/pallets/commitments/src/lib.rs#L250",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -7227,6 +7549,42 @@
         }
       ]
     },
+    "WithdrawBreaksCoverage": {
+      "code": "insufficient_balance",
+      "description": "After the withdrawal the remaining funds would miss the position's whole-book coverage. Withdraw less; lending_position shows coverage_cost and funds.",
+      "docs_url": "/docs/errors/chain/WithdrawBreaksCoverage",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawBreaksCoverage/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 983,
+          "url": "/code/pallets/lending/src/lib.rs#L983",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "WithdrawBufferBreached": {
+      "code": "insufficient_balance",
+      "description": "The withdrawal would leave less collateral than SynthParams.withdraw_buffer_days of interest (7 days by default). Withdraw less.",
+      "docs_url": "/docs/errors/chain/WithdrawBufferBreached",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawBufferBreached/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 993,
+          "url": "/code/pallets/lending/src/lib.rs#L993",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
     "WithdrawFailed": {
       "code": "insufficient_balance",
       "description": "Withdrawing the transaction fee from the sender's mapped account failed even though the balance check passed, e.g. due to locks, holds, or existential deposit constraints. Check the account's locks and its free versus withdrawable balance.",
@@ -7288,6 +7646,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/XCMDecodeFailed/content.md",
       "pallets": [
         "Contracts"
+      ]
+    },
+    "YoungSubnet": {
+      "code": "policy_violation",
+      "description": "The health TWAP ring has fewer than 37 interval samples, so opens and increases are blocked until the median has warmed up. Wait for more blocks or pick an older subnet.",
+      "docs_url": "/docs/errors/chain/YoungSubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/YoungSubnet/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 972,
+          "url": "/code/pallets/lending/src/lib.rs#L972",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
+      ]
+    },
+    "ZeroAmount": {
+      "code": "invalid_argument",
+      "description": "The call moves nothing. Pass a positive amount.",
+      "docs_url": "/docs/errors/chain/ZeroAmount",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ZeroAmount/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 997,
+          "url": "/code/pallets/lending/src/lib.rs#L997",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "ZeroBalanceAfterWithdrawn": {

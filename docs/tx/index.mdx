@@ -55,6 +55,17 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | --- | --- | --- | --- |
 | [`evm-withdraw`](/docs/tx/evm-withdraw) | coldkey | signed account (pallet role may apply) | Claim TAO deposited to the coldkey's truncated EVM mirror. |
 
+## Lending
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`add-short-collateral`](/docs/tx/add-short-collateral) | coldkey | signed account (pallet role may apply) | Add TAO collateral to an open short. |
+| [`close-short`](/docs/tx/close-short) | coldkey | signed account (pallet role may apply) | Buy back and burn short alpha, paying from proceeds then collateral. |
+| [`increase-short`](/docs/tx/increase-short) | coldkey | signed account (pallet role may apply) | Grow an open short: mint and sell more alpha, add collateral, or both. |
+| [`open-short`](/docs/tx/open-short) | coldkey | signed account (pallet role may apply) | Open a synthetic short: mint subnet alpha, sell it, and lock the proceeds. |
+| [`poke-short`](/docs/tx/poke-short) | coldkey | signed account (pallet role may apply) | Run a permissionless health check on someone's short. |
+| [`withdraw-short-collateral`](/docs/tx/withdraw-short-collateral) | coldkey | signed account (pallet role may apply) | Withdraw TAO collateral from an open short. |
+
 ## LimitOrders
 
 | Operation | Signer | Origin | Summary |

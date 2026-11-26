@@ -14,7 +14,8 @@ export const metadata: Metadata = {
     'gamma emission opens for a subnet owner, and sizes the weight of a single-validator root ' +
     'claim to its fund. ' +
     'This guide also covers V494: channel commitment burns, weight delegation, basket controls, ' +
-    'and the Etao owner limit.',
+    'and the Etao owner limit. A parallel dark-launch Lending pallet adds synthetic shorts, ' +
+    'SynthParams, custody accounts, and ProxyType::Lending.',
   alternates: {canonical: '/releases/v495-upgrade'},
 };
 
@@ -1196,6 +1197,35 @@ refill = await client.query(bt.storage.SubtensorModule.BasketTradeRefillBlocks)`
               about trade and deposit weight first.
             </li>
           </ul>
+        </section>
+
+
+        <section className={styles.section} id='lending-dark-launch'>
+          <h2 className={styles.subtitle}>Synthetic short lending (parallel ship)</h2>
+          <p>
+            Lending is pallet <strong>34</strong>. It is a <strong>dark launch</strong>:{' '}
+            <code>Enabled</code> defaults to <code>false</code>. Opens and related extrinsics stay
+            refused until root calls <code>set_enabled(true)</code> in a separate action.
+          </p>
+          <p>
+            Subnet participants can open <strong>short-only</strong> synthetic positions: borrowed
+            alpha is sold into the AMM and later bought back. There is no long / lift path. Economic
+            knobs live in root-settable <code>SynthParams</code> (flat APR, stress for coverage,
+            pace, TWAP samples). Custody accounts hold collateral and proceeds off the public stake
+            ledger until close, default, or subnet dissolution.
+          </p>
+          <h3 className={styles.subtitle_small}>ProxyType::Lending</h3>
+          <p>
+            Spec 495+ appends <code>ProxyType::Lending</code> at index <strong>23</strong>. A Lending
+            delegate may call only lending user extrinsics (<code>open_short</code>,{' '}
+            <code>close_short</code>, <code>add_collateral</code>, <code>withdraw_collateral</code>,{' '}
+            <code>poke</code>, and related reads) plus Utility batch wrappers. Transfers and ordinary
+            staking stay denied.
+          </p>
+          <p>
+            Related:{' '}
+            <DocLink href='/releases/v496-upgrade'>V496 short-only lending</DocLink>.
+          </p>
         </section>
 
         <section className={styles.section} id='checklist'>

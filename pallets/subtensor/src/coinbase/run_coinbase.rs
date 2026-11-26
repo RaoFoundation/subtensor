@@ -248,8 +248,10 @@ impl<T: Config> Pallet<T> {
         for (&netuid_i, &tao_emission_i) in subnet_emissions.iter() {
             // Get alpha_emission this block.
             let alpha_emission_i: U96F32 = asfloat!(
-                Self::get_block_emission_for_issuance(Self::get_alpha_issuance(netuid_i).into())
-                    .unwrap_or(0)
+                Self::get_block_emission_for_issuance(
+                    Self::alpha_issuance_for_schedule(netuid_i).into()
+                )
+                .unwrap_or(0)
             );
             log::debug!("alpha_emission_i: {alpha_emission_i:?}");
 

@@ -18,6 +18,7 @@
 use super::*;
 use crate::staking::BasketFlushWork;
 use crate::weights::WeightInfo;
+use pallet_lending::LendingInterface;
 use safe_math::*;
 use substrate_fixed::types::{I64F64, U64F64};
 use subtensor_runtime_common::{NetUid, TaoBalance, Token};
@@ -391,25 +392,52 @@ impl<T: Config> Pallet<T> {
         LastRateLimitedBlock::<T>::remove(rate_limit_key);
     }
 
+    /// Price that ranks `netuid` for pruning: lending's slow moving average of
+    /// raw spot (shorts may push it down, but only through sustained
+    /// pressure). Falls back to the emission moving price before its first
+    /// sample.
+    pub fn dereg_rank_price(netuid: NetUid) -> U64F64 {
+        T::Lending::dereg_moving_price(netuid)
+            .unwrap_or_else(|| Self::get_moving_alpha_price(netuid))
+    }
+
+    /// Registration immunity: `netuid` registered less than
+    /// `NetworkImmunityPeriod` blocks ago cannot be pruned.
+    pub fn is_network_prune_immune(netuid: NetUid) -> bool {
+        Self::get_current_block_as_u64()
+            < NetworkRegisteredAt::<T>::get(netuid)
+                .saturating_add(Self::get_network_immunity_period())
+    }
+
     pub fn get_network_to_prune() -> Option<NetUid> {
-        let current_block: u64 = Self::get_current_block_as_u64();
+        // Prefer the metered block cache so signed registration does not
+        // rescan RankPrice / RankRingGeneration for every live subnet.
+        if let Some(netuid) = T::Lending::cached_network_to_prune() {
+            return Some(netuid);
+        }
+
+        // Lending ranks are live: do not fall back to emission moving price.
+        // A mid-block cache kill (owner dissolve of a non-victim, or the
+        // prune-triggered dissolve itself) would otherwise pick a different
+        // victim than the RankPrice floor. Defer capacity registration until
+        // the next metered `on_initialize` republishes `PruneTarget`
+        // (`SubnetLimitReached` when no victim is available).
+        if T::Lending::lending_ranks_active() {
+            return None;
+        }
 
         let mut candidate_netuid: Option<NetUid> = None;
         let mut candidate_price: U64F64 = U64F64::saturating_from_num(u128::MAX);
         let mut candidate_timestamp: u64 = u64::MAX;
 
         for (netuid, added) in NetworksAdded::<T>::iter() {
-            if !added || netuid == NetUid::ROOT {
+            if !added || netuid == NetUid::ROOT || Self::is_network_prune_immune(netuid) {
                 continue;
             }
 
             let registered_at = NetworkRegisteredAt::<T>::get(netuid);
 
-            // Skip immune networks.
-            if current_block < registered_at.saturating_add(Self::get_network_immunity_period()) {
-                continue;
-            }
-
+            // Lending off: pre-lending emission moving-price path only.
             let price: U64F64 = Self::get_moving_alpha_price(netuid);
 
             // If tie on price, earliest registration wins.

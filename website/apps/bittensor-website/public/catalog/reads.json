@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2898,
-        "end_line": 2908,
-        "url": "/code/runtime/src/lib.rs#L2898-L2908",
+        "line": 2961,
+        "end_line": 2971,
+        "url": "/code/runtime/src/lib.rs#L2961-L2971",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -333,9 +333,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_next_epoch_start_block",
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
-        "line": 1328,
-        "end_line": 1342,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1328-L1342",
+        "line": 1330,
+        "end_line": 1344,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1330-L1344",
         "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
@@ -420,8 +420,8 @@
         "container": "Commitments",
         "name": "ChannelCommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 309,
-        "url": "/code/pallets/commitments/src/lib.rs#L309",
+        "line": 318,
+        "url": "/code/pallets/commitments/src/lib.rs#L318",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       },
       {
@@ -429,8 +429,8 @@
         "container": "Commitments",
         "name": "ChannelRevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 322,
-        "url": "/code/pallets/commitments/src/lib.rs#L322",
+        "line": 331,
+        "url": "/code/pallets/commitments/src/lib.rs#L331",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -643,8 +643,8 @@
         "container": "Commitments",
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 460,
-        "url": "/code/pallets/commitments/src/lib.rs#L460",
+        "line": 469,
+        "url": "/code/pallets/commitments/src/lib.rs#L469",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -950,9 +950,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_next_epoch_start_block",
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
-        "line": 1328,
-        "end_line": 1342,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1328-L1342",
+        "line": 1330,
+        "end_line": 1344,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1330-L1344",
         "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
@@ -973,8 +973,8 @@
         "container": "Balances",
         "name": "ExistentialDeposit",
         "path": "runtime/src/lib.rs",
-        "line": 526,
-        "url": "/code/runtime/src/lib.rs#L526",
+        "line": 528,
+        "url": "/code/runtime/src/lib.rs#L528",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1087,9 +1087,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2727,
-        "end_line": 2729,
-        "url": "/code/runtime/src/lib.rs#L2727-L2729",
+        "line": 2765,
+        "end_line": 2767,
+        "url": "/code/runtime/src/lib.rs#L2765-L2767",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1290,6 +1290,289 @@
         "line": 3933,
         "url": "/code/pallets/subtensor/src/lib.rs#L3933",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_close_quote",
+    "summary": "Quote buying back short alpha now: TAO cost and refund.",
+    "description": "Quote buying back short alpha now: TAO cost and refund.\n\n`alpha` is clamped to the position. `tao_in` is the buy-back cost,\nswap fees included, paid from proceeds then collateral. `refund` is what\na full close returns to the owner, deposit included; a partial close\nrefunds nothing. Fails with `InsufficientFunds` when custody cannot pay.",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuid": "integer",
+      "alpha": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Owner of the short.",
+      "netuid": "Subnet of the short.",
+      "alpha": "Alpha to buy back. Omit to quote closing the whole position."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-close-quote",
+    "markdown_url": "/llms.mdx/docs/query/lending-close-quote/content.md",
+    "python": "sub.prices.lending_close_quote(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "LendingRuntimeApi",
+        "name": "quote_close_short",
+        "path": "runtime/src/lib.rs",
+        "line": 2937,
+        "end_line": 2943,
+        "url": "/code/runtime/src/lib.rs#L2937-L2943",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_current_terms_version",
+    "summary": "Terms version stamped on newly opened shorts.",
+    "description": "Terms version stamped on newly opened shorts.",
+    "params": {},
+    "param_docs": {},
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-current-terms-version",
+    "markdown_url": "/llms.mdx/docs/query/lending-current-terms-version/content.md",
+    "python": "sub.prices.lending_current_terms_version(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "LendingRuntimeApi",
+        "name": "current_terms_version",
+        "path": "runtime/src/lib.rs",
+        "line": 2949,
+        "end_line": 2951,
+        "url": "/code/runtime/src/lib.rs#L2949-L2951",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_open_quote",
+    "summary": "Quote a fresh short: sale proceeds, required collateral, deposit and interest.",
+    "description": "Quote a fresh short: sale proceeds, required collateral, deposit and interest.\n\n`required_collateral` is the least TAO that, with the proceeds, covers\nthe position's whole-book share and a day of interest. The `deposit` is\ncharged on top. `annual_interest` is the flat APR on `notional`\n(`mint \u00d7 EMA`). `in_prune_zone` means the minted alpha would settle at\nits own proceeds on deregistration. A refusal (disabled, breaker on, net\nmint limit spent, below the minimum notional, shallow pool) is an error.",
+    "params": {
+      "netuid": "integer",
+      "mint_alpha": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet to short.",
+      "mint_alpha": "Alpha to mint and sell."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-open-quote",
+    "markdown_url": "/llms.mdx/docs/query/lending-open-quote/content.md",
+    "python": "sub.prices.lending_open_quote(...)",
+    "hits": [
+      {
+        "kind": "runtime",
+        "container": "LendingRuntimeApi",
+        "name": "quote_open_short",
+        "path": "runtime/src/lib.rs",
+        "line": 2930,
+        "end_line": 2935,
+        "url": "/code/runtime/src/lib.rs#L2930-L2935",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_params",
+    "summary": "Whether shorts are enabled, and the root-settable `SynthParams`.",
+    "description": "Whether shorts are enabled, and the root-settable `SynthParams`.\n\nBasis-point fields are parts of 10,000. `min_notional`,\n`min_pool_depth` and `deposit` are rao.",
+    "params": {},
+    "param_docs": {},
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-params",
+    "markdown_url": "/llms.mdx/docs/query/lending-params/content.md",
+    "python": "sub.prices.lending_params(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "Enabled",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 704,
+        "url": "/code/pallets/lending/src/lib.rs#L704",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "SynthParamsStore",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 706,
+        "url": "/code/pallets/lending/src/lib.rs#L706",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_position",
+    "summary": "A coldkey's synthetic short on one subnet, with its health, or None.",
+    "description": "A coldkey's synthetic short on one subnet, with its health, or None.\n\n`minted` is alpha still owed to the book. `collateral` and the locked\nsale `proceeds` are TAO; together they are `funds`. `deposit` is\nrefunded on a full close and burned on default. `zone_minted` and\n`zone_proceeds` track alpha minted in the prune zone, which settles at\nits own proceeds on deregistration. `coverage_cost` is the position's\nshare of buying the whole book back after a stressed pump (None when the\npumped pool cannot supply the book); `covered` says whether `funds`\nmeet it. `equity_twap` is `funds` less the buy-back cost at the median\nTWAP, in rao; a negative value starts deleveraging. `accrued_interest`\nis interest owed since the last charge.",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Owner of the short.",
+      "netuid": "Subnet of the short."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-position",
+    "markdown_url": "/llms.mdx/docs/query/lending-position/content.md",
+    "python": "sub.prices.lending_position(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "Positions",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 708,
+        "url": "/code/pallets/lending/src/lib.rs#L708",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_positions",
+    "summary": "Every short on a subnet, pinned to one block and sorted by owner.",
+    "description": "Every short on a subnet, pinned to one block and sorted by owner.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose shorts to list."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-positions",
+    "markdown_url": "/llms.mdx/docs/query/lending-positions/content.md",
+    "python": "sub.prices.lending_positions(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "OpenByNetuid",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 718,
+        "url": "/code/pallets/lending/src/lib.rs#L718",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "Positions",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 708,
+        "url": "/code/pallets/lending/src/lib.rs#L708",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_positions_for_coldkey",
+    "summary": "Every short one coldkey holds, across subnets, pinned to one block.",
+    "description": "Every short one coldkey holds, across subnets, pinned to one block.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Owner whose shorts to list across every subnet."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-positions-for-coldkey",
+    "markdown_url": "/llms.mdx/docs/query/lending-positions-for-coldkey/content.md",
+    "python": "sub.prices.lending_positions_for_coldkey(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "Positions",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 708,
+        "url": "/code/pallets/lending/src/lib.rs#L708",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "lending_subnet",
+    "summary": "A subnet's short book: outstanding mint, residual dilution and breaker.",
+    "description": "A subnet's short book: outstanding mint, residual dilution and breaker.\n\n`synthetic_outstanding` is alpha minted by open shorts and not yet\nbought back; `deleveraging_minted` is the part in forced closes.\n`residual_alpha` is alpha left by defaulted shorts, which\n`residual_reserve` (TAO from interest) retires over time.\n`breaker_tripped` blocks new opens and increases while residual alpha is\nhigh. `dissolving` means the subnet is deregistering and shorts settle.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose short book to read."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/lending-subnet",
+    "markdown_url": "/llms.mdx/docs/query/lending-subnet/content.md",
+    "python": "sub.prices.lending_subnet(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "SyntheticOutstanding",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 737,
+        "url": "/code/pallets/lending/src/lib.rs#L737",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "DeleveragingMinted",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 803,
+        "url": "/code/pallets/lending/src/lib.rs#L803",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "ResidualAlpha",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 740,
+        "url": "/code/pallets/lending/src/lib.rs#L740",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "ResidualReserve",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 743,
+        "url": "/code/pallets/lending/src/lib.rs#L743",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "BreakerTripped",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 746,
+        "url": "/code/pallets/lending/src/lib.rs#L746",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "PositionCount",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 721,
+        "url": "/code/pallets/lending/src/lib.rs#L721",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "Dissolutions",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 853,
+        "url": "/code/pallets/lending/src/lib.rs#L853",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },
@@ -1568,9 +1851,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2731,
-        "end_line": 2733,
-        "url": "/code/runtime/src/lib.rs#L2731-L2733",
+        "line": 2769,
+        "end_line": 2771,
+        "url": "/code/runtime/src/lib.rs#L2769-L2771",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1684,9 +1967,9 @@
         "container": "SubnetInfoRuntimeApi",
         "name": "get_next_epoch_start_block",
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
-        "line": 1328,
-        "end_line": 1342,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1328-L1342",
+        "line": 1330,
+        "end_line": 1344,
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1330-L1344",
         "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
@@ -1905,9 +2188,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2910,
-        "end_line": 2938,
-        "url": "/code/runtime/src/lib.rs#L2910-L2938",
+        "line": 2973,
+        "end_line": 3001,
+        "url": "/code/runtime/src/lib.rs#L2973-L3001",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1934,9 +2217,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2940,
-        "end_line": 2968,
-        "url": "/code/runtime/src/lib.rs#L2940-L2968",
+        "line": 3003,
+        "end_line": 3031,
+        "url": "/code/runtime/src/lib.rs#L3003-L3031",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1989,8 +2272,8 @@
         "container": "Commitments",
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 496,
-        "url": "/code/pallets/commitments/src/lib.rs#L496",
+        "line": 505,
+        "url": "/code/pallets/commitments/src/lib.rs#L505",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -2015,9 +2298,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2755,
-        "end_line": 2757,
-        "url": "/code/runtime/src/lib.rs#L2755-L2757",
+        "line": 2793,
+        "end_line": 2795,
+        "url": "/code/runtime/src/lib.rs#L2793-L2795",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2080,9 +2363,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2767,
-        "end_line": 2769,
-        "url": "/code/runtime/src/lib.rs#L2767-L2769",
+        "line": 2805,
+        "end_line": 2807,
+        "url": "/code/runtime/src/lib.rs#L2805-L2807",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2767,9 +3050,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2738,
-        "end_line": 2740,
-        "url": "/code/runtime/src/lib.rs#L2738-L2740",
+        "line": 2776,
+        "end_line": 2778,
+        "url": "/code/runtime/src/lib.rs#L2776-L2778",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2803,8 +3086,8 @@
         "container": "SubtensorModule",
         "name": "InitialStartCallDelay",
         "path": "runtime/src/lib.rs",
-        "line": 1071,
-        "url": "/code/runtime/src/lib.rs#L1071",
+        "line": 1073,
+        "url": "/code/runtime/src/lib.rs#L1073",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3170,9 +3453,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2761,
-        "end_line": 2763,
-        "url": "/code/runtime/src/lib.rs#L2761-L2763",
+        "line": 2799,
+        "end_line": 2801,
+        "url": "/code/runtime/src/lib.rs#L2799-L2801",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

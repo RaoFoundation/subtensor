@@ -74,12 +74,15 @@ impl<T: Config> Pallet<T> {
             })
             .collect::<BTreeMap<NetUid, U96F32>>()
     }
+    /// Record user TAO inflow for the dormant flow-based share path
+    /// ([`Self::get_shares_flow`]).
     pub fn record_tao_inflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_add(u64::from(tao) as i64);
         });
     }
 
+    /// Record user TAO outflow for the dormant flow-based share path.
     pub fn record_tao_outflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_sub(u64::from(tao) as i64)

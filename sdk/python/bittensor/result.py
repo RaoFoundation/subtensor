@@ -306,6 +306,11 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # Remediation overrides keyed by the exact chain error name; more specific
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
+    # Do not fall through to the generic INSUFFICIENT_LIQUIDITY pool line.
+    "SlippageExceeded": (
+        "the short's sale missed min_tao_out or its buy-back exceeded max_tao_in; "
+        "re-quote, raise `--max-slippage` above the default 0.5%, or reduce size"
+    ),
     "SlippageTooHigh": (
         "the price moved past the slippage-protection limit (stake trades and gamma "
         "mints are protected by default with a 5% tolerance); retry, raise the tolerance "
@@ -395,8 +400,10 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "`btcli wallet balance`"
     ),
     "StakeUnavailable": (
-        "only free stake can move — wait out conviction locks or drain miner "
-        "collateral, then retry; check locked vs free with `btcli stake list`"
+        "only unlocked stake can move — conviction Lock and/or miner collateral "
+        "still reserves some of this hotkey's alpha. Free that locked stake or use a "
+        "hotkey with free alpha; check "
+        "`btcli stake list` / `btcli conviction show`"
     ),
     "LockHotkeyMismatch": (
         "reuse the existing lock hotkey, or for transfers of locked alpha land "
@@ -532,9 +539,14 @@ class ChainError(BittensorError):
         self.message = message
         self.name = name
         self.code = code or classify_error(message, name)
+        # Optional per-call override so CLI can attach quoted vs bound numbers
+        # for SlippageExceeded (E2E F12) without mutating the global help table.
+        self.remediation_override: Optional[str] = None
 
     @property
     def remediation(self) -> str:
+        if self.remediation_override:
+            return self.remediation_override
         if self.name in _NAME_HELP_OVERRIDES:
             return _NAME_HELP_OVERRIDES[self.name]
         haystack = self.message.lower()
@@ -751,6 +763,11 @@ class ExtrinsicResult:
             raise self.error or ChainError(self.message or "Extrinsic failed.")
         return self
 
+    @property
+    def error_description(self) -> Optional[str]:
+        """Per-name chain error description, or None when unnamed / unknown."""
+        return self.error.description if self.error is not None else None
+
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"success": self.success, "message": self.message}
         if self.block_hash:
@@ -763,6 +780,9 @@ class ExtrinsicResult:
             payload["fee_tao"] = self.fee.tao
         if self.error is not None:
             payload["error"] = self.error.to_dict()
+            # Top-level alias for agents that look for error_description (N23).
+            if self.error.description:
+                payload["error_description"] = self.error.description
         if self.data:
             payload["data"] = self.data
         return payload

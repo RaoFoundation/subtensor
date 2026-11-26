@@ -57,6 +57,30 @@ pub trait SwapHandler {
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
+
+    /// Fee-free sell quote against a hypothetical pool state.
+    /// `quote_weight_parts` is `Perquintill::deconstruct()` of the Balancer quote weight.
+    /// Returns TAO out for selling `delta_alpha`.
+    fn quote_sell_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_alpha: AlphaBalance,
+    ) -> TaoBalance;
+
+    /// Fee-free buy quote against a hypothetical pool state.
+    /// `quote_weight_parts` is `Perquintill::deconstruct()` of the Balancer quote weight.
+    /// Returns alpha out for buying with `delta_tao`.
+    fn quote_buy_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_tao: TaoBalance,
+    ) -> AlphaBalance;
+
+    /// Live Balancer quote weight parts (`Perquintill::deconstruct()`) for `netuid`.
+    fn balancer_quote_weight(netuid: NetUid) -> u64;
+
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);

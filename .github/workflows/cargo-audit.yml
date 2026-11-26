@@ -3,6 +3,7 @@ name: Cargo Audit
 on:
   pull_request:
     types: [labeled, unlabeled, synchronize, opened]
+  workflow_dispatch:
 
 concurrency:
   group: cargo-audit-${{ github.ref }}
@@ -119,6 +120,9 @@ jobs:
           #   sc-executor-wasmtime does not call it. The feature-exclusion check
           #   fails if WASI support or host features beyond the reviewed
           #   core-Wasm graph appear. Fixed only in >=36.0.21 (SDK bump).
+          # Additional Hickory advisories (0487…0551) live in .cargo/audit.toml
+          # — same SDK-pin exception channel as wasmtime — so this workflow
+          # ignore list stays aligned with main for those IDs.
           # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
           # RUSTSEC-2025-0137 / RUSTSEC-2026-0220: ruint via the frontier/EVM
           #   fork tree; 0220 needs >=1.20.0, pinned below that by frontier.

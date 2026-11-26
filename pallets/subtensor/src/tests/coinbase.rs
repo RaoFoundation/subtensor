@@ -699,6 +699,25 @@ fn test_update_moving_price_after_time() {
     });
 }
 
+/// No open loans ⇒ `emission_alpha_price` is exactly live AMM spot (byte-identical).
+#[test]
+fn test_emission_price_identical_with_no_loans() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(2_000_000));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+
+        let spot = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
+        let emission = SubtensorModule::emission_alpha_price(netuid);
+        assert_eq!(emission, spot);
+        // Fast moving price still tracks live spot (unchanged path).
+        SubtensorModule::update_fast_moving_price(netuid);
+        assert_eq!(SubnetFastMovingPrice::<Test>::get(netuid).unwrap(), spot);
+    });
+}
+
 // Test basic alpha issuance in coinbase mechanism.
 // This test verifies that:
 // - Alpha issuance is initialized to 0 for new subnets

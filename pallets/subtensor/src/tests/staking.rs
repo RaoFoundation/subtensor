@@ -7412,3 +7412,58 @@ fn null_miner_credit_without_collateral_repairs_only_stale_index_membership() {
         ));
     });
 }
+
+#[test]
+fn stake_transition_rejects_custody_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(9);
+        let coldkey = U256::from(901);
+        let hotkey = U256::from(902);
+        let other = U256::from(903);
+        add_network(netuid, 1, 1);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        register_ok_neuron(netuid, other, coldkey, 0);
+        let _ = <Test as Config>::Currency::make_free_balance_be(
+            &coldkey,
+            TaoBalance::from(1_000_000_000_000u64),
+        );
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            TaoBalance::from(1_000_000_000u64)
+        ));
+        set_mock_custody_hotkey(Some(hotkey));
+        assert_err!(
+            SubtensorModule::validate_stake_transition(
+                &coldkey,
+                &coldkey,
+                &hotkey,
+                &other,
+                netuid,
+                netuid,
+                AlphaBalance::from(1u64),
+                AlphaBalance::from(1u64),
+                Some(false),
+                false
+            ),
+            Error::<Test>::CustodyHotkey
+        );
+        set_mock_custody_hotkey(Some(other));
+        assert_err!(
+            SubtensorModule::validate_stake_transition(
+                &coldkey,
+                &coldkey,
+                &hotkey,
+                &other,
+                netuid,
+                netuid,
+                AlphaBalance::from(1u64),
+                AlphaBalance::from(1u64),
+                Some(false),
+                false
+            ),
+            Error::<Test>::CustodyHotkey
+        );
+    });
+}

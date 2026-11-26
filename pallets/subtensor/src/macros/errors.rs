@@ -509,5 +509,8 @@ mod errors {
         NotMechWeightDelegate,
         /// A Null weight row exceeds the total row budget divided by mechanism count.
         TooManyWeightsForNullMechanism,
+        // Appended after Release 494/495 so mainnet SCALE indices stay stable.
+        /// Third-party stake onto the lending custody hotkey is rejected (§14).
+        CustodyHotkey,
     }
 }

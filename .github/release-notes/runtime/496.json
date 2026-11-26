@@ -3,6 +3,14 @@
   "spec_version": 496,
   "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v496-upgrade/page.tsx",
   "public_path": "/releases/v496-upgrade",
-  "audiences": ["node operators", "wallets and indexers", "sudo signers"],
-  "summary": "V496 increments the runtime spec version to 496 and keeps transaction version 2. This PR adds no runtime calls, storage migrations, or parameter changes. It tracks 51 root-controlled settings and excludes the nomination minimum factor from generated proposals. Manual baseline comparisons are report-only. Mainnet approvals pin the independently verified call hash, the runtime spec version, and the multisig timepoint. Merging the files does not apply them. Signers should use the updated SDK from a trusted checkout and regenerate proposals after a runtime upgrade."
+  "audiences": [
+    "node operators",
+    "validators",
+    "subnet owners",
+    "SDK users",
+    "integrators",
+    "wallets and indexers",
+    "sudo signers"
+  ],
+  "summary": "V496 increments the runtime spec version to 496 and keeps transaction version 2. It adds a reviewed, read-only workflow for proposing chain-wide root parameter changes (51 tracked settings; nomination minimum factor excluded; mainnet approvals pin call hash, spec version, and multisig timepoint). It also keeps synthetic-mint SHORTS-ONLY lending dark-launched (Enabled defaults false) with Jacob SPEC v1.2 book/APR economics, paced buy-backs, uncapped notional EMA, and prune-zone ranking identical to dereg selection. Regenerate metadata before integrating."
 }

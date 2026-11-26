@@ -316,7 +316,14 @@ def _make_command(intent_cls: type[Intent]):
             fill_missing(app_ctx, missing, kwargs)
         for f in specs:
             if f.name.endswith("_ss58"):
-                kwargs[f.name] = app_ctx.resolve_address(f.name, kwargs.get(f.name))
+                raw = kwargs.get(f.name)
+                # resolve_address wallet-defaults omitted hotkey_ss58/coldkey_ss58.
+                # Ops that opt out via falls_back_to_wallet must keep None as None
+                # (e.g. short add_loan_collateral).
+                if raw is None and not falls_back_to_wallet(intent_cls.op, f.name):
+                    kwargs[f.name] = None
+                    continue
+                kwargs[f.name] = app_ctx.resolve_address(f.name, raw)
             elif is_money(str(f.type)) and kwargs.get(f.name) is not None:
                 # Money options parse as strings so the amount stays exact (and
                 # the flag form accepts `all` where allowed); bad values are

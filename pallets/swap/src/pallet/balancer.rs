@@ -399,6 +399,48 @@ impl Balancer {
             .saturating_mul(e.saturating_sub(one))
             .saturating_to_num::<u64>()
     }
+
+    /// Fee-free sell quote on a hypothetical pool: TAO out for selling `delta_alpha`.
+    ///
+    ///   `∆y = y · (1 − (x / (x+∆x))^(w_b/w_q))`
+    pub fn quote_sell_on(
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        quote_weight: Perquintill,
+        delta_alpha: u64,
+    ) -> Result<u64, BalancerError> {
+        let bal = Self::new(quote_weight)?;
+        if delta_alpha == 0 || tao_reserve == 0 || alpha_reserve == 0 {
+            return Ok(0);
+        }
+        let e = bal.exp_base_quote(alpha_reserve, delta_alpha);
+        let one = U64F64::from_num(1);
+        let tao_reserve_fixed = U64F64::from_num(tao_reserve);
+        Ok(tao_reserve_fixed
+            .saturating_mul(one.saturating_sub(e))
+            .saturating_to_num::<u64>())
+    }
+
+    /// Fee-free buy quote on a hypothetical pool: alpha out for buying with `delta_tao`.
+    ///
+    ///   `∆x = x · (1 − (y / (y+∆y))^(w_q/w_b))`
+    pub fn quote_buy_on(
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        quote_weight: Perquintill,
+        delta_tao: u64,
+    ) -> Result<u64, BalancerError> {
+        let bal = Self::new(quote_weight)?;
+        if delta_tao == 0 || tao_reserve == 0 || alpha_reserve == 0 {
+            return Ok(0);
+        }
+        let e = bal.exp_quote_base(tao_reserve, delta_tao);
+        let one = U64F64::from_num(1);
+        let alpha_reserve_fixed = U64F64::from_num(alpha_reserve);
+        Ok(alpha_reserve_fixed
+            .saturating_mul(one.saturating_sub(e))
+            .saturating_to_num::<u64>())
+    }
 }
 
 // cargo test --package pallet-subtensor-swap --lib -- pallet::balancer::tests --nocapture
@@ -1030,6 +1072,26 @@ mod tests {
             * ((target_price.to_num::<f64>() / current_price.to_num::<f64>()).powf(0.75) - 1.0);
 
         assert_eq!(dy, dy_expected as u64,);
+    }
+
+    #[test]
+    fn test_quote_sell_and_buy_on_match_convert_deltas() {
+        let w_quote = Perquintill::from_rational(1u128, 2u128);
+        let bal = Balancer::new(w_quote).unwrap();
+        let x = 1_000_000_000u64;
+        let y = 2_000_000_000u64;
+        let dx = 10_000_000u64;
+        let dy = 20_000_000u64;
+
+        let sell = Balancer::quote_sell_on(y, x, w_quote, dx).unwrap();
+        let e_sell = bal.exp_base_quote(x, dx);
+        let sell_expected = (y as f64) * (1.0 - e_sell.to_num::<f64>());
+        assert!((sell as f64 - sell_expected).abs() < 2.0);
+
+        let buy = Balancer::quote_buy_on(y, x, w_quote, dy).unwrap();
+        let e_buy = bal.exp_quote_base(y, dy);
+        let buy_expected = (x as f64) * (1.0 - e_buy.to_num::<f64>());
+        assert!((buy as f64 - buy_expected).abs() < 2.0);
     }
 
     #[test]

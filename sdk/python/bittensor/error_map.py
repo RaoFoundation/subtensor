@@ -526,7 +526,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OrderAccountMissing": _C.NOT_FOUND,
     "InvalidAuthorizationMode": _C.INVALID_ARGUMENT,
     # ── HashedAccounts ──────────────────────────────────────────────────
-    "Disabled": _C.DISABLED,
     "UnsupportedDescriptor": _C.INVALID_ARGUMENT,
     "DescriptorMismatch": _C.INVALID_ARGUMENT,
     "NotRegistered": _C.NOT_REGISTERED,
@@ -539,6 +538,29 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidDerivedAuthority": _C.INVALID_ARGUMENT,
     "DerivedAuthorityTooComplex": _C.LIMIT_EXCEEDED,
     "RegistrationDepositTooHigh": _C.LIMIT_EXCEEDED,
+    "CustodyHotkey": _C.INVALID_ARGUMENT,
+    # ── Lending (synthetic shorts) ──────────────────────────────────────
+    "Disabled": _C.DISABLED,  # also used by other pallets when unique
+    "SubnetNotEligible": _C.SUBNET_NOT_EXISTS,
+    "BelowMinNotional": _C.INVALID_ARGUMENT,
+    "CoverageNotMet": _C.INSUFFICIENT_BALANCE,
+    "SlippageExceeded": _C.INSUFFICIENT_LIQUIDITY,
+    "OpenImpactTooHigh": _C.RATE_LIMITED,
+    "NoPosition": _C.NOT_FOUND,
+    "PositionDeleveraging": _C.POLICY_VIOLATION,
+    "WithdrawBreaksCoverage": _C.INSUFFICIENT_BALANCE,
+    "DissolutionInProgress": _C.EXPIRED,
+    "InvalidParams": _C.INVALID_ARGUMENT,
+    "CustodyUnavailable": _C.INTERNAL,
+    "DilutionBreakerActive": _C.POLICY_VIOLATION,
+    "PoolTooShallow": _C.INSUFFICIENT_LIQUIDITY,
+    "YoungSubnet": _C.POLICY_VIOLATION,
+    "WithdrawBufferBreached": _C.INSUFFICIENT_BALANCE,
+    "PositionExists": _C.ALREADY_EXISTS,
+    "TooManyPositions": _C.LIMIT_EXCEEDED,
+    "ZeroAmount": _C.INVALID_ARGUMENT,
+    "InsufficientFunds": _C.INSUFFICIENT_BALANCE,
+    "OwnerNotAllowed": _C.POLICY_VIOLATION,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

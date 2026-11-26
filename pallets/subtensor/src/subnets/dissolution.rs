@@ -2,6 +2,7 @@ use super::*;
 use crate::weights::WeightInfo;
 use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
+use pallet_lending::LendingInterface;
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
@@ -73,6 +74,13 @@ pub enum DissolveCleanupPhase {
     /// that can recycle alpha has completed. Appended so existing in-flight cleanup
     /// discriminants remain stable.
     NetworkAlphaAssetCounters,
+    /// Phase 2.15: Jacob §13 lending settlement. Appended for codec stability.
+    /// Runs after alpha is counted and before stakers are paid.
+    LendingSettle,
+    /// Phase 2.16: Finish lending dissolution maps after settlement. Appended
+    /// so a spent idle meter that completed settle cannot re-pay the terminal
+    /// sweep; finalization resumes on a fresh budget.
+    LendingFinish,
 }
 
 impl Default for DissolveCleanupPhase {
@@ -91,6 +99,8 @@ impl DissolveCleanupPhase {
             | Self::SubnetRootDividendsRootClaimable
             | Self::SubnetRootDividendsRootClaimed
             | Self::AlphaInOutStakesGetTotalAlphaValue
+            | Self::LendingSettle
+            | Self::LendingFinish
             | Self::AlphaInOutStakesSettleStakes
             | Self::AlphaInOutStakesAlpha
             | Self::AlphaInOutStakesHotkeyTotals
@@ -117,14 +127,47 @@ impl DissolveCleanupPhase {
     }
 }
 
-#[crate::freeze_struct("c524ea54893ae91a")]
-#[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
+#[crate::freeze_struct("f176dbf267a6761f")]
+#[derive(Encode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
 pub struct DissolveCleanupStatus {
     pub netuid: NetUid,
     pub phase: DissolveCleanupPhase,
     pub last_key: Option<Vec<u8>>,
     pub subnet_total_alpha_value: Option<u128>,
     pub subnet_distributed_tao: Option<u128>,
+    /// Bits of frozen `r = min(T_flag, T_ema) / all_alpha` captured after
+    /// basket conversion completes. Stakers and protocol α pay at this
+    /// rate; leftover pot TAO is recycled, never paid out (SPEC P12).
+    pub dissolution_price_bits: Option<u128>,
+    /// Cumulative alpha already counted across metered settle-stakes resumes.
+    /// Tracks remaining_alpha for adaptive pot-capped payouts.
+    pub subnet_settled_alpha: Option<u128>,
+}
+
+impl codec::Decode for DissolveCleanupStatus {
+    fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+        Ok(Self {
+            netuid: codec::Decode::decode(input)?,
+            phase: codec::Decode::decode(input)?,
+            last_key: codec::Decode::decode(input)?,
+            subnet_total_alpha_value: codec::Decode::decode(input)?,
+            subnet_distributed_tao: codec::Decode::decode(input)?,
+            // Missing trailing fields (EOF) → None; a corrupt payload errors.
+            dissolution_price_bits: Self::decode_trailing_opt(input)?,
+            subnet_settled_alpha: Self::decode_trailing_opt(input)?,
+        })
+    }
+}
+
+impl DissolveCleanupStatus {
+    fn decode_trailing_opt<T: codec::Decode, I: codec::Input>(
+        input: &mut I,
+    ) -> Result<Option<T>, codec::Error> {
+        match input.remaining_len()? {
+            Some(0) => Ok(None),
+            _ => Option::<T>::decode(input),
+        }
+    }
 }
 
 impl DissolveCleanupStatus {
@@ -135,6 +178,8 @@ impl DissolveCleanupStatus {
             last_key: None,
             subnet_total_alpha_value: None,
             subnet_distributed_tao: None,
+            dissolution_price_bits: None,
+            subnet_settled_alpha: None,
         }
     }
 
@@ -181,6 +226,10 @@ impl<T: Config> Pallet<T> {
             !dissolved_networks.contains(&netuid),
             Error::<T>::NetworkDissolveAlreadyQueued
         );
+
+        // §13: flag dissolving (blocks new opens) before TotalStake is debited
+        // by SubnetTAO.
+        T::Lending::start_dissolution(netuid)?;
 
         // Basket holdings are converted to each fund's root slot in the metered
         // `SubnetBasketHoldingsToRoot` cleanup phase (before stake / AMM teardown).
@@ -795,8 +844,19 @@ impl<T: Config> Pallet<T> {
                     );
 
                     if done {
-                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        // Persist scan completion before the freeze so a spent
+                        // meter cannot force the next idle pass to re-scan the
+                        // final basket segment. Freeze is opportunistic here;
+                        // alpha-count / LendingSettle refill bits when None.
                         status.last_key = None;
+                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        // Refreeze `r` after basket sales have changed pool TAO so the
+                        // staker rate reflects post-sale economics (HIGH 1A).
+                        let freeze_w = T::Lending::freeze_dissolution_weight();
+                        if weight_meter.try_consume(freeze_w).is_ok() {
+                            status.dissolution_price_bits =
+                                T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
+                        }
                     } else {
                         status.last_key = new_key;
                     }
@@ -838,13 +898,66 @@ impl<T: Config> Pallet<T> {
                     );
                     if done {
                         status.subnet_distributed_tao = Some(0);
-                        status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
                         status.last_key = None;
+                        // Persist alpha-count completion even when freeze must
+                        // wait; LendingSettle freezes when bits are still None.
+                        if status.dissolution_price_bits.is_none() {
+                            let freeze_w = T::Lending::freeze_dissolution_weight();
+                            if weight_meter.try_consume(freeze_w).is_ok() {
+                                status.dissolution_price_bits =
+                                    T::Lending::freeze_dissolution_price(netuid)
+                                        .map(|p| p.to_bits());
+                            }
+                        }
+                        // §13: settle lending positions on dissolution after
+                        // count, before staker payout.
+                        status.set_phase(DissolveCleanupPhase::LendingSettle);
                         weight_meter.consume(T::DbWeight::get().writes(2));
                     } else {
                         status.last_key = new_key;
                     }
                     done
+                }
+
+                DissolveCleanupPhase::LendingSettle => {
+                    if status.dissolution_price_bits.is_none() {
+                        let freeze_w = T::Lending::freeze_dissolution_weight();
+                        if weight_meter.try_consume(freeze_w).is_err() {
+                            return (false, weight_meter.consumed());
+                        }
+                        status.dissolution_price_bits =
+                            T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
+                    }
+                    // Reserve the phase-status write before settlement so a
+                    // terminal sweep that spends the last of the meter still
+                    // leaves room to persist LendingFinish.
+                    let status_w = T::DbWeight::get().writes(1);
+                    if weight_meter.try_consume(status_w).is_err() {
+                        return (false, weight_meter.consumed());
+                    }
+                    let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
+                    if done {
+                        // Persist settlement completion before finish so a
+                        // spent meter cannot re-pay the terminal sweep. Finish
+                        // runs on LendingFinish with a fresh (or remaining)
+                        // idle budget.
+                        status.last_key = None;
+                        status.set_phase(DissolveCleanupPhase::LendingFinish);
+                    }
+                    done
+                }
+
+                DissolveCleanupPhase::LendingFinish => {
+                    let finish_w = T::Lending::finish_dissolution_weight()
+                        .saturating_add(T::DbWeight::get().writes(1));
+                    if weight_meter.try_consume(finish_w).is_err() {
+                        // Already on LendingFinish; status unchanged.
+                        return (false, weight_meter.consumed());
+                    }
+                    let _ = T::Lending::finish_dissolution(netuid);
+                    status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
+                    status.last_key = None;
+                    true
                 }
 
                 DissolveCleanupPhase::AlphaInOutStakesSettleStakes => {
@@ -1205,5 +1318,77 @@ impl<T: Config> Pallet<T> {
         }
 
         weight
+    }
+}
+
+#[cfg(test)]
+mod decode_compat_tests {
+    use super::{DissolveCleanupPhase, DissolveCleanupStatus};
+    use codec::{Decode, Encode};
+    use subtensor_runtime_common::NetUid;
+
+    /// MEDIUM-HIGH 4: encode only the original five fields (no `dissolution_price_bits`,
+    /// no `subnet_settled_alpha`) and verify that the custom `Decode` impl fills the new
+    /// trailing fields with `None`.
+    #[test]
+    fn dissolve_cleanup_status_backward_compat_decode_without_new_fields() {
+        let netuid = NetUid::from(5u16);
+        // AlphaInOutStakesSettleStakes = discriminant 3
+        let phase = DissolveCleanupPhase::AlphaInOutStakesSettleStakes;
+        let last_key: Option<Vec<u8>> = None;
+        let subnet_total_alpha_value: Option<u128> = Some(42);
+        let subnet_distributed_tao: Option<u128> = Some(7);
+
+        // Manually SCALE-encode only the five legacy fields.
+        let mut old_bytes: Vec<u8> = Vec::new();
+        netuid.encode_to(&mut old_bytes);
+        phase.encode_to(&mut old_bytes);
+        last_key.encode_to(&mut old_bytes);
+        subnet_total_alpha_value.encode_to(&mut old_bytes);
+        subnet_distributed_tao.encode_to(&mut old_bytes);
+
+        let decoded = match DissolveCleanupStatus::decode(&mut &old_bytes[..]) {
+            Ok(status) => status,
+            Err(e) => panic!("5-field legacy decode must succeed: {e:?}"),
+        };
+
+        assert_eq!(decoded.netuid, netuid);
+        assert_eq!(decoded.phase, phase);
+        assert_eq!(decoded.last_key, last_key);
+        assert_eq!(decoded.subnet_total_alpha_value, Some(42));
+        assert_eq!(decoded.subnet_distributed_tao, Some(7));
+        // New trailing fields must default to None when absent from the encoded bytes.
+        assert_eq!(
+            decoded.dissolution_price_bits, None,
+            "dissolution_price_bits should be None"
+        );
+        assert_eq!(
+            decoded.subnet_settled_alpha, None,
+            "subnet_settled_alpha should be None"
+        );
+    }
+
+    /// Corrupt trailing bytes must error, not map to `None`.
+    #[test]
+    fn dissolve_cleanup_status_corrupt_trailing_errors() {
+        let netuid = NetUid::from(5u16);
+        let phase = DissolveCleanupPhase::AlphaInOutStakesSettleStakes;
+        let last_key: Option<Vec<u8>> = None;
+        let subnet_total_alpha_value: Option<u128> = Some(42);
+        let subnet_distributed_tao: Option<u128> = Some(7);
+
+        let mut bytes: Vec<u8> = Vec::new();
+        netuid.encode_to(&mut bytes);
+        phase.encode_to(&mut bytes);
+        last_key.encode_to(&mut bytes);
+        subnet_total_alpha_value.encode_to(&mut bytes);
+        subnet_distributed_tao.encode_to(&mut bytes);
+        // Truncated Option discriminant / payload — not EOF-empty, not valid.
+        bytes.push(1);
+
+        assert!(
+            DissolveCleanupStatus::decode(&mut &bytes[..]).is_err(),
+            "corrupt trailing field must error"
+        );
     }
 }

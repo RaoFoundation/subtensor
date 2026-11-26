@@ -480,6 +480,68 @@ class Prices(_ReadNamespace):
     async def alpha_prices(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
+    async def lending_close_quote(self, coldkey_ss58: str, netuid: int, alpha: str = '', *, block: Optional[int] = None) -> dict:
+        """Quote buying back short alpha now: TAO cost and refund.
+
+        `alpha` is clamped to the position. `tao_in` is the buy-back cost,
+        swap fees included, paid from proceeds then collateral. `refund` is what
+        a full close returns to the owner, deposit included; a partial close
+        refunds nothing. Fails with `InsufficientFunds` when custody cannot pay.
+        """
+
+    async def lending_current_terms_version(self, *, block: Optional[int] = None) -> dict:
+        """Terms version stamped on newly opened shorts."""
+
+    async def lending_open_quote(self, netuid: int, mint_alpha: str, *, block: Optional[int] = None) -> dict:
+        """Quote a fresh short: sale proceeds, required collateral, deposit and interest.
+
+        `required_collateral` is the least TAO that, with the proceeds, covers
+        the position's whole-book share and a day of interest. The `deposit` is
+        charged on top. `annual_interest` is the flat APR on `notional`
+        (`mint × EMA`). `in_prune_zone` means the minted alpha would settle at
+        its own proceeds on deregistration. A refusal (disabled, breaker on, net
+        mint limit spent, below the minimum notional, shallow pool) is an error.
+        """
+
+    async def lending_params(self, *, block: Optional[int] = None) -> dict:
+        """Whether shorts are enabled, and the root-settable `SynthParams`.
+
+        Basis-point fields are parts of 10,000. `min_notional`,
+        `min_pool_depth` and `deposit` are rao.
+        """
+
+    async def lending_position(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """A coldkey's synthetic short on one subnet, with its health, or None.
+
+        `minted` is alpha still owed to the book. `collateral` and the locked
+        sale `proceeds` are TAO; together they are `funds`. `deposit` is
+        refunded on a full close and burned on default. `zone_minted` and
+        `zone_proceeds` track alpha minted in the prune zone, which settles at
+        its own proceeds on deregistration. `coverage_cost` is the position's
+        share of buying the whole book back after a stressed pump (None when the
+        pumped pool cannot supply the book); `covered` says whether `funds`
+        meet it. `equity_twap` is `funds` less the buy-back cost at the median
+        TWAP, in rao; a negative value starts deleveraging. `accrued_interest`
+        is interest owed since the last charge.
+        """
+
+    async def lending_positions(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """Every short on a subnet, pinned to one block and sorted by owner."""
+
+    async def lending_positions_for_coldkey(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """Every short one coldkey holds, across subnets, pinned to one block."""
+
+    async def lending_subnet(self, netuid: int, *, block: Optional[int] = None) -> dict:
+        """A subnet's short book: outstanding mint, residual dilution and breaker.
+
+        `synthetic_outstanding` is alpha minted by open shorts and not yet
+        bought back; `deleveraging_minted` is the part in forced closes.
+        `residual_alpha` is alpha left by defaulted shorts, which
+        `residual_reserve` (TAO from interest) retires over time.
+        `breaker_tripped` blocks new opens and increases while residual alpha is
+        high. `dissolving` means the subnet is deregistering and shorts settle.
+        """
+
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.
 

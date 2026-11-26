@@ -39,6 +39,8 @@ from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents._money import UNBOUNDED, gamma_from_units
 from .intents.base import BuiltCall, IntentPreflight
+from .intents.lending import OUTCOME_OPS as LENDING_OUTCOME_OPS
+from .intents.lending import lending_outcome_data
 from .intents.proxy import check_proxy_type
 from .multisig import merge_approval_metadata, multisig_deposit_rao
 from .receiving import account_for_read, coerce_payment_address
@@ -1309,6 +1311,10 @@ class Executor:
             semantic_intent = await _coerce_addresses(self.substrate, intent.semantic_intent())
             if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
+            if semantic_intent.op in LENDING_OUTCOME_OPS:
+                # SDK ExtrinsicResult.data gets the same decoded outcome the
+                # CLI Result card prints.
+                data.update(lending_outcome_data(result.events, op=semantic_intent.op))
             if semantic_intent.op in ("mint_gamma", "mint_gamma_with_stake"):
                 data.update(_gamma_minted_data(result))
             data.update(plan.extras)

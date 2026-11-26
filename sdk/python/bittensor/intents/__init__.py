@@ -49,6 +49,14 @@ from .governance import (
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
+from .lending import (
+    AddShortCollateral,
+    CloseShort,
+    IncreaseShort,
+    OpenShort,
+    PokeShort,
+    WithdrawShortCollateral,
+)
 from .limit_orders import (
     AuthorizeOrder,
     CancelOrder,
@@ -123,6 +131,7 @@ __all__ = [
     "UNBOUNDED",
     "AddCollateral",
     "AddProxy",
+    "AddShortCollateral",
     "AddStake",
     "AddStakeLimit",
     "AnnounceColdkeySwap",
@@ -137,6 +146,7 @@ __all__ = [
     "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
     "CloseGammaDeposit",
+    "CloseShort",
     "CommitWeightHash",
     "CommitWeights",
     "ContributeCrowdloan",
@@ -151,6 +161,7 @@ __all__ = [
     "ExecuteProxyAnnounced",
     "FinalizeCrowdloan",
     "FundEvmKey",
+    "IncreaseShort",
     "IncreaseTake",
     "Intent",
     "KillPureProxy",
@@ -168,7 +179,9 @@ __all__ = [
     "MultisigCancel",
     "MultisigExecute",
     "MultisigThreshold1",
+    "OpenShort",
     "Plan",
+    "PokeShort",
     "Policy",
     "PowRegister",
     "RefundCrowdloan",
@@ -232,6 +245,7 @@ __all__ = [
     "UpdateCrowdloanMinContribution",
     "UpdateSymbol",
     "WithdrawCrowdloan",
+    "WithdrawShortCollateral",
     "build",
     "list_tools",
     "normalize",

@@ -16,7 +16,10 @@ use subtensor_swap_interface::{
 
 use super::pallet::*;
 use super::swap_step::{BasicSwapStep, MAX_SWAP_INPUT_RESERVE_MULTIPLIER, SwapStep};
-use crate::{pallet::Balancer, pallet::balancer::BalancerError};
+use crate::{
+    pallet::Balancer,
+    pallet::balancer::{ACCURACY, BalancerError},
+};
 
 impl<T: Config> Pallet<T> {
     pub fn current_price(netuid: NetUid) -> U64F64 {
@@ -548,6 +551,46 @@ impl<T: Config> SwapHandler for Pallet<T> {
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
+    }
+
+    fn quote_sell_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_alpha: AlphaBalance,
+    ) -> TaoBalance {
+        let quote = Perquintill::from_parts(quote_weight_parts.min(ACCURACY));
+        Balancer::quote_sell_on(
+            u64::from(tao_reserve),
+            u64::from(alpha_reserve),
+            quote,
+            u64::from(delta_alpha),
+        )
+        .unwrap_or(0)
+        .into()
+    }
+
+    fn quote_buy_on(
+        tao_reserve: TaoBalance,
+        alpha_reserve: AlphaBalance,
+        quote_weight_parts: u64,
+        delta_tao: TaoBalance,
+    ) -> AlphaBalance {
+        let quote = Perquintill::from_parts(quote_weight_parts.min(ACCURACY));
+        Balancer::quote_buy_on(
+            u64::from(tao_reserve),
+            u64::from(alpha_reserve),
+            quote,
+            u64::from(delta_tao),
+        )
+        .unwrap_or(0)
+        .into()
+    }
+
+    fn balancer_quote_weight(netuid: NetUid) -> u64 {
+        SwapBalancer::<T>::get(netuid)
+            .get_quote_weight()
+            .deconstruct()
     }
 
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance {

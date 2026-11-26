@@ -143,6 +143,10 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
     ),
     "close_gamma_deposit": _GAMMA_DEPOSIT,
     "set_gamma_deposit_daily_spend_cap": _GAMMA_DEPOSIT,
+    # Shorts must omit hotkey_ss58; longs need an explicit source hotkey. Never
+    # wallet-default it or a dry-run short sample (and any short top-up) fills
+    # the signing wallet hotkey and fails in build().
+    "add_loan_collateral": IntentPromptPolicy(required_after_prompt=("hotkey_ss58",)),
 }
 
 

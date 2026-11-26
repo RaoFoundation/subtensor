@@ -167,10 +167,12 @@ fn test_settle_stakes_skips_shares_retired_by_pool_close() {
         let depositor_before = SubtensorModule::get_coldkey_balance(&depositor);
         let status = run_destroy_alpha_get_total_and_settle(netuid);
         let live_value = TotalHotkeyAlpha::<Test>::get(hotkey, netuid).to_u64() as u128;
+        let pool_alpha = SubnetAlphaIn::<Test>::get(netuid).to_u64() as u128
+            + SubnetProtocolAlpha::<Test>::get(netuid).to_u64() as u128;
         assert_eq!(
             status.subnet_total_alpha_value,
-            Some(live_value),
-            "only the live depositor's value is counted"
+            Some(pool_alpha.saturating_add(live_value)),
+            "pool α-in plus live depositor value is counted"
         );
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&retired),

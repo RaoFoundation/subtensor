@@ -273,6 +273,18 @@ INTENT_SAMPLES: dict[str, dict] = {
         "block_number": 1,
         "signature": "0x" + "22" * 65,
     },
+    # Explicit floors and ceilings keep builds off the swap simulator.
+    "open_short": {"netuid": 1, "mint_alpha": 10.0, "collateral": 10.0, "min_tao_out": 9.0},
+    "increase_short": {
+        "netuid": 1,
+        "extra_mint": 1.0,
+        "extra_collateral": 1.0,
+        "min_tao_out": 0.9,
+    },
+    "add_short_collateral": {"netuid": 1, "amount": 1.0},
+    "withdraw_short_collateral": {"netuid": 1, "amount": 1.0},
+    "close_short": {"netuid": 1, "max_tao_in": 11.0},
+    "poke_short": {"owner_ss58": ALICE, "netuid": 1},
 }
 
 
@@ -333,6 +345,14 @@ READ_SAMPLES: dict[str, dict] = {
     "is_fast_blocks": {},
     "lease": {"lease_id": 0},
     "leases": {},
+    "lending_close_quote": {"coldkey_ss58": ALICE, "netuid": 1, "alpha": "1"},
+    "lending_open_quote": {"netuid": 1, "mint_alpha": "10"},
+    "lending_params": {},
+    "lending_position": {"coldkey_ss58": ALICE, "netuid": 1},
+    "lending_positions": {"netuid": 1},
+    "lending_positions_for_coldkey": {"coldkey_ss58": ALICE},
+    "lending_subnet": {"netuid": 1},
+    "lending_current_terms_version": {},
     "locks_for_coldkey": {"coldkey_ss58": ALICE},
     "locks_for_hotkey": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "max_weight_limit": {"netuid": 1},

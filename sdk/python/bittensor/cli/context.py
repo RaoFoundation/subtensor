@@ -45,7 +45,7 @@ from ..result import (
     RpcConnectionError,
     RpcPolicyError,
 )
-from ..settings import error_docs_url
+from ..settings import ALPHA_SYMBOL, TAO_SYMBOL, error_docs_url
 from ..signing import public_view, resolve_signer
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
@@ -908,10 +908,16 @@ class AppContext:
             # Empty is meaningful (e.g. set_identity clears omitted fields),
             # so show a placeholder instead of a blank cell or a hidden row.
             return "—"
+        if key == "valid_until" and isinstance(value, int) and int(value) >= (2**32 - 1):
+            # u32::MAX sentinel — never show 4294967295 (E2E F9).
+            return "no deadline"
         if isinstance(value, bool):
             return "yes" if value else "no"
         if isinstance(value, Balance):
-            return str(value)
+            # Prefer τ / α_N over subnet glyphs or subscripts (E2E F9).
+            if value.netuid == 0:
+                return f"{TAO_SYMBOL}{value.amount:,.9f}"
+            return f"{value.amount:,.9f}{ALPHA_SYMBOL}_{value.netuid}"
         if "netuid" in key and isinstance(value, int):
             name = self.output.subnet_names.get(value)
             return f"{value} ({name})" if name else str(value)
@@ -1456,6 +1462,11 @@ class AppContext:
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
                     plan.warnings.append(shortfall)
+            # Dry-run with -y still shows command context cards (Loan /
+            # Repayment / Raise) so quoted payment/refund/outcome rows appear
+            # before the plan summary. Quiet/json suppress the card.
+            if card_sections:
+                self.output.transaction_card(card_sections)
             self.output.plan(plan, command=replay_command())
             if not plan.ok:
                 raise typer.Exit(1)

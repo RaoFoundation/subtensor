@@ -571,3 +571,314 @@ fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
         );
     });
 }
+
+/// Regression for short dissolution settlement: recovery + below-ED refund must
+/// leave the escrow via one credit split. Separate Expendable transfers would
+/// reap the refund remainder after recovery and strand the position.
+#[test]
+fn test_terminal_split_tao_recovers_when_refund_is_below_ed() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let escrow = U256::from(10);
+        let vault = U256::from(11);
+        let recipient = U256::from(12);
+        let ed = ExistentialDeposit::get();
+        assert!(ed > 1u64.into(), "high-ED mock required");
+        let recovery = ed + TaoBalance::from(50);
+        let refund = ed - TaoBalance::from(1);
+        add_balance_to_coldkey_account(&escrow, recovery + refund);
+        assert!(Balances::total_balance(&recipient).is_zero());
+
+        let subtensor_ti_before = subtensor_total_issuance();
+        let balances_ti_before = balances_total_issuance();
+
+        let (recovered, refunded) =
+            <SubtensorModule as LendingPoolInterface<U256>>::terminal_split_tao(
+                &escrow, &vault, &recipient, recovery, refund,
+            )
+            .expect("terminal split must not fail mid-refund");
+
+        assert_eq!(recovered, recovery);
+        assert_eq!(
+            refunded,
+            TaoBalance::ZERO,
+            "below-ED refund to empty recipient is recycled as dust"
+        );
+        assert_eq!(Balances::total_balance(&escrow), 0.into());
+        assert_eq!(Balances::total_balance(&vault), recovery);
+        assert_eq!(Balances::total_balance(&recipient), 0.into());
+        // Recycled dust reduces issuance by the unrepayable refund.
+        assert_eq!(balances_ti_before - balances_total_issuance(), refund);
+        assert_eq!(subtensor_ti_before - subtensor_total_issuance(), refund);
+    });
+}
+
+/// Skeptic fid:0fadfc1c — interest + recovery + below-ED refund leave escrow in
+/// one credit settle. A separate Expendable interest burn would reap the
+/// remainder before recovery/refund and stall dissolution.
+#[test]
+fn test_terminal_settle_short_tao_when_recovery_and_refund_below_ed_after_interest() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let escrow = U256::from(10);
+        let vault = U256::from(11);
+        let recipient = U256::from(12);
+        let burn: U256 = BurnAccountId::get().into_account_truncating();
+        let ed = ExistentialDeposit::get();
+        assert!(ed > 1u64.into(), "high-ED mock required");
+        // After interest, recovery+refund is positive but below ED so a
+        // separate burn would reap the escrow mid-path.
+        let interest = ed + TaoBalance::from(10);
+        let recovery = TaoBalance::from(40);
+        let refund = TaoBalance::from(40);
+        assert!(recovery + refund < ed, "fixture needs recovery+refund < ED");
+        add_balance_to_coldkey_account(&escrow, interest + recovery + refund);
+        add_balance_to_coldkey_account(&burn, ed); // burn dest already alive
+        assert!(Balances::total_balance(&recipient).is_zero());
+        assert!(Balances::total_balance(&vault).is_zero());
+
+        let (recovered, burned, refunded) =
+            <SubtensorModule as LendingPoolInterface<U256>>::terminal_settle_short_tao(
+                &escrow, &vault, &recipient, recovery, interest, refund,
+            )
+            .expect("single-credit settle must not fail mid-path");
+
+        assert_eq!(burned, interest);
+        assert_eq!(
+            recovered,
+            TaoBalance::ZERO,
+            "below-ED recovery to empty vault is recycled as dust"
+        );
+        assert_eq!(
+            refunded,
+            TaoBalance::ZERO,
+            "below-ED refund to empty recipient is recycled"
+        );
+        assert_eq!(Balances::total_balance(&escrow), 0.into());
+        assert_eq!(
+            Balances::total_balance(&burn),
+            ed + interest,
+            "interest credited to burn"
+        );
+        assert_eq!(Balances::total_balance(&vault), 0.into());
+    });
+}
+
+/// Synthetic short round trip on the live AMM: mint-and-sell pays custody TAO
+/// and records outflow; buy-and-burn buys at least the requested alpha with the
+/// least TAO that quotes it, destroys every bought unit, and records inflow.
+#[test]
+fn test_mint_and_sell_then_buy_and_burn_round_trip() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        let custody_cold = U256::from(70);
+        let custody_hot = U256::from(71);
+        add_network(netuid, 1, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        SubtokenEnabled::<Test>::insert(netuid, true);
+        SubnetTaoFlow::<Test>::insert(netuid, 0i64);
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, 1_000_000_000_000u64.into());
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&custody_cold, ed);
+        let alpha_out = SubnetAlphaOut::<Test>::get(netuid);
+        let stake = || {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &custody_hot,
+                &custody_cold,
+                netuid,
+            )
+        };
+
+        let mint = AlphaBalance::from(10_000_000_000u64);
+        let proceeds = <SubtensorModule as LendingPoolInterface<U256>>::mint_and_sell(
+            netuid,
+            &custody_cold,
+            &custody_hot,
+            mint,
+            TaoBalance::from(1u64),
+        )
+        .expect("mint and sell must fill on a deep pool");
+        assert!(!proceeds.is_zero());
+        assert_eq!(Balances::total_balance(&custody_cold), ed + proceeds);
+        assert_eq!(stake(), AlphaBalance::ZERO);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out);
+        let flow_after_sell = SubnetTaoFlow::<Test>::get(netuid);
+        assert!(flow_after_sell < 0, "short sale must record TAO outflow");
+
+        assert_noop!(
+            <SubtensorModule as LendingPoolInterface<U256>>::mint_and_sell(
+                netuid,
+                &custody_cold,
+                &custody_hot,
+                mint,
+                TaoBalance::from(u64::MAX),
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+
+        let buyback = AlphaBalance::from(5_000_000_000u64);
+        let (spent, bought_alpha) = <SubtensorModule as LendingPoolInterface<U256>>::buy_and_burn(
+            netuid,
+            &custody_cold,
+            &custody_hot,
+            buyback,
+            proceeds,
+        )
+        .expect("buyback within proceeds must fill");
+        assert!(!spent.is_zero() && spent <= proceeds);
+        assert!(bought_alpha >= buyback);
+        let short_by_one =
+            <SubtensorModule as LendingPoolInterface<U256>>::quote_buy(netuid, spent - 1u64.into())
+                .expect("smaller buy still quotes");
+        assert!(
+            short_by_one < buyback,
+            "spent must be the least TAO that buys `buyback`"
+        );
+        assert_eq!(
+            Balances::total_balance(&custody_cold),
+            ed + proceeds - spent
+        );
+        assert_eq!(stake(), AlphaBalance::ZERO);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out);
+        assert!(SubnetTaoFlow::<Test>::get(netuid) > flow_after_sell);
+
+        assert_noop!(
+            <SubtensorModule as LendingPoolInterface<U256>>::buy_and_burn(
+                netuid,
+                &custody_cold,
+                &custody_hot,
+                buyback,
+                TaoBalance::from(1u64),
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+    });
+}
+
+/// Settle-at-r inputs: a short's sale proceeds leave `pool_tao` (the `T`
+/// basis excludes escrow) while its minted alpha stays in `alpha_issuance`
+/// (the `all_alpha` denominator counts synthetic alpha).
+#[test]
+fn test_settlement_basis_excludes_escrow_and_counts_synthetic_alpha() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        let custody_cold = U256::from(70);
+        let custody_hot = U256::from(71);
+        add_network(netuid, 1, 0);
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        SubtokenEnabled::<Test>::insert(netuid, true);
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, 1_000_000_000_000u64.into());
+        add_balance_to_coldkey_account(&custody_cold, ExistentialDeposit::get());
+        let tao_before = <SubtensorModule as LendingPoolInterface<U256>>::pool_tao(netuid);
+        let issuance_before =
+            <SubtensorModule as LendingPoolInterface<U256>>::alpha_issuance(netuid);
+
+        let mint = AlphaBalance::from(10_000_000_000u64);
+        let proceeds = <SubtensorModule as LendingPoolInterface<U256>>::mint_and_sell(
+            netuid,
+            &custody_cold,
+            &custody_hot,
+            mint,
+            TaoBalance::from(1u64),
+        )
+        .expect("mint and sell must fill on a deep pool");
+
+        assert_eq!(
+            Balances::total_balance(&custody_cold),
+            ExistentialDeposit::get() + proceeds
+        );
+        assert!(
+            <SubtensorModule as LendingPoolInterface<U256>>::pool_tao(netuid)
+                <= tao_before - proceeds,
+            "proceeds sit in custody escrow, outside the settlement T"
+        );
+        assert_eq!(
+            <SubtensorModule as LendingPoolInterface<U256>>::alpha_issuance(netuid),
+            issuance_before + mint,
+            "minted alpha counts toward all_alpha"
+        );
+    });
+}
+
+/// `pay_into_pot` credits the subnet account and `SubnetTAO`, tracks
+/// `TotalStake` only while the subnet is live, and still works once the
+/// subnet is flagged for dissolution.
+#[test]
+fn test_pay_into_pot_live_and_flagged() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10, 0);
+        let pot = 1_000_000u64;
+        SubnetTAO::<Test>::set(netuid, pot.into());
+        TotalStake::<Test>::put(TaoBalance::from(pot));
+        let subnet = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet, pot.into());
+        let payer = U256::from(42);
+        let ed = ExistentialDeposit::get();
+        add_balance_to_coldkey_account(&payer, ed + TaoBalance::from(2 * pot));
+
+        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_into_pot(
+            &payer,
+            netuid,
+            pot.into(),
+        )
+        .expect("live pot credit must succeed");
+        assert_eq!(paid, pot.into());
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (2 * pot).into());
+        assert_eq!(TotalStake::<Test>::get(), TaoBalance::from(2 * pot));
+        assert_eq!(Balances::total_balance(&subnet), (2 * pot).into());
+
+        NetworksAdded::<Test>::remove(netuid);
+        DissolveCleanupQueue::<Test>::mutate(|queue| queue.push(netuid));
+        let paid = <SubtensorModule as LendingPoolInterface<U256>>::pay_into_pot(
+            &payer,
+            netuid,
+            pot.into(),
+        )
+        .expect("flagged pot credit must succeed");
+        assert_eq!(paid, pot.into());
+        assert_eq!(SubnetTAO::<Test>::get(netuid), (3 * pot).into());
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            TaoBalance::from(2 * pot),
+            "a dissolving pot is already out of TotalStake"
+        );
+        assert_eq!(Balances::total_balance(&subnet), (3 * pot).into());
+    });
+}
+
+/// `prune_immune` follows registration immunity exactly as
+/// `get_network_to_prune` does, so the P16 zone floor skips young subnets.
+#[test]
+fn test_prune_immune_tracks_registration_immunity() {
+    new_test_ext(1).execute_with(|| {
+        use pallet_lending::LendingPoolInterface;
+
+        let netuid = NetUid::from(1);
+        add_network(netuid, 1, 0);
+        SubtensorModule::set_network_immunity_period(100);
+        NetworkRegisteredAt::<Test>::insert(netuid, 50u64);
+
+        System::set_block_number(149);
+        assert!(<SubtensorModule as LendingPoolInterface<U256>>::prune_immune(netuid));
+        assert_eq!(SubtensorModule::get_network_to_prune(), None);
+
+        System::set_block_number(150);
+        assert!(!<SubtensorModule as LendingPoolInterface<U256>>::prune_immune(netuid));
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(netuid));
+    });
+}

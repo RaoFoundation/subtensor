@@ -48,6 +48,7 @@ PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RegistrationDescriptor = Any
 RuntimeCall = Any
+SynthParams = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -1978,3 +1979,50 @@ class HashedAccounts:
     def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
         "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
         return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})
+
+
+class Lending:
+    """Call builders for the Lending pallet."""
+
+    @staticmethod
+    def add_collateral(netuid: 'NetUid', tao: 'u64') -> Call:
+        'Add TAO collateral. Works while disabled and while deleveraging.'
+        return Call('Lending', 'add_collateral', {'netuid': netuid, 'tao': tao})
+
+    @staticmethod
+    def close_short(netuid: 'NetUid', alpha: 'u64', max_tao_in: 'u64') -> Call:
+        'Buy back and burn `alpha` (clamped to the position), paying from proceeds then collateral. Closing the remainder refunds what is left and the deposit.'
+        return Call('Lending', 'close_short', {'netuid': netuid, 'alpha': alpha, 'max_tao_in': max_tao_in})
+
+    @staticmethod
+    def increase_short(netuid: 'NetUid', extra_mint: 'u64', extra_collateral: 'u64', min_tao_out: 'u64') -> Call:
+        'Mint and sell `extra_mint` more and/or add `extra_collateral`. `min_tao_out` must be non-zero when `extra_mint` is.'
+        return Call('Lending', 'increase_short', {'netuid': netuid, 'extra_mint': extra_mint, 'extra_collateral': extra_collateral, 'min_tao_out': min_tao_out})
+
+    @staticmethod
+    def open_short(netuid: 'NetUid', mint_alpha: 'u64', collateral: 'u64', min_tao_out: 'u64') -> Call:
+        'Mint `mint_alpha`, sell it, and lock the proceeds beside `collateral` TAO and the deposit from the caller. `min_tao_out` must be non-zero.'
+        return Call('Lending', 'open_short', {'netuid': netuid, 'mint_alpha': mint_alpha, 'collateral': collateral, 'min_tao_out': min_tao_out})
+
+    @staticmethod
+    def poke(who: 'AccountId32', netuid: 'NetUid') -> Call:
+        'Permissionless health check: charge accrued interest, start deleveraging an unhealthy position, or run one deleverage step.'
+        return Call('Lending', 'poke', {'who': who, 'netuid': netuid})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        return Call('Lending', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_synth_params(params: 'SynthParams') -> Call:
+        return Call('Lending', 'set_synth_params', {'params': params})
+
+    @staticmethod
+    def sweep_stranded_funds(netuid: 'NetUid', who: 'AccountId32') -> Call:
+        'Root-only recovery for TAO stranded on a custody coldkey or residual reserve after a failed settle/default transfer. Pays into the subnet pot when one exists; otherwise burns.'
+        return Call('Lending', 'sweep_stranded_funds', {'netuid': netuid, 'who': who})
+
+    @staticmethod
+    def withdraw_collateral(netuid: 'NetUid', tao: 'u64') -> Call:
+        'Withdraw collateral while coverage plus the interest buffer still hold afterwards (P20).'
+        return Call('Lending', 'withdraw_collateral', {'netuid': netuid, 'tao': tao})

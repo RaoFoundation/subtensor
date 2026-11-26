@@ -154,31 +154,43 @@ mod benchmarks {
     #[benchmark]
     fn set_commitment_to_free() {
         let netuid = NetUid::from(1);
-        let caller: T::AccountId = whitelisted_caller();
-        let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        // Distinct cold/hot like staking benches — same-id fixtures hid
+        // NonAssociatedColdKey when create_account failed silently.
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("commit_hot", 0, 0);
+        let _ = T::Currency::make_free_balance_be(&coldkey, BalanceOf::<T>::max_value());
+        // `ensure_coldkey_hotkey` requires registration + ownership; CanCommit is
+        // stubbed under runtime-benchmarks but CommitBurn is not.
+        T::CommitBurn::benchmark_prepare_channel(netuid, &coldkey, &hotkey);
+        // Free path: no CommitBurnConfig so `current_price` is None.
         let info = Box::new(create_identity_info::<T>(0));
 
         #[extrinsic_call]
         set_commitment_to(
-            RawOrigin::Signed(caller.clone()),
+            RawOrigin::Signed(coldkey),
             netuid,
             MechId::MAIN,
             0,
-            caller.clone(),
+            hotkey.clone(),
             info,
             TaoBalance::ZERO,
         );
 
         assert!(
-            ChannelCommitmentOf::<T>::get((NetUidStorageIndex::from(netuid), caller, 0)).is_some()
+            ChannelCommitmentOf::<T>::get((NetUidStorageIndex::from(netuid), hotkey, 0)).is_some()
         );
     }
 
     #[benchmark]
     fn set_commitment_to_paid() {
         let netuid = NetUid::from(1);
-        let caller: T::AccountId = whitelisted_caller();
-        let _ = T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value());
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("commit_hot", 0, 0);
+        let _ = T::Currency::make_free_balance_be(&coldkey, BalanceOf::<T>::max_value());
+        T::CommitBurn::benchmark_prepare_channel(netuid, &coldkey, &hotkey);
+        T::CommitBurn::benchmark_seed_pool(netuid);
+        // MechId::MAIN shares NetUidStorageIndex::from(netuid) with
+        // get_mechanism_storage_index(netuid, MAIN).
         CommitBurnConfig::<T>::insert(
             (NetUidStorageIndex::from(netuid), 0),
             CommitBurnParameters {
@@ -194,17 +206,17 @@ mod benchmarks {
 
         #[extrinsic_call]
         set_commitment_to(
-            RawOrigin::Signed(caller.clone()),
+            RawOrigin::Signed(coldkey),
             netuid,
             MechId::MAIN,
             0,
-            caller.clone(),
+            hotkey.clone(),
             Box::new(create_identity_info::<T>(0)),
             TaoBalance::from(1u64),
         );
 
         assert!(
-            ChannelCommitmentOf::<T>::get((NetUidStorageIndex::from(netuid), caller, 0)).is_some()
+            ChannelCommitmentOf::<T>::get((NetUidStorageIndex::from(netuid), hotkey, 0)).is_some()
         );
     }
 

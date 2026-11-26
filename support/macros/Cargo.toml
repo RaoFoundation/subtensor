@@ -13,7 +13,10 @@ homepage = "https://bittensor.com/"
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = [
+# Pin exact syn/ahash: freeze_struct hashes the syn AST via ahash, so a floating
+# minor bump (eco-tests is outside the workspace lock) retargets every hash and
+# breaks SafeFloat et al. Keep these aligned with Cargo.lock / workspace pins.
+syn = { version = "=2.0.106", default-features = false, features = [
     "full",
     "visit-mut",
     "visit",
@@ -25,7 +28,7 @@ syn = { workspace = true, features = [
 ] }
 proc-macro2.workspace = true
 quote.workspace = true
-ahash.workspace = true
+ahash = { version = "=0.8.12", default-features = false }
 
 [lints]
 workspace = true

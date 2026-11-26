@@ -56,6 +56,7 @@ use frame_support::{
 use frame_system as system;
 use frame_system::{EnsureRoot, RawOrigin, limits};
 use pallet_commitments::pallet::Pallet as CommitmentsPallet;
+use pallet_lending::LendingInterface;
 use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_utility as pallet_utility;
 use scale_info::TypeInfo;
@@ -72,7 +73,7 @@ use sp_std::{
     sync::OnceLock,
 };
 use sp_tracing::tracing_subscriber;
-use substrate_fixed::types::U64F64;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -141,6 +142,7 @@ frame_support::construct_runtime!(
         Crowdloan: pallet_crowdloan = 11,
         Commitments: pallet_commitments = 12,
         Proxy: pallet_subtensor_proxy = 13,
+        Lending: pallet_lending = 14,
     }
 );
 
@@ -452,6 +454,7 @@ impl crate::Config for Test {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = pallet_subtensor_swap::Pallet<Self>;
+    type Lending = TestLending;
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = FakeProxier;
@@ -581,6 +584,13 @@ thread_local! {
     static BASKET_SWAP_OPS: Cell<u64> = const { Cell::new(0) };
     static BASKET_QUOTE_OPS: Cell<u64> = const { Cell::new(0) };
     static BASKET_WRITE_OPS: Cell<u64> = const { Cell::new(0) };
+    /// Injected lending-position counts for coldkey-swap admission tests
+    /// (fid:9c45c69e). Cleared in `new_test_ext`.
+    static MOCK_LENDING_POSITIONS: RefCell<sp_std::collections::btree_map::BTreeMap<U256, u32>> =
+        const { RefCell::new(sp_std::collections::btree_map::BTreeMap::new()) };
+    /// Optional hotkey treated as the lending custody hotkey (flow-exclusion tests).
+    static MOCK_CUSTODY_HOTKEY: Cell<Option<U256>> = const { Cell::new(None) };
+
     /// Storage steps of the deferred-dividend code that grow with the number of waiting
     /// credits: rate states read, conversion records looked up, and debts loaded or stored.
     static DEFERRED_DIVIDEND_OPS: Cell<u64> = const { Cell::new(0) };
@@ -591,6 +601,7 @@ thread_local! {
     /// How often the claims of deferred credits took each [`DeferredClaimPath`].
     static DEFERRED_CLAIM_PATHS: Cell<DeferredClaimPaths> =
         const { Cell::new(DeferredClaimPaths::NONE) };
+
 }
 
 /// A path of a claim of deferred credits that a test can count.
@@ -650,6 +661,158 @@ pub(crate) fn note_deferred_claim_path(path: DeferredClaimPath) {
     let mut paths = DEFERRED_CLAIM_PATHS.get();
     *paths.counter(path) += 1;
     DEFERRED_CLAIM_PATHS.set(paths);
+}
+
+/// Set how many lending positions `coldkey` reports to coldkey-swap admission.
+pub fn set_mock_lending_positions(coldkey: U256, count: u32) {
+    MOCK_LENDING_POSITIONS.with(|m| {
+        m.borrow_mut().insert(coldkey, count);
+    });
+}
+
+pub fn clear_mock_lending_positions() {
+    MOCK_LENDING_POSITIONS.with(|m| m.borrow_mut().clear());
+}
+
+/// Mark `hotkey` as the lending custody hotkey (skips `record_tao_inflow/outflow`).
+pub fn set_mock_custody_hotkey(hotkey: Option<U256>) {
+    MOCK_CUSTODY_HOTKEY.with(|c| c.set(hotkey));
+}
+
+frame_support::parameter_types! {
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
+    pub const LendingInterestPeriod: u64 = 360;
+    pub const LendingBlocksPerYear: u64 = 2_628_000;
+    pub const LendingMaxPositionsPerSubnet: u32 = 1_000;
+    pub const LendingMaxTotalPositions: u32 = 1_000;
+    pub const LendingInterestRetryDelay: u64 = 100;
+}
+
+impl pallet_lending::Config for Test {
+    type Pool = SubtensorModule;
+    type PalletId = LendingPalletId;
+    type InterestPeriod = LendingInterestPeriod;
+    type BlocksPerYear = LendingBlocksPerYear;
+    type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
+    type MaxTotalPositions = LendingMaxTotalPositions;
+    type InterestRetryDelay = LendingInterestRetryDelay;
+    type WeightInfo = ();
+}
+
+/// Live lending with injectable position counts for coldkey-swap admission tests.
+pub struct TestLending;
+
+impl pallet_lending::LendingInterface<U256> for TestLending {
+    fn custody_accounts(netuid: NetUid) -> Option<(U256, U256)> {
+        pallet_lending::Pallet::<Test>::custody_accounts(netuid)
+    }
+    fn has_positions(owner: &U256) -> bool {
+        let injected =
+            MOCK_LENDING_POSITIONS.with(|m| m.borrow().get(owner).copied().unwrap_or(0) > 0);
+        injected || pallet_lending::Pallet::<Test>::has_positions(owner)
+    }
+    fn count_positions_bounded(owner: &U256, limit: u32) -> u32 {
+        if limit == 0 {
+            return 0;
+        }
+        let injected = MOCK_LENDING_POSITIONS.with(|m| m.borrow().get(owner).copied().unwrap_or(0));
+        if injected > 0 {
+            return injected.min(limit);
+        }
+        pallet_lending::Pallet::<Test>::count_positions_bounded(owner, limit)
+    }
+    fn max_positions() -> u32 {
+        pallet_lending::Pallet::<Test>::max_positions()
+    }
+    fn on_coldkey_swap(old: &U256, new: &U256) -> DispatchResult {
+        pallet_lending::Pallet::<Test>::on_coldkey_swap(old, new)
+    }
+    fn start_dissolution(netuid: NetUid) -> DispatchResult {
+        pallet_lending::Pallet::<Test>::start_dissolution(netuid)
+    }
+    fn cached_network_to_prune() -> Option<NetUid> {
+        pallet_lending::Pallet::<Test>::cached_network_to_prune()
+    }
+    fn lending_ranks_active() -> bool {
+        pallet_lending::Enabled::<Test>::get()
+    }
+    fn start_dissolution_weight() -> Weight {
+        pallet_lending::Pallet::<Test>::start_dissolution_weight()
+    }
+    fn settle_positions_on_dissolution(netuid: NetUid, meter: &mut WeightMeter) -> bool {
+        pallet_lending::Pallet::<Test>::settle_positions_on_dissolution(netuid, meter)
+    }
+    fn finish_dissolution(netuid: NetUid) -> DispatchResult {
+        pallet_lending::Pallet::<Test>::finish_dissolution(netuid)
+    }
+    fn frozen_dissolution_price(netuid: NetUid) -> Option<U64F64> {
+        pallet_lending::Pallet::<Test>::frozen_dissolution_price(netuid)
+    }
+    fn freeze_dissolution_price(netuid: NetUid) -> Option<U64F64> {
+        pallet_lending::Pallet::<Test>::freeze_dissolution_price(netuid)
+    }
+    fn freeze_dissolution_weight() -> Weight {
+        pallet_lending::Pallet::<Test>::freeze_dissolution_weight()
+    }
+    fn finish_dissolution_weight() -> Weight {
+        pallet_lending::Pallet::<Test>::finish_dissolution_weight()
+    }
+    fn is_lending_custody(hotkey: &U256, coldkey: &U256, netuid: NetUid) -> bool {
+        pallet_lending::Pallet::<Test>::is_lending_custody(hotkey, coldkey, netuid)
+    }
+    fn is_custody_hotkey(hotkey: &U256) -> bool {
+        MOCK_CUSTODY_HOTKEY.with(|c| c.get() == Some(*hotkey))
+            || pallet_lending::Pallet::<Test>::is_custody_hotkey(hotkey)
+    }
+    fn on_subnet_registered(netuid: NetUid) {
+        pallet_lending::Pallet::<Test>::on_subnet_registered(netuid);
+    }
+    fn update_dereg_moving_price(netuid: NetUid) {
+        pallet_lending::Pallet::<Test>::update_dereg_moving_price(netuid);
+    }
+    fn dereg_moving_price(netuid: NetUid) -> Option<U64F64> {
+        // Registration consumes lending ranks only via the metered
+        // `PruneTarget` cache; tests seed `RankPrice` + `on_initialize`.
+        pallet_lending::Pallet::<Test>::dereg_moving_price(netuid)
+    }
+    fn synthetic_and_residual(netuid: NetUid) -> (u64, u64) {
+        pallet_lending::Pallet::<Test>::synthetic_and_residual(netuid)
+    }
+}
+
+/// Enable synthetic shorts, seed health TWAP, and register custody on `netuid`.
+pub fn enable_lending_on_subnet(netuid: NetUid) {
+    use pallet_lending::{MIN_HEALTH_TWAP_SAMPLES, Pallet as LendingPallet, SynthParams};
+    pallet_lending::Enabled::<Test>::put(true);
+    pallet_lending::SynthParamsStore::<Test>::put(SynthParams::default());
+    assert_ok!(LendingPallet::<Test>::initialize_custody());
+    let spot_f = <Test as crate::Config>::SwapInterface::current_alpha_price(netuid);
+    let spot = U64F64::saturating_from_num(spot_f);
+    // Notional / interest use the slow EMA only (never spot). Seed it so opens
+    // clear the min-notional gate in tests that don't advance coinbase EMAs.
+    SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(spot_f));
+    let mut ring = pallet_lending::TwapState::<u64>::default();
+    for _ in 0..MIN_HEALTH_TWAP_SAMPLES {
+        let _ = ring.samples.try_push(spot);
+    }
+    pallet_lending::TwapRing::<Test>::insert(netuid, ring);
+    <TestLending as LendingInterface<U256>>::update_dereg_moving_price(netuid);
+}
+
+/// Run `on_idle` dissolve cleanup until the queue is empty.
+pub fn run_dissolve_cleanup_to_completion() {
+    for _ in 0..10_000 {
+        if DissolveCleanupQueue::<Test>::get().is_empty()
+            && CurrentDissolveCleanupStatus::<Test>::get().is_none()
+        {
+            break;
+        }
+        run_block_idle();
+    }
+    assert!(
+        DissolveCleanupQueue::<Test>::get().is_empty(),
+        "dissolve cleanup did not finish"
+    );
 }
 
 /// Reset swap/quote/write counters used by pending-basket flush tests.
@@ -933,6 +1096,8 @@ pub fn init_logs_for_tests() {
 pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
     ProtectedOwnerAccounts::set(Vec::new());
     init_logs_for_tests();
+    clear_mock_lending_positions();
+    set_mock_custody_hotkey(None);
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();

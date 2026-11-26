@@ -11,7 +11,7 @@ use frame_support::{assert_noop, assert_ok};
 use sp_arithmetic::Perquintill;
 use sp_runtime::DispatchError;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{NetUid, Token};
+use subtensor_runtime_common::{NetUid, Token, TokenReserve};
 use subtensor_swap_interface::{Order as OrderT, SwapHandler};
 
 use super::*;

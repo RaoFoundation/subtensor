@@ -22,16 +22,25 @@ use crate::RuntimeCall;
 // ============================================================================
 
 /// Admin-utils configuration granted to broad proxies. Root-only
-/// (`RootConfigCalls`) calls are still inert (they need `ensure_root`).
-/// Owner-key rotation is **not** inert: `sudo_set_sn_owner_hotkey` is
-/// owner-or-root, so `OwnerKeyCalls` stays inventory-only.
-type AdminAll = (SubnetManagementCalls, RootConfigCalls);
+/// (`RootConfigCalls`, `LendingRootCalls`) calls are still inert (they need
+/// `ensure_root`). Owner-key rotation is **not** inert:
+/// `sudo_set_sn_owner_hotkey` is owner-or-root, so `OwnerKeyCalls` stays
+/// inventory-only.
+type AdminAll = (SubnetManagementCalls, RootConfigCalls, LendingRootCalls);
 
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
 /// `Staking`: stake position management and accumulated root-dividend claims.
+/// Short open/close/collateral calls are **not** included (Greg Zaitsev P2-c) — use
+/// `ProxyType::Lending` (or `Any`). Keep this type body free of the loan pallet
+/// name so SDK `test_protected_preparation` word-scan of the alias stays exact.
 type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
+
+/// `Lending`: user-facing short extrinsics plus Utility batch wrappers.
+/// Nested batch children are re-filtered, so a batch of transfers still fails.
+/// Root lending knobs stay out (need `ensure_root`).
+type LendingAllowed = (LendingCalls, LendingUtilityCalls);
 
 /// `Lock`: stake conviction-lock management and nothing else.
 type LockAllowed = LockCalls;
@@ -83,6 +92,9 @@ type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
     StakeManagementCalls,
+    // Shorts require ProxyType::Lending (or Any). Existing NonTransfer
+    // delegates must not silently gain loan authority when lending is enabled
+    // (skeptic fid:3d310144 / d3fefb26).
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     FaucetCalls,
@@ -179,6 +191,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::Weights => WeightsAllowed::contains(call),
         ProxyType::Lock => LockAllowed::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
+        ProxyType::Lending => LendingAllowed::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
         | ProxyType::Governance
@@ -255,6 +268,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
         ProxyType::Lock => FilterMode::Allow(LockAllowed::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
+        ProxyType::Lending => FilterMode::Allow(LendingAllowed::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
         | ProxyType::Governance
@@ -413,6 +427,9 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        // Lending creates interest / settlement exposure; require ProxyType::Lending
+        // or Any (skeptic fid:3d310144). Root setters stay via AdminAll (ensure_root).
+        let denied = &denied | &group_calls::<LendingCalls>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -448,6 +465,8 @@ mod tests {
                 GammaDepositAuthorityCalls,
                 ServiceCalls,
             )>();
+        // Shorts move value; root setters stay via AdminAll (ensure_root).
+        let denied = &denied | &group_calls::<LendingCalls>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -751,6 +770,9 @@ mod tests {
             | &group_calls::<ColdkeySwapCalls>();
         let denied = &denied | &group_calls::<(EvmCalls, CrowdloanCalls, MultisigCalls)>();
         let denied = &denied | &group_calls::<(BasketTradingCalls, GammaSpendCalls)>();
+        // NonCritical has stake mgmt but not short open/close. Root setters
+        // remain via AdminAll.
+        let denied = &denied | &group_calls::<LendingCalls>();
         let denied = &denied | &group_calls::<ProxyAnnouncementCalls>();
         let denied = &denied
             | &group_calls::<(
@@ -1032,6 +1054,8 @@ mod tests {
                 "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
+        // P2-c / skeptic fid:3d310144: Staking and NonTransfer must not grant
+        // lending; use ProxyType::Any (or a future dedicated grant).
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
@@ -1691,6 +1715,81 @@ mod tests {
         );
     }
 
+    /// `Lending` admits user-facing short extrinsics + Utility wrappers, rejects
+    /// root lending knobs, balances transfer and staking, and is not covered by
+    /// Staking / NonTransfer.
+    #[test]
+    fn lending_proxy_grants_short_calls_and_rejects_transfer_and_stake() {
+        use frame_system::Call as SystemCall;
+        use pallet_balances::Call as BalancesCall;
+        use pallet_lending::Call as LendingCall;
+        use pallet_subtensor::Call as SubtensorCall;
+        use pallet_subtensor_utility::Call as UtilityCall;
+        use subtensor_runtime_common::{AccountId, NetUid, TaoBalance};
+
+        let cold = AccountId::new([1u8; 32]);
+        let hot = AccountId::new([2u8; 32]);
+        let netuid = NetUid::from(1);
+        let open = RuntimeCall::Lending(LendingCall::open_short {
+            netuid,
+            mint_alpha: 1,
+            collateral: 1,
+            min_tao_out: 0,
+        });
+        let close = RuntimeCall::Lending(LendingCall::close_short {
+            netuid,
+            alpha: 1,
+            max_tao_in: u64::MAX,
+        });
+        let withdraw = RuntimeCall::Lending(LendingCall::withdraw_collateral { netuid, tao: 1 });
+        let set_enabled = RuntimeCall::Lending(LendingCall::set_enabled { enabled: true });
+        let add_collateral = RuntimeCall::Lending(LendingCall::add_collateral { netuid, tao: 1 });
+        let transfer = RuntimeCall::Balances(BalancesCall::transfer_allow_death {
+            dest: cold.clone().into(),
+            value: TaoBalance::from(1),
+        });
+        let add_stake = RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+            hotkey: hot,
+            netuid,
+            amount_staked: TaoBalance::from(1),
+        });
+        let remark = RuntimeCall::System(SystemCall::remark { remark: vec![] });
+        let batch = RuntimeCall::Utility(UtilityCall::batch {
+            calls: vec![open.clone()],
+        });
+
+        assert!(proxy_type_filter(&ProxyType::Lending, &open));
+        assert!(proxy_type_filter(&ProxyType::Lending, &close));
+        assert!(proxy_type_filter(&ProxyType::Lending, &withdraw));
+        assert!(proxy_type_filter(&ProxyType::Lending, &add_collateral));
+        assert!(proxy_type_filter(&ProxyType::Lending, &batch));
+        assert!(!proxy_type_filter(&ProxyType::Lending, &set_enabled));
+        assert!(!proxy_type_filter(&ProxyType::Lending, &transfer));
+        assert!(!proxy_type_filter(&ProxyType::Lending, &add_stake));
+        assert!(!proxy_type_filter(&ProxyType::Lending, &remark));
+
+        // Staking / NonTransfer must not silently gain short authority.
+        assert!(!proxy_type_filter(&ProxyType::Staking, &open));
+        assert!(!proxy_type_filter(&ProxyType::NonTransfer, &open));
+        assert!(!proxy_type_filter(&ProxyType::Staking, &withdraw));
+        assert!(!proxy_type_filter(&ProxyType::NonTransfer, &withdraw));
+
+        // Any still works.
+        assert!(proxy_type_filter(&ProxyType::Any, &open));
+        assert!(proxy_type_filter(&ProxyType::Any, &transfer));
+
+        let supersets = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::Lending))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            supersets,
+            [ProxyType::Any, ProxyType::Lending]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+    }
+
     /// Basket trades need the explicit `BasketTrading` grant: the broad `NonTransfer` and
     /// `NonCritical` delegations do not admit them (PR #3150 calibration pass §5.6), so an
     /// existing delegate does not gain trading power at upgrade without opting in.
@@ -1800,5 +1899,61 @@ mod pow_proxy_tests {
         assert!(ProxyType::NonCritical.filter(&pow));
         assert!(!ProxyType::NonCritical.filter(&legacy));
         assert!(!ProxyType::Staking.filter(&pow));
+    }
+
+    #[test]
+    fn lending_short_proxy_paths() {
+        use pallet_lending::Call as LendingCall;
+        use subtensor_runtime_common::{AccountId, NetUid};
+
+        let netuid = NetUid::from(1);
+        let shorts = [
+            LendingCall::open_short {
+                netuid,
+                mint_alpha: 1,
+                collateral: 1,
+                min_tao_out: 0,
+            },
+            LendingCall::increase_short {
+                netuid,
+                extra_mint: 1,
+                extra_collateral: 1,
+                min_tao_out: 0,
+            },
+            LendingCall::add_collateral { netuid, tao: 1 },
+            LendingCall::withdraw_collateral { netuid, tao: 1 },
+            LendingCall::close_short {
+                netuid,
+                alpha: 1,
+                max_tao_in: u64::MAX,
+            },
+            LendingCall::poke {
+                who: AccountId::new([9u8; 32]),
+                netuid,
+            },
+        ]
+        .map(RuntimeCall::Lending);
+
+        // Any and Lending may run every short extrinsic.
+        for proxy in [ProxyType::Any, ProxyType::Lending] {
+            for call in &shorts {
+                assert!(proxy.filter(call), "{proxy:?} must allow {call:?}");
+            }
+        }
+        // Staking and NonTransfer must not gain short authority (P2-c /
+        // skeptic fid:3d310144); Transfer-only, Registration, NonFungible, and
+        // RootClaim must not touch lending.
+        for proxy in [
+            ProxyType::Staking,
+            ProxyType::NonTransfer,
+            ProxyType::Transfer,
+            ProxyType::Registration,
+            ProxyType::RootClaim,
+            ProxyType::NonFungible,
+        ] {
+            for call in &shorts {
+                assert!(!proxy.filter(call), "{proxy:?} must deny {call:?}");
+            }
+        }
     }
 }

@@ -18,6 +18,7 @@ use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
 use pallet_grandpa::Call as GrandpaCall;
 use pallet_hashed_accounts::Call as HashedAccountsCall;
+use pallet_lending::Call as LendingCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
@@ -160,6 +161,34 @@ call_filter_group!(
     ]
 );
 
+// Synthetic-short lifecycle: ProxyType::Lending or Any (not Staking, not
+// NonTransfer — skeptic fid:3d310144 / d3fefb26). Root setters live in
+// `LendingRootCalls` (AdminAll / RootConfigCalls pattern — inert without
+// `ensure_root`).
+call_filter_group!(
+    LendingCalls,
+    [
+        RuntimeCall::Lending(LendingCall::open_short),
+        RuntimeCall::Lending(LendingCall::increase_short),
+        RuntimeCall::Lending(LendingCall::add_collateral),
+        RuntimeCall::Lending(LendingCall::withdraw_collateral),
+        RuntimeCall::Lending(LendingCall::close_short),
+        RuntimeCall::Lending(LendingCall::poke),
+    ]
+);
+
+// Root-only lending knobs (`ensure_root`). Granted with AdminAll the same way
+// `RootConfigCalls` are: broad proxies may list them, but dispatch still fails
+// without root.
+call_filter_group!(
+    LendingRootCalls,
+    [
+        RuntimeCall::Lending(LendingCall::set_enabled),
+        RuntimeCall::Lending(LendingCall::set_synth_params),
+        RuntimeCall::Lending(LendingCall::sweep_stranded_funds),
+    ]
+);
+
 call_filter_group!(
     SwapCalls,
     [
@@ -249,6 +278,18 @@ call_filter_group!(
         RuntimeCall::Utility(UtilityCall::with_weight),
         RuntimeCall::Utility(UtilityCall::if_else),
         RuntimeCall::Utility(UtilityCall::dispatch_as_fallible),
+    ]
+);
+
+// Batch wrappers only for narrow grants (e.g. ProxyType::Lending). Nested
+// children are still re-filtered by the outer proxy type. Excludes
+// as_safe_derivative / dispatch_as / pure-proxy spawn paths.
+call_filter_group!(
+    LendingUtilityCalls,
+    [
+        RuntimeCall::Utility(UtilityCall::batch),
+        RuntimeCall::Utility(UtilityCall::batch_all),
+        RuntimeCall::Utility(UtilityCall::force_batch),
     ]
 );
 
@@ -915,6 +956,8 @@ type SubtensorSplitCalls = (
     BalanceMaintenanceCalls,
     StakeManagementCalls,
     StakeTransferCalls,
+    LendingCalls,
+    LendingRootCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     RootRegistrationCalls,

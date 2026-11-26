@@ -2,6 +2,7 @@ use super::*;
 use frame_support::dispatch::DispatchResultWithPostInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
+use pallet_lending::LendingInterface;
 use sp_core::{H256, U256};
 use sp_io::hashing::{keccak_256, sha2_256};
 use sp_runtime::Saturating;
@@ -80,6 +81,30 @@ impl<T: Config> pallet_commitments::CommitBurnInterface<T::AccountId> for Pallet
         // path. Reference benchmarking for the composed extrinsic remains pending.
         <<T as Config>::WeightInfo as crate::weights::WeightInfo>::burned_register()
     }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_prepare_channel(netuid: NetUid, coldkey: &T::AccountId, hotkey: &T::AccountId) {
+        if !Self::if_subnet_exist(netuid) {
+            Self::init_new_network(netuid, 1);
+        }
+        SubtokenEnabled::<T>::insert(netuid, true);
+        // Ownership must succeed: ignored `create_account` errors left the hotkey
+        // unassociated and mapped to `AccountNotAuthorized` in commitments benches.
+        frame_support::assert_ok!(Self::create_account_if_non_existent(coldkey, hotkey));
+        if !Self::is_hotkey_registered_on_network(netuid, hotkey) {
+            Self::append_neuron(netuid, hotkey, 0);
+        }
+        debug_assert!(
+            Self::ensure_coldkey_hotkey(netuid, coldkey, hotkey).is_ok(),
+            "benchmark channel fixture must satisfy ensure_coldkey_hotkey"
+        );
+    }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_pool(netuid: NetUid) {
+        SubnetTAO::<T>::insert(netuid, TaoBalance::from(1_000_000_000_000_u64));
+        SubnetAlphaIn::<T>::insert(netuid, AlphaBalance::from(1_000_000_000_000_u64));
+    }
 }
 
 /// Allow periodic challenge refresh plus signing and propagation time.
@@ -135,6 +160,11 @@ impl<T: Config> Pallet<T> {
         ensure!(
             !Uids::<T>::contains_key(netuid, hotkey),
             Error::<T>::HotKeyAlreadyRegisteredInSubNet
+        );
+        // §14: lending custody hotkey cannot register as a neuron.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
         );
         ensure!(
             Self::get_max_allowed_uids(netuid) != 0,
@@ -347,6 +377,11 @@ impl<T: Config> Pallet<T> {
         ensure!(
             !Uids::<T>::contains_key(netuid, hotkey),
             Error::<T>::HotKeyAlreadyRegisteredInSubNet
+        );
+        // §14: lending custody hotkey cannot register as a neuron.
+        ensure!(
+            !T::Lending::is_custody_hotkey(hotkey),
+            Error::<T>::CustodyHotkey
         );
 
         // 5) compute current burn price.

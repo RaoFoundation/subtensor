@@ -101,18 +101,38 @@ def _parse_query_prompt(ptype: str, _app_ctx: AppContext, raw: str) -> Any:
     return raw
 
 
-def _jsonable(obj: Any) -> Any:
-    """Normalize a read result to JSON-friendly primitives."""
+def _jsonable(obj: Any, *, balance_as_rao: bool = False) -> Any:
+    """Normalize a read result to JSON-friendly primitives.
+
+    Non-lending queries keep Balance as the human τ/α string (N29). Lending
+    reads pass ``balance_as_rao=True`` so ``--json`` stays machine-raw rao
+    ints (U1, scoped to lending only).
+    """
+    if isinstance(obj, Balance):
+        return int(obj.rao) if balance_as_rao else str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat(timespec="seconds")
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return {k: _jsonable(v, balance_as_rao=balance_as_rao) for k, v in asdict(obj).items()}
+    if isinstance(obj, dict):
+        return {k: _jsonable(v, balance_as_rao=balance_as_rao) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v, balance_as_rao=balance_as_rao) for v in obj]
+    return obj
+
+
+def _displayable(obj: Any) -> Any:
+    """Human view of a read result: Balance → τ/α string, datetime ISO."""
     if isinstance(obj, Balance):
         return str(obj)
     if isinstance(obj, datetime):
         return obj.isoformat(timespec="seconds")
     if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _jsonable(v) for k, v in asdict(obj).items()}
+        return {k: _displayable(v) for k, v in asdict(obj).items()}
     if isinstance(obj, dict):
-        return {k: _jsonable(v) for k, v in obj.items()}
+        return {k: _displayable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [_jsonable(v) for v in obj]
+        return [_displayable(v) for v in obj]
     return obj
 
 
@@ -176,11 +196,13 @@ def _make_command(name: str, spec):
                 continue
             kwargs[pname] = app_ctx.resolve_address(pname, raw)
         result = app_ctx.run(lambda client: client.read(name, **kwargs))
-        payload = _jsonable(result)
         output = app_ctx.output
         if output.json_mode:
-            output.value(payload)
-        elif payload is None or (isinstance(payload, (list, dict)) and not payload):
+            # U1 rao-ints apply only to lending_* reads (N29).
+            output.value(_jsonable(result, balance_as_rao=name.startswith("lending_")))
+            return
+        payload = _displayable(result)
+        if payload is None or (isinstance(payload, (list, dict)) and not payload):
             output.detail(name, {})  # title + the dim `none` convention
         elif isinstance(spec.render, Grouped):
             key = spec.render.key
@@ -236,11 +258,12 @@ def _make_command(name: str, spec):
         # Bool options get a negated twin (--flag/--no-flag) so default-True
         # fields (e.g. lite) can be turned off — same pattern as `tx.py`.
         flag_name = f"{cli_name}/--no-{cli_name[2:]}" if ptype == "boolean" else cli_name
+        option_kwargs: dict[str, Any] = {"help": help_text}
         params.append(
             inspect.Parameter(
                 pname,
                 inspect.Parameter.KEYWORD_ONLY,
-                default=typer.Option(option_default, flag_name, help=help_text),
+                default=typer.Option(option_default, flag_name, **option_kwargs),
                 annotation=annotations[pname],
             )
         )

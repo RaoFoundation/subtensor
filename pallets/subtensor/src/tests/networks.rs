@@ -423,17 +423,31 @@ fn dissolve_single_alpha_out_staker_gets_all_tao() {
         SubnetTAO::<Test>::insert(net, TaoBalance::from(pot));
         SubtensorModule::set_subnet_locked_balance(net, 0.into());
         TotalHotkeyAlpha::<Test>::insert(s_hot, net, AlphaBalance::from(5_000u64));
+        // Frozen `r` uses swap issuance (α-in/α-out), not only α-out ledger rows.
+        SubnetAlphaOut::<Test>::insert(net, AlphaBalance::from(5_000u64));
+
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(pot));
 
         // Cold-key balance before
         let before = SubtensorModule::get_coldkey_balance(&s_cold);
 
         // Dissolve
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
 
-        // Cold-key received full pot
+        let expected = (U64F64::saturating_from_num(5_000u64).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
+
+        // Cold-key received α×r (here α-out is the full issuance denominator).
         let after = SubtensorModule::get_coldkey_balance(&s_cold);
-        assert_eq!(after, before + pot.into());
+        assert_eq!(after, before + expected.into());
 
         // No α entries left for dissolved subnet
         assert!(AlphaV2::<Test>::iter().all(|((_h, _c, n), _)| n != net));
@@ -475,36 +489,22 @@ fn dissolve_two_stakers_pro_rata_distribution() {
         let s2_before = SubtensorModule::get_coldkey_balance(&s2_cold);
         let owner_before = SubtensorModule::get_coldkey_balance(&oc);
 
-        // Expected τ shares with largest remainder
-        let total = (a1 + a2) as u128;
-        let prod1 = (a1 as u128) * (pot as u128);
-        let prod2 = (a2 as u128) * (pot as u128);
-        let share1 = (prod1 / total) as u64;
-        let share2 = (prod2 / total) as u64;
-        let mut distributed = share1 + share2;
-        let mut rem = [(s1_cold, prod1 % total), (s2_cold, prod2 % total)];
-        if distributed < pot {
-            rem.sort_by_key(|&(_c, r)| core::cmp::Reverse(r));
-            let leftover = pot - distributed;
-            for _ in 0..leftover as usize {
-                distributed += 1;
-            }
-        }
-        // Recompute exact expected shares using the same logic
-        let mut expected1 = share1;
-        let mut expected2 = share2;
-        if share1 + share2 < pot {
-            rem.sort_by_key(|&(_c, r)| core::cmp::Reverse(r));
-            if rem[0].0 == s1_cold {
-                expected1 += 1;
-            } else {
-                expected2 += 1;
-            }
-        }
-
         // Dissolve
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
+
+        let rate_tao = |alpha: u64| -> u64 {
+            (U64F64::saturating_from_num(alpha).saturating_mul(rate))
+                .floor()
+                .saturating_to_num::<u64>()
+        };
+        let expected1 = rate_tao(a1);
+        let expected2 = rate_tao(a2);
 
         // Cold-keys received their τ shares
         assert_eq!(
@@ -1048,14 +1048,22 @@ fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
             staker_before
         );
 
-        run_block_idle();
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
 
-        // Reservoir alpha is treated like materialized protocol pool alpha.
-        // The staker owns half the denominator, so receives half the reservoir
-        // TAO pot; the protocol share is recycled.
+        let expected = (U64F64::saturating_from_num(100u64).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
+
+        // Staker settles at frozen α×r; protocol/pool α share is recycled, not
+        // paid as a separate pro-rata slice of the pot.
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&staker_cold),
-            staker_before + TaoBalance::from(50_u64)
+            staker_before + TaoBalance::from(expected)
         );
         assert!(TotalIssuance::<Test>::get() < issuance_before);
         assert!(!NetworksAdded::<Test>::contains_key(net));
@@ -1142,15 +1150,18 @@ fn dissolve_rounding_remainder_distribution() {
         let c1_before = SubtensorModule::get_coldkey_balance(&s1c);
         let c2_before = SubtensorModule::get_coldkey_balance(&s2c);
 
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(1));
+
         // 3. Run full dissolve flow
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        run_dissolve_cleanup_to_completion();
 
-        // 4. s1 (larger remainder) should get +1 τ on cold-key
+        // 4. α×r floors to zero for both; remainder τ is recycled, not LRM dust.
         let c1_after = SubtensorModule::get_coldkey_balance(&s1c);
         let c2_after = SubtensorModule::get_coldkey_balance(&s2c);
 
-        assert_eq!(c1_after, c1_before + 1.into());
+        assert_eq!(c1_after, c1_before);
         assert_eq!(c2_after, c2_before);
 
         // α records for subnet gone; TAO key gone
@@ -1245,14 +1256,24 @@ fn dissolve_protocol_alpha_post_deploy_includes_alpha_in() {
         let staker_before = SubtensorModule::get_coldkey_balance(&staker_cold);
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
-        assert_ok!(SubtensorModule::do_dissolve_network(net));
-        run_block_idle();
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(pot));
 
-        // Post-deploy denominator = 100 alpha-in + 50 cached protocol alpha
-        // + 50 user alpha = 200. The user gets 50/200 of the 200 TAO pot.
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        use pallet_lending::Dissolutions;
+        use substrate_fixed::types::U64F64;
+        let rate = Dissolutions::<Test>::get(net)
+            .expect("frozen r at flag")
+            .price;
+        run_dissolve_cleanup_to_completion();
+
+        // Post-deploy: staker pays at frozen `r` (α-in participates in issuance).
+        let expected = (U64F64::saturating_from_num(50u64).saturating_mul(rate))
+            .floor()
+            .saturating_to_num::<u64>();
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&staker_cold),
-            staker_before + 50.into()
+            staker_before + expected.into()
         );
 
         assert_eq!(
@@ -1368,22 +1389,9 @@ fn destroy_alpha_out_multiple_stakers_pro_rata() {
         // 7. Run the (now credit-to-coldkey) logic
         destroy_alpha_in_out_stakes_full_pipeline_for_test(netuid);
 
-        // 8. Expected τ shares via largest remainder
-        let prod1 = (tao_pot as u128) * a1;
-        let prod2 = (tao_pot as u128) * a2;
-        let mut s1_share = (prod1 / atotal) as u64;
-        let mut s2_share = (prod2 / atotal) as u64;
-        let distributed = s1_share + s2_share;
-        if distributed < tao_pot {
-            // Assign leftover to larger remainder
-            let r1 = prod1 % atotal;
-            let r2 = prod2 % atotal;
-            if r1 >= r2 {
-                s1_share += 1;
-            } else {
-                s2_share += 1;
-            }
-        }
+        // 8. Expected τ shares at rate r = pot / Σα (floor; leftover recycled).
+        let s1_share = ((tao_pot as u128) * a1 / atotal) as u64;
+        let s2_share = ((tao_pot as u128) * a2 / atotal) as u64;
 
         // 9. Cold-key balances must have increased accordingly
         assert_eq!(
@@ -1562,25 +1570,14 @@ fn destroy_alpha_out_many_stakers_complex_distribution() {
         }
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
-        // ── 5) expected τ share per pallet algorithm (incl. remainder) ─────
+        // ── 5) expected τ share at r = pot / Σα (floor; leftover recycled) ─
 
         SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::ZERO);
         SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::ZERO);
         let mut share = [0u64; N];
-        let mut rem = [0u128; N];
-        let mut paid: u128 = 0;
 
         for i in 0..N {
-            let prod = tao_pot as u128 * alpha[i];
-            share[i] = (prod / alpha_sum) as u64;
-            rem[i] = prod % alpha_sum;
-            paid += share[i] as u128;
-        }
-        let leftover = tao_pot as u128 - paid;
-        let mut idx: Vec<_> = (0..N).collect();
-        idx.sort_by_key(|i| core::cmp::Reverse(rem[*i]));
-        for i in 0..leftover as usize {
-            share[idx[i]] += 1;
+            share[i] = (tao_pot as u128 * alpha[i] / alpha_sum) as u64;
         }
 
         // ── 5b) expected owner refund with price-aware emission deduction ───
@@ -1846,6 +1843,156 @@ fn prune_selects_network_with_lowest_price() {
         SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(10));
 
         assert_eq!(SubtensorModule::get_network_to_prune(), Some(n1));
+    });
+}
+
+#[test]
+fn prune_ranks_by_slow_dereg_price_not_emission_moving_price() {
+    new_test_ext(0).execute_with(|| {
+        let n1 = add_dynamic_network(&U256::from(20), &U256::from(10));
+        let n2 = add_dynamic_network(&U256::from(40), &U256::from(30));
+        let n3 = add_dynamic_network(&U256::from(60), &U256::from(50));
+        System::set_block_number(SubtensorModule::get_network_immunity_period() + 10);
+
+        // Emission EMA says n1 is cheapest; the slow dereg price says n2.
+        // Registration only consumes lending ranks via the metered PruneTarget
+        // cache — seed RankPrice + refresh so the cache path is exercised.
+        SubnetMovingPrice::<Test>::insert(n1, I96F32::from_num(0.1));
+        SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(0.9));
+        SubnetMovingPrice::<Test>::insert(n3, I96F32::from_num(0.5));
+        pallet_lending::Enabled::<Test>::put(true);
+        pallet_lending::RankPrice::<Test>::insert(n1, U64F64::from_num(0.8));
+        pallet_lending::RankPrice::<Test>::insert(n2, U64F64::from_num(0.2));
+        let epoch = pallet_lending::RankGeneration::<Test>::get();
+        for n in [n1, n2] {
+            pallet_lending::RankRingGeneration::<Test>::insert(n, epoch);
+        }
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(n2));
+
+        // n3 has no dereg sample yet and falls back to its emission moving price.
+        assert_eq!(SubtensorModule::dereg_rank_price(n3), U64F64::from_num(0.5));
+        pallet_lending::RankPrice::<Test>::insert(n2, U64F64::from_num(0.6));
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+        // Cache now sees n3's moving price (0.5) as lowest among eligible.
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(n3));
+    });
+}
+
+/// `get_network_to_prune` and lending `in_prune_zone` share the same warm /
+/// unwarm rank fallback, so a mixed set stays consistent across registration,
+/// immunity expiry, dissolution, and disable/re-enable.
+#[test]
+fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
+    new_test_ext(0).execute_with(|| {
+        let n1 = add_dynamic_network(&U256::from(21), &U256::from(11));
+        let n2 = add_dynamic_network(&U256::from(41), &U256::from(31));
+        let n3 = add_dynamic_network(&U256::from(61), &U256::from(51));
+        let imm = SubtensorModule::get_network_immunity_period();
+        // Mature n1–n3, then register n4 so it is still immune.
+        System::set_block_number(imm + 10);
+        let n4 = add_dynamic_network(&U256::from(81), &U256::from(71));
+
+        pallet_lending::Enabled::<Test>::put(true);
+        let params = pallet_lending::SynthParams::default();
+        pallet_lending::SynthParamsStore::<Test>::put(params);
+
+        // Warm n1 (low), unwarm n2 (mid moving fallback), warm n3 (high).
+        // n4 is immune with an even lower price and must be ignored.
+        SubnetMovingPrice::<Test>::insert(n1, I96F32::from_num(0.5));
+        SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(0.25));
+        SubnetMovingPrice::<Test>::insert(n3, I96F32::from_num(0.9));
+        SubnetMovingPrice::<Test>::insert(n4, I96F32::from_num(0.01));
+        pallet_lending::RankPrice::<Test>::insert(n1, U64F64::from_num(0.1));
+        pallet_lending::RankPrice::<Test>::insert(n3, U64F64::from_num(0.8));
+        pallet_lending::RankPrice::<Test>::insert(n4, U64F64::from_num(0.01));
+        let epoch = pallet_lending::RankGeneration::<Test>::get();
+        for n in [n1, n3, n4] {
+            pallet_lending::RankRingGeneration::<Test>::insert(n, epoch);
+        }
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+
+        for n in [n1, n2, n3, n4] {
+            assert_eq!(
+                SubtensorModule::dereg_rank_price(n),
+                pallet_lending::Pallet::<Test>::prune_rank_price(n),
+                "warm/unwarm fallback must match on {n:?}"
+            );
+        }
+
+        assert!(SubtensorModule::is_network_prune_immune(n4));
+        assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n4, &params));
+
+        let pruned = SubtensorModule::get_network_to_prune().expect("candidate");
+        assert_eq!(pruned, n1, "lowest warm rank wins over unwarm / immune");
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
+            pruned, &params
+        ));
+        assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n3, &params));
+        assert!(!pallet_lending::Pallet::<Test>::in_prune_zone(n2, &params));
+
+        // Immunity expiry: n4 becomes the prune target.
+        System::set_block_number(
+            NetworkRegisteredAt::<Test>::get(n4)
+                .saturating_add(imm)
+                .saturating_add(1),
+        );
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+        assert!(!SubtensorModule::is_network_prune_immune(n4));
+        let pruned_after = SubtensorModule::get_network_to_prune().expect("candidate");
+        assert_eq!(pruned_after, n4, "post-immunity low rank wins");
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
+            pruned_after,
+            &params
+        ));
+
+        // Dissolution O(1)-invalidates the floor; fail-closed keeps candidates
+        // in zone until the next metered refresh. With lending ranks active,
+        // capacity registration must wait for a fresh PruneTarget — no
+        // emission-price fallback that could pick a different victim.
+        assert_ok!(pallet_lending::Pallet::<Test>::start_dissolution(n4));
+        assert!(
+            pallet_lending::PruneFloor::<Test>::get().is_none(),
+            "dissolution must kill the cached floor without a full rescan"
+        );
+        assert!(
+            pallet_lending::PruneTarget::<Test>::get().is_none(),
+            "dissolution must kill the cached prune target without a full rescan"
+        );
+        assert!(
+            pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
+            "missing floor fails closed (in zone)"
+        );
+        assert_eq!(
+            SubtensorModule::get_network_to_prune(),
+            None,
+            "lending-on cache miss must defer prune selection"
+        );
+
+        // Disable / re-enable: generation bump + O(1) cache kill. Floor is
+        // missing until the next metered refresh — fail closed, then agree
+        // again after on_initialize republishes.
+        assert_ok!(pallet_lending::Pallet::<Test>::set_enabled(
+            RuntimeOrigin::root(),
+            false
+        ));
+        assert_ok!(pallet_lending::Pallet::<Test>::set_enabled(
+            RuntimeOrigin::root(),
+            true
+        ));
+        assert!(
+            pallet_lending::PruneFloor::<Test>::get().is_none(),
+            "re-enable defers floor refresh"
+        );
+        assert!(
+            pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
+            "missing floor fails closed"
+        );
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+        let pruned_re = SubtensorModule::get_network_to_prune().expect("candidate");
+        assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
+            pruned_re, &params
+        ));
     });
 }
 
@@ -2658,45 +2805,9 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
             tao_after_adds.insert(cold, SubtensorModule::get_coldkey_balance(&cold));
         }
 
-        // ────────────────────────────────────────────────────────────────────
-        // 5) Compute Hamilton-apportionment BASE shares per cold and total leftover
-        //    from the **pair-level** pre‑LP α snapshot; also count pairs per cold.
-        // ────────────────────────────────────────────────────────────────────
         for &net in nets.iter() {
             SubnetAlphaIn::<Test>::insert(net, AlphaBalance::ZERO);
             SubnetProtocolAlpha::<Test>::insert(net, AlphaBalance::ZERO);
-        }
-
-        let mut base_share_cold: BTreeMap<U256, u64> =
-            cold_lps.iter().copied().map(|c| (c, 0_u64)).collect();
-        let mut pair_count_cold: BTreeMap<U256, u32> =
-            cold_lps.iter().copied().map(|c| (c, 0_u32)).collect();
-
-        let mut leftover_total: u64 = 0;
-
-        for (ni, &net) in nets.iter().enumerate() {
-            let pot = pots[ni];
-            let pairs = alpha_pairs_per_net.get(&net).cloned().unwrap_or_default();
-            if pot == 0 || pairs.is_empty() {
-                continue;
-            }
-            let total_alpha: u128 = pairs.iter().map(|(_, a)| *a).sum();
-            if total_alpha == 0 {
-                continue;
-            }
-
-            let mut base_sum_net: u64 = 0;
-            for ((_, cold), a) in pairs.iter().copied() {
-                // quota = a * pot / total_alpha
-                let prod: u128 = a.saturating_mul(pot as u128);
-                let base: u64 = (prod / total_alpha) as u64;
-                base_sum_net = base_sum_net.saturating_add(base);
-                *base_share_cold.entry(cold).or_default() =
-                    base_share_cold[&cold].saturating_add(base);
-                *pair_count_cold.entry(cold).or_default() += 1;
-            }
-            let leftover_net = pot.saturating_sub(base_sum_net);
-            leftover_total = leftover_total.saturating_add(leftover_net);
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -2712,7 +2823,7 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
 
         // ────────────────────────────────────────────────────────────────────
         // 7) Assertions: τ balances, α gone, nets removed, swap state clean
-        //    (Hamilton invariants enforced at cold-level without relying on tie-break)
+        //    (α×r payouts; rounding dust recycled, not Hamilton remainder)
         // ────────────────────────────────────────────────────────────────────
         // Collect actual pot credits per cold (principal cancels out against adds when comparing before→after).
         let mut actual_pot_cold: BTreeMap<U256, u64> =
@@ -2723,40 +2834,19 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
             actual_pot_cold.insert(cold, after.saturating_sub(before.into()).into());
         }
 
-        // (a) Sum of actual pot credits equals total pots.
+        // (a) Pot credits never exceed seeded pots; dust is recycled on-chain.
         let total_actual: u64 = actual_pot_cold.values().copied().sum();
         let total_pots: u64 = pots.iter().copied().sum();
-        assert_eq!(
-            total_actual, total_pots,
-            "total τ pot credited across colds must equal sum of pots"
+        assert!(
+            total_actual <= total_pots,
+            "total τ credited {total_actual} exceeds sum of pots {total_pots}"
+        );
+        assert!(
+            total_actual > 0,
+            "stakers must receive at least some pot τ under α×r"
         );
 
-        // (b) Each cold’s pot is within Hamilton bounds: base ≤ actual ≤ base + #pairs.
-        let mut extra_accum: u64 = 0;
-        for &cold in cold_lps.iter() {
-            let base = *base_share_cold.get(&cold).unwrap_or(&0);
-            let pairs = *pair_count_cold.get(&cold).unwrap_or(&0) as u64;
-            let actual = *actual_pot_cold.get(&cold).unwrap_or(&0);
-
-            assert!(
-                actual >= base,
-                "cold {cold:?} actual pot {actual} is below base {base}"
-            );
-            assert!(
-                actual <= base.saturating_add(pairs),
-                "cold {cold:?} actual pot {actual} exceeds base + pairs ({base} + {pairs})"
-            );
-
-            extra_accum = extra_accum.saturating_add(actual.saturating_sub(base));
-        }
-
-        // (c) The total “extra beyond base” equals the computed leftover_total across nets.
-        assert_eq!(
-            extra_accum, leftover_total,
-            "sum of extras beyond base must equal total leftover"
-        );
-
-        // (d) τ principal was fully refunded (compare after_adds → after).
+        // (b) τ principal was fully refunded (compare after_adds → after).
         for &cold in cold_lps.iter() {
             let before = tao_before[&cold];
             let mid = tao_after_adds[&cold];

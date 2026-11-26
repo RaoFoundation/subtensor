@@ -14,7 +14,7 @@ delegate on this mechanism; the delegate pays the normal transaction fee.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221), [`SubtensorModule.commit_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3346-L3356) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L213-L222), [`SubtensorModule.commit_mechanism_weights_for`](/code/pallets/subtensor/src/macros/dispatches.rs#L3357-L3367) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("commit_weight_hash", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.commit_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L214`](/code/pallets/subtensor/src/macros/dispatches.rs#L212-L221):
+`SubtensorModule.commit_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L215`](/code/pallets/subtensor/src/macros/dispatches.rs#L213-L222):
 
 ```rust
 #[pallet::call_index(115)]
@@ -85,7 +85,7 @@ pub fn commit_mechanism_weights(
 
 Delegates to [`do_commit_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L286).
 
-`SubtensorModule.commit_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3348`](/code/pallets/subtensor/src/macros/dispatches.rs#L3346-L3356):
+`SubtensorModule.commit_mechanism_weights_for` — [`pallets/subtensor/src/macros/dispatches.rs#L3359`](/code/pallets/subtensor/src/macros/dispatches.rs#L3357-L3367):
 
 ```rust
 #[pallet::call_index(172)]

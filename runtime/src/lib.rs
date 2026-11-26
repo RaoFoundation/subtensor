@@ -280,6 +280,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
+    // Spec 497 from main; this PR also carries short-only lending.
     spec_version: 497,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
@@ -1150,6 +1151,7 @@ impl pallet_subtensor::Config for Runtime {
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
     type SwapInterface = Swap;
+    type Lending = Lending;
     type KeySwapOnSubnetCost = SubtensorInitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
     type ProxyInterface = Proxier;
@@ -1534,6 +1536,31 @@ impl pallet_crowdloan::Config for Runtime {
     type MaxContributors = MaxContributors;
 }
 
+// Lending (synthetic-mint shorts). Economic knobs live in `SynthParams` /
+// `SynthParamsStore` — not as Config constants (μ Shorting 101821).
+parameter_types! {
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
+    // SPEC P15: accrue per block, charge every 360 blocks (~72 min).
+    pub const LendingInterestPeriod: BlockNumber = 360;
+    pub const LendingBlocksPerYear: u64 = 2_628_000; // ~12s blocks
+    /// Deprecated: subnet position cap removed; kept for metadata compatibility.
+    pub const LendingMaxPositionsPerSubnet: u32 = 1_000_000;
+    pub const LendingMaxTotalPositions: u32 = 1_000_000;
+    // ~20 min at 12 s blocks for failed interest collections (Auditor fid:2aff7381).
+    pub const LendingInterestRetryDelay: BlockNumber = 100;
+}
+
+impl pallet_lending::Config for Runtime {
+    type Pool = SubtensorModule;
+    type PalletId = LendingPalletId;
+    type InterestPeriod = LendingInterestPeriod;
+    type BlocksPerYear = LendingBlocksPerYear;
+    type MaxPositionsPerSubnet = LendingMaxPositionsPerSubnet;
+    type MaxTotalPositions = LendingMaxTotalPositions;
+    type InterestRetryDelay = LendingInterestRetryDelay;
+    type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
+}
+
 // Limit Orders
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
@@ -1758,6 +1785,7 @@ construct_runtime!(
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
         HashedAccounts: pallet_hashed_accounts = 33,
+        Lending: pallet_lending = 34,
     }
 );
 
@@ -1873,6 +1901,14 @@ type Migrations = (
     // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
     // one-shot marker.
     pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
+    // Lending: drop every lift-era item and install SynthParams defaults with
+    // synthetic shorts disabled until root enables them. DeregMovingPrice seeds
+    // at spot on the first block.
+    pallet_lending::migrations::MigrateToSynthShortsV1<Runtime>,
+    // Lending: clear DeleverageQueue / DeleverageBudget / StrandedCustody after
+    // their value-type changes (seq+cutoff budget, owner due/refund record).
+    // try-runtime asserts the maps are empty before the cutover.
+    pallet_lending::migrations::MigrateDeleverageValueTypesV2<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -1919,6 +1955,7 @@ mod benches {
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
         [pallet_hashed_accounts, HashedAccounts]
+        [pallet_lending, Lending]
     );
 }
 
@@ -2885,6 +2922,31 @@ impl_runtime_apis! {
             _key_owner_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
         ) -> Option<()> {
             None
+        }
+    }
+
+    impl pallet_lending_runtime_api::LendingRuntimeApi<Block, AccountId> for Runtime {
+        fn quote_open_short(
+            netuid: u16,
+            mint: u64,
+        ) -> Result<pallet_lending::ShortOpenQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_open_short(netuid.into(), mint)
+        }
+
+        fn quote_close_short(
+            owner: AccountId,
+            netuid: u16,
+            alpha: u64,
+        ) -> Result<pallet_lending::ShortCloseQuote, sp_runtime::DispatchError> {
+            pallet_lending::Pallet::<Runtime>::quote_close_short(&owner, netuid.into(), alpha)
+        }
+
+        fn short_health(owner: AccountId, netuid: u16) -> Option<pallet_lending::ShortHealth> {
+            pallet_lending::Pallet::<Runtime>::short_health(&owner, netuid.into())
+        }
+
+        fn current_terms_version() -> u16 {
+            pallet_lending::TERMS_VERSION
         }
     }
 
