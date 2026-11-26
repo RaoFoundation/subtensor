@@ -237,3 +237,14 @@ through a local node), gives each request a deadline, and signs each request
 with the service's hotkey as the receiver, so no other service can replay it.
 `bt.services.load_url(url)` reads a document by its url without the chain,
 under the same rules: a url on this machine counts as a localnet.
+
+A service follows these rules and still is not vetted. The subnet owner's hotkey
+can publish one, and so can any hotkey with a validator permit on the subnet,
+under any name. `--netuid N` means the owner's service; a validator's is used
+only when named with `--service-hotkey`, and `list` and `show` say which one
+published it (`publisher` in the JSON). Its name, descriptions, messages and
+responses are the service's own words, so an agent should treat them as data,
+not instructions; clients strip the control and invisible characters from them.
+A signature pays only for that one request, from what the hotkey has already
+spent at that service: no call moves gamma or TAO. Only `btcli gamma spend`
+does, and it names the service's hotkey from the chain.

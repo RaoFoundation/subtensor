@@ -43,6 +43,9 @@ BALANCE_URL = "https://svc.example/balance"
 BTAUTH = {"type": "apiKey", "in": "header", "name": "X-Bittensor-Signature"}
 
 
+CAROL_HOT = Keypair.create_from_uri("//Charlie//hot").ss58_address
+
+
 def document(**changes) -> dict:
     doc = {
         "version": 1,
@@ -209,10 +212,17 @@ class TestLoad:
         assert service.api_url == "https://svc.example/api/v1"
         assert service.balance_url == BALANCE_URL
 
-    def test_names_the_service_when_a_subnet_has_several(self, web):
-        with pytest.raises(ServiceError, match="2 services; name one"):
-            load({ALICE_HOT: DOC_URL, BOB_HOT: DOC_URL})
-        assert load({ALICE_HOT: DOC_URL, BOB_HOT: DOC_URL}, ALICE_HOT).hotkey == ALICE_HOT
+    def test_a_subnet_with_several_services_means_its_owners(self, web):
+        owners = load({ALICE_HOT: DOC_URL, BOB_HOT: DOC_URL})
+        assert (owners.hotkey, owners.owner) == (ALICE_HOT, True)
+        web.pages[DOC_URL] = document(
+            publishers=[{"netuid": 1, "hotkey": BOB_HOT}, {"netuid": 1, "hotkey": CAROL_HOT}]
+        )
+        with pytest.raises(ServiceError, match="none of them the subnet owner's; name one"):
+            load({BOB_HOT: DOC_URL, CAROL_HOT: DOC_URL})
+        validators = load({BOB_HOT: DOC_URL, CAROL_HOT: DOC_URL}, BOB_HOT)
+        assert (validators.hotkey, validators.owner) == (BOB_HOT, False)
+        web.pages[DOC_URL] = document()
         with pytest.raises(ServiceError, match="no services"):
             load({})
         with pytest.raises(ServiceError, match="published no service"):
@@ -645,6 +655,13 @@ class TestOperations:
             op.command for op in service.operations.values()
         ]
 
+    def test_a_tool_has_no_hidden_characters(self, web):
+        hidden = "Lists jobs\u202e\u200b\U000e0049\U000e0067\U000e006e\x1b[2J."
+        web.pages[SPEC_URL] = spec()
+        web.pages[SPEC_URL]["paths"]["/jobs"]["get"]["summary"] = hidden
+        tool = load().tool("list-jobs")
+        assert tool["description"].startswith("Lists jobs[2J.")
+
     def test_errors_say_their_kind(self, web):
         service = load()
         for wrong in (
@@ -658,9 +675,11 @@ class TestOperations:
         with pytest.raises(ServiceError) as error:
             load({})
         assert error.value.code == "no_service"
+        web.pages[DOC_URL] = document(publishers=[{"netuid": 1, "hotkey": BOB_HOT}])
         with pytest.raises(ServiceError) as error:
-            load({ALICE_HOT: DOC_URL, BOB_HOT: DOC_URL})
+            load({BOB_HOT: DOC_URL, CAROL_HOT: DOC_URL})
         assert error.value.code == "ambiguous"
+        web.pages[DOC_URL] = document()
         web.pages[DOC_URL] = document(payments=[])
         with pytest.raises(ServiceError) as error:
             load()
@@ -1324,7 +1343,7 @@ class TestCli:
         )
         result = invoke("service", "call", "--netuid", "1", "get-job", "--id", "j2")
         assert result.exit_code == 1
-        assert "HTTP 404 from Example" in result.output and "note: no job j2" in result.output
+        assert "HTTP 404 from Example" in result.output and "note: the service says: no job j2" in result.output
 
     def test_a_binary_response_goes_to_out(self, cli, tmp_path):
         cli.pages["https://svc.example/api/v1/models"] = Response(
@@ -1424,7 +1443,7 @@ class TestCli:
         error = json.loads(
             invoke("--json", "service", "call", "--netuid", "1", "list-models").output
         )
-        assert (error["status"], error["body"], error["note"]) == (503, {"detail": "down"}, "down")
+        assert (error["status"], error["body"], error["note"]) == (503, {"detail": "down"}, "the service says: down")
         assert (error["code"], error["signed"]) == ("http", None)
         cli.pages["https://svc.example/api/v1/models"] = Response(
             200, {"content-type": "text/plain"}, b"hello"

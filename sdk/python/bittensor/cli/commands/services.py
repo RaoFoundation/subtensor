@@ -84,6 +84,7 @@ def list_services(
         {
             "netuid": item.netuid,
             "hotkey": item.hotkey,
+            "publisher": _publisher(item.owner),
             "url": item.url,
             "usable": not problem,
             "name": item.service.name if item.service else None,
@@ -104,7 +105,7 @@ def list_services(
                 [
                     [
                         item.netuid,
-                        _short(item.service.name, 32),
+                        _short(item.service.name, 32) + ("" if item.owner else " (validator)"),
                         len(item.service.operations),
                         _auth_counts(item.service)["open"] or "",
                         _first_sentence(item.service.description),
@@ -113,7 +114,7 @@ def list_services(
                     if item.service
                 ]
             ),
-            _clean(records) if sys.stdout.isatty() else records,
+            _clean(records),
             right_align={0, 2, 3},
             footer=None if broken and every else _list_footer(len(broken)),
         )
@@ -132,6 +133,10 @@ def list_services(
                 footer="the publisher has to fix these; show one with "
                 "`btcli service show --netuid N`",
             )
+
+
+def _publisher(owner: Optional[bool]) -> Optional[str]:
+    return {True: "owner", False: "validator"}.get(owner)
 
 
 def _list_footer(broken: int) -> str:
@@ -219,11 +224,12 @@ def _show(app_ctx: AppContext, service: services.Service, schemas: bool = False)
     if output.json_mode:
         operations = list(service.operations.values())
         tools = service.tools() if schemas else []
-        _json(
+        _metadata(
             output,
             {
                 "netuid": service.netuid,
                 "hotkey": service.hotkey,
+                "publisher": _publisher(service.owner),
                 "name": service.name,
                 "description": service.description,
                 "document": service.url,
@@ -251,6 +257,10 @@ def _show(app_ctx: AppContext, service: services.Service, schemas: bool = False)
             {
                 "description": service.description,
                 "hotkey": service.hotkey,
+                "publisher": {
+                    True: "the subnet owner",
+                    False: "a validator, not the subnet owner: check it is the service you mean",
+                }.get(service.owner),
                 "document": service.url,
                 "api": service.api_url,
                 "spec": service.spec_url,
@@ -937,7 +947,7 @@ _AUTH = {
 def _help(app_ctx: AppContext, service: services.Service, op: services.Operation) -> None:
     output = app_ctx.output
     if output.json_mode:
-        _json(output, _definition(op, service.tool(op.id)))
+        _metadata(output, _definition(op, service.tool(op.id)))
         return
     output.detail(
         _line(op.command),
@@ -1162,7 +1172,7 @@ def _http_error(
         body = response.text if _is_text(response) else None
     app_ctx.output.error(
         f"HTTP {response.status} from {_line(service.name)}",
-        note=note or None,
+        note=f"the service says: {note}" if note else None,
         help=help,
         data={"code": "http", **about, "body": body},
     )
@@ -1211,6 +1221,11 @@ def _parsed(response: services.Response) -> Any:
 
 def _json(output, record: Any) -> None:
     output.value(_clean(record) if sys.stdout.isatty() else record)
+
+
+def _metadata(output, record: Any) -> None:
+    """What a service says about itself, cleaned for agents too, piped or not."""
+    output.value(_clean(record))
 
 
 def _option(item: services.Input) -> str:

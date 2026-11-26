@@ -49,6 +49,7 @@ import socket
 import ssl
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -243,6 +244,8 @@ class Service:
     document: Mapping[str, Any] = field(default_factory=dict, repr=False)
     spec: Mapping[str, Any] = field(default_factory=dict, repr=False)
     local: bool = field(default=False, repr=False)  # on a localnet on this machine: any host
+    # Published by the subnet owner's hotkey, or by a validator's; None when read by url.
+    owner: Optional[bool] = field(default=None, repr=False)
 
     def operation(self, name: str) -> Operation:
         """An operation by its id or its command name (``rent-by-spec``)."""
@@ -278,15 +281,17 @@ class Service:
                 schema.setdefault("description", item.description)
             properties[item.name] = schema
         about = [op.summary] + ([op.description] if op.description != op.summary else [])
-        return {
-            "name": op.command,
-            "description": "\n\n".join(text for text in about if text),
-            "input_schema": {
-                "type": "object",
-                "properties": properties,
-                "required": [item.name for item in op.inputs if item.required],
-            },
-        }
+        return _plain(
+            {
+                "name": op.command,
+                "description": "\n\n".join(text for text in about if text),
+                "input_schema": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": [item.name for item in op.inputs if item.required],
+                },
+            }
+        )
 
     def tools(self) -> list[dict]:
         """Every operation as :meth:`tool` defines one."""
@@ -366,27 +371,36 @@ class Service:
 async def load(client, netuid: int, hotkey_ss58: Optional[str] = None) -> Service:
     """Read the service a hotkey published on a subnet, with its document and spec.
 
-    Without ``hotkey_ss58`` the subnet must have exactly one service.
+    Without ``hotkey_ss58`` it is the subnet owner's service, or the subnet's only one.
+    A validator can publish a service too, under any name, so another is used only when
+    named by its hotkey.
     """
-    published = await client.read("services", netuid=netuid)
+    published, owner = await asyncio.gather(
+        client.read("services", netuid=netuid),
+        client.query(storage.SubtensorModule.SubnetOwnerHotkey, [netuid]),
+    )
     if hotkey_ss58 is None:
         if not published:
             raise ServiceError(f"netuid {netuid} has no services", code="no_service")
-        if len(published) > 1:
+        if owner in published:
+            hotkey_ss58 = owner
+        elif len(published) > 1:
             raise ServiceError(
-                f"netuid {netuid} has {len(published)} services; name one by its hotkey: "
-                + ", ".join(sorted(published)),
+                f"netuid {netuid} has {len(published)} services, none of them the subnet "
+                "owner's; name one by its hotkey: " + ", ".join(sorted(published)),
                 code="ambiguous",
             )
-        hotkey_ss58 = next(iter(published))
+        else:
+            hotkey_ss58 = next(iter(published))
     entry = published.get(hotkey_ss58)
     if entry is None:
         raise ServiceError(
             f"{hotkey_ss58} has published no service on netuid {netuid}", code="no_service"
         )
-    return await _threaded(
+    service = await _threaded(
         _fetch_service, netuid, hotkey_ss58, entry["url"], await _on_local_chain(client)
     )
+    return dataclasses.replace(service, owner=hotkey_ss58 == owner)
 
 
 async def load_url(
@@ -412,6 +426,7 @@ class Published:
     url: str
     service: Optional[Service] = None  # None when it cannot be used as published
     problem: str = ""  # why it cannot
+    owner: bool = False  # published by the subnet owner's hotkey, not a validator's
 
 
 async def discover(client, netuid: Optional[int] = None) -> list[Published]:
@@ -421,18 +436,27 @@ async def discover(client, netuid: Optional[int] = None) -> list[Published]:
     few = asyncio.Semaphore(8)  # at a time, so slow services do not take every thread
 
     async def find(netuid: int, hotkey: str, url: str) -> Published:
+        owner = hotkey == owners.get(netuid)
         try:
             async with few:
                 service = await _threaded(_fetch_service, netuid, hotkey, url, local)
         except Exception as error:  # one service's failure is never the listing's
-            return Published(netuid, hotkey, url, problem=str(ServiceError(str(error))))
-        return Published(netuid, hotkey, url, service)
+            problem = str(ServiceError(str(error)))
+            return Published(netuid, hotkey, url, problem=problem, owner=owner)
+        return Published(
+            netuid, hotkey, url, dataclasses.replace(service, owner=owner), owner=owner
+        )
 
     if netuid is None:
         rows = await client.query_map(storage.SubtensorModule.Services)
     else:
         published = await client.read("services", netuid=netuid)
         rows = [((netuid, hotkey), entry) for hotkey, entry in published.items()]
+    netuids = sorted({int(netuid) for (netuid, _), _ in rows})
+    found = await asyncio.gather(
+        *(client.query(storage.SubtensorModule.SubnetOwnerHotkey, [n]) for n in netuids)
+    )
+    owners = dict(zip(netuids, found))
     return await asyncio.gather(
         *(
             find(int(netuid), str(hotkey), info["url"])
@@ -448,6 +472,19 @@ async def _on_local_chain(client) -> bool:
     if not _is_local(client.endpoint):
         return False
     return await client._substrate.chain_type() == "Local"
+
+
+def _plain(value: Any) -> Any:
+    """``value`` with control and format characters removed from every string. A spec's
+    text reaches people and agents, and these hide or reorder what they read: bidi
+    overrides, zero-width characters, the invisible tag characters."""
+    if isinstance(value, str):
+        return "".join(ch for ch in value if ch in "\n\t" or unicodedata.category(ch)[0] != "C")
+    if isinstance(value, dict):
+        return {_plain(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    return value
 
 
 def _fetch_service(netuid: Optional[int], hotkey: Optional[str], url: str, local: bool) -> Service:
