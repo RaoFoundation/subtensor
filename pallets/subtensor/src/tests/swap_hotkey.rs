@@ -10,7 +10,7 @@ use share_pool::SafeFloat;
 use sp_core::{Get, H160, H256, U256};
 use sp_runtime::{PerU16, SaturatedConversion};
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{SwapEngine, SwapHandler};
 
 use super::mock;
@@ -875,9 +875,157 @@ fn test_swap_weight_commits() {
         ));
         assert_eq!(
             WeightCommits::<Test>::get(NetUidStorageIndex::from(netuid), new_hotkey),
-            Some(weight_commits)
+            None
         );
     });
+}
+
+#[test]
+#[allow(deprecated)]
+fn test_swap_weight_commits_allows_fresh_commit_and_reveal() {
+    let subnet = NetUid::from(1);
+    let other_subnet = NetUid::from(2);
+    for (legacy, scope, keep_stake) in [
+        (true, None, false),
+        (true, Some(subnet), false),
+        (false, None, false),
+        (false, Some(subnet), false),
+        (false, Some(subnet), true),
+    ] {
+        new_test_ext(1).execute_with(|| {
+            let old_hotkey = U256::from(1);
+            let new_hotkey = U256::from(2);
+            let coldkey = U256::from(3);
+            let dest_hotkey = U256::from(4);
+            let dest_coldkey = U256::from(5);
+            let uids = vec![1];
+            let values = vec![u16::MAX];
+            let salt = vec![11, 22, 33];
+            let version_key = 0;
+            System::set_block_number(HotkeySwapOnSubnetInterval::get() + 1);
+            SubtensorModule::set_stake_threshold(0);
+            add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+
+            for netuid in [subnet, other_subnet] {
+                add_network(netuid, 100, 0);
+                register_ok_neuron(netuid, old_hotkey, coldkey, 0);
+                register_ok_neuron(netuid, dest_hotkey, dest_coldkey, 0);
+                MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2));
+                SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+                SubtensorModule::set_validator_permit_for_uid(netuid, 0, true);
+                SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+                assert_ok!(SubtensorModule::set_reveal_period(netuid, 1));
+                for mecid in [MechId::MAIN, MechId::from(1)] {
+                    let index = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
+                    let hash = SubtensorModule::get_commit_hash(
+                        &old_hotkey,
+                        index,
+                        &uids,
+                        &values,
+                        &salt,
+                        version_key,
+                    );
+                    // A full queue must not block the new signer until the old commits expire.
+                    for _ in 0..10 {
+                        assert_ok!(SubtensorModule::commit_mechanism_weights(
+                            RuntimeOrigin::signed(old_hotkey),
+                            netuid,
+                            mecid,
+                            hash,
+                        ));
+                    }
+                }
+            }
+            let untouched: Vec<_> = [MechId::MAIN, MechId::from(1)]
+                .into_iter()
+                .map(|mecid| {
+                    let index = SubtensorModule::get_mechanism_storage_index(other_subnet, mecid);
+                    WeightCommits::<Test>::get(index, old_hotkey)
+                })
+                .collect();
+
+            if legacy {
+                assert_ok!(SubtensorModule::swap_hotkey(
+                    RuntimeOrigin::signed(coldkey),
+                    old_hotkey,
+                    new_hotkey,
+                    scope,
+                ));
+            } else {
+                assert_ok!(SubtensorModule::swap_hotkey_v2(
+                    RuntimeOrigin::signed(coldkey),
+                    old_hotkey,
+                    new_hotkey,
+                    scope,
+                    keep_stake,
+                ));
+            }
+
+            for netuid in [subnet, other_subnet] {
+                for (mecid, before) in [MechId::MAIN, MechId::from(1)].into_iter().zip(&untouched) {
+                    let index = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
+                    assert!(!WeightCommits::<Test>::contains_key(index, new_hotkey));
+                    if scope.is_some_and(|selected| selected != netuid) {
+                        assert_eq!(&WeightCommits::<Test>::get(index, old_hotkey), before);
+                    } else {
+                        assert!(!WeightCommits::<Test>::contains_key(index, old_hotkey));
+                        assert_noop!(
+                            SubtensorModule::reveal_mechanism_weights(
+                                RuntimeOrigin::signed(new_hotkey),
+                                netuid,
+                                mecid,
+                                uids.clone(),
+                                values.clone(),
+                                salt.clone(),
+                                version_key,
+                            ),
+                            Error::<Test>::NoWeightsCommitFound
+                        );
+                        let hash = SubtensorModule::get_commit_hash(
+                            &new_hotkey,
+                            index,
+                            &uids,
+                            &values,
+                            &salt,
+                            version_key,
+                        );
+                        assert_ok!(SubtensorModule::commit_mechanism_weights(
+                            RuntimeOrigin::signed(new_hotkey),
+                            netuid,
+                            mecid,
+                            hash,
+                        ));
+                    }
+                }
+            }
+
+            for netuid in [subnet, other_subnet] {
+                // Move the epoch counter to the reveal window without changing validator permits.
+                SubnetEpochIndex::<Test>::mutate(netuid, |epoch| *epoch += 1);
+                let signer = if scope.is_some_and(|selected| selected != netuid) {
+                    old_hotkey
+                } else {
+                    new_hotkey
+                };
+                for mecid in [MechId::MAIN, MechId::from(1)] {
+                    let index = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
+                    assert_ok!(SubtensorModule::reveal_mechanism_weights(
+                        RuntimeOrigin::signed(signer),
+                        netuid,
+                        mecid,
+                        uids.clone(),
+                        values.clone(),
+                        salt.clone(),
+                        version_key,
+                    ));
+                    assert_eq!(Weights::<Test>::get(index, 0), vec![(1, u16::MAX)]);
+                    if signer == new_hotkey {
+                        assert!(!WeightCommits::<Test>::contains_key(index, new_hotkey));
+                    }
+                }
+            }
+        });
+    }
 }
 
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_loaded_emission --exact --nocapture
