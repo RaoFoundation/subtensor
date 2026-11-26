@@ -1129,7 +1129,7 @@ class TestCli:
         result = invoke("--json", "service", "show")
         assert result.exit_code == 2 and "btcli service list" in json.loads(result.output)["help"]
 
-    def test_list_shows_every_service_and_why_one_cannot_be_used(self, cli, monkeypatch):
+    def test_list_shows_usable_services_and_all_says_why_one_is_not(self, cli, monkeypatch):
         from bittensor.cli import context as cli_context
 
         substrate = every_service({ALICE_HOT: DOC_URL, BOB_HOT: SPEC_URL})
@@ -1138,7 +1138,10 @@ class TestCli:
         )
         result = invoke("service", "list")
         assert result.exit_code == 0, result.output
-        assert "Example" in result.output and "does not list netuid 1" in result.output
+        assert "Example" in result.output and "does not list" not in result.output
+        assert "1 more service cannot be used yet; `--all` lists why" in result.output
+        result = invoke("service", "list", "--all")
+        assert "Example" in result.output and "does not list the publishing hotkey" in result.output
         records = json.loads(invoke("--json", "service", "list").output)
         mine = [r for r in records if r["hotkey"] == ALICE_HOT]
         assert [(r["name"], r["usable"]) for r in mine] == [("Example", True)]
@@ -1313,7 +1316,7 @@ class TestCli:
         assert "HTTP 402 from Example" in result.output
         text = " ".join(result.output.split())
         assert f"btcli gamma spend --netuid 1 --service-hotkey {ALICE_HOT}" in text
-        assert f"-w {_WALLET_NAME} -H default" in text
+        assert text.endswith(f"--amount-gamma AMOUNT -w {_WALLET_NAME}")
 
     def test_an_error_shows_the_message_the_service_sent(self, cli):
         cli.pages["https://svc.example/api/v1/jobs/j2"] = Response(
@@ -1355,8 +1358,13 @@ class TestCli:
         result = invoke("service", "call", "--netuid", "1", "list-models", "--out", str(out))
         assert result.exit_code == 0 and json.loads(out.read_text()) == {"data": ["m"]}
         result = invoke("service", "call", "--netuid", "1", "list-models", "--wallet", "x")
+        assert result.exit_code == 0, result.output
+        result = invoke("--json", "service", "call", "--netuid", "1", "list-jobs", "-H", "nosuch")
+        assert result.exit_code == 1 and json.loads(result.output)["code"] == "wallet"
+        assert "'nosuch'" in json.loads(result.output)["error"]
+        result = invoke("service", "call", "--netuid", "1", "list-models", "--network", "local")
         assert result.exit_code == 2
-        assert "btcli's own options go before the operation" in " ".join(result.output.split())
+        assert "like --network go before the operation" in " ".join(result.output.split())
         result = invoke("--json", "service", "call", "list-models")
         assert result.exit_code == 2 and json.loads(result.output)["code"] == "input"
 

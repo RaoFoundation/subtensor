@@ -4,7 +4,9 @@ balances at them.
 An operation's inputs are flags named after them (``gpu_type`` is ``--gpu-type``)
 and typed by the spec, so no request is ever written by hand. btcli's own options
 come before the operation's name and the operation's inputs after it, as with
-``docker run``; after it, an input wins a name both have.
+``docker run``. The ones a call is most often given (``--json``, ``-w``, ``-H``,
+``--out``, ``--timeout``, ``--netuid``) are taken after it too, unless the operation
+has an input of that name.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import re
 import sys
 import tempfile
 import unicodedata
+import urllib.parse
 from pathlib import Path
 from typing import Any, Awaitable, Callable, NoReturn, Optional, TypeVar
 
@@ -64,12 +67,15 @@ def _service_option():
 
 @app.command(
     "list",
-    help="List the services published on chain, and why any cannot be used as published.",
+    help="List the services published on chain that btcli can use.\n\n"
+    "--all adds the ones it cannot, and why; with --json every service is listed, with "
+    "`usable` and `problem`.",
 )
 @with_globals
 def list_services(
     ctx: typer.Context,
     netuid: Optional[int] = typer.Option(None, "--netuid", help="Only this subnet's services."),
+    every: bool = typer.Option(False, "--all", help="Also list the services btcli cannot use."),
 ):
     app_ctx: AppContext = ctx_of(ctx)
     published = app_ctx.run(lambda client: services.discover(client, netuid))
@@ -87,26 +93,72 @@ def list_services(
         }
         for item, problem in zip(published, problems)
     ]
+    usable = [item for item, problem in zip(published, problems) if not problem]
+    broken = [(item, problem) for item, problem in zip(published, problems) if problem]
+    every = every or netuid is not None
     with _rendering(app_ctx):
         app_ctx.output.columns(
             "services",
-            ["netuid", "service", "operations", "hotkey", "problem"],
+            ["netuid", "service", "operations", "open", "about"],
             _clean(
                 [
                     [
                         item.netuid,
-                        _short(item.service.name if item.service else item.url, 40),
-                        len(item.service.operations) if item.service else "",
-                        item.hotkey,
-                        _line(problem),
+                        _short(item.service.name, 32),
+                        len(item.service.operations),
+                        _auth_counts(item.service)["open"] or "",
+                        _first_sentence(item.service.description),
                     ]
-                    for item, problem in zip(published, problems)
+                    for item in usable
+                    if item.service
                 ]
             ),
             _clean(records) if sys.stdout.isatty() else records,
-            right_align={0, 2},
-            footer="show one with `btcli service show --netuid N`",
+            right_align={0, 2, 3},
+            footer=None if broken and every else _list_footer(len(broken)),
         )
+        if broken and every and not app_ctx.output.json_mode:
+            app_ctx.output.message("")
+            app_ctx.output.columns(
+                "cannot be used",
+                ["netuid", "published at", "why"],
+                _clean(
+                    [
+                        [item.netuid, _host(item.url), _why(item, problem)]
+                        for item, problem in broken
+                    ]
+                ),
+                right_align={0},
+                footer="the publisher has to fix these; show one with "
+                "`btcli service show --netuid N`",
+            )
+
+
+def _list_footer(broken: int) -> str:
+    hint = "show one with `btcli service show --netuid N`"
+    if not broken:
+        return hint
+    many = "s" if broken > 1 else ""
+    return f"{hint}\n{broken} more service{many} cannot be used yet; `--all` lists why"
+
+
+def _first_sentence(text: Optional[str]) -> str:
+    sentence = _line(text or "").split(". ")[0].rstrip(".")
+    return _short(sentence, 60)
+
+
+def _why(item: services.Published, problem: str) -> str:
+    """A problem for the list's narrow column: no url, and no hotkey the row already names."""
+    problem = re.sub(
+        r"https?://\S+ is not an OpenAPI 3 spec \((.+)\)", r"its spec is \1, not OpenAPI 3", problem
+    )
+    problem = re.sub(r"https?://\S+", "its spec", problem)
+    problem = problem.replace(f"netuid {item.netuid} hotkey {item.hotkey}", "the publishing hotkey")
+    return _short(problem, 70)
+
+
+def _host(url: str) -> str:
+    return urllib.parse.urlsplit(url).netloc or _short(url, 40)
 
 
 def _problem(item: services.Published) -> str:
@@ -346,6 +398,12 @@ def call(
         )
     own: dict[str, Any] = {"inputs": inputs, "out": out, "unsigned": unsigned, "timeout": timeout}
     values = _inputs(app_ctx, service, op, args, own)
+    if own.get("wallet") is not None:
+        app_ctx.wallet_name, app_ctx.wallet_given = own["wallet"], True
+    if own.get("hotkey") is not None:
+        app_ctx.hotkey_name, app_ctx.hotkey_given = own["hotkey"], True
+    if own.get("wallet_path") is not None:
+        app_ctx.wallet_path = own["wallet_path"]
     if values is None:
         with _rendering(app_ctx):
             _help(app_ctx, service, op)
@@ -567,13 +625,18 @@ def _hotkey(app_ctx: AppContext, *, required: bool, or_else: str = ""):
 # Inputs: flags in, typed values out.
 
 
-# btcli's own options, which may also follow the operation when it has no input of the name.
+# btcli's options that may also follow the operation when it has no input of the name.
 _OWN = {
     "--json": None,
     "--unsigned": None,
     "--inputs": "inputs",
     "--out": "out",
     "--timeout": "timeout",
+    "--wallet": "wallet",
+    "-w": "wallet",
+    "--wallet-hotkey": "hotkey",
+    "-H": "hotkey",
+    "--wallet-path": "wallet_path",
 }
 
 
@@ -777,7 +840,7 @@ def _input_error(app_ctx, service, op, text: str) -> NoReturn:
     app_ctx.output.error(
         _line(text),
         help=f"`btcli service call --netuid {service.netuid} {op.command} --help` lists its "
-        "inputs; btcli's own options go before the operation",
+        "inputs; btcli options like --network go before the operation",
         data={"code": "input"},
     )
     raise typer.Exit(2)
@@ -1118,10 +1181,11 @@ def _pay_help(app_ctx: AppContext, service: services.Service) -> str:
 
 
 def _wallet_flags(app_ctx: AppContext) -> str:
+    """The wallet flags a command needs to use this wallet; none for btcli's defaults."""
     flags = ""
-    if app_ctx.wallet_name:
+    if app_ctx.wallet_name and app_ctx.wallet_given:
         flags += f" -w {app_ctx.wallet_name}"
-    if app_ctx.hotkey_name:
+    if app_ctx.hotkey_name and app_ctx.hotkey_given:
         flags += f" -H {app_ctx.hotkey_name}"
     return flags
 
