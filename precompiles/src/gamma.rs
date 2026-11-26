@@ -61,11 +61,9 @@ where
         + IsSubType<pallet_subtensor::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
-    #[precompile::public("mintGamma(bool,bytes32,uint16,uint64,uint64,bool,uint64)")]
-    #[allow(clippy::too_many_arguments)]
+    #[precompile::public("mintGamma(bytes32,uint16,uint64,uint64,bool,uint64)")]
     fn mint_gamma(
         handle: &mut impl PrecompileHandle,
-        has_hotkey: bool,
         hotkey: H256,
         netuid: u16,
         amount: u64,
@@ -76,9 +74,9 @@ where
         dispatch_credit::<R>(
             handle,
             netuid,
-            has_hotkey.then(|| hotkey.0.into()),
+            Some(hotkey.0.into()),
             pallet_subtensor::Call::<R>::mint_gamma {
-                hotkey: has_hotkey.then(|| hotkey.0.into()),
+                hotkey: hotkey.0.into(),
                 netuid: netuid.into(),
                 amount: TaoBalance::from(amount),
                 min_amount_out: GammaBalance::from(min_amount_out),
@@ -87,14 +85,11 @@ where
         )
     }
 
-    #[precompile::public(
-        "mintGammaWithStake(bytes32,bool,bytes32,uint16,uint64,uint64,bool,uint64)"
-    )]
+    #[precompile::public("mintGammaWithStake(bytes32,bytes32,uint16,uint64,uint64,bool,uint64)")]
     #[allow(clippy::too_many_arguments)]
     fn mint_gamma_with_stake(
         handle: &mut impl PrecompileHandle,
         origin_hotkey: H256,
-        has_destination_hotkey: bool,
         destination_hotkey: H256,
         netuid: u16,
         alpha_amount: u64,
@@ -105,10 +100,10 @@ where
         dispatch_credit::<R>(
             handle,
             netuid,
-            has_destination_hotkey.then(|| destination_hotkey.0.into()),
+            Some(destination_hotkey.0.into()),
             pallet_subtensor::Call::<R>::mint_gamma_with_stake {
                 origin_hotkey: origin_hotkey.0.into(),
-                destination_hotkey: has_destination_hotkey.then(|| destination_hotkey.0.into()),
+                destination_hotkey: destination_hotkey.0.into(),
                 netuid: netuid.into(),
                 alpha_amount: AlphaBalance::from(alpha_amount),
                 min_amount_out: GammaBalance::from(min_amount_out),
@@ -580,11 +575,10 @@ mod tests {
             ));
     }
 
-    fn mint(has_hotkey: bool, hotkey: &AccountId, amount: u64, cap: Option<u64>) -> Vec<u8> {
+    fn mint(hotkey: &AccountId, amount: u64, cap: Option<u64>) -> Vec<u8> {
         encode_with_selector(
-            selector_u32("mintGamma(bool,bytes32,uint16,uint64,uint64,bool,uint64)"),
+            selector_u32("mintGamma(bytes32,uint16,uint64,uint64,bool,uint64)"),
             (
-                has_hotkey,
                 h256(hotkey),
                 NETUID_U16,
                 amount,
@@ -623,13 +617,21 @@ mod tests {
             let (api_key, other_key, receiver) = (key(0x61), key(0x62), key(0x63));
             fund_account(&coldkey, 10 * TAO);
 
-            // No hotkey credits the balance; the hotkey's value is ignored. A mint returns what it
-            // credits, and a call taking up to an amount returns what it moved.
+            // A mint returns what it credits, and a call taking up to an amount returns what it
+            // moved.
             let minted = sim_mint(TAO);
             assert!(minted > 0);
-            returns(caller, mint(false, &api_key, TAO, None), minted);
-            assert_eq!(balance(&coldkey), minted);
-            assert_eq!(deposit(&api_key), None);
+            returns(caller, mint(&api_key, TAO, None), minted);
+            assert_eq!(deposit(&api_key).unwrap().balance.to_u64(), minted);
+            returns(
+                caller,
+                encode_with_selector(
+                    selector_u32("withdrawGamma(bytes32,uint16,uint64)"),
+                    (h256(&api_key), NETUID_U16, u64::MAX),
+                ),
+                minted,
+            );
+            assert_eq!((deposit(&api_key), balance(&coldkey)), (None, minted));
 
             returns(
                 caller,
@@ -697,9 +699,9 @@ mod tests {
             // A hotkey opens a deposit with the cap given, and a top-up returns only what it adds;
             // closing needs it empty.
             let opened = sim_mint(TAO);
-            returns(caller, mint(true, &api_key, TAO, Some(TAO)), opened);
+            returns(caller, mint(&api_key, TAO, Some(TAO)), opened);
             let added = sim_mint(TAO);
-            returns(caller, mint(true, &api_key, TAO, Some(TAO)), added);
+            returns(caller, mint(&api_key, TAO, Some(TAO)), added);
             let topped = deposit(&api_key).unwrap();
             assert_eq!(topped.balance.to_u64(), opened + added);
             assert_eq!(cap(&api_key), Some(TAO));
@@ -737,7 +739,7 @@ mod tests {
             fund_account(&hotkey, 10 * TAO);
             // The caller mints to a deposit at its own mapped account, then spends as its hotkey.
             let held = sim_mint(TAO);
-            returns(caller, mint(true, &hotkey, TAO, None), held);
+            returns(caller, mint(&hotkey, TAO, None), held);
 
             call(
                 caller,
@@ -796,11 +798,10 @@ mod tests {
                 caller,
                 encode_with_selector(
                     selector_u32(
-                        "mintGammaWithStake(bytes32,bool,bytes32,uint16,uint64,uint64,bool,uint64)",
+                        "mintGammaWithStake(bytes32,bytes32,uint16,uint64,uint64,bool,uint64)",
                     ),
                     (
                         h256(&validator),
-                        true,
                         h256(&api_key),
                         NETUID_U16,
                         TAO,
@@ -823,28 +824,28 @@ mod tests {
             let caller = addr_from_index(0x6009);
             let contract = addr_from_index(0x600a);
             let funds = mapped_account(contract);
-            let (user, user_key) = (key(0x6a), key(0x6b));
+            let (user, user_key, pool_key) = (key(0x6a), key(0x6b), key(0x6d));
             fund_account(&mapped_account(caller), TAO);
             fund_account(&funds, 10 * TAO);
-            // Copies its calldata, two 228-byte gamma calls, and calls the precompile with each in
-            // turn, reverting if either fails.
+            // Copies its calldata, a 196-byte mint and a 228-byte transfer, and calls the
+            // precompile with each in turn, reverting if either fails.
             let code = hex::decode(concat!(
                 "366000600037",
-                "6000600060e4600060006108145af115602d57",
-                "6000600060e460e460006108145af115602d5700",
+                "6000600060c4600060006108145af115602d57",
+                "6000600060e460c460006108145af115602d5700",
                 "5b60006000fd",
             ))
             .unwrap();
             pallet_evm::AccountCodes::<Runtime>::insert(contract, code);
             let mint_then_send = || {
                 let gamma = sim_mint(TAO);
-                let mut input = mint(false, &user_key, TAO, None);
+                let mut input = mint(&pool_key, TAO, None);
                 input.extend(encode_with_selector(
                     selector_u32("transferGamma(bytes32,bool,bytes32,bool,bytes32,uint16,uint64)"),
                     (
                         h256(&user),
-                        false,
-                        H256::zero(),
+                        true,
+                        h256(&pool_key),
                         true,
                         h256(&user_key),
                         NETUID_U16,
@@ -877,7 +878,7 @@ mod tests {
             pallet_subtensor::Owner::<Runtime>::insert(&user_key, key(0x6c));
             let (exit, _) = mint_then_send();
             assert!(exit.is_revert(), "{exit:?}");
-            assert_eq!((balance(&funds), deposit(&user_key)), (0, None));
+            assert_eq!((deposit(&pool_key), deposit(&user_key)), (None, None));
             assert_eq!(
                 pallet_balances::Pallet::<Runtime>::free_balance(&funds),
                 TaoBalance::from(10 * TAO)
@@ -889,7 +890,7 @@ mod tests {
             assert!(exit.is_succeed(), "{exit:?}");
             let opened = deposit(&user_key).unwrap();
             assert_eq!((opened.coldkey, opened.balance.to_u64()), (user, gamma));
-            assert_eq!(balance(&funds), 0);
+            assert_eq!(deposit(&pool_key), None);
         });
     }
 
@@ -902,11 +903,13 @@ mod tests {
             let api_key = key(0x67);
             fund_account(&coldkey, 10 * TAO);
 
-            // A balance takes no cap.
             refused(
                 caller,
-                mint(false, &api_key, TAO, Some(TAO)),
-                "GammaDepositDailySpendCapMismatch",
+                encode_with_selector(
+                    selector_u32("mintGamma(bytes32,uint16,uint64,uint64,bool,uint64)"),
+                    (h256(&api_key), NETUID_U16, TAO, u64::MAX, false, 0_u64),
+                ),
+                "SlippageTooHigh",
             );
             refused(
                 caller,
@@ -960,7 +963,7 @@ mod tests {
             read(encode_with_selector(selector_u32("getGammaEnabled()"), ())).execute_returns(true);
 
             fund_account(&coldkey, 10 * TAO);
-            returns(caller, mint(true, &api_key, TAO, Some(TAO)), sim_mint(TAO));
+            returns(caller, mint(&api_key, TAO, Some(TAO)), sim_mint(TAO));
             let held = deposit(&api_key).unwrap().balance.to_u64();
             read(deposit_view())
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())

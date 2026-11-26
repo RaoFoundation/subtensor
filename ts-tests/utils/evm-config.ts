@@ -1071,11 +1071,6 @@ export const IGammaABI = [
     {
         inputs: [
             {
-                internalType: "bool",
-                name: "hasHotkey",
-                type: "bool",
-            },
-            {
                 internalType: "bytes32",
                 name: "hotkey",
                 type: "bytes32",
@@ -1123,11 +1118,6 @@ export const IGammaABI = [
                 internalType: "bytes32",
                 name: "originHotkey",
                 type: "bytes32",
-            },
-            {
-                internalType: "bool",
-                name: "hasDestinationHotkey",
-                type: "bool",
             },
             {
                 internalType: "bytes32",

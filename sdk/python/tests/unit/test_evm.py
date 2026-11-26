@@ -156,7 +156,7 @@ class TestPrecompileEncoding:
         assert spend["amount"] == "2,500,000,000 (= 2.500000000 gamma)"
         mint = precompiles.describe_arguments(
             gamma.function("mintGamma"),
-            [False, BOB_HOT, 1, 1_000_000_000, 100_000_000, False, 0],
+            [BOB_HOT, 1, 1_000_000_000, 100_000_000, False, 0],
             "gamma",
         )
         assert mint["amount"] == "1,000,000,000 rao (= 1.000000000 TAO/alpha)"

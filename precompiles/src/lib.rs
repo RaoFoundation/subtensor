@@ -736,8 +736,8 @@ mod address_and_selector_tests {
             ))
         );
         for signature in [
-            "mintGamma(bool,bytes32,uint16,uint64,uint64,bool,uint64)",
-            "mintGammaWithStake(bytes32,bool,bytes32,uint16,uint64,uint64,bool,uint64)",
+            "mintGamma(bytes32,uint16,uint64,uint64,bool,uint64)",
+            "mintGammaWithStake(bytes32,bytes32,uint16,uint64,uint64,bool,uint64)",
             "moveGamma(bytes32,bytes32,uint16,uint64)",
             "closeGammaDeposit(bytes32,uint16)",
             "setGammaDepositDailySpendCap(bytes32,uint16,bool,uint64)",

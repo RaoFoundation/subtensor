@@ -10,10 +10,9 @@ address constant IGAMMA_ADDRESS = 0x0000000000000000000000000000000000000814;
 interface IGamma {
     /// Buys alpha on `netuid` with `amount` rao of the caller's TAO, burns it, and credits its
     /// gamma to the caller's deposit at `hotkey`, which must have the given daily spend cap, or
-    /// opens with it; no cap means none. With no `hotkey` it credits the caller's balance, which
-    /// takes no cap. Fails below `minAmountOut` gamma. Returns the gamma credited.
+    /// opens with it; no cap means none. Fails below `minAmountOut` gamma. Returns the gamma
+    /// credited.
     function mintGamma(
-        bool hasHotkey,
         bytes32 hotkey,
         uint16 netuid,
         uint64 amount,
@@ -23,11 +22,9 @@ interface IGamma {
     ) external returns (uint64 credited);
 
     /// Burns up to `alphaAmount` of the caller's stake on `originHotkey` and credits its gamma
-    /// as `mintGamma` does, to the deposit at `destinationHotkey` or, with none, the balance.
-    /// Returns the gamma credited.
+    /// as `mintGamma` does, to the deposit at `destinationHotkey`. Returns the gamma credited.
     function mintGammaWithStake(
         bytes32 originHotkey,
-        bool hasDestinationHotkey,
         bytes32 destinationHotkey,
         uint16 netuid,
         uint64 alphaAmount,

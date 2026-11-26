@@ -21,8 +21,8 @@ false.
 
 | Function | Source extrinsic | The caller is |
 |---|---|---|
-| `mintGamma(bool,bytes32,uint16,uint64,uint64,bool,uint64)` | `SubtensorModule.mint_gamma` | the coldkey paying the TAO |
-| `mintGammaWithStake(bytes32,bool,bytes32,uint16,uint64,uint64,bool,uint64)` | `SubtensorModule.mint_gamma_with_stake` | the coldkey owning the stake |
+| `mintGamma(bytes32,uint16,uint64,uint64,bool,uint64)` | `SubtensorModule.mint_gamma` | the coldkey paying the TAO |
+| `mintGammaWithStake(bytes32,bytes32,uint16,uint64,uint64,bool,uint64)` | `SubtensorModule.mint_gamma_with_stake` | the coldkey owning the stake |
 | `moveGamma(bytes32,bytes32,uint16,uint64)` | `SubtensorModule.move_gamma` | the deposit's coldkey |
 | `closeGammaDeposit(bytes32,uint16)` | `SubtensorModule.close_gamma_deposit` | the deposit's coldkey |
 | `setGammaDepositDailySpendCap(bytes32,uint16,bool,uint64)` | `SubtensorModule.set_gamma_deposit_daily_spend_cap` | the deposit's coldkey |
@@ -43,13 +43,14 @@ mapped account.
 
 ## Minting for a user
 
-A contract mints into its own balance and sends what it got to the user's
-deposit. If the transfer fails, the revert undoes the mint as well.
+A contract mints into its own deposit, at a hotkey it keeps for this, and sends
+what it got to the user's deposit. If the transfer fails, the revert undoes the
+mint as well.
 
 ```solidity
 IGamma gamma = IGamma(IGAMMA_ADDRESS);
-uint64 credited = gamma.mintGamma(false, 0, netuid, amountRao, minGammaOut, false, 0);
-gamma.transferGamma(user, false, 0, true, userHotkey, netuid, credited);
+uint64 credited = gamma.mintGamma(poolHotkey, netuid, amountRao, minGammaOut, false, 0);
+gamma.transferGamma(user, true, poolHotkey, true, userHotkey, netuid, credited);
 ```
 
 The deposit opens with no daily spend cap if the user has none at that hotkey,

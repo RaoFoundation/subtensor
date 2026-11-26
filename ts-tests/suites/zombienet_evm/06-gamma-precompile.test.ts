@@ -137,34 +137,41 @@ describeSuite({
 
         it({
             id: "T03",
-            title: "Mints gamma into the caller's balance",
+            title: "Mints gamma into the caller's deposit and withdraws it to the balance",
             test: async () => {
+                const hotkey = generateKeyringPair("sr25519");
                 const balanceBefore = await getGammaBalance(api, netuid, walletSs58);
 
                 await feedTaoUsdPrice(api);
-                await send(gammaPrecompile.mintGamma(false, ethers.ZeroHash, netuid, tao(10), 0, false, 0));
+                await send(gammaPrecompile.mintGamma(hotkey.publicKey, netuid, tao(10), 0, false, 0));
+
+                const deposit = await gammaPrecompile.getGammaDeposit(netuid, hotkey.publicKey);
+                expect(deposit.exists).toBe(true);
+                expect(deposit.coldkey).toEqual(u8aToHex(walletPublicKey));
+                expect(deposit.balance).toBeGreaterThan(gamma(1));
+
+                await send(gammaPrecompile.withdrawGamma(hotkey.publicKey, netuid, deposit.balance));
 
                 const balanceAfter = await getGammaBalance(api, netuid, walletSs58);
-                expect(balanceAfter).toBeGreaterThan(balanceBefore + gamma(1));
+                expect(balanceAfter).toEqual(balanceBefore + deposit.balance);
                 expect(await gammaPrecompile.getGammaBalance(netuid, walletPublicKey)).toEqual(balanceAfter);
             },
         });
 
         it({
             id: "T04",
-            title: "Mints gamma with stake into the caller's balance",
+            title: "Mints gamma with stake into the caller's deposit at a hotkey",
             test: async () => {
                 const stakingPrecompile = new ethers.Contract(ISTAKING_V2_ADDRESS, IStakingV2ABI, ethWallet);
                 await send(stakingPrecompile.addStake(ownerHotkey.publicKey, tao(10), netuid));
                 const stakeBefore = await getStake(api, ownerHotkey.address, walletSs58, netuid);
-                const balanceBefore = await getGammaBalance(api, netuid, walletSs58);
+                const hotkey = generateKeyringPair("sr25519");
 
                 await feedTaoUsdPrice(api);
                 await send(
                     gammaPrecompile.mintGammaWithStake(
                         ownerHotkey.publicKey,
-                        false,
-                        ethers.ZeroHash,
+                        hotkey.publicKey,
                         netuid,
                         stakeBefore / 2n,
                         0,
@@ -174,7 +181,7 @@ describeSuite({
                 );
 
                 expect(await getStake(api, ownerHotkey.address, walletSs58, netuid)).toBeLessThan(stakeBefore);
-                expect(await getGammaBalance(api, netuid, walletSs58)).toBeGreaterThan(balanceBefore);
+                expect((await gammaPrecompile.getGammaDeposit(netuid, hotkey.publicKey)).balance).toBeGreaterThan(0n);
             },
         });
 
