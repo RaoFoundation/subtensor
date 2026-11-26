@@ -39,6 +39,10 @@ from .staking import (
 # (`MIN_GAMMA_AMOUNT`).
 MIN_GAMMA_AMOUNT = 100_000_000
 
+# First runtime ``spec_version`` that holds gamma balances. An earlier runtime credits minted
+# gamma to a deposit only.
+GAMMA_BALANCES_SPEC = 498
+
 RATE_TOLERANCE_HELP = "Maximum fall of the minted gamma below the quote, as a fraction (0.05 = 5%)."
 DAILY_SPEND_CAP_HELP = (
     "The deposit's daily spend cap, in gamma: 0 pauses it, and any other cap is at least 0.1. A "
@@ -46,7 +50,8 @@ DAILY_SPEND_CAP_HELP = (
     "deposit's cap, which for a new deposit is none."
 )
 MINT_HOTKEY_HELP = (
-    "Hotkey of the deposit credited: one kept for spending gamma, not a staking hotkey. Omit to credit your balance."
+    "Hotkey of the deposit credited: one kept for spending gamma, not a staking hotkey. Omit to "
+    "credit your balance."
 )
 
 
@@ -75,6 +80,14 @@ def _mint_daily_spend_cap(intent) -> Optional[Money]:
     if intent.hotkey_ss58 is None and intent.daily_spend_cap_gamma is not None:
         raise BittensorError(f"{intent.op}: a daily spend cap needs the hotkey of a deposit")
     return _daily_spend_cap(intent.daily_spend_cap_gamma)
+
+
+async def _require_gamma_balances(substrate, intent) -> None:
+    """Refuse crediting a balance on a runtime that holds none."""
+    if intent.hotkey_ss58 is None and await substrate.spec_version() < GAMMA_BALANCES_SPEC:
+        raise BittensorError(
+            f"{intent.op}: this runtime has no gamma balances; name the hotkey of a deposit"
+        )
 
 
 def _credited(intent) -> str:
@@ -256,6 +269,7 @@ class MintGamma(Intent):
         return _quote(substrate, GammaRuntimeApi.sim_mint_gamma, self.netuid, self.amount_tao.rao)
 
     async def build(self, substrate, wallet: Any):
+        await _require_gamma_balances(substrate, self)
         _, _, gamma = await self._quote(substrate)
         return await substrate.compose(
             calls.SubtensorModule.mint_gamma(
@@ -331,6 +345,7 @@ class MintGammaWithStake(Intent):
         return _quote(substrate, GammaRuntimeApi.sim_mint_gamma_with_stake, self.netuid, alpha)
 
     async def build(self, substrate, wallet: Any):
+        await _require_gamma_balances(substrate, self)
         staked = await _staked_rao(
             substrate, wallet, self.origin_hotkey_ss58, self.netuid, action="burn into gamma"
         )

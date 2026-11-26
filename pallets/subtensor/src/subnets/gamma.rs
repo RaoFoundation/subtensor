@@ -14,6 +14,7 @@ use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::*;
+use crate::weights::WeightInfo;
 
 impl<T: Config> Pallet<T> {
     /// Requires an existing subnet with its subtoken enabled, and gamma enabled both
@@ -78,14 +79,21 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Refuses another coldkey opening a deposit for `coldkey` on `netuid` once its list there
-    /// holds [`crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS`], or while its coldkey swap is announced or
-    /// disputed, or it is reserved as a swap destination. During a swap the coldkey cannot close
-    /// deposits, and more of them could make the swap too heavy to execute.
-    fn ensure_third_party_gamma_deposit_can_open(
-        netuid: NetUid,
-        coldkey: &T::AccountId,
-    ) -> DispatchResult {
+    /// Weight of `transfer_gamma`: the benchmarked call plus counting, on every subnet, the
+    /// deposits of a coldkey that another coldkey opens one for.
+    pub fn transfer_gamma_weight() -> Weight {
+        <T as Config>::WeightInfo::transfer_gamma().saturating_add(
+            T::DbWeight::get()
+                .reads(2)
+                .saturating_mul(u64::from(TotalNetworks::<T>::get())),
+        )
+    }
+
+    /// Refuses another coldkey opening a deposit for `coldkey` once it holds
+    /// [`crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS`] across subnets, or while its coldkey swap is
+    /// announced or disputed, or it is reserved as a swap destination. During a swap the coldkey
+    /// cannot close deposits, and more of them could make the swap too heavy to execute.
+    fn ensure_third_party_gamma_deposit_can_open(coldkey: &T::AccountId) -> DispatchResult {
         ensure!(
             !ColdkeySwapDisputes::<T>::contains_key(coldkey),
             Error::<T>::ColdkeySwapDisputed
@@ -96,8 +104,7 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_account_not_reserved_as_coldkey_swap_destination(coldkey)?;
         ensure!(
-            ColdkeyGammaHotkeys::<T>::decode_len(netuid, coldkey).unwrap_or_default()
-                < crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize,
+            Self::coldkey_gamma_deposit_count(coldkey) < crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS,
             Error::<T>::TooManyGammaDeposits
         );
         Ok(())
@@ -789,7 +796,7 @@ impl<T: Config> Pallet<T> {
                     Error::<T>::NonAssociatedColdKey
                 ),
                 None if coldkey != destination_coldkey => {
-                    Self::ensure_third_party_gamma_deposit_can_open(netuid, &destination_coldkey)?
+                    Self::ensure_third_party_gamma_deposit_can_open(&destination_coldkey)?
                 }
                 None => {}
             }
@@ -905,16 +912,31 @@ impl<T: Config> Pallet<T> {
             .fold(0, u32::saturating_add)
     }
 
+    /// The gamma deposits `old_coldkey` and `new_coldkey` hold across subnets, and whether a
+    /// coldkey swap can merge their lists on every subnet within [`crate::MAX_GAMMA_DEPOSITS`].
+    pub(crate) fn coldkey_swap_gamma_deposits(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) -> (u32, u32, bool) {
+        Self::get_all_subnet_netuids()
+            .into_iter()
+            .fold((0, 0, true), |(old, new, fits), netuid| {
+                let on_old =
+                    ColdkeyGammaHotkeys::<T>::decode_len(netuid, old_coldkey).unwrap_or(0) as u32;
+                let on_new =
+                    ColdkeyGammaHotkeys::<T>::decode_len(netuid, new_coldkey).unwrap_or(0) as u32;
+                (
+                    old.saturating_add(on_old),
+                    new.saturating_add(on_new),
+                    fits && on_old.saturating_add(on_new) <= crate::MAX_GAMMA_DEPOSITS,
+                )
+            })
+    }
+
     /// Whether `coldkey` holds a gamma balance on any subnet.
     pub(crate) fn coldkey_has_gamma_balance(coldkey: &T::AccountId) -> bool {
         Self::get_all_subnet_netuids()
             .into_iter()
             .any(|netuid| !GammaBalances::<T>::get(netuid, coldkey).is_zero())
-    }
-
-    /// Whether `coldkey` holds gamma on any subnet, in a deposit or as a balance.
-    #[cfg(test)]
-    pub(crate) fn coldkey_holds_gamma(coldkey: &T::AccountId) -> bool {
-        Self::coldkey_gamma_deposit_count(coldkey) != 0 || Self::coldkey_has_gamma_balance(coldkey)
     }
 }

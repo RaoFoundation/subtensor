@@ -3325,10 +3325,10 @@ mod dispatches {
         /// `origin_hotkey`, to `destination_coldkey`'s balance, or its deposit at
         /// `destination_hotkey`: at least 0.1 gamma, leaving none or at least as much. A deposit
         /// that does not exist opens with no daily spend cap; another coldkey can open one only
-        /// while the destination holds fewer than 32 on the subnet, its own included, and has no
-        /// coldkey swap underway. A transfer that empties a source deposit closes it.
+        /// while the destination holds fewer than 32 across subnets, its own included, and has
+        /// no coldkey swap underway. A transfer that empties a source deposit closes it.
         #[pallet::call_index(177)]
-        #[pallet::weight((<T as Config>::WeightInfo::transfer_gamma(), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((Pallet::<T>::transfer_gamma_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn transfer_gamma(
             origin: OriginFor<T>,
             destination_coldkey: T::AccountId,

@@ -74,7 +74,7 @@ result = sub.execute_tool("transfer_gamma", {...}, wallet)
 
 ```rust
 #[pallet::call_index(177)]
-#[pallet::weight((<T as Config>::WeightInfo::transfer_gamma(), DispatchClass::Normal, Pays::Yes))]
+#[pallet::weight((Pallet::<T>::transfer_gamma_weight(), DispatchClass::Normal, Pays::Yes))]
 pub fn transfer_gamma(
     origin: OriginFor<T>,
     destination_coldkey: T::AccountId,
@@ -94,6 +94,6 @@ pub fn transfer_gamma(
 }
 ```
 
-Delegates to [`do_transfer_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L767).
+Delegates to [`do_transfer_gamma`](/code/pallets/subtensor/src/subnets/gamma.rs#L774).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
