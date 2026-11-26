@@ -1221,10 +1221,12 @@ pub mod pallet {
         #[pallet::weight({
             // Charge the actual live set (not just SubnetLimit): sudo can
             // lower the limit while existing subnets remain, and enable still
-            // scans every live netuid. Include the enumeration read itself.
+            // scans every live netuid. Enumeration may also visit filtered
+            // NetworksAdded keys (e.g. root); reserve 2 reads per returned
+            // subnet as a walk bound.
             let subnets = T::Pool::live_subnets();
             let n = (subnets.len() as u64).max(1);
-            let enum_reads = (subnets.len() as u64).saturating_add(1);
+            let enum_reads = n.saturating_mul(2).saturating_add(1);
             T::WeightInfo::set_enabled()
                 .saturating_add(T::DbWeight::get().reads_writes(enum_reads.saturating_add(3), 3))
                 .saturating_add(Pallet::<T>::prune_floor_refresh_weight(n))

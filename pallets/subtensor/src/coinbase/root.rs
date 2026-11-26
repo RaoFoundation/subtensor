@@ -427,6 +427,11 @@ impl<T: Config> Pallet<T> {
 
             let registered_at = NetworkRegisteredAt::<T>::get(netuid);
 
+            // Cache miss (lending disabled, tests without a refresh, or
+            // mid-block after target kill): keep the slow dereg / moving-price
+            // fallback so prune selection stays correct. Hot path above is
+            // O(1) via PruneTarget; charging this cold scan on registration
+            // would change fee baselines and needs explicit approval.
             let price: U64F64 = Self::dereg_rank_price(netuid);
 
             // If tie on price, earliest registration wins.
