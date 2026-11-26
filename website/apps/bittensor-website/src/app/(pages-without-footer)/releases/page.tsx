@@ -27,8 +27,8 @@ const releases: Release[] = [
     date: 'Proposed',
     title: 'Gamma Balances and Transfers',
     summary:
-      'Coldkeys can hold gamma outside a deposit and send it to each other. The mint calls ' +
-      'move to new indices, so update the Python SDK before minting.',
+      'Coldkeys can hold gamma outside a deposit and send it to each other. Minting is ' +
+      'unchanged.',
     href: '/releases/v498-upgrade',
   },
   {

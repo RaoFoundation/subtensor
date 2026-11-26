@@ -237,7 +237,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 194): ErrorInfo('SubtensorModule', 'GammaDepositDoesNotExist', 'The hotkey holds no gamma deposit on this subnet.'),
     (7, 195): ErrorInfo('SubtensorModule', 'GammaDepositNotEmpty', 'A gamma deposit with a balance cannot be closed.'),
     (7, 196): ErrorInfo('SubtensorModule', 'GammaDepositSpenderMismatch', 'Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.'),
-    (7, 197): ErrorInfo('SubtensorModule', 'GammaDepositDailySpendCapMismatch', "A mint named a daily spend cap other than its gamma deposit's, or one for a balance."),
+    (7, 197): ErrorInfo('SubtensorModule', 'GammaDepositDailySpendCapMismatch', "A mint named a daily spend cap other than its gamma deposit's."),
     (7, 198): ErrorInfo('SubtensorModule', 'NotGammaDepositSpender', 'Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.'),
     (7, 199): ErrorInfo('SubtensorModule', 'InsufficientGammaBalance', "The gamma deposit's balance, or the coldkey's gamma balance, is below the amount."),
     (7, 200): ErrorInfo('SubtensorModule', 'GammaDepositDailySpendCapExceeded', "The amount is above what the gamma deposit's daily spend cap allows now."),

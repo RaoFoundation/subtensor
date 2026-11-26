@@ -122,6 +122,10 @@ def list_deposits(
             balances,
             right_align={0, 1},
         )
+        out.message(
+            "a balance is spent once moved to a deposit: "
+            "`btcli gamma deposit --netuid N --hotkey HOTKEY --all`"
+        )
 
 
 # The deposit's calls are the generated intent commands (`tx mint-gamma`

@@ -482,7 +482,7 @@ mod errors {
         GammaDepositNotEmpty,
         /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
         GammaDepositSpenderMismatch,
-        /// A mint named a daily spend cap other than its gamma deposit's, or one for a balance.
+        /// A mint named a daily spend cap other than its gamma deposit's.
         GammaDepositDailySpendCapMismatch,
         /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
         NotGammaDepositSpender,

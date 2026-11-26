@@ -53,16 +53,21 @@ describeSuite({
 
         it({
             id: "T01",
-            title: "should mint gamma into a coldkey's balance",
+            title: "should withdraw minted gamma into a coldkey's balance",
             test: async () => {
+                const hotkey = generateKeyringPair("sr25519").address;
                 const balanceBefore = await getGammaBalance(api, netuid, coldkey.address);
 
                 await feedTaoUsdPrice(api);
-                await mintGamma(api, coldkey, undefined, netuid, tao(10));
+                await mintGamma(api, coldkey, hotkey, netuid, tao(10));
+                const minted = (await getGammaDeposit(api, netuid, hotkey))?.balance ?? 0n;
+                log(`Minted ${minted} gamma units into the deposit`);
+                expect(minted, "the deposit should hold the minted gamma").toBeGreaterThan(gamma(1));
 
-                const minted = (await getGammaBalance(api, netuid, coldkey.address)) - balanceBefore;
-                log(`Minted ${minted} gamma units into the balance`);
-                expect(minted, "the balance should hold the minted gamma").toBeGreaterThan(gamma(1));
+                await withdrawGamma(api, coldkey, hotkey, netuid, minted);
+
+                expect(await getGammaDeposit(api, netuid, hotkey), "emptying the deposit closes it").toBeUndefined();
+                expect(await getGammaBalance(api, netuid, coldkey.address)).toEqual(balanceBefore + minted);
             },
         });
 

@@ -3182,13 +3182,12 @@ mod dispatches {
 
         /// Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the
         /// signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or
-        /// opens with it, `None` being no cap. With no `hotkey` it credits the signer's balance,
-        /// which takes no cap. Fails below `min_amount_out` gamma.
-        #[pallet::call_index(178)]
+        /// opens with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(166)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma(
             origin: OriginFor<T>,
-            hotkey: Option<T::AccountId>,
+            hotkey: T::AccountId,
             netuid: NetUid,
             amount: TaoBalance,
             min_amount_out: GammaBalance,
@@ -3207,14 +3206,13 @@ mod dispatches {
         /// Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as
         /// `burn_alpha` does, and credits its gamma to the signer's deposit at
         /// `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens
-        /// with it, `None` being no cap. With no `destination_hotkey` it credits the signer's
-        /// balance, which takes no cap. Fails below `min_amount_out` gamma.
-        #[pallet::call_index(179)]
+        /// with it, `None` being no cap. Fails below `min_amount_out` gamma.
+        #[pallet::call_index(167)]
         #[pallet::weight((<T as Config>::WeightInfo::mint_gamma_with_stake(), DispatchClass::Normal, Pays::Yes))]
         pub fn mint_gamma_with_stake(
             origin: OriginFor<T>,
             origin_hotkey: T::AccountId,
-            destination_hotkey: Option<T::AccountId>,
+            destination_hotkey: T::AccountId,
             netuid: NetUid,
             alpha_amount: AlphaBalance,
             min_amount_out: GammaBalance,
@@ -3260,9 +3258,6 @@ mod dispatches {
         // Call indices 158 (`mint_gamma`), 159 (`mint_gamma_with_stake`), 164 (`spend_gamma`) and
         // 165 (`set_service`) took a deposit's spender, and 162 (`set_gamma_deposit_spender`) set
         // it; they are retired: a deposit's hotkey spends it. Do not reuse these indices.
-        // Call indices 166 (`mint_gamma`) and 167 (`mint_gamma_with_stake`) took a required
-        // hotkey; they are retired: a mint with no hotkey credits the signer's balance. Do not
-        // reuse these indices.
 
         /// Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it.
         /// A changed cap keeps what the deposit can spend now, up to the new cap.
