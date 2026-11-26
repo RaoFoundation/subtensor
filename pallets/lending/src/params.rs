@@ -1,17 +1,28 @@
 //! Root-settable parameter groups (SPEC 2.1): launch values, bounds and cross-checks.
 //!
 //! Each setter replaces a whole struct, so validation is all-or-nothing: `validate` passes
-//! only if every bound in the SPEC 2.1 table holds.
+//! only if every bound in the SPEC 2.1 table holds. A validated value is written to its
+//! `Pending…` twin and becomes live in the next block's `on_initialize`, with one
+//! `<Group>ParamsSet` event (I26).
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use frame_support::{dispatch::DispatchResult, storage::StorageValue, traits::Get};
 use scale_info::TypeInfo;
 use subtensor_macros::freeze_struct;
+use subtensor_runtime_common::NetUid;
+
+use crate::{
+    Config, DeregParamsStore, Error, Event, LendingParamsStore, LongParamsStore, Pallet,
+    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingShortParams,
+    ShortParamsStore,
+};
 
 /// One TAO (or one alpha) in rao.
 pub const RAO: u64 = 1_000_000_000;
 
-/// Runtime ceiling for `DeregParams::max_long_positions_per_subnet` (SPEC 7.4): the prune
-/// weight is benchmarked against it, so it is not settable.
+/// Value of the runtime constant `Config::MaxLongPositionsCeiling`, the ceiling for
+/// `DeregParams::max_long_positions_per_subnet` (SPEC 7.4): the prune weight is benchmarked
+/// against it, so it is not settable.
 pub const MAX_LONG_POSITIONS_CEILING: u32 = 1_024;
 
 /// Why a parameter group was rejected (surfaced as `InvalidParams`).
@@ -238,8 +249,9 @@ impl Default for DeregParams {
 
 impl DeregParams {
     /// Checks every bound of the SPEC 2.1 table for this group. `max_long_position_count` is
-    /// the largest current `LongPositionCount` on any subnet.
-    pub fn validate(&self, max_long_position_count: u32) -> Result<(), ParamsError> {
+    /// the largest current `LongPositionCount` on any subnet and `ceiling` is the runtime's
+    /// `MaxLongPositionsCeiling`.
+    pub fn validate(&self, max_long_position_count: u32, ceiling: u32) -> Result<(), ParamsError> {
         ensure_range("zone_bps", self.zone_bps, 10_000, 30_000)?;
         ensure_range(
             "pool_tao_ema_blocks",
@@ -252,12 +264,86 @@ impl DeregParams {
             "max_long_positions_per_subnet",
             self.max_long_positions_per_subnet,
             0,
-            MAX_LONG_POSITIONS_CEILING,
+            ceiling,
         )?;
         if self.max_long_positions_per_subnet < max_long_position_count {
             return Err(ParamsError::BelowCurrentLongCount);
         }
         Ok(())
+    }
+}
+
+/// Moves a pending group into its live store and returns `(old, new)`; `None` when nothing
+/// is pending.
+fn take_pending<G, Live, Pending>() -> Option<(G, G)>
+where
+    G: codec::FullCodec,
+    Live: StorageValue<G, Query = G>,
+    Pending: StorageValue<G, Query = Option<G>>,
+{
+    let new = Pending::take()?;
+    let old = Live::get();
+    Live::put(&new);
+    Some((old, new))
+}
+
+impl<T: Config> Pallet<T> {
+    /// `set_lending_params`: validate, then queue for the next block (SPEC 2.1).
+    pub(crate) fn queue_lending_params(params: LendingParams) -> DispatchResult {
+        params.validate().map_err(|_| Error::<T>::InvalidParams)?;
+        PendingLendingParams::<T>::put(params);
+        Ok(())
+    }
+
+    /// `set_short_params`: validate, then queue for the next block (SPEC 2.1).
+    pub(crate) fn queue_short_params(params: ShortParams) -> DispatchResult {
+        params.validate().map_err(|_| Error::<T>::InvalidParams)?;
+        PendingShortParams::<T>::put(params);
+        Ok(())
+    }
+
+    /// `set_long_params`: validate, then queue for the next block (SPEC 2.1).
+    pub(crate) fn queue_long_params(params: LongParams) -> DispatchResult {
+        params.validate().map_err(|_| Error::<T>::InvalidParams)?;
+        PendingLongParams::<T>::put(params);
+        Ok(())
+    }
+
+    /// `set_dereg_params`: validate, then queue for the next block (SPEC 2.1). No long
+    /// positions exist yet, so the longs cap is checked against a count of zero.
+    pub(crate) fn queue_dereg_params(params: DeregParams) -> DispatchResult {
+        params
+            .validate(0, T::MaxLongPositionsCeiling::get())
+            .map_err(|_| Error::<T>::InvalidParams)?;
+        PendingDeregParams::<T>::put(params);
+        Ok(())
+    }
+
+    /// Applies every pending group (SPEC 2.1, I26): one `<Group>ParamsSet` event each, and the
+    /// ring re-seeds that a TWAP or rank window change requires. No position is touched.
+    pub(crate) fn apply_pending_params(subnets: &[NetUid]) {
+        if let Some((old, new)) =
+            take_pending::<_, LendingParamsStore<T>, PendingLendingParams<T>>()
+        {
+            if (old.twap_samples, old.twap_interval_blocks)
+                != (new.twap_samples, new.twap_interval_blocks)
+            {
+                Self::reseed_twap_rings_from_median(subnets, new.twap_samples);
+            }
+            Self::deposit_event(Event::LendingParamsSet { old, new });
+        }
+        if let Some((old, new)) = take_pending::<_, ShortParamsStore<T>, PendingShortParams<T>>() {
+            Self::deposit_event(Event::ShortParamsSet { old, new });
+        }
+        if let Some((old, new)) = take_pending::<_, LongParamsStore<T>, PendingLongParams<T>>() {
+            Self::deposit_event(Event::LongParamsSet { old, new });
+        }
+        if let Some((old, new)) = take_pending::<_, DeregParamsStore<T>, PendingDeregParams<T>>() {
+            if old.rank_window_days != new.rank_window_days {
+                Self::reseed_rank_rings_from_published(subnets, new.rank_window_days);
+            }
+            Self::deposit_event(Event::DeregParamsSet { old, new });
+        }
     }
 }
 
@@ -359,8 +445,8 @@ mod tests {
             ),
             (12_500, 7_200, 30, 256)
         );
-        assert_eq!(d.validate(0), Ok(()));
-        assert_eq!(d.validate(256), Ok(()));
+        assert_eq!(d.validate(0, MAX_LONG_POSITIONS_CEILING), Ok(()));
+        assert_eq!(d.validate(256, MAX_LONG_POSITIONS_CEILING), Ok(()));
     }
 
     #[test]
@@ -572,7 +658,7 @@ mod tests {
     #[test]
     fn dereg_bounds() {
         let base = DeregParams::default();
-        let v = |p: &DeregParams| p.validate(0);
+        let v = |p: &DeregParams| p.validate(0, MAX_LONG_POSITIONS_CEILING);
         check_bounds(
             &base,
             "zone_bps",
@@ -613,7 +699,10 @@ mod tests {
             max_long_positions_per_subnet: 10,
             ..Default::default()
         };
-        assert_eq!(p.validate(10), Ok(()));
-        assert_eq!(p.validate(11), Err(ParamsError::BelowCurrentLongCount));
+        assert_eq!(p.validate(10, MAX_LONG_POSITIONS_CEILING), Ok(()));
+        assert_eq!(
+            p.validate(11, MAX_LONG_POSITIONS_CEILING),
+            Err(ParamsError::BelowCurrentLongCount)
+        );
     }
 }

@@ -8,13 +8,19 @@ description = "Synthetic-mint shorts and pool-lifted longs (spec: docs/SPEC.md, 
 
 [dependencies]
 codec = { workspace = true, features = ["derive"] }
+frame-support.workspace = true
+frame-system.workspace = true
 scale-info = { workspace = true, features = ["derive"] }
 sp-arithmetic.workspace = true
+sp-runtime.workspace = true
 substrate-fixed.workspace = true
 subtensor-macros.workspace = true
+subtensor-runtime-common.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+sp-core.workspace = true
+sp-io.workspace = true
 
 [lints]
 workspace = true
@@ -23,8 +29,19 @@ workspace = true
 default = ["std"]
 std = [
 	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
 	"scale-info/std",
 	"serde_json/std",
 	"sp-arithmetic/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
 	"substrate-fixed/std",
+	"subtensor-runtime-common/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
 ]

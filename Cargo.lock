@@ -10514,12 +10514,18 @@ dependencies = [
 name = "pallet-lending"
 version = "0.1.0"
 dependencies = [
+ "frame-support",
+ "frame-system",
  "parity-scale-codec",
  "scale-info",
  "serde_json",
  "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
  "substrate-fixed",
  "subtensor-macros",
+ "subtensor-runtime-common",
 ]
 
 [[package]]

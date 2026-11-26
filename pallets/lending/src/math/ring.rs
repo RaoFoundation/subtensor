@@ -1,4 +1,5 @@
-//! Price-ring statistics (SPEC P6, P13, I25): the TWAP median and the mean of a rank ring.
+//! Price-ring statistics (SPEC P6, P13, I25): the TWAP median and the mean of a rank ring,
+//! plus the pool-TAO EMA step behind `T_ema` (SPEC P12, 8.7).
 
 use super::fixed::Price;
 
@@ -27,6 +28,22 @@ pub fn mean(prices: &[Price]) -> Option<Price> {
     Some(Price::from_bits(
         quotients.saturating_add(remainders.checked_div(count)?),
     ))
+}
+
+/// One block of the pool-TAO EMA (SPEC P12, 8.7): `prev` moves toward `value` by
+/// `floor(|value - prev| / window)`, truncated toward `prev` as in the reference model
+/// (`model/v201/core.py::begin_block`). A zero `window` leaves `prev` unchanged.
+#[must_use]
+pub fn ema_step(prev: u64, value: u64, window: u32) -> u64 {
+    let step = prev
+        .abs_diff(value)
+        .checked_div(u64::from(window))
+        .unwrap_or(0);
+    if value >= prev {
+        prev.saturating_add(step)
+    } else {
+        prev.saturating_sub(step)
+    }
 }
 
 #[cfg(test)]
@@ -71,5 +88,17 @@ mod tests {
             mean(&prices(&[u128::MAX, u128::MAX - 1, u128::MAX - 3])),
             Some(Price::from_bits(u128::MAX - 2))
         );
+    }
+
+    #[test]
+    fn ema_moves_a_window_fraction_toward_the_value_and_truncates_toward_prev() {
+        assert_eq!(ema_step(1_000, 2_000, 4), 1_250);
+        assert_eq!(ema_step(1_000, 0, 10), 900);
+        assert_eq!(ema_step(1_000, 1_000, 7_200), 1_000);
+        // A gap smaller than the window does not move the EMA in either direction.
+        assert_eq!(ema_step(1_000, 1_000 + 7_199, 7_200), 1_000);
+        assert_eq!(ema_step(1_000, 1, 7_200), 1_000);
+        assert_eq!(ema_step(0, u64::MAX, 1), u64::MAX);
+        assert_eq!(ema_step(5, 9, 0), 5);
     }
 }
