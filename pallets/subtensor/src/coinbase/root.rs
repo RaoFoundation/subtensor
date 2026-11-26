@@ -427,12 +427,15 @@ impl<T: Config> Pallet<T> {
 
             let registered_at = NetworkRegisteredAt::<T>::get(netuid);
 
-            // Cache miss (lending disabled, tests without a refresh, or
-            // mid-block after target kill): keep the slow dereg / moving-price
-            // fallback so prune selection stays correct. Hot path above is
-            // O(1) via PruneTarget; charging this cold scan on registration
-            // would change fee baselines and needs explicit approval.
-            let price: U64F64 = Self::dereg_rank_price(netuid);
+            // Cache miss (lending disabled, mid-block after target kill, or
+            // tests without a refresh): stay on the emission moving-price
+            // path only. Calling `dereg_rank_price` here would add Enabled /
+            // RankRingGeneration / RankPrice reads per candidate under the
+            // existing registration weight. Lending ranks are consumed only
+            // via the metered `PruneTarget` cache above; charging a cold
+            // RankPrice scan on registration needs explicit fee-baseline
+            // approval.
+            let price: U64F64 = Self::get_moving_alpha_price(netuid);
 
             // If tie on price, earliest registration wins.
             if price < candidate_price

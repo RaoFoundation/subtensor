@@ -1775,31 +1775,38 @@ fn prune_floor_refresh_weight_charges_trie_witness_not_64b_guess() {
     });
 }
 
-/// Mid-block enable refreshes the floor so the real prune target is tagged.
+/// Mid-block enable kills the floor (no uncharged live-set scan). Same-block
+/// opens fail closed — every non-immune subnet is treated as in-zone until
+/// the next metered `on_initialize` refresh.
 #[test]
 fn same_block_enable_and_open_tags_prune_target() {
     run(|| {
-        // Moving-price floor: other() at 0.1, netuid at 1.0. After re-enable
-        // RankPrice is dark (generation bump), so the floor uses these EMAs.
         set_ema(1.0);
         write(&key(b"test/ema", other()), U64F64::from_num(0.1));
         set_other_rank(0.1);
         assert!(!Lending::in_prune_zone(netuid(), &params()));
         assert!(Lending::in_prune_zone(other(), &params()));
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), false));
-        // Re-enable in this block republishes a generation-tagged floor.
+        // Re-enable bumps generation and kills caches; floor waits for the
+        // metered hook (constant-time extrinsic weight — no live_subnets()).
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
-        let (at, epoch, floor) = PruneFloor::<Test>::get().expect("floor after enable");
-        assert_eq!(at, System::block_number());
-        assert_eq!(epoch, RankGeneration::<Test>::get());
-        assert_eq!(
-            floor,
-            U64F64::from_num(0.1),
-            "enable refresh must use the live moving-price floor"
+        assert!(
+            PruneFloor::<Test>::get().is_none(),
+            "enable must defer floor refresh to on_initialize"
         );
-        assert!(Lending::in_prune_zone(other(), &params()));
-        assert!(!Lending::in_prune_zone(netuid(), &params()));
-        // Open on the prune target must be zone-tagged in the same block.
+        assert!(
+            PruneTarget::<Test>::get().is_none(),
+            "enable must defer prune-target refresh to on_initialize"
+        );
+        assert!(
+            Lending::in_prune_zone(other(), &params()),
+            "missing floor fails closed"
+        );
+        assert!(
+            Lending::in_prune_zone(netuid(), &params()),
+            "missing floor fails closed for every non-immune subnet"
+        );
+        // Open while the floor is missing must be zone-tagged (fail closed).
         seed_twap_samples(other(), MIN_HEALTH_TWAP_SAMPLES, 0.1);
         NotionalEma::<Test>::insert(other(), U64F64::from_num(0.1));
         let owner = account(1);
@@ -1814,7 +1821,7 @@ fn same_block_enable_and_open_tags_prune_target() {
         let pos = Positions::<Test>::get(&owner, other()).expect("position");
         assert_eq!(
             pos.zone_minted, MINT,
-            "same-block enable must tag the prune target"
+            "same-block enable with missing floor must fail-closed tag"
         );
         assert_eq!(pos.zone_proceeds, pos.proceeds);
     });

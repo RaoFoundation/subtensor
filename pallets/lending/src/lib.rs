@@ -113,6 +113,16 @@ pub trait LendingPoolInterface<AccountId>: OrderSwapInterface<AccountId> {
     fn network_registered_at(_netuid: NetUid) -> u64 {
         0
     }
+    /// Registration block when `netuid` is prune-eligible; `None` when immune.
+    /// Implementations should read `NetworkRegisteredAt` once and reuse it for
+    /// both the immunity check and the prune-floor tie-break.
+    fn prune_eligible_registered_at(netuid: NetUid) -> Option<u64> {
+        if Self::prune_immune(netuid) {
+            None
+        } else {
+            Some(Self::network_registered_at(netuid))
+        }
+    }
 
     /// Mint `mint_alpha` onto custody stake and sell it into the pool. The sale
     /// records TAO flow like any other sale. Returns the TAO credited to
@@ -1219,29 +1229,25 @@ pub mod pallet {
 
         #[pallet::call_index(6)]
         #[pallet::weight({
-            // Charge the actual live set (not just SubnetLimit): sudo can
-            // lower the limit while existing subnets remain, and enable still
-            // scans every live netuid. Enumeration may also visit filtered
-            // NetworksAdded keys (e.g. root); reserve 2 reads per returned
-            // subnet as a walk bound.
-            let subnets = T::Pool::live_subnets();
-            let n = (subnets.len() as u64).max(1);
-            let enum_reads = n.saturating_mul(2).saturating_add(1);
+            // Constant-time: never enumerate NetworksAdded during weight
+            // validation (that can run before `ensure_root`). Floor republish
+            // is deferred to the metered `on_initialize` refresh; this call
+            // only flips the flag, bumps generation, and kills caches.
             T::WeightInfo::set_enabled()
-                .saturating_add(T::DbWeight::get().reads_writes(enum_reads.saturating_add(3), 3))
-                .saturating_add(Pallet::<T>::prune_floor_refresh_weight(n))
+                .saturating_add(T::DbWeight::get().reads_writes(2, 4))
         })]
         pub fn set_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             ensure_root(origin)?;
             let was = Enabled::<T>::get();
             Enabled::<T>::put(enabled);
             // Re-enable invalidates ranking by generation so rings warm from
-            // real samples without an O(subnets) ring sweep. Republish the
-            // prune floor in this call so same-block opens tag correctly.
+            // real samples without an O(subnets) ring sweep. Kill the floor /
+            // target so same-block opens fail closed until the next metered
+            // `on_initialize` refresh (no uncharged live-set scan here).
             if enabled && !was {
                 RankGeneration::<T>::mutate(|g| *g = g.saturating_add(1));
-                let now = frame_system::Pallet::<T>::block_number();
-                Self::refresh_prune_floor(now, &T::Pool::live_subnets());
+                PruneFloor::<T>::kill();
+                PruneTarget::<T>::kill();
             }
             if !enabled {
                 PruneFloor::<T>::kill();
@@ -1491,13 +1497,20 @@ pub mod pallet {
         /// (warm-generation moving-price fallback + trie witness per key).
         pub fn prune_floor_refresh_weight(n: u64) -> Weight {
             let db = T::DbWeight::get();
-            // Per-key PoV: MaxEncodedLen(value) + a conservative encoded-trie
-            // witness. Branch nodes can carry many child hashes plus key
-            // fragments; 3 KiB/key bounds a deep path of encoded nodes without
-            // relying on a flat hash-count guess. NetworkImmunityPeriod is a
-            // shared StorageValue; charging it once per subnet is intentional
-            // over-reservation.
-            const TRIE_NODE_WITNESS: u64 = 3072;
+            // Per-candidate worst case after reusing `NetworkRegisteredAt`
+            // via `prune_eligible_registered_at`:
+            //   immunity (registered_at + period) + dissolution +
+            //   RankRingGeneration + RankGeneration + RankPrice +
+            //   SubnetMechanism + SubnetMovingPrice  = 8 reads.
+            // Shared RankGeneration is also read once up front (+1), and the
+            // floor/target existence probes are covered by the +2 below.
+            //
+            // PoV per key: MaxEncodedLen(value) + a conservative encoded-trie
+            // path. Substrate compact-encoded branch nodes can pack many child
+            // hashes plus key nibbles; 3 KiB bounds a deep path of encoded
+            // nodes for each distinct storage key (8 keys × 3 KiB).
+            const TRIE_PATH_PER_KEY: u64 = 3072;
+            const KEYS_PER_SUBNET: u64 = 8;
             let per_subnet_value = (u64::max_encoded_len() as u64) // NetworkRegisteredAt
                 .saturating_add(u64::max_encoded_len() as u64) // NetworkImmunityPeriod
                 .saturating_add(Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
@@ -1507,17 +1520,17 @@ pub mod pallet {
                 .saturating_add(u16::max_encoded_len() as u64) // SubnetMechanism
                 .saturating_add(U64F64::max_encoded_len() as u64); // SubnetMovingPrice
             let per_subnet_proof =
-                per_subnet_value.saturating_add(TRIE_NODE_WITNESS.saturating_mul(8));
-            // Floor + target writes.
+                per_subnet_value.saturating_add(TRIE_PATH_PER_KEY.saturating_mul(KEYS_PER_SUBNET));
+            // Floor + target writes (value + one trie path each).
             let cache_write = (BlockNumberFor::<T>::max_encoded_len() as u64)
                 .saturating_add(u32::max_encoded_len() as u64)
                 .saturating_add(U64F64::max_encoded_len() as u64)
                 .saturating_add(NetUid::max_encoded_len() as u64)
-                .saturating_add(TRIE_NODE_WITNESS.saturating_mul(2));
+                .saturating_add(TRIE_PATH_PER_KEY.saturating_mul(2));
             let proof = n
                 .saturating_mul(per_subnet_proof)
                 .saturating_add(cache_write);
-            db.reads(n.saturating_mul(8).saturating_add(2))
+            db.reads(n.saturating_mul(KEYS_PER_SUBNET).saturating_add(2))
                 .saturating_add(db.writes(2))
                 .saturating_add(Weight::from_parts(0, proof))
         }
@@ -1530,11 +1543,13 @@ pub mod pallet {
             let epoch = RankGeneration::<T>::get();
             let mut best: Option<(NetUid, U64F64, u64)> = None;
             for &netuid in subnets {
-                if T::Pool::prune_immune(netuid) || Dissolutions::<T>::contains_key(netuid) {
+                let Some(registered_at) = T::Pool::prune_eligible_registered_at(netuid) else {
+                    continue;
+                };
+                if Dissolutions::<T>::contains_key(netuid) {
                     continue;
                 }
                 let price = Self::prune_rank_price(netuid);
-                let registered_at = T::Pool::network_registered_at(netuid);
                 best = Some(match best {
                     Some((cur, lo, ts)) if price > lo || (price == lo && registered_at >= ts) => {
                         (cur, lo, ts)
@@ -1571,9 +1586,10 @@ pub mod pallet {
 
         /// The subnet's prune rank is within `zone_bps` of the lowest
         /// non-immune prune rank, so it is a prune candidate (P16). Uses the
-        /// block's cached floor from `on_initialize` / `set_enabled`. Missing
-        /// or stale floor (wrong block or RankGeneration) fails closed: treat
-        /// as in-zone so prune candidates cannot open unmarked.
+        /// block's cached floor from `on_initialize`. Missing or stale floor
+        /// (wrong block, RankGeneration, or mid-block after enable/dissolve
+        /// kill) fails closed: treat as in-zone so prune candidates cannot
+        /// open unmarked.
         pub fn in_prune_zone(netuid: NetUid, params: &SynthParams) -> bool {
             if T::Pool::prune_immune(netuid) {
                 return false;

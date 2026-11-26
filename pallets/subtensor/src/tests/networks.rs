@@ -1855,16 +1855,26 @@ fn prune_ranks_by_slow_dereg_price_not_emission_moving_price() {
         System::set_block_number(SubtensorModule::get_network_immunity_period() + 10);
 
         // Emission EMA says n1 is cheapest; the slow dereg price says n2.
+        // Registration only consumes lending ranks via the metered PruneTarget
+        // cache — seed RankPrice + refresh so the cache path is exercised.
         SubnetMovingPrice::<Test>::insert(n1, I96F32::from_num(0.1));
         SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(0.9));
         SubnetMovingPrice::<Test>::insert(n3, I96F32::from_num(0.5));
-        set_mock_dereg_price(n1, U64F64::from_num(0.8));
-        set_mock_dereg_price(n2, U64F64::from_num(0.2));
+        pallet_lending::Enabled::<Test>::put(true);
+        pallet_lending::RankPrice::<Test>::insert(n1, U64F64::from_num(0.8));
+        pallet_lending::RankPrice::<Test>::insert(n2, U64F64::from_num(0.2));
+        let epoch = pallet_lending::RankGeneration::<Test>::get();
+        for n in [n1, n2] {
+            pallet_lending::RankRingGeneration::<Test>::insert(n, epoch);
+        }
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
         assert_eq!(SubtensorModule::get_network_to_prune(), Some(n2));
 
         // n3 has no dereg sample yet and falls back to its emission moving price.
         assert_eq!(SubtensorModule::dereg_rank_price(n3), U64F64::from_num(0.5));
-        set_mock_dereg_price(n2, U64F64::from_num(0.6));
+        pallet_lending::RankPrice::<Test>::insert(n2, U64F64::from_num(0.6));
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
+        // Cache now sees n3's moving price (0.5) as lowest among eligible.
         assert_eq!(SubtensorModule::get_network_to_prune(), Some(n3));
     });
 }
@@ -1952,7 +1962,9 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
             "missing floor fails closed (in zone)"
         );
 
-        // Disable / re-enable: generation bump + floor refresh keep agreement.
+        // Disable / re-enable: generation bump + O(1) cache kill. Floor is
+        // missing until the next metered refresh — fail closed, then agree
+        // again after on_initialize republishes.
         assert_ok!(pallet_lending::Pallet::<Test>::set_enabled(
             RuntimeOrigin::root(),
             false
@@ -1961,6 +1973,15 @@ fn get_network_to_prune_agrees_with_lending_in_prune_zone_warm_and_unwarm() {
             RuntimeOrigin::root(),
             true
         ));
+        assert!(
+            pallet_lending::PruneFloor::<Test>::get().is_none(),
+            "re-enable defers floor refresh"
+        );
+        assert!(
+            pallet_lending::Pallet::<Test>::in_prune_zone(n1, &params),
+            "missing floor fails closed"
+        );
+        let _ = pallet_lending::Pallet::<Test>::on_initialize(System::block_number());
         let pruned_re = SubtensorModule::get_network_to_prune().expect("candidate");
         assert!(pallet_lending::Pallet::<Test>::in_prune_zone(
             pruned_re, &params

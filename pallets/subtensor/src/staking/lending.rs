@@ -33,6 +33,18 @@ impl<T: Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
         Self::is_network_prune_immune(netuid)
     }
 
+    /// Single `NetworkRegisteredAt` read shared by the immunity check and the
+    /// prune-floor registration tie-break.
+    fn prune_eligible_registered_at(netuid: NetUid) -> Option<u64> {
+        let at = NetworkRegisteredAt::<T>::get(netuid);
+        let now = Self::get_current_block_as_u64();
+        if now < at.saturating_add(Self::get_network_immunity_period()) {
+            None
+        } else {
+            Some(at)
+        }
+    }
+
     fn quote_buy(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         let quote = T::SwapInterface::sim_swap(netuid, GetAlphaForTao::<T>::with_amount(tao))?;
