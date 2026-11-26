@@ -16,6 +16,7 @@ import contextlib
 import difflib
 import json
 import mimetypes
+import os
 import re
 import sys
 import tempfile
@@ -1012,7 +1013,9 @@ def _show_response(
     if out is None and parsed is _NOT_JSON and response.content and not _is_text(response):
         # Never dropped: the call may have been paid for.
         suffix = mimetypes.guess_extension(response.content_type) or ".bin"
-        out = Path(tempfile.mkstemp(prefix="btcli-service-", suffix=suffix)[1])
+        handle, name = tempfile.mkstemp(prefix="btcli-service-", suffix=suffix)
+        os.close(handle)
+        out = Path(name)
     if out is not None:
         out.write_bytes(response.content)
         if output.json_mode:
