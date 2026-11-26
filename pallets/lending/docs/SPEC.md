@@ -10,7 +10,7 @@ In this repo: the implementation design is `DESIGN-v2.md` next to this file (the
   * A `Deleveraging` position returns to `Open` once its health clears the trigger by a margin `h = exit_hysteresis_bps / 10,000` (launch 500 = 5%). Exact rule in section 1 item 4 (shorts) and 7.1 item 5 (longs).
   * New shared root-settable param `LendingParams.exit_hysteresis_bps` (0 ≤ v ≤ 5,000, launch 500). Parameter count 24 → 25.
   * New events `DeleverageEnded` / `LongDeleverageEnded`, invariant I27, unit tests and e2e 40.
-  * Why a margin: with h = 0 a position whose equity sits at the trigger flips Open ↔ Deleveraging on noise every charge, and each entry restarts the paced buy-back. The reference model (`model/v201`) implements the same rule; its comparison against v2.0 on the 110-subnet scenario suite is recorded in section 21 when it completes.
+  * Why a margin: with h = 0 a position whose equity sits at the trigger flips Open ↔ Deleveraging on noise every charge, and each entry restarts the paced buy-back. The reference model (`model/v201`) implements the same rule; its comparison against v2.0 on the 110-subnet scenario suite is in section 21.
 * **v2.0 (2026-11-26 UTC).** Jacob: every tunable is settable by sudo, plus three simplifications.
   * **Root-settable parameters:** one table in section 2.
     * Every tunable now lives in one of four root-only grouped storage items (`LendingParams`, `ShortParams`, `LongParams`, `DeregParams`), each with its own setter, bounds check (`InvalidParams`) and event.
@@ -1334,3 +1334,11 @@ Finney snapshot: block 9,586,128 (2026-11-25 20:13:32 UTC), read-only; 110 subne
 * SN29 flat (D 651, C 355, A 334k α): long −86, stakers 2,912, recycled 4,016 (phase A −60 / 2,912 / 3,990).
 
 **Finding 4: rank rings** (`finding4_rank_rings.json`; 109 subnets, excluding SN40, which already sits below L). Pin 0.95 × L: EMA fallback 60/109, median 1.43 days (min 0.50), min capital 777 TAO; partial mean 57/109, 2.59 days; prefill 46/109, median 27.59 days (min 19.59). Pin 0.8 × L is the worse attack (EMA fallback median capital 10.3M). SN64, SN4 and SN51 can't be pushed in any mode with 100M TAO.
+
+## 21. v2.0.1 evidence: deleverage exit rule (`model/v201`, `compare_v201.py`; results in `model/results_v201/`)
+Same 110 live subnets and scenarios as the v2.0 rerun, v2.0 vs v2.0.1 with `exit_hysteresis_bps` = 500. The only change between the two runs is the exit rule.
+* **No new invariant violations** in any scenario. No residual alpha and no long shortfall appear or disappear.
+* **Squeezes (6× for 3, 10 and 30 days; 10× for 30 days):** positions that recover now return to Open instead of staying in a paced buy-back. Median per-subnet change: shorter −9.5 to −11.8 TAO, team premium −2.9 to −5.3 TAO (the team does slightly worse), interest to the pool +5.7 to +6.1 TAO. The largest single-subnet move is 2.36k TAO on a 6× 30-day squeeze.
+* **Split books (1 and 10 coldkeys, 5× held):** the median is unchanged. Some subnets end with more q still open (up to 19.2k α), because positions left deleverage once healthy instead of buying back at the top.
+* **Rally (20%/day), dereg (long at r, zone dilution) and the long crash paths:** identical to v2.0.
+* Model fix found while writing the differential vectors: the model priced health with the swap fee, but spec 1.4 says fee-free. `model/v201` now uses fee-free BuyCost and SellProceeds for health, rounding the short cost up and the long value down. The fuzz rerun uses that version.
