@@ -982,7 +982,7 @@
   {
     "name": "gamma_balances",
     "summary": "The gamma a coldkey holds on no hotkey, on every subnet where it holds some.",
-    "description": "The gamma a coldkey holds on no hotkey, on every subnet where it holds some.\n\nEach has its `netuid` and `balance_gamma` as an exact decimal string. A balance is sent\nwith `transfer_gamma` and spent once moved to a deposit with `deposit_gamma`.",
+    "description": "The gamma a coldkey holds on no hotkey, on every subnet where it holds some.\n\nEach has its `netuid` and `balance_gamma` as an exact decimal string. A balance is sent\nwith `transfer_gamma` and spent once moved to a deposit with `deposit_gamma`. A runtime\nbefore 498 holds none.",
     "params": {
       "coldkey_ss58": "string"
     },

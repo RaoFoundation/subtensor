@@ -12,6 +12,7 @@ from bittensor import Client
 from bittensor.cli.context import AppContext
 from bittensor.intents import build
 from bittensor.intents._money import UNBOUNDED, gamma_amount, gamma_units
+from bittensor.intents.gamma import GAMMA_BALANCES_SPEC
 from bittensor.result import BittensorError, ChainError, ExtrinsicResult
 from bittensor.sp_core import ss58_encode
 from tests.harness.fake_substrate import FakeSubstrate
@@ -107,8 +108,20 @@ class TestAmounts:
 )  # fmt: skip
 @pytest.mark.asyncio
 async def test_calls_carry_chain_units(wallet, op, args, params):
-    call = await build(op, args).build(FakeSubstrate(), wallet)
+    sub = FakeSubstrate()
+    sub.runtime_spec_version = GAMMA_BALANCES_SPEC
+    call = await build(op, args).build(sub, wallet)
     assert tuple(call) == ("SubtensorModule", op, params)
+
+
+@pytest.mark.parametrize("op", ["mint_gamma", "mint_gamma_with_stake"])
+@pytest.mark.asyncio
+async def test_a_runtime_before_balances_mints_only_to_a_deposit(wallet, op):
+    sub = FakeSubstrate()
+    sub.runtime_spec_version = GAMMA_BALANCES_SPEC - 1
+    args = {k: v for k, v in INTENT_SAMPLES[op].items() if k != "hotkey_ss58"}
+    with pytest.raises(BittensorError, match="no gamma balances"):
+        await build(op, args).build(sub, wallet)
 
 
 class TestMinOut:
@@ -326,11 +339,14 @@ class TestGammaReads:
 
     def test_balances_read(self):
         sub = FakeSubstrate()
+        sub.runtime_spec_version = GAMMA_BALANCES_SPEC
         sub.seed_runtime("GammaRuntimeApi", "get_gamma_balances", [(1, 1_500_000_000)])
         gamma = Client("local", substrate=sub).gamma
         assert asyncio.run(gamma.gamma_balances(coldkey_ss58=ALICE)) == [
             {"netuid": 1, "balance_gamma": "1.5"}
         ]
+        sub.runtime_spec_version = GAMMA_BALANCES_SPEC - 1
+        assert asyncio.run(gamma.gamma_balances(coldkey_ss58=ALICE)) == []
 
 
 class TestMintPreview:
@@ -811,6 +827,7 @@ def test_deposit_hotkey_never_defaults_to_the_wallets(fake, op):  # noqa: F811
 
 @pytest.mark.parametrize("op", ["mint_gamma", "mint_gamma_with_stake"])
 def test_a_mint_with_no_hotkey_credits_the_balance(fake, op):  # noqa: F811
+    fake.runtime_spec_version = GAMMA_BALANCES_SPEC
     args = {k: v for k, v in INTENT_SAMPLES[op].items() if k != "hotkey_ss58"}
     argv = argv_from_sample(args, lists="json")
     result = invoke("--json", "--dry-run", "tx", op.replace("_", "-"), *argv)
@@ -841,6 +858,7 @@ def test_amount_flags(fake, argv, field, value):  # noqa: F811
 
 
 def test_list_shows_deposits_and_balances(fake):  # noqa: F811
+    fake.runtime_spec_version = GAMMA_BALANCES_SPEC
     fake.seed_runtime("GammaRuntimeApi", "get_gamma_deposits_for_coldkey", [])
     fake.seed_runtime("GammaRuntimeApi", "get_gamma_balances", [(1, 1_500_000_000)])
     result = invoke("gamma", "list", "--coldkey", ALICE)
