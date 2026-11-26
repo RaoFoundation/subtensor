@@ -1018,17 +1018,18 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
         }
 
-        // 3.5 Swap WeightCommits
-        // WeightCommits( hotkey ) --> Vec<u64> -- the weight commits for the hotkey.
+        // 3.5. Drop pending hash commits made by the old hotkey. Their hashes bind
+        // the signing account, so the new hotkey cannot reveal them and must recommit.
+        // Leave any commits already signed by the new hotkey untouched.
         if is_network_member {
-            for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
+            let mechanism_count = MechanismCountCurrent::<T>::get(netuid);
+            weight.saturating_accrue(T::DbWeight::get().reads(1));
+            for mecid in 0..mechanism_count.into() {
                 let netuid_index = Self::get_mechanism_storage_index(netuid, MechId::from(mecid));
-                if let Ok(old_weight_commits) =
-                    WeightCommits::<T>::try_get(netuid_index, old_hotkey)
-                {
+                weight.saturating_accrue(T::DbWeight::get().reads(1));
+                if WeightCommits::<T>::contains_key(netuid_index, old_hotkey) {
                     WeightCommits::<T>::remove(netuid_index, old_hotkey);
-                    WeightCommits::<T>::insert(netuid_index, new_hotkey, old_weight_commits);
-                    weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
+                    weight.saturating_accrue(T::DbWeight::get().writes(1));
                 }
             }
         }
