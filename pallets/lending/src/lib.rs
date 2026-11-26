@@ -294,6 +294,14 @@ pub trait LendingInterface<AccountId> {
         let _ = netuid;
         None
     }
+    /// Weight to reserve before [`Self::freeze_dissolution_price`].
+    fn freeze_dissolution_weight() -> Weight {
+        Weight::zero()
+    }
+    /// Weight to reserve before [`Self::finish_dissolution`].
+    fn finish_dissolution_weight() -> Weight {
+        Weight::zero()
+    }
     /// `(hotkey, coldkey)` is lending custody that dissolution payout skips.
     fn is_lending_custody(hotkey: &AccountId, coldkey: &AccountId, netuid: NetUid) -> bool;
     /// `hotkey` is the lending custody hotkey (no third-party stake).
@@ -3419,6 +3427,28 @@ pub mod pallet {
             }
         }
 
+        /// O(1) weight for [`Self::freeze_dissolution_price`]: Dissolutions
+        /// mutate + pool tao / PoolTaoEma / issuance reads + trie proof.
+        pub fn freeze_dissolution_weight() -> Weight {
+            let db = T::DbWeight::get();
+            const TRIE_PATH: u64 = 3072;
+            let value = (Dissolution::<BlockNumberFor<T>>::max_encoded_len() as u64)
+                .saturating_add(u64::max_encoded_len() as u64)
+                .saturating_add(U64F64::max_encoded_len() as u64)
+                .saturating_add(u64::max_encoded_len() as u64);
+            db.reads_writes(4, 1)
+                .saturating_add(Weight::from_parts(0, value.saturating_add(TRIE_PATH * 4)))
+        }
+
+        /// O(1) weight for [`Self::finish_dissolution`]: six storage removals
+        /// with trie proof.
+        pub fn finish_dissolution_weight() -> Weight {
+            let db = T::DbWeight::get();
+            const TRIE_PATH: u64 = 3072;
+            db.writes(6)
+                .saturating_add(Weight::from_parts(0, TRIE_PATH * 6))
+        }
+
         pub fn finish_dissolution(netuid: NetUid) -> DispatchResult {
             Dissolutions::<T>::remove(netuid);
             PositionCount::<T>::remove(netuid);
@@ -3772,6 +3802,12 @@ pub mod pallet {
                 d.price = price;
                 Some(price)
             })
+        }
+        fn freeze_dissolution_weight() -> Weight {
+            Self::freeze_dissolution_weight()
+        }
+        fn finish_dissolution_weight() -> Weight {
+            Self::finish_dissolution_weight()
         }
         fn is_lending_custody(
             hotkey: &T::AccountId,

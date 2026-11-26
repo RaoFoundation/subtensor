@@ -841,6 +841,12 @@ impl<T: Config> Pallet<T> {
                     if done {
                         // Refreeze `r` after basket sales have changed pool TAO so the
                         // staker rate reflects post-sale economics (HIGH 1A).
+                        let freeze_w = T::Lending::freeze_dissolution_weight();
+                        if weight_meter.try_consume(freeze_w).is_err() {
+                            // Stay on this phase; basket work is done but freeze
+                            // waits for the next idle budget.
+                            return (false, weight_meter.consumed());
+                        }
                         status.dissolution_price_bits =
                             T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                         status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
@@ -889,6 +895,10 @@ impl<T: Config> Pallet<T> {
                         // If basket phase did not set bits (no Dissolutions entry yet),
                         // freeze now. Prefer existing bits from post-basket freeze.
                         if status.dissolution_price_bits.is_none() {
+                            let freeze_w = T::Lending::freeze_dissolution_weight();
+                            if weight_meter.try_consume(freeze_w).is_err() {
+                                return (false, weight_meter.consumed());
+                            }
                             status.dissolution_price_bits =
                                 T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                         }
@@ -905,11 +915,23 @@ impl<T: Config> Pallet<T> {
 
                 DissolveCleanupPhase::LendingSettle => {
                     if status.dissolution_price_bits.is_none() {
+                        let freeze_w = T::Lending::freeze_dissolution_weight();
+                        if weight_meter.try_consume(freeze_w).is_err() {
+                            return (false, weight_meter.consumed());
+                        }
                         status.dissolution_price_bits =
                             T::Lending::freeze_dissolution_price(netuid).map(|p| p.to_bits());
                     }
                     let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
                     if done {
+                        // Reserve finish weight before clearing maps so a
+                        // spent meter cannot leave Dissolutions stranded.
+                        // Stay on LendingSettle until finish fits; settle is
+                        // idempotent once positions are gone.
+                        let finish_w = T::Lending::finish_dissolution_weight();
+                        if weight_meter.try_consume(finish_w).is_err() {
+                            return (false, weight_meter.consumed());
+                        }
                         let _ = T::Lending::finish_dissolution(netuid);
                         status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
                         status.last_key = None;

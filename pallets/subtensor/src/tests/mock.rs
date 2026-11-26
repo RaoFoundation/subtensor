@@ -751,6 +751,12 @@ impl pallet_lending::LendingInterface<U256> for TestLending {
     fn freeze_dissolution_price(netuid: NetUid) -> Option<U64F64> {
         pallet_lending::Pallet::<Test>::freeze_dissolution_price(netuid)
     }
+    fn freeze_dissolution_weight() -> Weight {
+        pallet_lending::Pallet::<Test>::freeze_dissolution_weight()
+    }
+    fn finish_dissolution_weight() -> Weight {
+        pallet_lending::Pallet::<Test>::finish_dissolution_weight()
+    }
     fn is_lending_custody(hotkey: &U256, coldkey: &U256, netuid: NetUid) -> bool {
         pallet_lending::Pallet::<Test>::is_lending_custody(hotkey, coldkey, netuid)
     }
