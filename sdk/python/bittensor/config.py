@@ -496,6 +496,12 @@ def services_path() -> Path:
     return Path(os.getenv("BTCLI_SERVICES_CACHE") or DEFAULT_SERVICES_PATH)
 
 
+def service_documents_path() -> Path:
+    """Where btcli keeps services' documents and specs, as long as their Cache-Control allows."""
+    path = services_path()
+    return path.with_name(path.stem + "_documents")
+
+
 def _load_services_file() -> dict[str, Any]:
     path = services_path()
     if not path.is_file():

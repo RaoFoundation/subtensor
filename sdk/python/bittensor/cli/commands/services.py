@@ -80,7 +80,9 @@ def list_services(
     every: bool = typer.Option(False, "--all", help="Also list the services btcli cannot use."),
 ):
     app_ctx: AppContext = ctx_of(ctx)
-    published = app_ctx.run(lambda client: services.discover(client, netuid))
+    published = app_ctx.run(
+        lambda client: services.discover(client, netuid, cache=cfg.service_documents_path())
+    )
     problems = [_problem(item) for item in published]
     records = [
         {
@@ -566,13 +568,19 @@ def _service(
         )
         raise typer.Exit(2)
     # Which url a subnet's services are at is kept a few minutes, so a run of calls
-    # does not open a chain connection each; a localnet's is always read.
+    # does not open a chain connection each; a localnet's is always read. Documents
+    # and specs are kept as long as their Cache-Control allows.
     endpoint = resolve_endpoint(app_ctx.network)[1]
     label = f"reading netuid {netuid}'s service…"
+    documents = cfg.service_documents_path()
     cached = cfg.load_services(endpoint, netuid)
     if cached is not None:
         loaded = _offline(
-            app_ctx, _caught(services.load_listed(services.Listing(netuid, *cached), hotkey)), label
+            app_ctx,
+            _caught(
+                services.load_listed(services.Listing(netuid, *cached), hotkey, cache=documents)
+            ),
+            label,
         )
         if isinstance(loaded, services.Service):
             return loaded
@@ -581,7 +589,7 @@ def _service(
         cfg.save_services(endpoint, netuid, dict(listed.urls), listed.owner)
     if cached is not None and (dict(listed.urls), listed.owner) == cached:
         _fail(app_ctx, loaded)  # what the chain says has not changed
-    return _offline(app_ctx, services.load_listed(listed, hotkey), label)
+    return _offline(app_ctx, services.load_listed(listed, hotkey, cache=documents), label)
 
 
 async def _caught(work: Awaitable[T]) -> T | services.ServiceError:

@@ -77,7 +77,8 @@ are, how to reach them, and how they are paid for:
   `publishers` without a `gamma` payment. Readers skip fields they do not know.
 
 Serve the document with `Access-Control-Allow-Origin: *`, so that web apps can
-read it.
+read it, and the document and spec with a `Cache-Control` max-age and gzip, so
+that a client reads a large spec once and quickly.
 
 Check a document before publishing it with
 `btcli service show --url URL --netuid 1 --service-hotkey HOTKEY`. It reads the
@@ -231,9 +232,11 @@ tools = service.tools()  # [{"name", "description", "input_schema"}], for an age
 
 btcli keeps the url each of a subnet's services is at for ten minutes, so a run
 of calls reads the chain once, and an ordinary hotkey signs without it; a
-localnet's urls are always read. In Python, `bt.services.listing(client, netuid)`
-reads them, and `bt.services.load_listed(listing)` loads a service from them
-without the chain.
+localnet's urls are always read. It keeps a document and its spec as long as
+their `Cache-Control: max-age` allows, ten minutes at most, and `show --url`
+always reads them. In Python, `bt.services.listing(client, netuid)` reads the
+urls, `bt.services.load_listed(listing)` loads a service from them without the
+chain, and `cache=` a directory keeps documents and specs there.
 
 A client trusts only the chain. It uses the document at the url a hotkey
 published only if `publishers` lists that hotkey and a `gamma` payment takes

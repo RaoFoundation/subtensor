@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gzip
 import json
 import os
 import socket
@@ -1605,3 +1606,109 @@ class TestCli:
         result = invoke("service", "call", "--netuid", "1", "list-models")
         assert result.exit_code == 1 and "HTTP 401" in result.output
         assert "help:" not in result.output
+
+
+def kept(page: dict, cache_control: str = "max-age=300", **headers) -> Response:
+    """A JSON page its Cache-Control lets a client keep."""
+    fields = {"content-type": "application/json", "cache-control": cache_control, **headers}
+    return Response(200, fields, json.dumps(page).encode())
+
+
+def fetches(web: FakeWeb, url: str) -> int:
+    return sum(1 for _, sent, _, _ in web.sent if sent == url)
+
+
+class TestDocumentCache:
+    def test_a_spec_is_kept_as_long_as_its_cache_control_allows(self, web, tmp_path, monkeypatch):
+        web.pages[SPEC_URL] = kept(spec())
+        client = Client("finney", substrate=chain({ALICE_HOT: DOC_URL}))
+        for _ in range(3):
+            asyncio.run(services.load(client, 1, cache=tmp_path))
+        assert fetches(web, SPEC_URL) == 1
+        assert fetches(web, DOC_URL) == 3  # it says nothing, so it is read each time
+        later = time.time() + 301
+        monkeypatch.setattr(services.time, "time", lambda: later)
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        assert fetches(web, SPEC_URL) == 2
+
+    def test_a_long_max_age_is_kept_ten_minutes_at_most(self, web, tmp_path, monkeypatch):
+        web.pages[SPEC_URL] = kept(spec(), "public, max-age=86400")
+        client = Client("finney", substrate=chain({ALICE_HOT: DOC_URL}))
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        later = time.time() + services.CACHE_MAX_SECONDS + 1
+        monkeypatch.setattr(services.time, "time", lambda: later)
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        assert fetches(web, SPEC_URL) == 2
+
+    @pytest.mark.parametrize(
+        "cache_control, age",
+        [
+            ("no-store, max-age=300", "0"),
+            ("no-cache, max-age=300", "0"),
+            ("max-age=300", "300"),
+            ("max-age=abc", "0"),
+            ("", "0"),
+        ],
+    )
+    def test_what_may_not_be_kept_is_read_again(self, web, tmp_path, cache_control, age):
+        web.pages[SPEC_URL] = kept(spec(), cache_control, age=age)
+        client = Client("finney", substrate=chain({ALICE_HOT: DOC_URL}))
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        assert fetches(web, SPEC_URL) == 2
+
+    def test_nothing_is_kept_without_a_cache_or_on_a_localnet(self, web, tmp_path):
+        web.pages[SPEC_URL] = kept(spec())
+        client = Client("finney", substrate=chain({ALICE_HOT: DOC_URL}))
+        asyncio.run(services.load(client, 1))
+        asyncio.run(services.load(client, 1))
+        assert fetches(web, SPEC_URL) == 2
+        listed = services.Listing(1, {ALICE_HOT: DOC_URL}, ALICE_HOT, local=True)
+        asyncio.run(services.load_listed(listed, cache=tmp_path))
+        assert not list(tmp_path.iterdir())
+
+    def test_a_cache_file_for_another_url_or_too_far_ahead_is_not_used(self, web, tmp_path):
+        web.pages[SPEC_URL] = kept(spec())
+        client = Client("finney", substrate=chain({ALICE_HOT: DOC_URL}))
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        (path,) = tmp_path.iterdir()
+        entry = json.loads(path.read_text())
+        for changed in ({"url": DOC_URL}, {"expires": time.time() + 10**6}, {"content": 1}):
+            path.write_text(json.dumps({**entry, **changed}))
+            asyncio.run(services.load(client, 1, cache=tmp_path))
+        path.write_text("not json")
+        asyncio.run(services.load(client, 1, cache=tmp_path))
+        assert fetches(web, SPEC_URL) == 5
+
+    def test_a_gzipped_document_is_read(self, web):
+        body = gzip.compress(json.dumps(spec()).encode())
+        fields = {"content-type": "application/json", "content-encoding": "gzip"}
+        web.pages[SPEC_URL] = Response(200, fields, body)
+        assert "listModels" in load().operations
+        assert web.sent[-1][2]["Accept-Encoding"] == "gzip"
+
+    def test_gzip_that_inflates_past_the_limit_is_refused(self, web, monkeypatch):
+        monkeypatch.setattr(services, "MAX_DOCUMENT_BYTES", 1 << 16)
+        fields = {"content-type": "application/json", "content-encoding": "gzip"}
+        web.pages[SPEC_URL] = Response(200, fields, gzip.compress(b" " * (1 << 20)))
+        with pytest.raises(ServiceError) as error:
+            load()
+        assert error.value.code == "too_large"
+        web.pages[SPEC_URL] = Response(200, fields, b"not gzip")
+        with pytest.raises(ServiceError, match="not valid gzip"):
+            load()
+
+    def test_a_run_of_btcli_calls_reads_the_spec_once(self, cli):
+        cli.pages[SPEC_URL] = kept(spec())
+        cli.pages["https://svc.example/api/v1/models"] = {"data": ["m"]}
+        for _ in range(3):
+            result = invoke("service", "call", "--netuid", "1", "list-models")
+            assert result.exit_code == 0, result.output
+        assert fetches(cli, SPEC_URL) == 1
+
+    def test_show_by_url_always_reads_the_document(self, cli):
+        cli.pages[DOC_URL] = kept(document())
+        cli.pages[SPEC_URL] = kept(spec())
+        for _ in range(2):
+            assert invoke("service", "show", "--url", DOC_URL).exit_code == 0
+        assert (fetches(cli, DOC_URL), fetches(cli, SPEC_URL)) == (2, 2)

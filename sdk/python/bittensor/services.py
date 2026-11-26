@@ -41,9 +41,11 @@ import contextlib
 import dataclasses
 import difflib
 import functools
+import hashlib
 import http.client
 import ipaddress
 import json
+import os
 import re
 import socket
 import ssl
@@ -53,8 +55,10 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from pathlib import Path
+from typing import Any, Mapping, Optional, Union
 
 from . import http_auth
 from ._generated import storage
@@ -78,10 +82,14 @@ __all__ = [
 
 MAX_DOCUMENT_BYTES = 8 << 20
 MAX_RESPONSE_BYTES = 64 << 20
-# Seconds a request may take in all, however slowly the host answers: a call,
-# and the fetch of a document, a spec or a balance.
+# Seconds a request may take in all, however slowly the host answers: a call or
+# the fetch of a spec, which can be megabytes, and the fetch of a document or a balance.
 TIMEOUT = 60.0
 FETCH_TIMEOUT = 20.0
+# A document or spec is kept as long as its Cache-Control max-age says, up to this.
+CACHE_MAX_SECONDS = 600
+# A directory for documents and specs their Cache-Control lets a client keep; None keeps none.
+CacheDir = Optional[Union[str, Path]]
 # How many schema nodes one resolve expands, at most, when it replaces $refs.
 RESOLVE_BUDGET = 200_000
 RESOLVE_DEPTH = 32
@@ -393,17 +401,22 @@ async def listing(client, netuid: int) -> Listing:
     return Listing(netuid, urls, str(owner) if owner else None, local)
 
 
-async def load(client, netuid: int, hotkey_ss58: Optional[str] = None) -> Service:
+async def load(
+    client, netuid: int, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
+) -> Service:
     """Read the service a hotkey published on a subnet, with its document and spec.
 
     Without ``hotkey_ss58`` it is the subnet owner's service, or the subnet's only one.
     A validator can publish a service too, under any name, so another is used only when
-    named by its hotkey.
+    named by its hotkey. With ``cache``, a directory, a document or spec is kept there
+    as long as its Cache-Control max-age allows, up to CACHE_MAX_SECONDS.
     """
-    return await load_listed(await listing(client, netuid), hotkey_ss58)
+    return await load_listed(await listing(client, netuid), hotkey_ss58, cache=cache)
 
 
-async def load_listed(listed: Listing, hotkey_ss58: Optional[str] = None) -> Service:
+async def load_listed(
+    listed: Listing, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
+) -> Service:
     """:func:`load` from a :class:`Listing` read before, without the chain."""
     netuid, urls, owner = listed.netuid, listed.urls, listed.owner
     if hotkey_ss58 is None:
@@ -424,12 +437,16 @@ async def load_listed(listed: Listing, hotkey_ss58: Optional[str] = None) -> Ser
         raise ServiceError(
             f"{hotkey_ss58} has published no service on netuid {netuid}", code="no_service"
         )
-    service = await _threaded(_fetch_service, netuid, hotkey_ss58, url, listed.local)
+    service = await _threaded(_fetch_service, netuid, hotkey_ss58, url, listed.local, cache)
     return dataclasses.replace(service, owner=hotkey_ss58 == owner)
 
 
 async def load_url(
-    url: str, netuid: Optional[int] = None, hotkey_ss58: Optional[str] = None
+    url: str,
+    netuid: Optional[int] = None,
+    hotkey_ss58: Optional[str] = None,
+    *,
+    cache: CacheDir = None,
 ) -> Service:
     """Read the service a document describes, by its url, without the chain: to
     check a document before it is published, or to use one known by its url.
@@ -439,7 +456,7 @@ async def load_url(
     public hosts. It must list ``netuid`` and ``hotkey_ss58`` in ``publishers``,
     and without them it must list exactly one publisher, whose service it is.
     """
-    return await _threaded(_fetch_service, netuid, hotkey_ss58, url, _is_local(url))
+    return await _threaded(_fetch_service, netuid, hotkey_ss58, url, _is_local(url), cache)
 
 
 @dataclass(frozen=True)
@@ -454,7 +471,9 @@ class Published:
     owner: bool = False  # published by the subnet owner's hotkey, not a validator's
 
 
-async def discover(client, netuid: Optional[int] = None) -> list[Published]:
+async def discover(
+    client, netuid: Optional[int] = None, *, cache: CacheDir = None
+) -> list[Published]:
     """Every service published on chain, or on ``netuid``, each loaded as :func:`load`
     loads one, by netuid; one that cannot be used says why."""
     local = await _on_local_chain(client)
@@ -464,7 +483,7 @@ async def discover(client, netuid: Optional[int] = None) -> list[Published]:
         owner = hotkey == owners.get(netuid)
         try:
             async with few:
-                service = await _threaded(_fetch_service, netuid, hotkey, url, local)
+                service = await _threaded(_fetch_service, netuid, hotkey, url, local, cache)
         except Exception as error:  # one service's failure is never the listing's
             problem = str(ServiceError(str(error)))
             return Published(netuid, hotkey, url, problem=problem, owner=owner)
@@ -512,19 +531,23 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _fetch_service(netuid: Optional[int], hotkey: Optional[str], url: str, local: bool) -> Service:
+def _fetch_service(
+    netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir = None
+) -> Service:
     try:
-        return _service(netuid, hotkey, url, local)
+        return _service(netuid, hotkey, url, local, None if local else cache)
     except ValueError as error:  # a url the service wrote that is not one
         raise ServiceError(f"the service at {url} has a bad url: {error}") from None
 
 
-def _service(netuid: Optional[int], hotkey: Optional[str], url: str, local: bool) -> Service:
-    document = _get_json(url, "the services document", local)
+def _service(
+    netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir
+) -> Service:
+    document = _get_json(url, "the services document", local, cache)
     netuid, hotkey = _publisher(document, url, netuid, hotkey)
     balance_url = _checked_url(_gamma_balance(document, url), "the balance", local)
     spec_url = _checked_url(_spec_url(document, url), "the OpenAPI spec", local)
-    spec = _get_json(spec_url, "the OpenAPI spec", local)
+    spec = _get_json(spec_url, "the OpenAPI spec", local, cache, TIMEOUT)
     operations, skipped = _operations(spec, spec_url, local)
     return Service(
         netuid=netuid,
@@ -1397,18 +1420,93 @@ def _send(
             raise ServiceError(f"could not reach {url}: {reason}", code="unreachable") from None
 
 
-def _get_json(url: str, what: str, local: bool = False) -> dict:
-    headers = {"User-Agent": _USER_AGENT, "Accept": _JSON}
-    response = _send(
-        "GET",
-        _checked_url(url, what, local),
-        headers,
-        b"",
-        local,
-        MAX_DOCUMENT_BYTES,
-        FETCH_TIMEOUT,
+def _get_json(
+    url: str,
+    what: str,
+    local: bool = False,
+    cache: CacheDir = None,
+    timeout: float = FETCH_TIMEOUT,
+) -> dict:
+    checked = _checked_url(url, what, local)
+    cached = _cached(cache, checked)
+    if cached is not None:
+        return _json_object(Response(200, {"content-type": _JSON}, cached), url, what)
+    headers = {"User-Agent": _USER_AGENT, "Accept": _JSON, "Accept-Encoding": "gzip"}
+    response = _gunzipped(
+        _send("GET", checked, headers, b"", local, MAX_DOCUMENT_BYTES, timeout), url
     )
-    return _json_object(response, url, what)
+    document = _json_object(response, url, what)
+    _keep(cache, checked, response)
+    return document
+
+
+def _gunzipped(response: Response, url: str) -> Response:
+    if response.headers.get("content-encoding", "").strip().lower() != "gzip":
+        return response
+    inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        content = inflate.decompress(response.content, MAX_DOCUMENT_BYTES + 1)
+    except zlib.error:
+        raise ServiceError(f"the response from {url} is not valid gzip") from None
+    if len(content) > MAX_DOCUMENT_BYTES or inflate.unconsumed_tail:
+        raise ServiceError(
+            f"the response from {url} is over {MAX_DOCUMENT_BYTES >> 20} MiB", code="too_large"
+        )
+    headers = {k: v for k, v in response.headers.items() if k != "content-encoding"}
+    return Response(response.status, headers, content)
+
+
+def _max_age(headers: Mapping[str, str]) -> int:
+    """Seconds a response may be kept, by its Cache-Control and Age, up to CACHE_MAX_SECONDS."""
+    directives = [d.strip().lower() for d in headers.get("cache-control", "").split(",")]
+    if "no-store" in directives or "no-cache" in directives:
+        return 0
+    ages = [d.partition("=")[2].strip('" ') for d in directives if d.startswith("max-age=")]
+    if len(ages) != 1 or not ages[0].isdigit():
+        return 0
+    age = headers.get("age", "0").strip()
+    return max(0, min(int(ages[0]), CACHE_MAX_SECONDS) - (int(age) if age.isdigit() else 0))
+
+
+def _cache_file(cache: Union[str, Path], url: str) -> Path:
+    return Path(cache) / (hashlib.sha256(url.encode()).hexdigest() + ".json")
+
+
+def _cached(cache: CacheDir, url: str) -> Optional[bytes]:
+    if cache is None:
+        return None
+    try:
+        entry = json.loads(_cache_file(cache, url).read_text())
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    if (
+        not isinstance(entry, dict)
+        or entry.get("url") != url
+        or not isinstance(entry.get("expires"), (int, float))
+        or not time.time() < entry["expires"] <= time.time() + CACHE_MAX_SECONDS
+        or not isinstance(entry.get("content"), str)
+    ):
+        return None
+    content = entry["content"].encode()
+    return content if len(content) <= MAX_DOCUMENT_BYTES else None
+
+
+def _keep(cache: CacheDir, url: str, response: Response) -> None:
+    seconds = _max_age(response.headers)
+    if cache is None or not seconds:
+        return
+    try:
+        text = response.content.decode("utf-8")
+    except UnicodeDecodeError:
+        return
+    path = _cache_file(cache, url)
+    entry = {"url": url, "expires": time.time() + seconds, "content": text}
+    with contextlib.suppress(OSError):  # a cache it cannot write is only slower
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Several runs at once each write a whole file, never half of one.
+        partial = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}")
+        partial.write_text(json.dumps(entry))
+        os.replace(partial, path)
 
 
 def _json_object(response: Response, url: str, what: str) -> dict:
