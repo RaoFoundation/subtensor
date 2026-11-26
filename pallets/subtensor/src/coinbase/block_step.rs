@@ -28,7 +28,9 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // --- 4c. The background beta-index sweep advances one bounded page per block from
         // `on_initialize` (not here), so its work is charged into the hook's weight.
         // --- 5. Update moving prices AFTER using them for emissions.
-        let lending_ticks = Self::update_moving_prices();
+        // Reuse the non-root count from this pass for issuance-weight charging
+        // (no second NetworksAdded scan).
+        let (lending_ticks, non_root_subnets) = Self::update_moving_prices();
         // --- 6. Update roop prop AFTER using them for emissions.
         Self::update_root_prop();
         // --- 7. Set pending children on the epoch; but only after the coinbase has been run.
@@ -44,12 +46,8 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // three times per emit subnet (terms + nested root_proportion +
         // update_root_prop). Charge the Enabled-path synthetic/residual
         // adjustment for every live non-root subnet as a worst-case bound.
-        let issuance_lookups = Self::get_all_subnet_netuids()
-            .into_iter()
-            .filter(|n| !n.is_root())
-            .count() as u64;
         let issuance_w = Self::lending_issuance_adjust_weight()
-            .saturating_mul(issuance_lookups.saturating_mul(3));
+            .saturating_mul(non_root_subnets.saturating_mul(3));
 
         // Return the weight that the fixed block-step envelope does not include.
         Ok(basket_flush_weight
@@ -68,16 +66,23 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
             }
         }
     }
-    /// Advances emission EMAs and lending dereg ticks. Returns how many dynamic
-    /// subnets received a lending dereg/EMA update (for weight charging).
-    pub fn update_moving_prices() -> u64 {
+    /// Advances emission EMAs and lending dereg ticks.
+    /// Returns `(lending_ticks, non_root_subnets)` from the same
+    /// `NetworksAdded` pass so callers can charge issuance weight without a
+    /// second full scan.
+    pub fn update_moving_prices() -> (u64, u64) {
         let netuids = Self::get_all_subnet_netuids();
         let mut lending_ticks = 0u64;
+        let mut non_root_subnets = 0u64;
         // Price anchors protect basket valuation and trading even when a subnet is not
         // currently eligible for emission (for example, registration was disabled). Keep
         // every live dynamic subnet's EMA moving so governance cannot freeze its anchor.
         for netuid in netuids.iter().copied() {
-            if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+            if netuid.is_root() {
+                continue;
+            }
+            non_root_subnets = non_root_subnets.saturating_add(1);
+            if SubnetMechanism::<T>::get(netuid) == 1 {
                 Self::update_moving_price(netuid);
                 T::Lending::update_dereg_moving_price(netuid);
                 lending_ticks = lending_ticks.saturating_add(1);
@@ -86,7 +91,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         for netuid in netuids.into_iter().filter(|netuid| !netuid.is_root()) {
             Self::update_gamma_price(netuid);
         }
-        lending_ticks
+        (lending_ticks, non_root_subnets)
     }
 
     /// Storage + CPU work for one lending dereg-price / pool-TAO EMA /
