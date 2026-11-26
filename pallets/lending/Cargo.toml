@@ -6,9 +6,25 @@ edition.workspace = true
 license = "Apache-2.0"
 description = "Synthetic-mint shorts and pool-lifted longs (spec: docs/SPEC.md, design: docs/DESIGN-v2.md)"
 
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+sp-arithmetic.workspace = true
+substrate-fixed.workspace = true
+subtensor-macros.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true
 
 [features]
 default = ["std"]
-std = []
+std = [
+	"codec/std",
+	"scale-info/std",
+	"serde_json/std",
+	"sp-arithmetic/std",
+	"substrate-fixed/std",
+]

@@ -10513,6 +10513,14 @@ dependencies = [
 [[package]]
 name = "pallet-lending"
 version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "serde_json",
+ "sp-arithmetic",
+ "substrate-fixed",
+ "subtensor-macros",
+]
 
 [[package]]
 name = "pallet-limit-orders"
