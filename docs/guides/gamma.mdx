@@ -273,8 +273,8 @@ btcli gamma spend --netuid 1 --service-hotkey SERVICE_HOTKEY --amount-gamma 5 -H
 ```
 
 ```python
-spender = bt.Wallet(name="my_coldkey", hotkey="HOTKEY")
-await client.execute(bt.SpendGamma(netuid=1, service_hotkey_ss58=service, amount_gamma=5), spender)
+wallet = bt.Wallet(name="my_coldkey", hotkey="HOTKEY")
+await client.execute(bt.SpendGamma(netuid=1, service_hotkey_ss58=service, amount_gamma=5), wallet)
 ```
 
 A spend destroys its amount and adds it to what the hotkey has spent at the
