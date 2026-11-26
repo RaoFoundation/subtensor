@@ -77,6 +77,10 @@ pub enum DissolveCleanupPhase {
     /// Phase 2.15: Jacob §13 lending settlement. Appended for codec stability.
     /// Runs after alpha is counted and before stakers are paid.
     LendingSettle,
+    /// Phase 2.16: Finish lending dissolution maps after settlement. Appended
+    /// so a spent idle meter that completed settle cannot re-pay the terminal
+    /// sweep; finalization resumes on a fresh budget.
+    LendingFinish,
 }
 
 impl Default for DissolveCleanupPhase {
@@ -96,6 +100,7 @@ impl DissolveCleanupPhase {
             | Self::SubnetRootDividendsRootClaimed
             | Self::AlphaInOutStakesGetTotalAlphaValue
             | Self::LendingSettle
+            | Self::LendingFinish
             | Self::AlphaInOutStakesSettleStakes
             | Self::AlphaInOutStakesAlpha
             | Self::AlphaInOutStakesHotkeyTotals
@@ -925,19 +930,28 @@ impl<T: Config> Pallet<T> {
                     }
                     let done = T::Lending::settle_positions_on_dissolution(netuid, weight_meter);
                     if done {
-                        // Reserve finish weight before clearing maps so a
-                        // spent meter cannot leave Dissolutions stranded.
-                        // Stay on LendingSettle until finish fits; settle is
-                        // idempotent once positions are gone.
-                        let finish_w = T::Lending::finish_dissolution_weight();
-                        if weight_meter.try_consume(finish_w).is_err() {
-                            return (false, weight_meter.consumed());
-                        }
-                        let _ = T::Lending::finish_dissolution(netuid);
-                        status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
+                        // Persist settlement completion before finish so a
+                        // spent meter cannot re-pay the terminal sweep. Finish
+                        // runs on LendingFinish with a fresh (or remaining)
+                        // idle budget.
                         status.last_key = None;
+                        status.set_phase(DissolveCleanupPhase::LendingFinish);
+                        weight_meter.consume(T::DbWeight::get().writes(1));
                     }
                     done
+                }
+
+                DissolveCleanupPhase::LendingFinish => {
+                    let finish_w = T::Lending::finish_dissolution_weight()
+                        .saturating_add(T::DbWeight::get().writes(1));
+                    if weight_meter.try_consume(finish_w).is_err() {
+                        // Already on LendingFinish; status unchanged.
+                        return (false, weight_meter.consumed());
+                    }
+                    let _ = T::Lending::finish_dissolution(netuid);
+                    status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
+                    status.last_key = None;
+                    true
                 }
 
                 DissolveCleanupPhase::AlphaInOutStakesSettleStakes => {

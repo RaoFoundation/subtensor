@@ -1440,6 +1440,7 @@ fn dissolution_cleanup_phase_code(phase: &DissolveCleanupPhase) -> u8 {
         DissolveCleanupPhase::NetworkAlphaAssetCounters => 26,
         // Appended after NetworkAlphaAssetCounters for EVM code stability.
         DissolveCleanupPhase::LendingSettle => 27,
+        DissolveCleanupPhase::LendingFinish => 28,
     }
 }
 
@@ -2319,6 +2320,7 @@ mod tests {
             (DissolveCleanupPhase::NetworkPendingBasketDeposits, 25),
             (DissolveCleanupPhase::NetworkAlphaAssetCounters, 26),
             (DissolveCleanupPhase::LendingSettle, 27),
+            (DissolveCleanupPhase::LendingFinish, 28),
         ];
 
         for (phase, expected) in phases {
