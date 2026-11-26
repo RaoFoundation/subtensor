@@ -380,25 +380,27 @@ jobs:
   # constraint would silently resolve to the previous stable build.
   rc-versions:
     name: Compute rc versions
-    needs: check-testnet
+    needs: [check-testnet, stable-python-plan]
+    if: needs.stable-python-plan.outputs.needed == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     outputs:
       sdk: ${{ steps.versions.outputs.sdk }}
       core: ${{ steps.versions.outputs.core }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Parse base versions and append rc suffix
+      - name: Check stable versions and append rc suffix
         id: versions
+        env:
+          SDK_BASE: ${{ needs.stable-python-plan.outputs.sdk }}
+          CORE_BASE: ${{ needs.stable-python-plan.outputs.core }}
         run: |
-          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
-          : ${base:?could not parse base version from sdk/python/pyproject.toml}
-          core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
-          : ${core_base:?could not parse base version from sdk/bittensor-core-py/pyproject.toml}
+          set -euo pipefail
+          : "${SDK_BASE:?missing SDK base version from the Python release plan}"
+          : "${CORE_BASE:?missing core base version from the Python release plan}"
 
           # PyPI versions are immutable. Reject an already-published stable
           # base before producing more release candidates that can never be
           # promoted to a final release.
-          for package_version in "bittensor:${base}" "bittensor-core:${core_base}"; do
+          for package_version in "bittensor:${SDK_BASE}" "bittensor-core:${CORE_BASE}"; do
             package=${package_version%%:*}
             version=${package_version#*:}
             status=$(curl -sS --connect-timeout 10 --max-time 30 \
@@ -417,26 +419,25 @@ jobs:
             esac
           done
 
-          echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
-          echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          echo "sdk=${SDK_BASE}rc${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "core=${CORE_BASE}rc${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
   # The rc string is not a notes key. The check uses the stable base versions.
   # This does not post to Discord and does not block propose-mainnet.
   check-python-notes:
     name: Check Python release notes
-    needs: rc-versions
+    needs: [rc-versions, stable-python-plan]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Require notes for the stable versions behind this rc
+        env:
+          SDK_VERSION: ${{ needs.stable-python-plan.outputs.sdk }}
+          CORE_VERSION: ${{ needs.stable-python-plan.outputs.core }}
         run: |
-          set -euo pipefail
-          versions=$(python3 .github/scripts/release-python-versions.py \
-            sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml)
           python3 .github/scripts/check-release-notes.py python \
-            --sdk "$(jq -er .sdk <<<"$versions")" \
-            --core "$(jq -er .core <<<"$versions")"
+            --sdk "$SDK_VERSION" --core "$CORE_VERSION"
 
   build-core-rc:
     name: Build bittensor-core rc wheels
