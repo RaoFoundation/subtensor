@@ -1,0 +1,12 @@
+{
+  "kind": "runtime",
+  "spec_version": 498,
+  "page_path": "website/apps/bittensor-website/src/app/(pages-without-footer)/releases/v498-upgrade/page.tsx",
+  "public_path": "/releases/v498-upgrade",
+  "audiences": [
+    "node operators",
+    "wallets and indexers",
+    "sudo signers"
+  ],
+  "summary": "V498 raises the runtime spec version from 497 to 498 and keeps transaction version 2. Relative to V497 there are no new runtime calls, storage migrations, parameter changes, or Python SDK changes. Refresh runtime metadata and rebuild signing payloads after activation. Regenerate and review pending root parameter proposals before approving."
+}

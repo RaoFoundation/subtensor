@@ -846,49 +846,56 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull_request checkout is the merge commit; fetch its base parent.
+          fetch-depth: 2
+          persist-credentials: false
 
-      - name: Test announcement sanitizer
-        run: python3 .github/scripts/test_announce_summary.py
+      - name: Test release tooling
+        run: |
+          python3 .github/scripts/test_announce_summary.py
+          python3 .github/scripts/test_python_release_source.py
 
       - name: Compare versions with the base
         id: versions
         env:
-          GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           head_json=$(python3 .github/scripts/check-release-notes.py versions)
+          spec=$(jq -er .spec <<<"$head_json")
+          sdk=$(jq -er .sdk <<<"$head_json")
+          core=$(jq -er .core <<<"$head_json")
           if [ "$EVENT_NAME" = pull_request ]; then
             tmp=$(mktemp -d)
-            mkdir -p "$tmp/runtime/src" "$tmp/sdk/python" "$tmp/sdk/bittensor-core-py"
-            gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/runtime/src/lib.rs?ref=$BASE_SHA" \
-              > "$tmp/runtime/src/lib.rs"
-            gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/sdk/python/pyproject.toml?ref=$BASE_SHA" \
-              > "$tmp/sdk/python/pyproject.toml"
-            gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/sdk/bittensor-core-py/pyproject.toml?ref=$BASE_SHA" \
-              > "$tmp/sdk/bittensor-core-py/pyproject.toml"
+            trap 'rm -rf "$tmp"' EXIT
+            for file in runtime/src/lib.rs sdk/python/pyproject.toml sdk/bittensor-core-py/pyproject.toml; do
+              mkdir -p "$tmp/$(dirname "$file")"
+              git show "$BASE_SHA:$file" > "$tmp/$file"
+            done
             base_json=$(python3 .github/scripts/check-release-notes.py versions --root "$tmp")
+
+            if [ "$spec" -gt "$(jq -er .spec <<<"$base_json")" ]; then
+              python3 .github/scripts/check-python-release.py --check-source \
+                --sdk-version "$sdk" --core-version "$core" --repository "$GITHUB_REPOSITORY"
+              python3 .github/scripts/check-release-notes.py python --sdk "$sdk" --core "$core"
+            fi
           else
             base_json=$head_json
           fi
           python3 .github/scripts/check-release-notes.py diff \
             --base-spec "$(jq -er .spec <<<"$base_json")" \
-            --head-spec "$(jq -er .spec <<<"$head_json")" \
+            --head-spec "$spec" \
             --base-sdk "$(jq -er .sdk <<<"$base_json")" \
-            --head-sdk "$(jq -er .sdk <<<"$head_json")" \
+            --head-sdk "$sdk" \
             --base-core "$(jq -er .core <<<"$base_json")" \
-            --head-core "$(jq -er .core <<<"$head_json")"
+            --head-core "$core"
           python3 .github/scripts/check-release-notes.py tree
-          spec=$(jq -er .spec <<<"$head_json")
-          sdk=$(jq -er .sdk <<<"$head_json")
           {
             echo "spec=$spec"
             echo "sdk=$sdk"
-            echo "core=$(jq -er .core <<<"$head_json")"
+            echo "core=$core"
           } >> "$GITHUB_OUTPUT"
           if [ -f ".github/release-notes/runtime/${spec}.json" ]; then
             echo "runtime_notes=.github/release-notes/runtime/${spec}.json" >> "$GITHUB_OUTPUT"
