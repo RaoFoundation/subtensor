@@ -168,9 +168,9 @@ deposits it. Sending to a hotkey's address puts the gamma in a balance only
 that address's key can move.
 
 Another coldkey can open a deposit for a coldkey only while it holds fewer than
-32 on the subnet, its own included, so others never take more than half of its
-64, and not while its coldkey swap is announced or disputed, or while it is the
-destination of one. Sending to a
+32 across all subnets, its own included, so others never take more than half of
+its 64 on a subnet or keep it from swapping its coldkey, and not while its
+coldkey swap is announced or disputed, or while it is the destination of one. Sending to a
 deposit that is already open, or to a balance, is not limited.
 
 ```bash

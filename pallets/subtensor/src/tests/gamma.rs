@@ -2440,6 +2440,137 @@ fn transfer_gamma_opens_no_deposit_for_a_coldkey_in_a_swap() {
     });
 }
 
+// Deposits other coldkeys open count across subnets, so they never take a coldkey past what
+// one swap moves, even when its swap is announced by a hash that reserves no destination.
+#[test]
+fn deposits_opened_by_others_never_block_a_swap() {
+    new_test_ext(1).execute_with(|| {
+        let (alice, bob, carol) = (COLDKEY, COLDKEY + 100, COLDKEY + 200);
+        let [first, second, third] = [0u64, 1, 2].map(|index| {
+            let netuid =
+                add_dynamic_network(&U256::from(50_000 + index), &U256::from(60_000 + index));
+            enable_gamma(netuid, 1_000 * TAO, 1_000 * TAO);
+            mint(netuid, alice, HOTKEY + 1_000 + index, TAO);
+            assert_ok!(withdraw(netuid, alice, HOTKEY + 1_000 + index, 4 * GAMMA));
+            netuid
+        });
+        let half = u64::from(MAX_THIRD_PARTY_GAMMA_DEPOSITS) / 2;
+        for hotkey in 0..half {
+            assert_ok!(transfer(
+                first,
+                alice,
+                bob,
+                GAMMA / 10,
+                None,
+                Some(200_000 + hotkey)
+            ));
+            assert_ok!(transfer(
+                second,
+                alice,
+                bob,
+                GAMMA / 10,
+                None,
+                Some(201_000 + hotkey)
+            ));
+        }
+        assert_noop!(
+            transfer(third, alice, bob, GAMMA / 10, None, Some(300_000)),
+            Error::<Test>::TooManyGammaDeposits
+        );
+
+        let (bob, carol) = (U256::from(bob), U256::from(carol));
+        add_balance_to_coldkey_account(
+            &bob,
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        use sp_runtime::traits::Hash as _;
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&carol);
+        assert_ok!(SubtensorModule::announce_coldkey_swap(
+            RuntimeOrigin::signed(bob),
+            hash
+        ));
+        let (when, _) = ColdkeySwapAnnouncements::<Test>::get(bob).unwrap();
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(bob),
+            carol
+        ));
+        assert_eq!(
+            SubtensorModule::coldkey_gamma_deposit_count(&carol),
+            MAX_THIRD_PARTY_GAMMA_DEPOSITS
+        );
+    });
+}
+
+/// What `bob`'s swap to its reserved destination `carol` takes along: its auto-stake route,
+/// flags and lineage, and whether its lock stays perpetual. With `gamma_sent`, another coldkey
+/// sends `carol` gamma during the delay.
+fn reserved_swap_outcome(gamma_sent: bool) -> (bool, bool, bool, Option<bool>) {
+    let mut outcome = (false, false, false, None);
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob, carol) = (COLDKEY, COLDKEY + 100, COLDKEY + 200);
+        mint(netuid, alice, HOTKEY, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, 2 * GAMMA));
+        let (bob, carol) = (U256::from(bob), U256::from(carol));
+        let auto_stake_hotkey = U256::from(9_999);
+        AutoStakeDestination::<Test>::insert(bob, netuid, auto_stake_hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(auto_stake_hotkey, netuid, vec![bob]);
+        AccountFlags::<Test>::insert(bob, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+        let lock_hotkey = U256::from(OWNER_HOTKEY);
+        let lock = crate::staking::lock::LockState {
+            locked_mass: 1_000_000_000u64.into(),
+            conviction: U64F64::from_num(1_000_000_000u64),
+            last_update: SubtensorModule::get_current_block_as_u64(),
+        };
+        Lock::<Test>::insert((bob, netuid, lock_hotkey), lock.clone());
+        HotkeyLock::<Test>::insert(netuid, lock_hotkey, lock);
+        DecayingLock::<Test>::insert(bob, netuid, false);
+        add_balance_to_coldkey_account(
+            &bob,
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+            RuntimeOrigin::signed(bob),
+            carol
+        ));
+        if gamma_sent {
+            assert_ok!(transfer(
+                netuid,
+                alice,
+                COLDKEY + 200,
+                GAMMA / 10,
+                None,
+                None
+            ));
+        }
+        let (when, _) = ColdkeySwapAnnouncements::<Test>::get(bob).unwrap();
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(bob),
+            carol
+        ));
+        outcome = (
+            AutoStakeDestination::<Test>::get(carol, netuid).is_some(),
+            AccountFlags::<Test>::contains_key(carol),
+            SubtensorModule::same_coldkey_lineage(&bob, &carol),
+            DecayingLock::<Test>::get(carol, netuid),
+        );
+    });
+    outcome
+}
+
+// A gamma balance is funds, like TAO: sending one to a reserved destination changes nothing
+// about the swap.
+#[test]
+fn gamma_sent_to_a_reserved_destination_leaves_the_swap_unchanged() {
+    assert_eq!(
+        reserved_swap_outcome(false),
+        (true, true, true, Some(false))
+    );
+    assert_eq!(reserved_swap_outcome(true), reserved_swap_outcome(false));
+}
+
 // =============================================================================
 // Runtime API
 // =============================================================================
