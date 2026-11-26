@@ -2307,6 +2307,12 @@ def _json_object(response: Response, url: str, what: str, yaml: bool = False) ->
     return value
 
 
+# Parser events a YAML spec may have: about twice Microsoft Graph beta's. Loading
+# keeps a node of several hundred bytes for each before the value exists, so a
+# spec of a few megabytes could otherwise take gigabytes; counting them first is
+# cheap and holds none.
+MAX_YAML_EVENTS = 6_000_000
+
 # Nodes a YAML spec may have once its aliases are expanded: ten times Microsoft Graph's.
 # An alias makes a node appear again without its text, so a short spec could
 # otherwise stand for more than any walk of it could finish.
@@ -2314,10 +2320,16 @@ MAX_YAML_NODES = 16_000_000
 
 
 def _yaml(text: str, url: str, what: str) -> Any:
+    """The YAML at ``url`` as JSON would read it: scalar keys become text, as an
+    unquoted status code ``200:`` is, and values JSON has no type for are refused."""
     import yaml
 
+    loader = _yaml_loader()
     try:
-        value = yaml.load(text, Loader=_yaml_loader())
+        for count, _ in enumerate(yaml.parse(text, Loader=loader), 1):
+            if count > MAX_YAML_EVENTS:
+                raise ServiceError(f"{what} at {url} has more than {MAX_YAML_EVENTS} YAML events")
+        value = yaml.load(text, Loader=loader)
     except (yaml.YAMLError, RecursionError, ValueError):
         raise ServiceError(f"{what} at {url} is neither JSON nor YAML") from None
     count, pending = 0, [value]
@@ -2327,10 +2339,24 @@ def _yaml(text: str, url: str, what: str) -> Any:
         if count > MAX_YAML_NODES:
             raise ServiceError(f"{what} at {url} expands past {MAX_YAML_NODES} nodes")
         if isinstance(node, dict):
+            if not all(isinstance(key, str) for key in node):
+                items = list(node.items())
+                node.clear()
+                node.update((_yaml_key(key, url, what), item) for key, item in items)
             pending.extend(node.values())
         elif isinstance(node, list):
             pending.extend(node)
+        elif not isinstance(node, (str, int, float, type(None))):
+            raise ServiceError(f"{what} at {url} holds a {type(node).__name__}, which JSON cannot")
     return value
+
+
+def _yaml_key(key: object, url: str, what: str) -> str:
+    if isinstance(key, str):
+        return key
+    if isinstance(key, (int, float)) or key is None:
+        return json.dumps(key)
+    raise ServiceError(f"{what} at {url} has a {type(key).__name__} key, which JSON cannot")
 
 
 @functools.cache

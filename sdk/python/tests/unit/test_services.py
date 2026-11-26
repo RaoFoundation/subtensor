@@ -485,6 +485,40 @@ class TestLoad:
         web.pages[SPEC_URL] = Response(200, {}, bomb.encode())
         with pytest.raises(ServiceError, match="expands past 1000 nodes"):
             load()
+        web.pages[SPEC_URL] = Response(200, {}, b"a: &a [*a]\n")
+        with pytest.raises(ServiceError, match="expands past 1000 nodes"):
+            load()
+
+    def test_a_yaml_spec_is_counted_before_it_is_loaded(self, web, monkeypatch):
+        monkeypatch.setattr(services, "MAX_YAML_EVENTS", 1000)
+        flat = "a:\n" + "".join(f"  - {{k{i}: v}}\n" for i in range(300))
+        web.pages[SPEC_URL] = Response(200, {}, flat.encode())
+        with pytest.raises(ServiceError, match="more than 1000 YAML events"):
+            load()
+
+    def test_a_yaml_spec_reads_as_json_would(self, web):
+        yaml_spec = (
+            "openapi: 3.0.3\n"
+            "servers: [{url: 'https://svc.example/api'}]\n"
+            "paths:\n"
+            "  /x:\n"
+            "    get:\n"
+            "      operationId: getX\n"
+            "      security: []\n"
+            "      responses: {200: {description: ok}, ~: {description: none}}\n"
+        )
+        web.pages[SPEC_URL] = Response(200, {}, yaml_spec.encode())
+        op = load().operation("getX")
+        assert set(op.spec["paths"]["/x"]["get"]["responses"]) == {"200", "null"}
+        refused = {
+            "!!binary aGk=": "holds a bytes",
+            "!!set {a: null}": "holds a set",
+            "!!python/name:os.system": "neither JSON nor YAML",
+        }
+        for value, reason in refused.items():
+            web.pages[SPEC_URL] = Response(200, {}, f"openapi: 3.0.3\nx: {value}\n".encode())
+            with pytest.raises(ServiceError, match=reason):
+                load()
 
     def test_an_openapi_service_may_name_its_spec_apart_from_its_endpoint(self, web):
         entry = {"type": "openapi", "endpoint": "https://svc.example/api", "spec": SPEC_URL}
