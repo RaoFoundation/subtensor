@@ -706,10 +706,12 @@ class Output:
         help: Optional[str] = None,
         note: Optional[str] = None,
         see: Optional[str] = None,
+        data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Rustc diagnostic anatomy: ``error:`` states what is wrong (never how
         to fix it), ``note:`` adds context, ``help:`` carries the fix, ``see:``
-        points at a reference. Messages are lowercase with no trailing period."""
+        points at a reference. Messages are lowercase with no trailing period.
+        ``data`` adds machine-readable fields to the JSON error only."""
         if self.json_mode:
             payload: dict[str, Any] = {"error": text}
             if note:
@@ -718,6 +720,7 @@ class Output:
                 payload["help"] = help
             if see:
                 payload["see"] = see
+            payload.update(data or {})
             self._err.print_json(_json.dumps(payload))
             return
         line = Text()

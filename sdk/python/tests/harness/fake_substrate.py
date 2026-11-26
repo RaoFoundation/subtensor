@@ -152,6 +152,7 @@ class FakeSubstrate:
         self.connected = False
         self.closed = False
         self.block = 100
+        self.chain_kind = "Local"
         self.finalized = 100
         self.runtime_spec_version = 300
 
@@ -236,6 +237,9 @@ class FakeSubstrate:
 
     async def block_hash(self, block: Optional[int] = None) -> str:
         return f"0x{(self.block if block is None else block):064x}"
+
+    async def chain_type(self) -> str:
+        return self.chain_kind
 
     async def block_number(self) -> int:
         return self.block

@@ -36,7 +36,7 @@ root logger, so it stays silent unless your application opts in:
 import importlib.metadata as _importlib_metadata
 import logging as _logging
 
-from . import evm, http_auth, intents, reads, timelock, wallets
+from . import evm, http_auth, intents, reads, services, timelock, wallets
 from ._generated import calls, constants, storage
 from ._generated import runtime_apis as runtime_api
 from ._substrate import RpcSubstrate, Substrate
@@ -180,6 +180,8 @@ __all__ = [
     # Hotkey-signed HTTP requests (btauth/1): the identity layer for
     # miner/validator traffic. Sign and verify only — bring your own HTTP.
     "http_auth",
+    # Calling the services published on subnets, signed with btauth/1
+    "services",
     # Generated chain vocabulary (descriptors for query/runtime/constant, and
     # raw call builders for the submit_call escape hatch)
     "storage",

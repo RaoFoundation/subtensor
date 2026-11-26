@@ -155,6 +155,26 @@ class TestOffline:
         for group in ("wallet", "stake", "subnets", "query", "tx"):
             assert group in result.output
 
+    @pytest.mark.parametrize(
+        ("args", "error", "command"),
+        [
+            ("service balance --netuid x", "invalid value for '--netuid'", "btcli service balance"),
+            ("service list --bogus", "no such option: --bogus", "btcli service list"),
+            ("servic", "no such command 'servic'", "btcli"),
+        ],
+    )
+    def test_usage_errors_are_json_under_json(self, monkeypatch, capsys, args, error, command):
+        from bittensor.cli.prompt import run_app
+
+        monkeypatch.setenv("BTCLI_CONFIG", "/nonexistent/btcli.json")
+        monkeypatch.setattr("sys.argv", ["btcli", "--json", *args.split()])
+        with pytest.raises(SystemExit) as exit:
+            run_app(app)
+        assert exit.value.code == 2
+        record = json.loads(capsys.readouterr().err)
+        assert record["error"].startswith(error)
+        assert record["help"] == f"see `{command} -h`"
+
     def test_version(self):
         result = invoke("--version")
         assert result.exit_code == 0

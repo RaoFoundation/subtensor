@@ -48,6 +48,7 @@ from .commands import (
     multisig,
     proxy,
     root,
+    services,
     stake,
     subnets,
     sudo,
@@ -97,11 +98,13 @@ PANEL_ACCOUNTS = "Accounts"
 PANEL_CHAIN = "Raw chain access & agents"
 PANEL_ADDITIONAL = "Additional"
 
-# Primary commands, most-used first: everyday wallet, staking, and gamma deposit
-# operations, then subnet inspection, conviction locking, and hyperparameters.
+# Primary commands, most-used first: everyday wallet, staking, gamma deposit
+# operations and the services gamma pays for, then subnet inspection,
+# conviction locking, and hyperparameters.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
 app.add_typer(gamma.app, name="gamma")
+app.add_typer(services.app, name="service")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")
