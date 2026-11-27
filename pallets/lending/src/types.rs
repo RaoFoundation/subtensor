@@ -262,6 +262,7 @@ impl<BlockNumber: Copy> Position<BlockNumber> {
 }
 
 /// Cumulative interest of one subnet (SPEC I19).
+#[freeze_struct("6559790839bae251")]
 #[derive(
     Clone,
     Copy,

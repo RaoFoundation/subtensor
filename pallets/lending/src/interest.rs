@@ -4,7 +4,15 @@
 //! buckets up to the current block in order, at most `MaxChargesPerBlock` charges per block;
 //! `NextDue` is the first bucket not yet drained, so a backlog carries over. A charge accrues
 //! the position to the current block, takes `min(due, C)` from its collateral and credits the
-//! subnet pool's TAO reserve, then schedules the next charge `charge_interval_blocks` later.
+//! subnet pool's TAO reserve.
+//!
+//! The cadence is the model's (`model/v201/core.py`): a position is charged at every block
+//! where `(block - opened_at) % charge_interval_blocks == 0`, with the interval live at that
+//! block. After a successful charge at `now` the next one is the first grid block after `now`,
+//! `opened_at + k * charge_interval_blocks` (see [`next_charge_block`]). A
+//! charge that ran late therefore rejoins the grid at its next block instead of drifting by
+//! its lateness, and a change of interval applies from the next charge. A failed charge is
+//! tried again [`RETRY_DELAY_BLOCKS`] later, and the next successful charge realigns.
 //!
 //! The operations of `positions` charge on touch with the same two steps as the queue:
 //! [`Position::settle`] for the amounts and [`Pallet::pay_interest`] for the credit. A touch
@@ -14,7 +22,7 @@ use alloc::vec::Vec;
 use frame_support::{dispatch::DispatchResult, storage::with_storage_layer, traits::Get};
 use frame_system::pallet_prelude::BlockNumberFor;
 use sp_runtime::{
-    DispatchError,
+    DispatchError, SaturatedConversion,
     traits::{One, Saturating},
 };
 use subtensor_runtime_common::NetUid;
@@ -22,6 +30,7 @@ use subtensor_runtime_common::NetUid;
 use crate::{
     Config, Due, Event, InterestRetry, InterestTotals, LendingParamsStore, LendingPoolInterface,
     NextDue, Pallet, Positions, TotalPositions,
+    math::interest::next_charge_block,
     params::LendingParams,
     types::{Position, PositionId, Side},
 };
@@ -66,6 +75,18 @@ impl<T: Config> Pallet<T> {
     /// The block of a charge scheduled `delay` blocks after `now`.
     pub(crate) fn charge_block(now: BlockNumberFor<T>, delay: u32) -> BlockNumberFor<T> {
         now.saturating_add(delay.into())
+    }
+
+    /// The first block after `now` on the charge grid of a position opened at `opened_at` with
+    /// `interval` blocks (SPEC P15; the model's `(block - opened_at) % interval == 0`).
+    pub(crate) fn grid_block(
+        opened_at: BlockNumberFor<T>,
+        now: BlockNumberFor<T>,
+        interval: u32,
+    ) -> BlockNumberFor<T> {
+        let opened: u64 = opened_at.saturated_into();
+        let now: u64 = now.saturated_into();
+        next_charge_block(opened, now, interval).saturated_into()
     }
 
     /// Adds the `Due` entry of `id` at `at` and keeps `NextDue` at or before it.
@@ -122,27 +143,28 @@ impl<T: Config> Pallet<T> {
         charges
     }
 
-    /// Charges one position whose `Due` entry was just taken, and schedules its next charge:
-    /// `charge_interval_blocks` after this one, read now, so a change of the interval applies
-    /// from here (SPEC P15). A charge that fails leaves the position as it was, counts in
-    /// `InterestRetry` and is tried again [`RETRY_DELAY_BLOCKS`] later.
+    /// Charges one position whose `Due` entry was just taken, and schedules its next charge. A
+    /// charge that succeeds schedules the first block after `now` on the position's grid, read
+    /// with the interval live now, so a late charge rejoins the grid and an interval change
+    /// applies from here (SPEC P15). A charge that fails leaves the position as it was, counts
+    /// in `InterestRetry` and is tried again [`RETRY_DELAY_BLOCKS`] after `now`.
     fn charge_due(id: &PositionId<T::AccountId>, now: BlockNumberFor<T>, lending: &LendingParams) {
         let Some(pos) = Positions::<T>::get(id) else {
             return;
         };
         let charged = with_storage_layer(|| Self::charge_position(id, pos, lending.apr_bps, now));
         let paid = charged.is_ok();
-        let (pos, delay) = match charged {
+        let (pos, charge_at) = match charged {
             Ok(settled) => {
                 InterestRetry::<T>::remove(id);
-                (settled, lending.charge_interval_blocks)
+                let next = Self::grid_block(settled.opened_at, now, lending.charge_interval_blocks);
+                (settled, next)
             }
             Err(_) => {
                 InterestRetry::<T>::mutate(id, |failed| *failed = failed.saturating_add(1));
-                (pos, RETRY_DELAY_BLOCKS)
+                (pos, Self::charge_block(now, RETRY_DELAY_BLOCKS))
             }
         };
-        let charge_at = Self::charge_block(now, delay);
         Positions::<T>::insert(id, Position { charge_at, ..pos });
         Self::schedule_charge(id, charge_at);
         if paid {

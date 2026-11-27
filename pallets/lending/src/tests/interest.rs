@@ -283,13 +283,14 @@ fn a_charge_interval_change_applies_from_the_next_scheduled_charge() {
         assert!(Due::<Test>::contains_key(361, id(ALICE, Side::Long)));
         run_to(361);
         assert_eq!(charge(), model_accrue(DEBT, APR, 360, 0).0);
-        // From that charge on, the new interval schedules.
-        assert_eq!(position(ALICE, Side::Long).charge_at, 461);
-        run_to(460);
+        // From that charge on, the new interval schedules on the position's grid, `1 + k * 100`
+        // (the open is at block 1): the first grid block after 361 is 401, not 461.
+        assert_eq!(position(ALICE, Side::Long).charge_at, 401);
+        run_to(400);
         assert!(charges().is_empty());
-        run_to(461);
+        run_to(401);
         assert_eq!(charges().len(), 1);
-        assert_eq!(position(ALICE, Side::Long).charge_at, 561);
+        assert_eq!(position(ALICE, Side::Long).charge_at, 501);
         healthy();
     });
 }
@@ -402,10 +403,12 @@ fn a_backlog_of_due_charges_carries_over_across_blocks() {
         run_to(364);
         assert!(charges().is_empty());
 
-        // A charge that ran late accrued to its own block and is next due one interval later.
+        // A charge that ran late rejoins the grid: every position is next due at the first grid
+        // block after its late charge, `1 + 2 * INTERVAL` = 721, whichever block it ran in.
         let mut by_block = [0usize; 3];
         for (_, pos) in Positions::<Test>::iter() {
-            assert_eq!(pos.charge_at, pos.accrual.last_accrued + INTERVAL);
+            assert_eq!(pos.charge_at, 721);
+            assert_eq!((pos.charge_at - pos.opened_at) % INTERVAL, 0);
             let late = usize::try_from(pos.accrual.last_accrued - 361).expect("charged from 361");
             by_block[late] += 1;
         }
@@ -417,6 +420,10 @@ fn a_backlog_of_due_charges_carries_over_across_blocks() {
         for (block, due) in (721..).zip(by_block) {
             run_to(block);
             assert_eq!(charges().len(), due);
+        }
+        // The second round's late charges rejoin the grid as well: the next block is 1_081.
+        for pos in Positions::<Test>::iter_values() {
+            assert_eq!(pos.charge_at, 1_081);
         }
         healthy();
     });
@@ -452,7 +459,10 @@ fn a_failed_charge_is_retried_and_charges_the_whole_span() {
         run_to(retry_at);
         assert_eq!(charge(), model_accrue(DEBT, APR, retry_at - 1, 0).0);
         assert!(!InterestRetry::<Test>::contains_key(id(ALICE, Side::Long)));
-        assert_eq!(position(ALICE, Side::Long).charge_at, retry_at + INTERVAL);
+        assert_eq!(
+            position(ALICE, Side::Long).charge_at,
+            before.opened_at + 2 * INTERVAL
+        );
         healthy();
     });
 }
