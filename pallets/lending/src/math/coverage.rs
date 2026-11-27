@@ -18,7 +18,8 @@ pub fn stress_eff_bps(stress_bps: u32, slope_bps: u32, book: u64, pool_alpha: u6
 }
 
 /// Short coverage need (SPEC 1.1): `ceil(BuyCost(book | pumped pool) * q_pos / book)`, the pool
-/// pumped to `Stress_eff * max(spot, TWAP_median, SMA30)` and the buy-back quoted with fees.
+/// pumped to `Stress_eff * max(spot, SMA30_rank)` and the buy-back quoted with fees. The TWAP
+/// median is not part of the short reference (SPEC P2).
 /// The position is covered while `C + P >= need`.
 ///
 /// `book` is `SyntheticOutstanding` with this position counted. `None` means the whole-book
@@ -36,7 +37,7 @@ pub fn short_need<C: Curve>(
         return Some(0);
     }
     let stress = stress_eff_bps(stress_bps, slope_bps, book, pool.alpha)?;
-    let reference = refs.spot.max(refs.twap).max(refs.sma);
+    let reference = refs.spot.max(refs.sma);
     let target = scale_price_floor(reference, stress, BPS)?;
     let pumped = C::pumped(pool, target)?;
     let book_cost = C::tao_in_for_alpha(&pumped, book)?;
@@ -119,29 +120,29 @@ mod tests {
     }
 
     #[test]
-    fn short_need_uses_the_highest_reference_and_rounds_shares_up() {
+    fn short_need_uses_the_higher_of_spot_and_sma_and_rounds_shares_up() {
         let refs = flat_refs();
         let book = POOL.alpha / 100;
         let base = short_need::<Cp>(&POOL, &refs, book, book, 30_000, 20_000).unwrap();
         // At least Stress x the spot value of the book.
         assert!(base > 3 * (POOL.tao / 100));
         let high = Price::from_bits(refs.spot.to_bits() * 2);
-        for lifted in [
-            PriceRefs { twap: high, ..refs },
-            PriceRefs { sma: high, ..refs },
-        ] {
-            assert!(short_need::<Cp>(&POOL, &lifted, book, book, 30_000, 20_000).unwrap() > base);
-        }
+        let lifted = PriceRefs { sma: high, ..refs };
+        assert!(short_need::<Cp>(&POOL, &lifted, book, book, 30_000, 20_000).unwrap() > base);
         let low = Price::from_bits(refs.spot.to_bits() / 2);
-        let lowered = PriceRefs {
-            twap: low,
-            sma: low,
-            ..refs
-        };
+        let lowered = PriceRefs { sma: low, ..refs };
         assert_eq!(
             short_need::<Cp>(&POOL, &lowered, book, book, 30_000, 20_000),
             Some(base)
         );
+        // The TWAP median is not a short reference: it moves the need in neither direction.
+        for twap in [high, low] {
+            let moved = PriceRefs { twap, ..refs };
+            assert_eq!(
+                short_need::<Cp>(&POOL, &moved, book, book, 30_000, 20_000),
+                Some(base)
+            );
+        }
         // Three equal thirds each round up, so together they cover at least the whole book.
         let third = short_need::<Cp>(&POOL, &refs, book / 3, book, 30_000, 20_000).unwrap();
         assert!(third * 3 >= base - 3 && third >= base / 3);

@@ -1767,12 +1767,10 @@ mod tests {
                 "Lending::increase_short",
                 "Lending::close_short",
                 "Lending::add_collateral",
-                "Lending::withdraw_collateral",
                 "Lending::open_long",
                 "Lending::increase_long",
                 "Lending::close_long",
                 "Lending::add_long_collateral",
-                "Lending::withdraw_long_collateral",
                 "Utility::batch",
                 "Utility::batch_all",
                 "Utility::force_batch",
@@ -1810,7 +1808,6 @@ mod tests {
                 max_tao_in: 1,
             }),
             RuntimeCall::Lending(LendingCall::add_collateral { netuid, amount: 1 }),
-            RuntimeCall::Lending(LendingCall::withdraw_collateral { netuid, amount: 1 }),
             RuntimeCall::Lending(LendingCall::open_long {
                 netuid,
                 lift: 1,
@@ -1829,7 +1826,6 @@ mod tests {
                 min_tao_out: 0,
             }),
             RuntimeCall::Lending(LendingCall::add_long_collateral { netuid, amount: 1 }),
-            RuntimeCall::Lending(LendingCall::withdraw_long_collateral { netuid, amount: 1 }),
         ];
         let root_calls = [
             RuntimeCall::Lending(LendingCall::set_enabled { enabled: true }),

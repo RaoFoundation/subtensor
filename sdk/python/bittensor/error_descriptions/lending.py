@@ -112,12 +112,4 @@ DESCRIPTIONS: dict[str, str] = {
         "The coldkey already holds the maximum of 32 lending positions "
         "(`Lending.HolderPositions`). Close a position before opening another."
     ),
-    "WithdrawBreaksCoverage": (
-        "The withdrawal would take the position's collateral below its coverage need. "
-        "Withdraw less, or reduce the position first."
-    ),
-    "WithdrawBufferBreached": (
-        "The withdrawal would leave less collateral than the position's coverage need plus "
-        "the buffer kept for upcoming interest charges. Withdraw less."
-    ),
 }

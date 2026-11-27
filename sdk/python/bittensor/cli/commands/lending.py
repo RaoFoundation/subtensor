@@ -82,6 +82,8 @@ def show_params(ctx: typer.Context):
     for group in PARAM_GROUPS:
         for name, value in params[group].items():
             fields[f"{group}.{name}"] = f"{value:,}"
+    for name, value in (params.get("pending_rate_increase") or {}).items():
+        fields[f"pending rate increase.{name}"] = f"{value:,}"
     app_ctx.output.detail("lending parameters", fields, params)
 
 
@@ -307,7 +309,6 @@ for _alias, _op in (
     ("increase", "increase_short"),
     ("close", "close_short"),
     ("add-collateral", "short_add_collateral"),
-    ("withdraw", "short_withdraw_collateral"),
 ):
     short_app.command(_alias)(intent_command(_op))
 

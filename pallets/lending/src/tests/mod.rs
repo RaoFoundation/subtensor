@@ -12,4 +12,6 @@ pub(crate) mod mock;
 mod params;
 mod positions;
 mod prices;
+mod rate;
+mod rate_increase;
 mod try_state;

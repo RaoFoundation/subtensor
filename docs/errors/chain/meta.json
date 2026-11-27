@@ -476,8 +476,6 @@
     "WeightExceedsAbsoluteMax",
     "WeightVecLengthIsLow",
     "WeightVecNotEqualSize",
-    "WithdrawBreaksCoverage",
-    "WithdrawBufferBreached",
     "WithdrawFailed",
     "WrongCommitment",
     "WrongGeneration",

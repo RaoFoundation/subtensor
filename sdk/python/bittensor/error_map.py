@@ -570,8 +570,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "LongCoverageNotMet": _C.INSUFFICIENT_BALANCE,
     "InsufficientFunds": _C.INSUFFICIENT_BALANCE,
     "CloseInsolvent": _C.INSUFFICIENT_BALANCE,
-    "WithdrawBreaksCoverage": _C.INSUFFICIENT_BALANCE,
-    "WithdrawBufferBreached": _C.INSUFFICIENT_BALANCE,
     "TooManyLongPositions": _C.LIMIT_EXCEEDED,
     "TooManyPositions": _C.LIMIT_EXCEEDED,
     "QuoteMismatch": _C.INTERNAL,

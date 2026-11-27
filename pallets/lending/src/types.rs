@@ -10,8 +10,9 @@ use subtensor_runtime_common::NetUid;
 use crate::math::{
     PriceRefs,
     curve::PoolState,
-    fixed::Price,
+    fixed::{Price, mul_price_floor},
     interest::{accrue, short_notional},
+    rate::RateCurve,
 };
 
 /// The two sides of a position. A holder has at most one open side per subnet.
@@ -147,6 +148,24 @@ impl Leg {
         }
     }
 
+    /// The two terms of `u`, the debt over the holdings the rate curve reads (SPEC section 1
+    /// item 2, 7.1 item 4), with `collateral` the position's `C`: a short has
+    /// `floor(q * TWAP_median)` over `C + P`, a long has `D` over `floor(A * TWAP_median) + C`.
+    #[must_use]
+    pub fn debt_over_holdings(&self, collateral: u64, twap: Price) -> (u128, u128) {
+        let collateral = u128::from(collateral);
+        match *self {
+            Leg::Short { minted, proceeds } => (
+                u128::from(short_notional(minted, twap)),
+                collateral.saturating_add(u128::from(proceeds)),
+            ),
+            Leg::Long { locked_alpha, debt } => (
+                u128::from(debt),
+                u128::from(mul_price_floor(locked_alpha, twap)).saturating_add(collateral),
+            ),
+        }
+    }
+
     /// The TAO a short holds against its buy-back (`P`); a long holds none.
     #[must_use]
     pub fn proceeds(&self) -> u64 {
@@ -211,33 +230,57 @@ pub struct Position<BlockNumber> {
     pub leg: Leg,
 }
 
+/// One interest charge: what an accrual takes from the collateral, and the rate it accrued at.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Charge {
+    /// `min(due, C)` in rao TAO, which the caller moves to the pool.
+    pub amount: u64,
+    /// The yearly rate in bps the accrual read from the position (SPEC I23).
+    pub rate_bps: u32,
+}
+
 impl<BlockNumber: Copy + UniqueSaturatedInto<u64>> Position<BlockNumber> {
-    /// Charge-on-touch settlement (SPEC 1.2, P15): accrues interest on the leg's notional up to
-    /// `now`, then takes `min(due, collateral)` from the collateral. Returns the settled position
-    /// and that charge, which the caller moves to the pool at commit (pool-internal, not flow).
+    /// The yearly rate in bps of the position as it stands (SPEC section 1 item 2): the curve
+    /// at its debt over its holdings, both valued at `twap`.
     #[must_use]
-    pub fn settle(self, twap: Price, apr_bps: u32, now: BlockNumber) -> (Self, u64) {
+    pub fn rate_bps(&self, twap: Price, curve: &RateCurve) -> u32 {
+        let (debt, holdings) = self.leg.debt_over_holdings(self.collateral, twap);
+        curve.rate(debt, holdings)
+    }
+
+    /// Charge-on-touch settlement (SPEC section 1 item 2, P15): reads the rate from the position
+    /// as stored, before anything changes it, accrues interest at that rate on the leg's notional
+    /// up to `now`, then takes `min(due, collateral)` from the collateral. Returns the settled
+    /// position and the charge, which the caller moves to the pool at commit (pool-internal, not
+    /// flow).
+    ///
+    /// The rate is read here and nowhere else, so whatever the caller does to the position
+    /// next (a top-up, a resize) changes the rate only from this block on, and a
+    /// change of the curve applies from each position's next accrual.
+    #[must_use]
+    pub fn settle(self, twap: Price, curve: &RateCurve, now: BlockNumber) -> (Self, Charge) {
         let now_blocks: u64 = now.unique_saturated_into();
         let last: u64 = self.accrual.last_accrued.unique_saturated_into();
         let elapsed = now_blocks.saturating_sub(last);
+        let rate_bps = self.rate_bps(twap, curve);
         let owed = accrue(
             self.leg.notional(twap),
-            apr_bps,
+            rate_bps,
             elapsed,
             self.accrual.remainder,
         );
         let due = self.accrual.due.saturating_add(owed.owed);
-        let charge = due.min(self.collateral);
+        let amount = due.min(self.collateral);
         let settled = Self {
-            collateral: self.collateral.saturating_sub(charge),
+            collateral: self.collateral.saturating_sub(amount),
             accrual: Accrual {
                 last_accrued: now,
                 remainder: owed.remainder,
-                due: due.saturating_sub(charge),
+                due: due.saturating_sub(amount),
             },
             ..self
         };
-        (settled, charge)
+        (settled, Charge { amount, rate_bps })
     }
 }
 

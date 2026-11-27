@@ -85,8 +85,8 @@ Prefer the narrowest type that covers the job:
 * **BasketTrading** — `swap_basket` and `swap_basket_many` only: rebalance a
   root validator's basket without being able to deposit, withdraw, or claim.
 * **Lending** — the lending position calls only (`open_short`,
-  `increase_short`, `close_short`, `add_collateral`, `withdraw_collateral` and
-  their long counterparts), alone or in a `Utility` batch of only those calls.
+  `increase_short`, `close_short`, `add_collateral` and their long
+  counterparts), alone or in a `Utility` batch of only those calls.
   It cannot transfer, stake, or change lending parameters. No other proxy type
   except `Any` reaches these calls.
 * **Validate** — run a validator *hotkey* from an operations key:

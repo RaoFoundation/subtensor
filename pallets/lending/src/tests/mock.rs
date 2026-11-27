@@ -351,6 +351,21 @@ pub fn migrated_ext() -> sp_io::TestExternalities {
     ext
 }
 
+/// Writes a change to the live `LendingParams`, as an applied setter leaves it.
+pub fn set_live_lending(change: impl FnOnce(&mut crate::params::LendingParams)) {
+    crate::LendingParamsStore::<Test>::mutate(change);
+}
+
+/// Sets the least rate floor and no delay of a rate increase, for the tests of the curve and
+/// of parameter changes: with the launch floor (the base APR) every position below `u = 1`
+/// pays one flat rate, and a raised rate would wait three days.
+pub fn bare_curve() {
+    set_live_lending(|p| {
+        p.rate_floor_bps = 1;
+        p.rate_increase_delay_blocks = 0;
+    });
+}
+
 /// Runs `on_initialize` for every block after the current one up to and including `target`.
 /// Events of earlier blocks are dropped, so `lending_events` returns only `target`'s.
 pub fn run_to(target: u64) {

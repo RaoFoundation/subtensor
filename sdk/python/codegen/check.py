@@ -81,7 +81,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "increase_long",
         "close_long",
         "add_long_collateral",
-        "withdraw_long_collateral",
     },
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship

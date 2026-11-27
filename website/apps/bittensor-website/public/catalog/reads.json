@@ -1323,7 +1323,7 @@
   {
     "name": "lending_params",
     "summary": "The lending switches and the four live parameter groups.",
-    "description": "The lending switches and the four live parameter groups.\n\n`enabled` and `longs_enabled` gate opening and increasing shorts and longs.\n`lending`, `short`, `long` and `dereg` are the parameter groups as the chain\nstores them: rates and bands in basis points, windows in blocks or days, and\nthe `lending` amounts (`equity_floor`, `min_pool_tao`, `min_notional`,\n`deposit`) in rao. A group changed by its setter is live from the block after\nthe change.",
+    "description": "The lending switches and the four live parameter groups.\n\n`enabled` and `longs_enabled` gate opening and increasing shorts and longs.\n`lending`, `short`, `long` and `dereg` are the parameter groups as the chain\nstores them: rates and bands in basis points, windows in blocks or days, and\nthe `lending` amounts (`min_pool_tao`, `min_notional`, `deposit`) in rao.\n`lending.apr_bps`, `rate_k`, `rate_cap_bps` and `rate_floor_bps` are the\ninterest rate: a position pays\n`max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))` a year on its\nnotional, with `u` its debt over its holdings. A group changed by its setter\nis live from the block after the change, except a change that raises a rate\nfield (or changes `rate_k`), which waits `lending.rate_increase_delay_blocks`\nblocks: `pending_rate_increase` is then the four waiting rate fields and\n`effective_at`, the block they go live, and `None` when nothing waits.",
     "params": {},
     "param_docs": {},
     "category": "Lending",
@@ -1331,6 +1331,15 @@
     "markdown_url": "/llms.mdx/docs/query/lending-params/content.md",
     "python": "sub.lending.lending_params(...)",
     "hits": [
+      {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "PendingRateIncrease",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 138,
+        "url": "/code/pallets/lending/src/lib.rs#L138",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
       {
         "kind": "runtime",
         "container": "LendingRuntimeApi",

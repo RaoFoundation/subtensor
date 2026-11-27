@@ -7,12 +7,12 @@ description: "Add collateral to your short on a subnet."
 
 Moves `amount_tao` from your free balance into the position's custody.
 More collateral raises the position's equity and the interest it can
-cover; it returns when the short is closed or through
-`short_withdraw_collateral`.
+cover. Collateral leaves a position only when the short is closed: there
+is no withdrawal.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L544-L549) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L556-L561) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("short_add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L546`](/code/pallets/lending/src/lib.rs#L544-L549):
+`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L558`](/code/pallets/lending/src/lib.rs#L556-L561):
 
 ```rust
 #[pallet::call_index(3)]
@@ -75,6 +75,6 @@ pub fn add_collateral(origin: OriginFor<T>, netuid: NetUid, amount: u64) -> Disp
 }
 ```
 
-Delegates to [`do_add_collateral`](/code/pallets/lending/src/positions.rs#L672).
+Delegates to [`do_add_collateral`](/code/pallets/lending/src/positions.rs#L671).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

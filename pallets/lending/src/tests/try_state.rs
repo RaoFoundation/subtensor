@@ -123,10 +123,13 @@ fn i26_fails_for_out_of_bounds_live_params() {
         LendingParamsStore::<Test>::mutate(|p| p.apr_bps = 0);
     });
     assert_fault("I26: LendingParams out of bounds", || {
-        LendingParamsStore::<Test>::mutate(|p| p.exit_hysteresis_bps = 5_001);
+        LendingParamsStore::<Test>::mutate(|p| p.rate_k = 9);
     });
     assert_fault("I26: LendingParams out of bounds", || {
-        LendingParamsStore::<Test>::mutate(|p| p.withdraw_buffer_blocks = 7_199);
+        LendingParamsStore::<Test>::mutate(|p| p.rate_cap_bps = p.apr_bps - 1);
+    });
+    assert_fault("I26: LendingParams out of bounds", || {
+        LendingParamsStore::<Test>::mutate(|p| p.rate_floor_bps = 0);
     });
     assert_fault("I26: ShortParams out of bounds", || {
         ShortParamsStore::<Test>::mutate(|p| p.stress_bps = 9_999);

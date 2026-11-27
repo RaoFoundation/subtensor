@@ -213,7 +213,6 @@ INTENT_SAMPLES: dict[str, dict] = {
     "increase_short": {"netuid": 1, "amount_alpha": 10.0, "collateral_tao": 2.0},
     "close_short": {"netuid": 1, "amount_alpha": 5.0},
     "short_add_collateral": {"netuid": 1, "amount_tao": 1.0},
-    "short_withdraw_collateral": {"netuid": 1, "amount_tao": 1.0},
     "set_lending_enabled": {"enabled": True},
     "set_lending_longs_enabled": {"enabled": False},
     "set_lending_params": {"changes": {"apr_bps": 1_500}},

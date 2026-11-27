@@ -14,6 +14,7 @@ use crate::{
         PriceRefs,
         curve::{ConstantProduct, PoolState},
         fixed::{Price, price},
+        rate::RateCurve,
     },
     params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
     positions::{ALPHA_SUPPLY_CAP, Params, coverage_need},
@@ -238,46 +239,98 @@ fn short_close_refuses_a_buy_back_above_the_bound() {
     });
 }
 
+/// Collateral leaves a position only on close (approved change beyond SPEC-v2.1): the pallet
+/// has no withdraw call, and neither a top-up, an increase nor a scheduled charge pays the
+/// owner anything or lowers the collateral by more than the interest that goes to the pool.
 #[test]
-fn short_collateral_withdrawal_stops_at_coverage() {
-    live().execute_with(|| {
-        assert_ok!(open_short(ALICE, alpha(200), tao(45)));
-        assert_noop!(
-            Lending::withdraw_collateral(RuntimeOrigin::signed(ALICE), sn1(), tao(20)),
-            Error::<Test>::WithdrawBreaksCoverage
-        );
-        assert_noop!(
-            Lending::withdraw_collateral(RuntimeOrigin::signed(ALICE), sn1(), tao(21)),
-            Error::<Test>::WithdrawBreaksCoverage
-        );
-        healthy();
-    });
-}
+fn only_a_close_returns_collateral_to_the_owner() {
+    use frame_support::traits::GetCallName;
+    let calls = crate::Call::<Test>::get_call_names();
+    assert!(calls.iter().all(|name| !name.contains("withdraw")));
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|name| name.contains("collateral"))
+            .collect::<Vec<_>>(),
+        [&"add_collateral", &"add_long_collateral"]
+    );
 
-#[test]
-fn added_collateral_can_be_withdrawn_within_coverage() {
-    live().execute_with(|| {
-        assert_ok!(open_short(ALICE, alpha(200), tao(45)));
-        assert_ok!(Lending::add_collateral(
-            RuntimeOrigin::signed(ALICE),
-            sn1(),
-            tao(20)
-        ));
-        assert_ok!(Lending::withdraw_collateral(
-            RuntimeOrigin::signed(ALICE),
-            sn1(),
-            tao(10)
-        ));
-        assert_eq!(
-            position(ALICE, Side::Short).expect("open").collateral,
-            tao(55)
-        );
-        assert!(lending_events().iter().any(|e| matches!(
-            e,
-            Event::CollateralWithdrawn { side: Side::Short, amount, .. } if *amount == tao(10)
-        )));
-        healthy();
-    });
+    type Op = fn() -> DispatchResult;
+    let origin = || RuntimeOrigin::signed(ALICE);
+    let short: [(u64, Op); 3] = [
+        (tao(5), || {
+            Lending::add_collateral(RuntimeOrigin::signed(ALICE), sn1(), tao(5))
+        }),
+        (tao(3), || {
+            Lending::increase_short(RuntimeOrigin::signed(ALICE), sn1(), alpha(10), tao(3), 0)
+        }),
+        (0, || {
+            Lending::increase_short(RuntimeOrigin::signed(ALICE), sn1(), alpha(10), 0, 0)
+        }),
+    ];
+    let long: [(u64, Op); 3] = [
+        (tao(5), || {
+            Lending::add_long_collateral(RuntimeOrigin::signed(ALICE), sn1(), tao(5))
+        }),
+        (tao(3), || {
+            Lending::increase_long(RuntimeOrigin::signed(ALICE), sn1(), tao(2), tao(3), 0)
+        }),
+        (0, || {
+            Lending::increase_long(RuntimeOrigin::signed(ALICE), sn1(), tao(1), 0, 0)
+        }),
+    ];
+    for (side, ops) in [(Side::Short, short), (Side::Long, long)] {
+        live().execute_with(|| {
+            match side {
+                Side::Short => {
+                    assert_ok!(open_short(ALICE, alpha(200), tao(60)));
+                }
+                Side::Long => {
+                    assert_ok!(open_long(ALICE, tao(20), tao(30)));
+                }
+            }
+            for (added, op) in ops {
+                // Interest accrues before each call, so the call also settles a charge.
+                run_to(System::block_number() + 500);
+                let free = FakePool::tao_balance(&ALICE);
+                let held = position(ALICE, side).expect("open").collateral;
+                assert_ok!(op());
+                let after = position(ALICE, side).expect("open").collateral;
+                // The owner pays exactly what the call adds and receives nothing.
+                assert_eq!(FakePool::tao_balance(&ALICE), free - added, "{side:?}");
+                // The collateral moves by the addition, less the interest settled.
+                assert!(
+                    after <= held + added && after > held + added - RAO,
+                    "{side:?}"
+                );
+            }
+            // The scheduled charges pay the pool, not the owner.
+            let free = FakePool::tao_balance(&ALICE);
+            let held = position(ALICE, side).expect("open").collateral;
+            run_to(System::block_number() + 7_200);
+            assert_eq!(FakePool::tao_balance(&ALICE), free);
+            let left = position(ALICE, side).expect("open").collateral;
+            assert!(left < held);
+            healthy();
+
+            // The full close is what returns the collateral.
+            match side {
+                Side::Short => {
+                    assert_ok!(Lending::close_short(origin(), sn1(), alpha(220), u64::MAX));
+                }
+                Side::Long => {
+                    let Leg::Long { locked_alpha, .. } = position(ALICE, side).expect("open").leg
+                    else {
+                        panic!("long leg expected");
+                    };
+                    assert_ok!(Lending::close_long(origin(), sn1(), locked_alpha, 0));
+                }
+            }
+            assert!(position(ALICE, side).is_none());
+            assert!(FakePool::tao_balance(&ALICE) > free);
+            healthy();
+        });
+    }
 }
 
 #[test]
@@ -525,7 +578,7 @@ fn partial_long_close_keeps_the_position() {
 }
 
 #[test]
-fn long_collateral_round_trips() {
+fn long_collateral_is_added() {
     live().execute_with(|| {
         assert_ok!(open_long(ALICE, tao(20), tao(12)));
         assert_ok!(Lending::add_long_collateral(
@@ -536,10 +589,6 @@ fn long_collateral_round_trips() {
         assert_eq!(
             position(ALICE, Side::Long).expect("open").collateral,
             tao(17)
-        );
-        assert_noop!(
-            Lending::withdraw_long_collateral(RuntimeOrigin::signed(ALICE), sn1(), tao(17)),
-            Error::<Test>::WithdrawBreaksCoverage
         );
         healthy();
     });
@@ -607,24 +656,51 @@ fn position_at(collateral: u64, due: u64, leg: Leg, opened: u64) -> Position<u64
     }
 }
 
+const LAUNCH_CURVE: RateCurve = RateCurve {
+    apr_bps: 2_000,
+    k: 2,
+    cap_bps: 10_000,
+    // The least floor, so the curve below the base rate is what the test sees.
+    floor_bps: 1,
+};
+
 #[test]
 fn settle_charges_interest_up_to_the_collateral() {
-    // A short of 10 alpha at TWAP 1.0 has a notional of 10 TAO; 20% APR over a year owes 2 TAO.
+    // A short of 10 alpha at TWAP 1.0 has a notional of 10 TAO. Holding 1 TAO against it is
+    // u = 10: the capped 100% a year owes 10 TAO, and the collateral pays what it has.
     let leg = Leg::Short {
         minted: alpha(10),
         proceeds: 0,
     };
     let twap = price(1, 1);
-    let (drained, charge) = position_at(tao(1), 0, leg, 1).settle(twap, 2_000, 1 + YEAR_BLOCKS);
-    assert_eq!(charge, tao(1));
+    let (drained, charge) =
+        position_at(tao(1), 0, leg, 1).settle(twap, &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
+    assert_eq!((charge.amount, charge.rate_bps), (tao(1), 10_000));
     assert_eq!(drained.collateral, 0);
-    assert!(drained.accrual.due > 0);
+    assert_eq!(drained.accrual.due, tao(9));
 
-    let (covered, charge) = position_at(tao(5), 0, leg, 1).settle(twap, 2_000, 1 + YEAR_BLOCKS);
-    assert!(charge > 0 && charge < tao(5));
-    assert_eq!(covered.collateral, tao(5) - charge);
+    // Holding 10 TAO is u = 1: the base 20% a year owes 2 TAO.
+    let (covered, charge) =
+        position_at(tao(10), 0, leg, 1).settle(twap, &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
+    assert_eq!((charge.amount, charge.rate_bps), (tao(2), 2_000));
+    assert_eq!(covered.collateral, tao(8));
     assert_eq!(covered.accrual.due, 0);
     assert_eq!(covered.accrual.last_accrued, 1 + YEAR_BLOCKS);
+}
+
+#[test]
+fn settle_reads_the_rate_before_it_takes_the_charge() {
+    // u = 10 / 20 = 0.5: 5% a year on 10 TAO owes 0.5 TAO. The rate is the one of the 20 TAO
+    // held before the charge, not of the 19.5 TAO left after it.
+    let leg = Leg::Short {
+        minted: alpha(10),
+        proceeds: tao(5),
+    };
+    let pos = position_at(tao(15), 0, leg, 1);
+    let (settled, charge) = pos.settle(price(1, 1), &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
+    assert_eq!((charge.amount, charge.rate_bps), (tao(1) / 2, 500));
+    assert_eq!(pos.rate_bps(price(1, 1), &LAUNCH_CURVE), 500);
+    assert_eq!(settled.rate_bps(price(1, 1), &LAUNCH_CURVE), 525);
 }
 
 #[test]
@@ -634,8 +710,9 @@ fn settle_at_the_same_block_is_a_no_op() {
         debt: tao(10),
     };
     let pos = position_at(tao(5), tao(1), leg, 7);
-    let (settled, charge) = pos.settle(price(1, 1), 2_000, 7);
-    assert_eq!(charge, tao(1));
+    let (settled, charge) = pos.settle(price(1, 1), &LAUNCH_CURVE, 7);
+    // Debt 10 over 10 of alpha value plus 5 of collateral: 2,000 * (2/3)^2, floored per step.
+    assert_eq!((charge.amount, charge.rate_bps), (tao(1), 888));
     assert_eq!(settled.collateral, tao(4));
     assert_eq!(settled.accrual.due, 0);
 }
@@ -658,44 +735,60 @@ fn golden_price(v: &serde_json::Value) -> Price {
     )
 }
 
-#[test]
-fn coverage_need_matches_the_model_on_golden_rows() {
-    let doc: serde_json::Value =
-        serde_json::from_str(include_str!("golden/math.json")).expect("golden JSON parses");
-    let rows = doc["coverage_health"].as_array().expect("array");
-    assert_eq!(rows.len(), 180);
-    let params = Params {
+fn golden_params() -> Params {
+    Params {
         lending: LendingParams::default(),
         short: ShortParams::default(),
         long: LongParams::default(),
         dereg: DeregParams::default(),
-    };
+    }
+}
+
+fn golden_refs(row: &serde_json::Value) -> PriceRefs {
+    PriceRefs {
+        spot: golden_price(&row["spot"]),
+        twap: golden_price(&row["twap"]),
+        sma: golden_price(&row["sma"]),
+    }
+}
+
+#[test]
+fn short_coverage_need_matches_the_model_on_golden_rows() {
+    let doc: serde_json::Value =
+        serde_json::from_str(include_str!("golden/v21.json")).expect("golden JSON parses");
+    let rows = doc["coverage"].as_array().expect("array");
+    assert_eq!(rows.len(), 540);
+    let params = golden_params();
     for (i, row) in rows.iter().enumerate() {
         let pool = PoolState::model(golden_amount(&row["tao"]), golden_amount(&row["alpha"]));
-        let refs = PriceRefs {
-            spot: golden_price(&row["spot"]),
-            twap: golden_price(&row["twap"]),
-            sma: golden_price(&row["sma"]),
-        };
-
-        let short = &row["short"];
         let leg = Leg::Short {
-            minted: golden_amount(&short["q"]),
+            minted: golden_amount(&row["q"]),
             proceeds: 0,
         };
-        let need = (!short["need"].is_null()).then(|| golden_amount(&short["need"]));
+        let need = (!row["need"].is_null()).then(|| golden_amount(&row["need"]));
         assert_eq!(
             coverage_need::<ConstantProduct>(
                 &leg,
-                golden_amount(&short["book"]),
+                golden_amount(&row["book"]),
                 &pool,
-                &refs,
+                &golden_refs(row),
                 &params
             ),
             need,
             "short need, row {i}"
         );
+    }
+}
 
+#[test]
+fn long_coverage_need_matches_the_model_on_golden_rows() {
+    let doc: serde_json::Value =
+        serde_json::from_str(include_str!("golden/math.json")).expect("golden JSON parses");
+    let rows = doc["long_coverage"].as_array().expect("array");
+    assert_eq!(rows.len(), 180);
+    let params = golden_params();
+    for (i, row) in rows.iter().enumerate() {
+        let pool = PoolState::model(golden_amount(&row["tao"]), golden_amount(&row["alpha"]));
         let long = &row["long"];
         let leg = Leg::Long {
             locked_alpha: golden_amount(&long["a"]),
@@ -706,7 +799,7 @@ fn coverage_need_matches_the_model_on_golden_rows() {
                 &leg,
                 golden_amount(&long["book"]),
                 &pool,
-                &refs,
+                &golden_refs(row),
                 &params
             ),
             Some(golden_amount(&long["need"])),

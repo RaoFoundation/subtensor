@@ -60,7 +60,6 @@ from .lending import (
     SetLendingParams,
     SetLendingShortParams,
     ShortAddCollateral,
-    ShortWithdrawCollateral,
 )
 from .limit_orders import (
     AuthorizeOrder,
@@ -232,7 +231,6 @@ __all__ = [
     "SetTake",
     "SetWeights",
     "ShortAddCollateral",
-    "ShortWithdrawCollateral",
     "Spend",
     "SpendGamma",
     "StakeBurn",

@@ -892,9 +892,9 @@
         "pallet": "Lending",
         "call": "close_short",
         "path": "pallets/lending/src/lib.rs",
-        "line": 533,
-        "end_line": 541,
-        "url": "/code/pallets/lending/src/lib.rs#L531-L541",
+        "line": 545,
+        "end_line": 553,
+        "url": "/code/pallets/lending/src/lib.rs#L543-L553",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -1797,9 +1797,9 @@
         "pallet": "Lending",
         "call": "increase_short",
         "path": "pallets/lending/src/lib.rs",
-        "line": 508,
-        "end_line": 527,
-        "url": "/code/pallets/lending/src/lib.rs#L506-L527",
+        "line": 520,
+        "end_line": 539,
+        "url": "/code/pallets/lending/src/lib.rs#L518-L539",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -2812,9 +2812,9 @@
         "pallet": "Lending",
         "call": "open_short",
         "path": "pallets/lending/src/lib.rs",
-        "line": 484,
-        "end_line": 503,
-        "url": "/code/pallets/lending/src/lib.rs#L482-L503",
+        "line": 496,
+        "end_line": 515,
+        "url": "/code/pallets/lending/src/lib.rs#L494-L515",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -4894,9 +4894,9 @@
         "pallet": "Lending",
         "call": "set_dereg_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 704,
-        "end_line": 707,
-        "url": "/code/pallets/lending/src/lib.rs#L702-L707",
+        "line": 700,
+        "end_line": 703,
+        "url": "/code/pallets/lending/src/lib.rs#L698-L703",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -4940,9 +4940,9 @@
         "pallet": "Lending",
         "call": "set_enabled",
         "path": "pallets/lending/src/lib.rs",
-        "line": 661,
-        "end_line": 665,
-        "url": "/code/pallets/lending/src/lib.rs#L659-L665",
+        "line": 651,
+        "end_line": 655,
+        "url": "/code/pallets/lending/src/lib.rs#L649-L655",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -4986,9 +4986,9 @@
         "pallet": "Lending",
         "call": "set_long_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 696,
-        "end_line": 699,
-        "url": "/code/pallets/lending/src/lib.rs#L694-L699",
+        "line": 692,
+        "end_line": 695,
+        "url": "/code/pallets/lending/src/lib.rs#L690-L695",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -5032,9 +5032,9 @@
         "pallet": "Lending",
         "call": "set_longs_enabled",
         "path": "pallets/lending/src/lib.rs",
-        "line": 670,
-        "end_line": 675,
-        "url": "/code/pallets/lending/src/lib.rs#L668-L675",
+        "line": 660,
+        "end_line": 665,
+        "url": "/code/pallets/lending/src/lib.rs#L658-L665",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -5042,7 +5042,7 @@
   {
     "name": "set_lending_params",
     "summary": "Change the lending parameters shared by shorts and longs (root only).",
-    "description": "Change the lending parameters shared by shorts and longs (root only).\n\n`changes` names the fields to change among `apr_bps`,\n`charge_interval_blocks`, `equity_floor`, `min_interest_cover_blocks`,\n`pace_bps_per_block`, `pause_twap_bps`, `pause_sma_bps`,\n`min_pool_tao`, `min_notional`, `deposit`, `withdraw_buffer_blocks`,\n`exit_hysteresis_bps`, `twap_samples` and `twap_interval_blocks`;\namounts are in rao. The rest keep their value. The chain checks the whole\ngroup against its bounds, refuses it whole on any breach, and applies it\nfrom the next block. Verify with the `lending_params` read.",
+    "description": "Change the lending parameters shared by shorts and longs (root only).\n\n`changes` names the fields to change among `apr_bps`, `rate_k`,\n`rate_cap_bps`, `rate_floor_bps`, `rate_increase_delay_blocks`,\n`charge_interval_blocks`, `min_pool_tao`, `min_notional`, `deposit`,\n`twap_samples` and `twap_interval_blocks`; amounts are in rao. The rest\nkeep their value. `apr_bps`, `rate_k`,\n`rate_cap_bps` and `rate_floor_bps` are the interest rate\n`max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))` of a\nposition's debt over its holdings `u`. The chain checks the whole group\nagainst its bounds and refuses it whole on any breach. A change that raises\nno rate (`apr_bps`, `rate_cap_bps` and `rate_floor_bps` each at or\nbelow the live value, `rate_k` unchanged) applies from the next block,\nand so do the other fields. Any other change of the four rate fields waits\n`rate_increase_delay_blocks` blocks (the value live at the call); until\nthen the group shows the live rate fields and the read's\n`pending_rate_increase` the waiting ones. Each call replaces the waiting\nincrease: rate fields left out of `changes` keep their waiting value and\nthe delay starts again, and naming all four at or below their live values\ncancels it. Verify with the\n`lending_params` read.",
     "signer": "coldkey",
     "origin": "root",
     "verify": "lending_params",
@@ -5078,9 +5078,9 @@
         "pallet": "Lending",
         "call": "set_lending_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 680,
-        "end_line": 683,
-        "url": "/code/pallets/lending/src/lib.rs#L678-L683",
+        "line": 676,
+        "end_line": 679,
+        "url": "/code/pallets/lending/src/lib.rs#L671-L679",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -5124,9 +5124,9 @@
         "pallet": "Lending",
         "call": "set_short_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 688,
-        "end_line": 691,
-        "url": "/code/pallets/lending/src/lib.rs#L686-L691",
+        "line": 684,
+        "end_line": 687,
+        "url": "/code/pallets/lending/src/lib.rs#L682-L687",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -5955,7 +5955,7 @@
   {
     "name": "short_add_collateral",
     "summary": "Add collateral to your short on a subnet.",
-    "description": "Add collateral to your short on a subnet.\n\nMoves `amount_tao` from your free balance into the position's custody.\nMore collateral raises the position's equity and the interest it can\ncover; it returns when the short is closed or through\n`short_withdraw_collateral`.",
+    "description": "Add collateral to your short on a subnet.\n\nMoves `amount_tao` from your free balance into the position's custody.\nMore collateral raises the position's equity and the interest it can\ncover. Collateral leaves a position only when the short is closed: there\nis no withdrawal.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -6001,65 +6001,9 @@
         "pallet": "Lending",
         "call": "add_collateral",
         "path": "pallets/lending/src/lib.rs",
-        "line": 546,
-        "end_line": 549,
-        "url": "/code/pallets/lending/src/lib.rs#L544-L549",
-        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
-      }
-    ]
-  },
-  {
-    "name": "short_withdraw_collateral",
-    "summary": "Withdraw collateral from your short on a subnet.",
-    "description": "Withdraw collateral from your short on a subnet.\n\nMoves `amount_tao` from the position's custody back to your free\nbalance. The chain refuses a withdrawal that leaves the position below its\ncoverage need plus the interest buffer.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "Lending",
-        "withdraw_collateral"
-      ]
-    ],
-    "docs_url": "/docs/tx/short-withdraw-collateral",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet of the short."
-        },
-        "amount_tao": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "^\\d+(\\.\\d+)?$",
-              "description": "decimal string, for amounts too large for an exact float"
-            }
-          ],
-          "description": "TAO withdrawn from the short's collateral."
-        }
-      },
-      "required": [
-        "netuid",
-        "amount_tao"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx short-withdraw-collateral --netuid <int> --amount-tao <amount>",
-    "python_class": "ShortWithdrawCollateral",
-    "markdown_url": "/llms.mdx/docs/tx/short-withdraw-collateral/content.md",
-    "sources": [
-      {
-        "pallet": "Lending",
-        "call": "withdraw_collateral",
-        "path": "pallets/lending/src/lib.rs",
-        "line": 555,
-        "end_line": 562,
-        "url": "/code/pallets/lending/src/lib.rs#L553-L562",
+        "line": 558,
+        "end_line": 561,
+        "url": "/code/pallets/lending/src/lib.rs#L556-L561",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

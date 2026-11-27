@@ -216,7 +216,7 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_flow(side, netuid, q, opening, &market, &params, now)?;
 
-        let (pos, charge) = held.settle(market.refs.twap, params.lending.apr_bps, now);
+        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
         let (after, proceeds) = quote_grow::<T>(side, &market.pool, q)?;
         ensure!(proceeds > 0, Error::<T>::InvalidAmount);
         ensure!(
@@ -232,7 +232,7 @@ impl<T: Config> Pallet<T> {
             .book(side)
             .checked_add(q)
             .ok_or(Error::<T>::Overflow)?;
-        let post = post_pool(after, charge);
+        let post = post_pool(after, charge.amount);
         let need = coverage_need::<T::Curve>(
             &leg,
             book_after,
@@ -243,7 +243,7 @@ impl<T: Config> Pallet<T> {
         .ok_or(Error::<T>::CoverageNotMet)?;
         Ok(ShortGrowQuote {
             proceeds,
-            interest: charge,
+            interest: charge.amount,
             deposit: if opening { params.lending.deposit } else { 0 },
             coverage_need: need,
             min_collateral: need.saturating_sub(held_against(pos.collateral, &leg)),
@@ -265,7 +265,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, params.lending.apr_bps, now);
+        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
         let full = alpha == pos.leg.alpha();
         let quote = quote_close::<T>(&pos.leg, &market.pool, alpha, pos.collateral, u64::MAX)?;
         if !full {
@@ -275,7 +275,7 @@ impl<T: Config> Pallet<T> {
                 .book(side)
                 .checked_sub(alpha)
                 .ok_or(Error::<T>::Overflow)?;
-            let post = post_pool(quote.after, charge.saturating_add(quote.repaid));
+            let post = post_pool(quote.after, charge.amount.saturating_add(quote.repaid));
             let need = coverage_need::<T::Curve>(
                 &leg,
                 book,
@@ -284,7 +284,7 @@ impl<T: Config> Pallet<T> {
                 &params,
             );
             ensure!(
-                covers(need, held_against(collateral, &leg), 0),
+                covers(need, held_against(collateral, &leg)),
                 Error::<T>::CoverageNotMet
             );
         }
@@ -293,7 +293,7 @@ impl<T: Config> Pallet<T> {
             cost: quote.value,
             from_proceeds: quote.consumed,
             from_collateral: quote.from_collateral,
-            interest: charge,
+            interest: charge.amount,
             full,
         })
     }

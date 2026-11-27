@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .._generated import runtime_apis as api
+from .._generated import storage as st
 from ..balance import Balance
 from ..result import BittensorError, chain_error_from_dispatch
 from .base import read
@@ -81,9 +82,15 @@ async def lending_params(view) -> dict:
     `enabled` and `longs_enabled` gate opening and increasing shorts and longs.
     `lending`, `short`, `long` and `dereg` are the parameter groups as the chain
     stores them: rates and bands in basis points, windows in blocks or days, and
-    the `lending` amounts (`equity_floor`, `min_pool_tao`, `min_notional`,
-    `deposit`) in rao. A group changed by its setter is live from the block after
-    the change.
+    the `lending` amounts (`min_pool_tao`, `min_notional`, `deposit`) in rao.
+    `lending.apr_bps`, `rate_k`, `rate_cap_bps` and `rate_floor_bps` are the
+    interest rate: a position pays
+    `max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))` a year on its
+    notional, with `u` its debt over its holdings. A group changed by its setter
+    is live from the block after the change, except a change that raises a rate
+    field (or changes `rate_k`), which waits `lending.rate_increase_delay_blocks`
+    blocks: `pending_rate_increase` is then the four waiting rate fields and
+    `effective_at`, the block they go live, and `None` when nothing waits.
     """
     params = await view.runtime(api.LendingRuntimeApi.params, [])
     if params is None:
@@ -91,6 +98,11 @@ async def lending_params(view) -> dict:
     record = {"enabled": bool(params["enabled"]), "longs_enabled": bool(params["longs_enabled"])}
     for group in ("lending", "short", "long", "dereg"):
         record[group] = {name: int(value) for name, value in params[group].items()}
+    waiting = await view.query(st.Lending.PendingRateIncrease)
+    record["pending_rate_increase"] = waiting and {
+        **{name: int(value) for name, value in waiting[0].items()},
+        "effective_at": int(waiting[1]),
+    }
     return record
 
 

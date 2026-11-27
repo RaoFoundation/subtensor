@@ -29,13 +29,13 @@ use crate::{
     BenchmarkHelper, Call, Config, Custody, DeregParamsStore, Due, Enabled, HasMigrationRun,
     HolderPositions, InterestRetry, InterestTotals, LendingInterface, LendingParamsStore,
     LendingPoolInterface, LongParamsStore, LongsEnabled, NextDue, Pallet, PendingDeregParams,
-    PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma, Positions, RankPrice,
-    RankRing, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
+    PendingLendingParams, PendingLongParams, PendingRateIncrease, PendingShortParams, PoolTaoEma,
+    Positions, RankPrice, RankRing, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
     hooks::MAX_POSITIONS_PER_HOLDER,
     interest::MAX_DUE_BUCKETS_PER_BLOCK,
     math::interest::BLOCKS_PER_DAY,
     migrations,
-    params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
+    params::{DeregParams, LendingParams, LongParams, RAO, RateTerms, ShortParams},
     prices::{MAX_RANK_DAYS, MAX_TWAP_SAMPLES, RANK_SAMPLES_PER_DAY},
     types::{Leg, PositionId, Side},
 };
@@ -288,21 +288,6 @@ mod benchmarks {
         assert_interest_paid::<T>(netuid);
     }
 
-    /// A withdrawal that passes both the coverage check and the interest buffer.
-    #[benchmark]
-    fn withdraw_collateral() {
-        let caller: T::AccountId = funded::<T>(whitelisted_caller());
-        let netuid = holding::<T>(&caller, 1)[0];
-        age::<T>(AGE_BLOCKS);
-        let before = collateral::<T>(&caller, netuid);
-
-        #[extrinsic_call]
-        _(RawOrigin::Signed(caller.clone()), netuid, RAO);
-
-        assert!(collateral::<T>(&caller, netuid) < before - RAO + 1);
-        assert_interest_paid::<T>(netuid);
-    }
-
     /// Enabling re-seeds the rank ring of each of the `s` live subnets.
     #[benchmark]
     fn set_enabled(s: Linear<1, MAX_SUBNETS>) {
@@ -332,12 +317,32 @@ mod benchmarks {
 
     #[benchmark]
     fn set_lending_params() {
-        let params = LendingParams::default();
+        // The heaviest path: the call raises the rate terms, so it replaces a pending increase,
+        // queues the other fields with the live terms and deposits `RateIncreaseScheduled`.
+        let live = LendingParams::default();
+        let earlier = RateTerms {
+            rate_cap_bps: live.rate_cap_bps.saturating_mul(2),
+            ..live.rate_terms()
+        };
+        PendingRateIncrease::<T>::put((earlier, frame_system::Pallet::<T>::block_number()));
+        let raised = RateTerms {
+            apr_bps: live.apr_bps.saturating_add(1),
+            ..live.rate_terms()
+        };
+        let rest = LendingParams {
+            deposit: live.deposit.saturating_add(1),
+            ..live
+        };
+        let params = rest.clone().with_rate_terms(raised);
 
         #[extrinsic_call]
-        _(RawOrigin::Root, params.clone());
+        _(RawOrigin::Root, params);
 
-        assert_eq!(PendingLendingParams::<T>::get(), Some(params));
+        assert_eq!(PendingLendingParams::<T>::get(), Some(rest));
+        assert!(matches!(
+            PendingRateIncrease::<T>::get(),
+            Some((terms, _)) if terms == raised
+        ));
     }
 
     #[benchmark]

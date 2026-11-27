@@ -2,8 +2,8 @@
 //!
 //! Nothing here reads storage or depends on the rest of the pallet. Every function is total:
 //! it never panics, and an amount the spec calls infinite is reported as `None`. The functions
-//! agree with the reference model (`model/v201`) to the rao; `tests/golden.rs` replays the
-//! model's vectors.
+//! agree with the reference model (`model/v21`, and `model/v201` for what v2.1 keeps) to the
+//! rao; `tests/golden.rs` replays the models' vectors.
 //!
 //! Rounding always favours the pool (DESIGN-v2 principle 4): costs and needs round up, values
 //! and payouts round down, and each site names its direction through the helpers in [`fixed`].
@@ -12,9 +12,8 @@ pub mod coverage;
 pub mod curve;
 pub mod dereg;
 pub mod fixed;
-pub mod health;
 pub mod interest;
-pub mod pace;
+pub mod rate;
 pub mod ring;
 
 use fixed::Price;

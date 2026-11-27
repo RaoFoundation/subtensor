@@ -30,21 +30,18 @@ SHORT_CLOSE_TOLERANCE_HELP = (
 )
 
 # The fields of each parameter group, in the order the chain declares them. Amounts
-# (``equity_floor``, ``min_pool_tao``, ``min_notional``, ``deposit``) are in rao.
+# (``min_pool_tao``, ``min_notional``, ``deposit``) are in rao.
 PARAM_GROUPS: dict[str, tuple[str, ...]] = {
     "lending": (
         "apr_bps",
+        "rate_k",
+        "rate_cap_bps",
+        "rate_floor_bps",
+        "rate_increase_delay_blocks",
         "charge_interval_blocks",
-        "equity_floor",
-        "min_interest_cover_blocks",
-        "pace_bps_per_block",
-        "pause_twap_bps",
-        "pause_sma_bps",
         "min_pool_tao",
         "min_notional",
         "deposit",
-        "withdraw_buffer_blocks",
-        "exit_hysteresis_bps",
         "twap_samples",
         "twap_interval_blocks",
     ),
@@ -373,8 +370,8 @@ class ShortAddCollateral(Intent):
 
     Moves ``amount_tao`` from your free balance into the position's custody.
     More collateral raises the position's equity and the interest it can
-    cover; it returns when the short is closed or through
-    ``short_withdraw_collateral``.
+    cover. Collateral leaves a position only when the short is closed: there
+    is no withdrawal.
     """
 
     op = "short_add_collateral"
@@ -397,35 +394,6 @@ class ShortAddCollateral(Intent):
 
     def spend(self) -> Spend:
         return self.amount_tao
-
-
-@register
-@dataclass
-class ShortWithdrawCollateral(Intent):
-    """Withdraw collateral from your short on a subnet.
-
-    Moves ``amount_tao`` from the position's custody back to your free
-    balance. The chain refuses a withdrawal that leaves the position below its
-    coverage need plus the interest buffer.
-    """
-
-    op = "short_withdraw_collateral"
-    signer = "coldkey"
-    wraps = (("Lending", "withdraw_collateral"),)
-
-    netuid: int = field(metadata={"help": "Subnet of the short."})
-    amount_tao: Money = field(metadata={"help": "TAO withdrawn from the short's collateral."})
-
-    def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
-
-    async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.Lending.withdraw_collateral(netuid=self.netuid, amount=self.amount_tao.rao)
-        )
-
-    def summary(self) -> str:
-        return f"withdraw {self.amount_tao} of collateral from the short on netuid {self.netuid}"
 
 
 @register
@@ -506,7 +474,8 @@ async def _merged_params(substrate, group: str, changes: dict[str, int]) -> dict
     """The group the setter submits: ``changes`` over the value the next block would hold.
 
     That is the group already queued this block when there is one, so two setters in a
-    block compose, and the live group otherwise.
+    block compose, and the live group otherwise. The lending group's rate fields come
+    from the rate increase waiting out its delay, when there is one.
     """
     current = await substrate.query(*_PENDING[group])
     if current is None:
@@ -514,7 +483,14 @@ async def _merged_params(substrate, group: str, changes: dict[str, int]) -> dict
         if view is None:
             raise BittensorError("this chain has no lending runtime API")
         current = view[group]
-    return {name: int(current[name]) for name in PARAM_GROUPS[group]} | changes
+    merged = {name: int(current[name]) for name in PARAM_GROUPS[group]}
+    if group == "lending":
+        # A rate increase waiting out its delay is replaced by the next call, so a call that
+        # leaves the rate fields alone carries the waiting values rather than cancelling them.
+        waiting = await substrate.query(*st.Lending.PendingRateIncrease)
+        if waiting is not None:
+            merged |= {name: int(value) for name, value in waiting[0].items()}
+    return merged | changes
 
 
 def _changes_text(changes: dict[str, int]) -> str:
@@ -526,14 +502,25 @@ def _changes_text(changes: dict[str, int]) -> str:
 class SetLendingParams(Intent):
     """Change the lending parameters shared by shorts and longs (root only).
 
-    ``changes`` names the fields to change among ``apr_bps``,
-    ``charge_interval_blocks``, ``equity_floor``, ``min_interest_cover_blocks``,
-    ``pace_bps_per_block``, ``pause_twap_bps``, ``pause_sma_bps``,
-    ``min_pool_tao``, ``min_notional``, ``deposit``, ``withdraw_buffer_blocks``,
-    ``exit_hysteresis_bps``, ``twap_samples`` and ``twap_interval_blocks``;
-    amounts are in rao. The rest keep their value. The chain checks the whole
-    group against its bounds, refuses it whole on any breach, and applies it
-    from the next block. Verify with the ``lending_params`` read.
+    ``changes`` names the fields to change among ``apr_bps``, ``rate_k``,
+    ``rate_cap_bps``, ``rate_floor_bps``, ``rate_increase_delay_blocks``,
+    ``charge_interval_blocks``, ``min_pool_tao``, ``min_notional``, ``deposit``,
+    ``twap_samples`` and ``twap_interval_blocks``; amounts are in rao. The rest
+    keep their value. ``apr_bps``, ``rate_k``,
+    ``rate_cap_bps`` and ``rate_floor_bps`` are the interest rate
+    ``max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))`` of a
+    position's debt over its holdings ``u``. The chain checks the whole group
+    against its bounds and refuses it whole on any breach. A change that raises
+    no rate (``apr_bps``, ``rate_cap_bps`` and ``rate_floor_bps`` each at or
+    below the live value, ``rate_k`` unchanged) applies from the next block,
+    and so do the other fields. Any other change of the four rate fields waits
+    ``rate_increase_delay_blocks`` blocks (the value live at the call); until
+    then the group shows the live rate fields and the read's
+    ``pending_rate_increase`` the waiting ones. Each call replaces the waiting
+    increase: rate fields left out of ``changes`` keep their waiting value and
+    the delay starts again, and naming all four at or below their live values
+    cancels it. Verify with the
+    ``lending_params`` read.
     """
 
     op = "set_lending_params"

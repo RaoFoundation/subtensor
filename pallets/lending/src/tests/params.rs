@@ -8,10 +8,11 @@ use subtensor_runtime_common::NetUid;
 use super::mock::*;
 use crate::{
     DeregParamsStore, Enabled, Error, Event, LendingParamsStore, LongParamsStore, LongsEnabled,
-    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma,
-    RankGeneration, RankPrice, RankRing, RankRingGeneration, ShortParamsStore, TwapRing,
+    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingRateIncrease,
+    PendingShortParams, PoolTaoEma, RankGeneration, RankPrice, RankRing, RankRingGeneration,
+    ShortParamsStore, TwapRing,
     math::fixed::Price,
-    params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
+    params::{DeregParams, LendingParams, LongParams, RAO, RateTerms, ShortParams},
     prices::{RankState, TwapState},
 };
 
@@ -91,18 +92,42 @@ fn every_root_call_rejects_signed_and_unsigned_origins() {
 #[test]
 fn set_lending_params_bounds_at_the_edges() {
     migrated_ext().execute_with(|| {
-        // Cover and buffer are widened so each field meets its own fixed bound.
-        let base = LendingParams {
-            min_interest_cover_blocks: 1,
-            withdraw_buffer_blocks: 216_000,
+        let base = LendingParams::default();
+        let c = set_lending;
+        // The base APR's upper edge needs a cap that admits it.
+        let wide = LendingParams {
+            rate_cap_bps: 1_000_000,
             ..Default::default()
         };
-        let c = set_lending;
         check_edges(
             "apr_bps",
-            &base,
+            &wide,
             (1, 10_000),
             |p, v| p.apr_bps = v as u32,
+            c,
+        );
+        check_edges("rate_k", &base, (1, 8), |p, v| p.rate_k = v as u8, c);
+        // The cap's lower edge is the base APR of the same value (2,000 at launch).
+        check_edges(
+            "rate_cap_bps",
+            &base,
+            (2_000, 1_000_000),
+            |p, v| p.rate_cap_bps = v as u32,
+            c,
+        );
+        // The floor's upper edge is the cap of the same value (10,000 at launch).
+        check_edges(
+            "rate_floor_bps",
+            &base,
+            (1, 10_000),
+            |p, v| p.rate_floor_bps = v as u32,
+            c,
+        );
+        check_edges(
+            "rate_increase_delay_blocks",
+            &base,
+            (0, 216_000),
+            |p, v| p.rate_increase_delay_blocks = v as u32,
             c,
         );
         check_edges(
@@ -110,41 +135,6 @@ fn set_lending_params_bounds_at_the_edges() {
             &base,
             (1, 7_200),
             |p, v| p.charge_interval_blocks = v as u32,
-            c,
-        );
-        check_edges(
-            "equity_floor",
-            &base,
-            (0, 1_000 * RAO),
-            |p, v| p.equity_floor = v,
-            c,
-        );
-        check_edges(
-            "min_interest_cover_blocks",
-            &base,
-            (1, 216_000),
-            |p, v| p.min_interest_cover_blocks = v as u32,
-            c,
-        );
-        check_edges(
-            "pace_bps_per_block",
-            &base,
-            (1, 100),
-            |p, v| p.pace_bps_per_block = v as u32,
-            c,
-        );
-        check_edges(
-            "pause_twap_bps",
-            &base,
-            (10_001, 50_000),
-            |p, v| p.pause_twap_bps = v as u32,
-            c,
-        );
-        check_edges(
-            "pause_sma_bps",
-            &base,
-            (10_001, 50_000),
-            |p, v| p.pause_sma_bps = v as u32,
             c,
         );
         check_edges(
@@ -163,13 +153,6 @@ fn set_lending_params_bounds_at_the_edges() {
         );
         check_edges("deposit", &base, (0, 10 * RAO), |p, v| p.deposit = v, c);
         check_edges(
-            "withdraw_buffer_blocks",
-            &base,
-            (1, 216_000),
-            |p, v| p.withdraw_buffer_blocks = v as u32,
-            c,
-        );
-        check_edges(
             "twap_samples",
             &base,
             (3, 72),
@@ -187,42 +170,66 @@ fn set_lending_params_bounds_at_the_edges() {
 }
 
 #[test]
-fn exit_hysteresis_accepts_0_and_5000_and_rejects_5001() {
+fn the_rate_curve_is_set_within_its_bounds() {
     migrated_ext().execute_with(|| {
-        let with = |exit_hysteresis_bps| {
-            set_lending(LendingParams {
-                exit_hysteresis_bps,
-                ..Default::default()
-            })
+        let terms = |apr_bps, rate_k, rate_cap_bps, rate_floor_bps| RateTerms {
+            apr_bps,
+            rate_k,
+            rate_cap_bps,
+            rate_floor_bps,
         };
-        assert_ok!(with(0));
+        let with = |apr_bps, rate_k, rate_cap_bps, rate_floor_bps| {
+            set_lending(LendingParams::default().with_rate_terms(terms(
+                apr_bps,
+                rate_k,
+                rate_cap_bps,
+                rate_floor_bps,
+            )))
+        };
+        // Nothing higher than the launch terms and the same exponent: queued with the group.
+        assert_ok!(with(1, 2, 1, 1));
         assert_eq!(
-            PendingLendingParams::<Test>::get().map(|p| p.exit_hysteresis_bps),
-            Some(0)
+            PendingLendingParams::<Test>::get().map(|p| p.rate_terms()),
+            Some(terms(1, 2, 1, 1))
         );
-        assert_ok!(with(5_000));
+        assert_eq!(PendingRateIncrease::<Test>::get(), None);
+        // The widest terms raise the rate: held as a pending increase.
+        assert_ok!(with(10_000, 8, 1_000_000, 1_000_000));
         assert_eq!(
-            PendingLendingParams::<Test>::get().map(|p| p.exit_hysteresis_bps),
-            Some(5_000)
+            PendingRateIncrease::<Test>::get().map(|(terms, _)| terms),
+            Some(terms(10_000, 8, 1_000_000, 1_000_000))
         );
-        assert_noop!(with(5_001), Error::<Test>::InvalidParams);
+        assert_noop!(with(2_000, 0, 10_000, 2_000), Error::<Test>::InvalidParams);
+        assert_noop!(with(2_000, 9, 10_000, 2_000), Error::<Test>::InvalidParams);
+        assert_noop!(
+            with(2_000, 2, 1_000_001, 2_000),
+            Error::<Test>::InvalidParams
+        );
+        // The cap may not be below the base APR, whichever of the two moved.
+        assert_noop!(with(2_000, 2, 1_999, 1), Error::<Test>::InvalidParams);
+        assert_noop!(with(10_000, 2, 9_999, 1), Error::<Test>::InvalidParams);
+        // The floor is at least 1 and at most the cap, whichever of the two moved.
+        assert_noop!(with(2_000, 2, 10_000, 0), Error::<Test>::InvalidParams);
+        assert_noop!(with(2_000, 2, 10_000, 10_001), Error::<Test>::InvalidParams);
+        assert_noop!(with(2_000, 2, 2_000, 2_001), Error::<Test>::InvalidParams);
     });
 }
 
 #[test]
-fn cover_above_the_withdraw_buffer_is_rejected() {
+fn the_launch_curve_is_the_spec_table() {
     migrated_ext().execute_with(|| {
-        let with = |min_interest_cover_blocks, withdraw_buffer_blocks| {
-            set_lending(LendingParams {
-                min_interest_cover_blocks,
-                withdraw_buffer_blocks,
-                ..Default::default()
-            })
-        };
-        assert_ok!(with(50_400, 50_400));
-        assert_noop!(with(50_401, 50_400), Error::<Test>::InvalidParams);
-        assert_ok!(with(7_200, 7_200));
-        assert_noop!(with(7_200, 7_199), Error::<Test>::InvalidParams);
+        let live = LendingParamsStore::<Test>::get();
+        assert_eq!(
+            (live.apr_bps, live.rate_k, live.rate_cap_bps),
+            (2_000, 2, 10_000)
+        );
+        // The two fields added to the table: the floor is the base APR and a raised rate
+        // waits three days.
+        assert_eq!(
+            (live.rate_floor_bps, live.rate_increase_delay_blocks),
+            (2_000, 21_600)
+        );
+        assert_eq!(PendingRateIncrease::<Test>::get(), None);
     });
 }
 
@@ -393,8 +400,9 @@ fn a_rejected_setter_writes_nothing() {
 #[test]
 fn each_group_applies_in_the_next_block_with_exactly_one_event() {
     migrated_ext().execute_with(|| {
+        // A lower base APR: a raised rate is delayed (`tests/rate_increase.rs`).
         let lending = LendingParams {
-            apr_bps: 3_000,
+            apr_bps: 1_500,
             ..Default::default()
         };
         let short = ShortParams {

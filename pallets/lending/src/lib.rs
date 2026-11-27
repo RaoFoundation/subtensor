@@ -50,7 +50,7 @@ pub mod pallet {
         LendingPoolInterface, WeightInfo, long_weights,
         math::fixed::Price,
         migrations,
-        params::{DeregParams, LendingParams, LongParams, ShortParams},
+        params::{DeregParams, LendingParams, LongParams, RateTerms, ShortParams},
         positions::Grow,
         prices::{RankState, TwapState},
         types::{InterestTotal, Position, PositionId, Side},
@@ -130,6 +130,12 @@ pub mod pallet {
     /// `LendingParams` written by `set_lending_params`, applied in the next `on_initialize`.
     #[pallet::storage]
     pub type PendingLendingParams<T> = StorageValue<_, LendingParams, OptionQuery>;
+
+    /// Rate terms a `set_lending_params` call raised, with the block from which they are live
+    /// (the call's block plus the `rate_increase_delay_blocks` then in force). `on_initialize`
+    /// of that block applies them; a later call replaces or clears the entry.
+    #[pallet::storage]
+    pub type PendingRateIncrease<T> = StorageValue<_, (RateTerms, BlockNumberFor<T>), OptionQuery>;
 
     /// `ShortParams` written by `set_short_params`, applied in the next `on_initialize`.
     #[pallet::storage]
@@ -293,6 +299,13 @@ pub mod pallet {
             old: LendingParams,
             new: LendingParams,
         },
+        /// `set_lending_params` raised the rate terms: `new` is live from block `effective_at`.
+        RateIncreaseScheduled {
+            new: RateTerms,
+            effective_at: BlockNumberFor<T>,
+        },
+        /// A scheduled rate increase became live.
+        RateIncreaseApplied { old: RateTerms, new: RateTerms },
         /// A pending `ShortParams` became live.
         ShortParamsSet { old: ShortParams, new: ShortParams },
         /// A pending `LongParams` became live.
@@ -342,20 +355,15 @@ pub mod pallet {
             side: Side,
             amount: u64,
         },
-        /// Collateral was withdrawn from a position.
-        CollateralWithdrawn {
-            who: T::AccountId,
-            netuid: NetUid,
-            side: Side,
-            amount: u64,
-        },
         /// Interest was charged from a position's collateral to the pool's TAO reserve
-        /// (SPEC P4, P15).
+        /// (SPEC P4, P15). `rate_bps` is the yearly rate the accrual read from the position
+        /// (SPEC section 1 item 2, I23).
         InterestCharged {
             who: T::AccountId,
             netuid: NetUid,
             side: Side,
             to_pool: u64,
+            rate_bps: u32,
         },
     }
 
@@ -405,10 +413,6 @@ pub mod pallet {
         InsufficientFunds,
         /// The sale plus the collateral cannot repay the long's debt (SPEC 7.1.4).
         CloseInsolvent,
-        /// The withdrawal would take collateral below the coverage need (SPEC P20, L12).
-        WithdrawBreaksCoverage,
-        /// The withdrawal would leave less than the coverage need plus the interest buffer.
-        WithdrawBufferBreached,
         /// A fixed-point amount overflowed; the operation is refused.
         Overflow,
         /// The pool moved a different amount than the quote the pallet gated on.
@@ -438,7 +442,7 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        /// Applies pending parameters first, then samples prices for every live subnet,
+        /// Applies pending parameters and a rate increase that is due first, then samples prices for every live subnet,
         /// whether lending is enabled or not (SPEC 2.1, section 9 item 4), then runs the
         /// interest charges that are due, up to `MaxChargesPerBlock` (SPEC P15).
         ///
@@ -449,6 +453,7 @@ pub mod pallet {
             let subnets = T::Pool::live_subnets();
             let live = u32::try_from(subnets.len()).unwrap_or(u32::MAX);
             let applied = Self::apply_pending_params(&subnets);
+            let raised = Self::apply_pending_rate_increase(now);
             let sampled = Self::sample_prices(now.unique_saturated_into(), &subnets);
             let (charges, buckets) = Self::collect_due(now);
             let mut weight = if sampled {
@@ -459,6 +464,13 @@ pub mod pallet {
             if applied {
                 weight = weight.saturating_add(T::WeightInfo::apply_pending_params(live));
             }
+            // The pending rate increase is read every block; applying it reads and writes
+            // `LendingParams` and clears the entry.
+            weight = weight.saturating_add(if raised {
+                T::DbWeight::get().reads_writes(2, 2)
+            } else {
+                T::DbWeight::get().reads(1)
+            });
             weight
                 .saturating_add(T::WeightInfo::collect_due(charges))
                 .saturating_add(T::WeightInfo::collect_due_buckets(buckets))
@@ -548,18 +560,8 @@ pub mod pallet {
             Self::do_add_collateral(&who, netuid, Side::Short, amount)
         }
 
-        /// Withdraws collateral from a short if coverage and the interest buffer still hold
-        /// (SPEC P2, P20).
-        #[pallet::call_index(4)]
-        #[pallet::weight(T::WeightInfo::withdraw_collateral())]
-        pub fn withdraw_collateral(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            amount: u64,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            Self::do_withdraw_collateral(&who, netuid, Side::Short, amount)
-        }
+        // Call index 4 is retired: it was `withdraw_collateral`. Collateral leaves a position
+        // only on close (approved change beyond SPEC-v2.1), and the index is not reused.
 
         /// Opens a long: lifts `lift` TAO from the pool and buys alpha that custody locks
         /// (SPEC L1-L12). Receives at least `min_alpha_out`.
@@ -640,19 +642,7 @@ pub mod pallet {
             Self::do_add_collateral(&who, netuid, Side::Long, amount)
         }
 
-        /// Withdraws collateral from a long if coverage and the interest buffer still hold
-        /// (SPEC L2, L12).
-        // HOLD(longs): placeholder weight, not a benchmark.
-        #[pallet::call_index(10)]
-        #[pallet::weight(long_weights::withdraw_long_collateral::<T>())]
-        pub fn withdraw_long_collateral(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            amount: u64,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            Self::do_withdraw_collateral(&who, netuid, Side::Long, amount)
-        }
+        // Call index 10 is retired: it was `withdraw_long_collateral`. The index is not reused.
 
         /// Turns lending on or off (SPEC P1). Turning it on re-seeds every rank ring from the
         /// emission moving price in this call (SPEC section 9 item 3, I25).
@@ -674,9 +664,15 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Replaces `LendingParams` from the next block (SPEC 2.1).
+        /// Replaces `LendingParams` from the next block (SPEC 2.1). If the call raises the rate
+        /// terms (a higher `apr_bps`, `rate_cap_bps` or `rate_floor_bps`, or any change of
+        /// `rate_k`), the new terms are live only after the `rate_increase_delay_blocks` in
+        /// force; the other fields still change from the next block.
         #[pallet::call_index(22)]
-        #[pallet::weight(T::WeightInfo::set_lending_params())]
+        #[pallet::weight(
+            T::WeightInfo::set_lending_params()
+                .saturating_add(T::DbWeight::get().reads_writes(1, 1))
+        )]
         pub fn set_lending_params(origin: OriginFor<T>, params: LendingParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_lending_params(params)

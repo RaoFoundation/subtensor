@@ -556,6 +556,7 @@ class Lending:
     LongParamsStore = Item('Lending', 'LongParamsStore', 'LongParams')
     DeregParamsStore = Item('Lending', 'DeregParamsStore', 'DeregParams')
     PendingLendingParams = Item('Lending', 'PendingLendingParams', 'LendingParams')
+    PendingRateIncrease = Item('Lending', 'PendingRateIncrease', '(RateTerms, u32)')
     PendingShortParams = Item('Lending', 'PendingShortParams', 'ShortParams')
     PendingLongParams = Item('Lending', 'PendingLongParams', 'LongParams')
     PendingDeregParams = Item('Lending', 'PendingDeregParams', 'DeregParams')

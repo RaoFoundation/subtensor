@@ -248,12 +248,10 @@ call_filter_group!(
         RuntimeCall::Lending(LendingCall::increase_short),
         RuntimeCall::Lending(LendingCall::close_short),
         RuntimeCall::Lending(LendingCall::add_collateral),
-        RuntimeCall::Lending(LendingCall::withdraw_collateral),
         RuntimeCall::Lending(LendingCall::open_long),
         RuntimeCall::Lending(LendingCall::increase_long),
         RuntimeCall::Lending(LendingCall::close_long),
         RuntimeCall::Lending(LendingCall::add_long_collateral),
-        RuntimeCall::Lending(LendingCall::withdraw_long_collateral),
     ]
 );
 

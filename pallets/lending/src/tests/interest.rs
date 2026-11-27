@@ -2,8 +2,9 @@
 //! the cadence, the carried remainder, parameter changes, the collateral cap, the bounded
 //! per-block budget, retries, and a differential against the reference model's arithmetic.
 //!
-//! Expected amounts are computed here with the closed form of `model/v201/core.py`
-//! (`_accrue`, `_charge`) in plain integers, not with the pallet's own math.
+//! Expected rates and amounts are computed here with the closed forms of `model/v21/core.py`
+//! (`rate_from`, `short_u`, `long_u`, `_accrue_pos`) and `model/v201x/core.py` (`_charge`) in
+//! plain integers, not with the pallet's own math.
 
 use frame_support::{assert_ok, dispatch::DispatchResult};
 use sp_runtime::TryRuntimeError;
@@ -21,8 +22,12 @@ use crate::{
 const ALICE: AccountId = 1;
 const BOB: AccountId = 2;
 const SN1: u16 = 1;
-/// The launch APR and cadence (SPEC P3, P15).
-const APR: u128 = 2_000;
+/// Base APR, exponent, cap and floor of a rate.
+pub(super) type Curve = (u128, u32, u128, u128);
+/// The launch curve (SPEC 2.1) under the least floor, which `live` sets so that these tests
+/// see the curve below the base rate. The launch floor has its own tests in `tests/rate.rs`.
+const LAUNCH: Curve = (2_000, 2, 10_000, 1);
+/// The launch cadence (SPEC P15).
 const INTERVAL: u64 = 360;
 /// The model's `BPS * BPY`: the denominator of one block of interest.
 const DEN: u128 = 10_000 * 7_200 * 365;
@@ -42,10 +47,12 @@ fn alpha(n: u64) -> u64 {
 }
 
 /// Subnet 1 with a deep pool (5,000 TAO / 50,000 alpha, spot 0.1), lending and longs on, and
-/// Alice and Bob funded with 100 TAO each.
+/// Alice and Bob funded with 100 TAO each. The rate floor is the least and a rate increase
+/// is not delayed (see [`bare_curve`]).
 fn live() -> sp_io::TestExternalities {
     let mut ext = migrated_ext();
     ext.execute_with(|| {
+        bare_curve();
         set_pool(SN1, tao(5_000), alpha(50_000));
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
         assert_ok!(Lending::set_longs_enabled(RuntimeOrigin::root(), true));
@@ -81,14 +88,18 @@ fn healthy() {
     assert_ok!(Lending::do_try_state());
 }
 
-/// The interest charges of the current block: holder, side and amount.
-fn charges() -> Vec<(AccountId, Side, u64)> {
+/// The interest charges of the current block: holder, side, amount and the rate charged.
+fn charges() -> Vec<(AccountId, Side, u64, u32)> {
     lending_events()
         .into_iter()
         .filter_map(|event| match event {
             Event::InterestCharged {
-                who, side, to_pool, ..
-            } => Some((who, side, to_pool)),
+                who,
+                side,
+                to_pool,
+                rate_bps,
+                ..
+            } => Some((who, side, to_pool, rate_bps)),
             _ => None,
         })
         .collect()
@@ -97,25 +108,80 @@ fn charges() -> Vec<(AccountId, Side, u64)> {
 /// The one charge of the current block.
 fn charge() -> u64 {
     match charges().as_slice() {
-        [(_, _, amount)] => *amount,
+        [(_, _, amount, _)] => *amount,
         other => panic!("one charge expected, found {other:?}"),
     }
 }
 
 /// The model's `_accrue`: the whole rao owed over `blocks` and the remainder carried on.
-fn model_accrue(notional: u64, apr: u128, blocks: u64, remainder: u128) -> (u64, u128) {
-    let num = u128::from(notional) * apr * u128::from(blocks) + remainder;
+pub(super) fn model_accrue(notional: u64, rate: u32, blocks: u64, remainder: u128) -> (u64, u128) {
+    let num = u128::from(notional) * u128::from(rate) * u128::from(blocks) + remainder;
     (u64::try_from(num / DEN).expect("fits"), num % DEN)
+}
+
+/// The model's `rate_from`, `min(cap, apr * (num / den)^k)` floored at each of the `k` steps,
+/// lifted to the floor for a position with debt and holdings.
+pub(super) fn model_rate((apr, k, cap, floor): Curve, num: u128, den: u128) -> u32 {
+    let capped = u32::try_from(cap).expect("fits");
+    if num == 0 {
+        return 0;
+    }
+    if den == 0 {
+        return capped;
+    }
+    let mut rate = apr;
+    for _ in 0..k {
+        rate = rate * num / den;
+        if rate >= cap {
+            return capped;
+        }
+    }
+    u32::try_from(rate.max(floor)).expect("at most the cap")
+}
+
+/// `floor(alpha * TWAP_median)` at the TWAP the pallet reads now.
+fn at_twap(alpha: u64) -> u64 {
+    let twap = Lending::price_refs(sn1()).expect("rings are seeded").twap;
+    u64::try_from((u128::from(alpha) * twap.to_bits()) >> 64).expect("fits")
 }
 
 /// The model's short notional at the TWAP the pallet reads now: `floor(q * TWAP_median)`.
 fn short_notional(q: u64) -> u64 {
-    let twap = Lending::price_refs(sn1()).expect("rings are seeded").twap;
-    u64::try_from((u128::from(q) * twap.to_bits()) >> 64).expect("fits")
+    at_twap(q)
 }
 
+/// The notional interest accrues on: `N` of a short, `D` of a long.
+fn notional(pos: &Position<u64>) -> u64 {
+    match pos.leg {
+        Leg::Short { minted, .. } => short_notional(minted),
+        Leg::Long { debt, .. } => debt,
+    }
+}
+
+/// The model's `short_u` and `long_u` at the TWAP the pallet reads now, and the rate of `curve`
+/// at them: a short's `N / (C + P)`, a long's `D / (floor(A * TWAP_median) + C)`.
+fn rate_on(curve: Curve, pos: &Position<u64>) -> u32 {
+    let (num, den) = match pos.leg {
+        Leg::Short { minted, proceeds } => (
+            u128::from(short_notional(minted)),
+            u128::from(pos.collateral) + u128::from(proceeds),
+        ),
+        Leg::Long { locked_alpha, debt } => (
+            u128::from(debt),
+            u128::from(at_twap(locked_alpha)) + u128::from(pos.collateral),
+        ),
+    };
+    model_rate(curve, num, den)
+}
+
+/// The rate of `pos` as stored, on the curve `live` starts with.
+fn rate_of(pos: &Position<u64>) -> u32 {
+    rate_on(LAUNCH, pos)
+}
+
+/// `set_lending_params` with a change to the live group.
 fn set_lending(change: impl FnOnce(&mut LendingParams)) {
-    let mut params = LendingParams::default();
+    let mut params = Lending::params().lending;
     change(&mut params);
     assert_ok!(Lending::set_lending_params(RuntimeOrigin::root(), params));
 }
@@ -151,21 +217,24 @@ fn both_sides_are_charged_every_360_blocks_from_the_open() {
         assert_eq!(InterestTotals::<Test>::get(sn1()).charged, 0);
         healthy();
 
-        let short_c = position(ALICE, Side::Short).collateral;
-        let long_c = position(BOB, Side::Long).collateral;
+        let (short, long) = (position(ALICE, Side::Short), position(BOB, Side::Long));
+        let (short_c, long_c) = (short.collateral, long.collateral);
         let pool = FakePool::pool_tao(sn1());
         let alpha_in = FakePool::subnet_alpha_in(sn1());
         let issuance = FakePool::alpha_issuance(sn1());
         run_to(first);
-        let (short_owed, _) = model_accrue(short_notional(alpha(200)), APR, INTERVAL, 0);
-        let (long_owed, _) = model_accrue(DEBT, APR, INTERVAL, 0);
+        // Each side pays its own rate: the curve at the position's debt over its holdings.
+        let (short_rate, long_rate) = (rate_of(&short), rate_of(&long));
+        assert!(short_rate > 0 && short_rate < long_rate && long_rate < 2_000);
+        let (short_owed, _) = model_accrue(short_notional(alpha(200)), short_rate, INTERVAL, 0);
+        let (long_owed, _) = model_accrue(DEBT, long_rate, INTERVAL, 0);
         let mut charged = charges();
         charged.sort();
         assert_eq!(
             charged,
             vec![
-                (ALICE, Side::Short, short_owed),
-                (BOB, Side::Long, long_owed)
+                (ALICE, Side::Short, short_owed, short_rate),
+                (BOB, Side::Long, long_owed, long_rate)
             ]
         );
         assert_eq!(
@@ -197,7 +266,8 @@ fn both_sides_are_charged_every_360_blocks_from_the_open() {
 }
 
 /// Charges a long every `interval` blocks, `count` times, and checks that the sum equals the
-/// closed form over the whole span to the rao.
+/// closed form over the whole span to the rao: one span per rate the position passed through,
+/// with the remainder carried across every charge.
 fn charges_sum_to_the_closed_form(interval: u32, count: u64) {
     live().execute_with(|| {
         set_lending(|p| p.charge_interval_blocks = interval);
@@ -206,16 +276,35 @@ fn charges_sum_to_the_closed_form(interval: u32, count: u64) {
         let opened = System::block_number();
         let collateral = position(ALICE, Side::Long).collateral;
         let pool = FakePool::pool_tao(sn1());
-        let mut sum = 0u64;
+        let (mut sum, mut total, mut remainder, mut floored) = (0u64, 0u64, 0u128, 0u64);
+        // The blocks spent at each rate, in the order the position passed through them.
+        let mut spans = Vec::<(u32, u64)>::new();
         for k in 1..=count {
+            let before = position(ALICE, Side::Long);
             run_to(opened + k * u64::from(interval));
-            sum += charge();
+            let rate = rate_of(&before);
+            let (owed, carried) = model_accrue(DEBT, rate, u64::from(interval), remainder);
+            assert_eq!(charges(), vec![(ALICE, Side::Long, owed, rate)]);
+            sum += owed;
+            total += owed;
+            remainder = carried;
+            floored += model_accrue(DEBT, rate, u64::from(interval), 0).0;
+            match spans.last_mut() {
+                Some((last, blocks)) if *last == rate => *blocks += u64::from(interval),
+                _ => spans.push((rate, u64::from(interval))),
+            }
         }
-        let span = count * u64::from(interval);
-        let (total, remainder) = model_accrue(DEBT, APR, span, 0);
         assert_eq!(sum, total);
+        // The closed form: each rate's whole span in one accrual. The charges only lower the
+        // collateral, so the rate never falls.
+        assert!(spans.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        let closed = spans.iter().fold((0u64, 0u128), |(owed, carried), span| {
+            let (more, carried) = model_accrue(DEBT, span.0, span.1, carried);
+            (owed + more, carried)
+        });
+        assert_eq!((total, remainder), closed);
         // Flooring each charge on its own would have lost the carried fractions.
-        assert!(count * model_accrue(DEBT, APR, u64::from(interval), 0).0 < total);
+        assert!(floored < total);
         let pos = position(ALICE, Side::Long);
         assert_eq!(pos.collateral, collateral - total);
         assert_eq!(pos.accrual.remainder, remainder);
@@ -240,32 +329,85 @@ fn charges_of_an_odd_interval_carry_the_remainder_to_the_closed_form_total() {
 }
 
 #[test]
-fn an_apr_change_mid_period_applies_from_the_next_accrual() {
+fn a_curve_change_mid_period_applies_from_the_next_accrual() {
+    // The base APR and the exponent on their own, and all three parameters at once. These
+    // longs hold more than they owe, where no cap binds: the cap has its own test below.
+    let changes: [Curve; 3] = [
+        (4_000, 2, 10_000, 1),
+        (2_000, 1, 10_000, 1),
+        (10_000, 5, 500_000, 1),
+    ];
+    for curve in changes {
+        live().execute_with(|| {
+            assert_ok!(open_long(ALICE));
+            assert_ok!(open_long(BOB));
+            // Bob's long accrues at block 180 by a touch; Alice's is not accrued until its
+            // charge.
+            run_to(180);
+            let (alice, bob) = (position(ALICE, Side::Long), position(BOB, Side::Long));
+            assert_ok!(Lending::add_long_collateral(
+                RuntimeOrigin::signed(BOB),
+                sn1(),
+                tao(1)
+            ));
+            let bob_rate = rate_of(&bob);
+            let (bob_first, bob_rem) = model_accrue(DEBT, bob_rate, 179, 0);
+            assert_eq!(charges(), vec![(BOB, Side::Long, bob_first, bob_rate)]);
+            let bob = position(BOB, Side::Long);
+            set_lending(|p| {
+                p.apr_bps = u32::try_from(curve.0).expect("fits");
+                p.rate_k = u8::try_from(curve.1).expect("fits");
+                p.rate_cap_bps = u32::try_from(curve.2).expect("fits");
+            });
+            // The setter touches no position: nothing accrues until each one's next accrual.
+            next_block();
+            assert!(charges().is_empty());
+            assert_eq!(position(ALICE, Side::Long), alice);
+            assert_eq!(position(BOB, Side::Long), bob);
+
+            run_to(361);
+            // Alice: the whole period accrues on the curve live at the accrual (the model's
+            // `_accrue_pos`).
+            let alice_rate = rate_on(curve, &alice);
+            let (alice_owed, _) = model_accrue(DEBT, alice_rate, 360, 0);
+            // Bob: 179 blocks were accrued on the old curve; the 181 since accrue on the new.
+            let bob_rate = rate_on(curve, &bob);
+            let (bob_owed, _) = model_accrue(DEBT, bob_rate, 181, bob_rem);
+            assert_ne!(alice_rate, rate_of(&alice), "{curve:?} moves the rate");
+            let mut charged = charges();
+            charged.sort();
+            assert_eq!(
+                charged,
+                vec![
+                    (ALICE, Side::Long, alice_owed, alice_rate),
+                    (BOB, Side::Long, bob_owed, bob_rate)
+                ]
+            );
+            healthy();
+        });
+    }
+}
+
+#[test]
+fn a_cap_change_mid_period_applies_from_the_next_accrual() {
     live().execute_with(|| {
-        assert_ok!(open_long(ALICE));
-        assert_ok!(open_long(BOB));
-        // Bob's long accrues at block 180 by a touch; Alice's is not accrued until its charge.
+        assert_ok!(open_short(ALICE));
+        // With next to no collateral the short owes more than it holds: u > 1.
+        leave_collateral(ALICE, Side::Short, 1_000);
+        let before = position(ALICE, Side::Short);
         run_to(180);
-        assert_ok!(Lending::add_long_collateral(
-            RuntimeOrigin::signed(BOB),
-            sn1(),
-            tao(1)
-        ));
-        let (bob_first, bob_rem) = model_accrue(DEBT, APR, 179, 0);
-        assert_eq!(charges(), vec![(BOB, Side::Long, bob_first)]);
-        set_lending(|p| p.apr_bps = 4_000);
+        set_lending(|p| p.rate_cap_bps = 2_000);
+        next_block();
+        assert_eq!(position(ALICE, Side::Short), before);
 
         run_to(361);
-        // Alice: the whole period accrues at the rate live at the accrual (the model's `_accrue`).
-        let (alice_owed, _) = model_accrue(DEBT, 4_000, 360, 0);
-        // Bob: 179 blocks were accrued at 20 %; the 181 since accrue at 40 %.
-        let (bob_owed, _) = model_accrue(DEBT, 4_000, 181, bob_rem);
-        let mut charged = charges();
-        charged.sort();
-        assert_eq!(
-            charged,
-            vec![(ALICE, Side::Long, alice_owed), (BOB, Side::Long, bob_owed)]
-        );
+        let uncapped = rate_of(&before);
+        assert!(uncapped > 2_000 && uncapped < 10_000);
+        assert_eq!(rate_on((2_000, 2, 2_000, 1), &before), 2_000);
+        // The whole period accrues at the new cap, also the 179 blocks before the change.
+        let (owed, _) = model_accrue(notional(&before), 2_000, 360, 0);
+        assert_eq!(charges(), vec![(ALICE, Side::Short, 1_000, 2_000)]);
+        assert_eq!(position(ALICE, Side::Short).accrual.due, owed - 1_000);
         healthy();
     });
 }
@@ -274,6 +416,7 @@ fn an_apr_change_mid_period_applies_from_the_next_accrual() {
 fn a_charge_interval_change_applies_from_the_next_scheduled_charge() {
     live().execute_with(|| {
         assert_ok!(open_long(ALICE));
+        let opened = position(ALICE, Side::Long);
         run_to(100);
         set_lending(|p| p.charge_interval_blocks = 100);
         // The queued entry is not moved: the first charge stays at block 361.
@@ -282,7 +425,7 @@ fn a_charge_interval_change_applies_from_the_next_scheduled_charge() {
         assert_eq!(position(ALICE, Side::Long).charge_at, 361);
         assert!(Due::<Test>::contains_key(361, id(ALICE, Side::Long)));
         run_to(361);
-        assert_eq!(charge(), model_accrue(DEBT, APR, 360, 0).0);
+        assert_eq!(charge(), model_accrue(DEBT, rate_of(&opened), 360, 0).0);
         // From that charge on, the new interval schedules on the position's grid, `1 + k * 100`
         // (the open is at block 1): the first grid block after 361 is 401, not 461.
         assert_eq!(position(ALICE, Side::Long).charge_at, 401);
@@ -311,25 +454,26 @@ fn charge_is_capped_at_the_collateral(side: Side, open: fn(AccountId) -> Dispatc
     live().execute_with(|| {
         assert_ok!(open(ALICE));
         leave_collateral(ALICE, side, 1_000);
-        let notional = |pos: &Position<u64>| match pos.leg {
-            Leg::Short { minted, .. } => short_notional(minted),
-            Leg::Long { debt, .. } => debt,
-        };
+        let before = position(ALICE, side);
         let pool = FakePool::pool_tao(sn1());
 
         run_to(361);
-        let (owed, remainder) = model_accrue(notional(&position(ALICE, side)), APR, 360, 0);
+        // The rate is the one of the 1,000 rao held before the charge takes them.
+        let rate = rate_of(&before);
+        let (owed, remainder) = model_accrue(notional(&before), rate, 360, 0);
         assert!(owed > 1_000);
-        assert_eq!(charges(), vec![(ALICE, side, 1_000)]);
+        assert_eq!(charges(), vec![(ALICE, side, 1_000, rate)]);
         let pos = position(ALICE, side);
         assert_eq!(pos.collateral, 0);
         assert_eq!(pos.accrual.due, owed - 1_000);
         assert_eq!(FakePool::pool_tao(sn1()), pool + 1_000);
         healthy();
 
-        // With no collateral the next period charges nothing and stays due.
+        // With no collateral the next period charges nothing and stays due, at the rate of
+        // the holdings left.
         run_to(721);
-        let (more, _) = model_accrue(notional(&pos), APR, 360, remainder);
+        assert!(rate_of(&pos) >= rate);
+        let (more, _) = model_accrue(notional(&pos), rate_of(&pos), 360, remainder);
         assert!(charges().is_empty());
         let pos = position(ALICE, side);
         assert_eq!(pos.accrual.due, owed - 1_000 + more);
@@ -457,7 +601,10 @@ fn a_failed_charge_is_retried_and_charges_the_whole_span() {
         run_to(retry_at - 1);
         assert!(charges().is_empty());
         run_to(retry_at);
-        assert_eq!(charge(), model_accrue(DEBT, APR, retry_at - 1, 0).0);
+        assert_eq!(
+            charge(),
+            model_accrue(DEBT, rate_of(&before), retry_at - 1, 0).0
+        );
         assert!(!InterestRetry::<Test>::contains_key(id(ALICE, Side::Long)));
         assert_eq!(
             position(ALICE, Side::Long).charge_at,
@@ -506,8 +653,9 @@ fn closing_removes_the_scheduled_charge_and_lowers_the_counts() {
     });
 }
 
-/// Ten days of scheduled charges on one position against the model's `_accrue` and `_charge`:
-/// every charge, the collateral, the carried remainder and the pool's TAO, to the rao.
+/// Ten days of scheduled charges on one position against the model's `_accrue_pos` and `_charge`:
+/// every charge and its rate, the collateral, the carried remainder and the pool's TAO, to the
+/// rao.
 fn ten_days_match_the_model(side: Side, open: fn(AccountId) -> DispatchResult) {
     live().execute_with(|| {
         assert_ok!(open(ALICE));
@@ -517,12 +665,10 @@ fn ten_days_match_the_model(side: Side, open: fn(AccountId) -> DispatchResult) {
         let (mut collateral, mut due, mut remainder) = (start.collateral, 0u64, 0u128);
         let mut paid_total = 0u64;
         for k in 1..=200 {
+            let before = position(ALICE, side);
             run_to(opened + k * INTERVAL);
-            let notional = match start.leg {
-                Leg::Short { minted, .. } => short_notional(minted),
-                Leg::Long { debt, .. } => debt,
-            };
-            let (owed, carried) = model_accrue(notional, APR, INTERVAL, remainder);
+            let rate = rate_of(&before);
+            let (owed, carried) = model_accrue(notional(&before), rate, INTERVAL, remainder);
             due += owed;
             remainder = carried;
             let paid = due.min(collateral);
@@ -530,7 +676,7 @@ fn ten_days_match_the_model(side: Side, open: fn(AccountId) -> DispatchResult) {
             due -= paid;
             paid_total += paid;
 
-            assert_eq!(charges(), vec![(ALICE, side, paid)]);
+            assert_eq!(charges(), vec![(ALICE, side, paid, rate)]);
             let pos = position(ALICE, side);
             assert_eq!(pos.collateral, collateral);
             assert_eq!(pos.accrual.due, due);

@@ -41,7 +41,6 @@
     "set-lending-params",
     "set-lending-short-params",
     "short-add-collateral",
-    "short-withdraw-collateral",
     "---LimitOrders---",
     "authorize-order",
     "cancel-order",

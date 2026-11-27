@@ -2,11 +2,13 @@
 //!
 //! Every open position has one entry in `Due`, at its `charge_at`. `on_initialize` drains the
 //! buckets up to the current block in order, at most `MaxChargesPerBlock` charges per block;
-//! `NextDue` is the first bucket not yet drained, so a backlog carries over. A charge accrues
-//! the position to the current block, takes `min(due, C)` from its collateral and credits the
-//! subnet pool's TAO reserve.
+//! `NextDue` is the first bucket not yet drained, so a backlog carries over. A charge reads the
+//! position's rate from the curve `min(cap, apr * u^k)`, accrues the position to the current
+//! block at that rate, takes `min(due, C)` from its collateral and credits the subnet pool's
+//! TAO reserve. The curve's parameters are read when the charge runs, so a root change applies
+//! from each position's next accrual and no setter touches a position.
 //!
-//! The cadence is the model's (`model/v201/core.py`): a position is charged at every block
+//! The cadence is the model's (`model/v21/core.py`): a position is charged at every block
 //! where `(block - opened_at) % charge_interval_blocks == 0`, with the interval live at that
 //! block. After a successful charge at `now` the next one is the first grid block after `now`,
 //! `opened_at + k * charge_interval_blocks` (see [`next_charge_block`]). A
@@ -30,7 +32,7 @@ use subtensor_runtime_common::NetUid;
 use crate::{
     Config, Due, Event, InterestRetry, InterestTotals, LendingParamsStore, LendingPoolInterface,
     NextDue, Pallet, Positions, TotalPositions,
-    math::interest::next_charge_block,
+    math::{interest::next_charge_block, rate::RateCurve},
     params::LendingParams,
     types::{Position, PositionId, Side},
 };
@@ -46,12 +48,15 @@ impl<T: Config> Pallet<T> {
     /// Moves an interest charge from a position's custody into the subnet pool's TAO reserve
     /// (SPEC P4, P15) and adds it to the subnet's `InterestTotals`. The credit is pool-internal:
     /// it goes through `credit_pool_tao` alone, so it is neither flow nor volume (SPEC I19).
+    /// `rate_bps` is the rate the accrual behind the charge read, for the event. A charge of
+    /// nothing moves nothing and emits nothing.
     pub(crate) fn pay_interest(
         who: &T::AccountId,
         netuid: NetUid,
         side: Side,
         custody: &T::AccountId,
         amount: u64,
+        rate_bps: u32,
     ) -> DispatchResult {
         if amount == 0 {
             return Ok(());
@@ -68,6 +73,7 @@ impl<T: Config> Pallet<T> {
             netuid,
             side,
             to_pool: amount,
+            rate_bps,
         });
         Ok(())
     }
@@ -155,7 +161,8 @@ impl<T: Config> Pallet<T> {
         let Some(pos) = Positions::<T>::get(id) else {
             return;
         };
-        let charged = with_storage_layer(|| Self::charge_position(id, pos, lending.apr_bps, now));
+        let charged =
+            with_storage_layer(|| Self::charge_position(id, pos, &lending.rate_curve(), now));
         let paid = charged.is_ok();
         let (pos, charge_at) = match charged {
             Ok(settled) => {
@@ -175,23 +182,30 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Accrues `pos` to `now` at `apr_bps` on its notional (`q * TWAP_median` for a short, the
-    /// debt for a long), takes `min(due, C)` from its collateral and pays it to the pool (SPEC
-    /// section 1 item 2, I5). Returns the settled position; the caller stores it.
+    /// Accrues `pos` to `now` at its rate on `curve`, on its notional (`q * TWAP_median` for a
+    /// short, the debt for a long), takes `min(due, C)` from its collateral and pays it to the
+    /// pool (SPEC section 1 item 2, I5). Returns the settled position; the caller stores it.
     fn charge_position(
         id: &PositionId<T::AccountId>,
         pos: Position<BlockNumberFor<T>>,
-        apr_bps: u32,
+        curve: &RateCurve,
         now: BlockNumberFor<T>,
     ) -> Result<Position<BlockNumberFor<T>>, DispatchError> {
         let (who, netuid, side) = id;
         let twap = Self::price_refs(*netuid)?.twap;
-        let (settled, charge) = pos.settle(twap, apr_bps, now);
+        let (settled, charge) = pos.settle(twap, curve, now);
         let custody = Self::position_custody(id, pos.opened_at);
-        Self::pay_interest(who, *netuid, *side, &custody, charge)?;
+        Self::pay_interest(
+            who,
+            *netuid,
+            *side,
+            &custody,
+            charge.amount,
+            charge.rate_bps,
+        )?;
         Ok(settled)
     }
 
-    /// Runs after every scheduled charge. Empty until the health check of SPEC section 1 item 4.
+    /// Runs after every scheduled charge. Empty until the default of SPEC section 1 item 4.
     pub(crate) fn after_charge(_id: &PositionId<T::AccountId>) {}
 }

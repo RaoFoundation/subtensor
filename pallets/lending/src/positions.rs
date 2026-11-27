@@ -1,5 +1,5 @@
 //! Position operations (DESIGN-v2 sections 4 and 5; SPEC 1.1-1.4, P2-P23, L2-L12): open,
-//! increase, close, add collateral and withdraw collateral, on either side.
+//! increase, close and add collateral, on either side. Collateral leaves a position only on close.
 //!
 //! Every operation charges interest on touch: `Position::settle` up front for the amounts and
 //! `Pallet::pay_interest` at commit, the same pair the `Due` queue runs (see `interest`).
@@ -27,7 +27,6 @@ use crate::{
         coverage::{long_need, short_need},
         curve::{Curve, PoolState},
         fixed::BPS,
-        interest::interest_for_blocks,
     },
     params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
     types::{Leg, Market, Position, Side},
@@ -84,9 +83,9 @@ pub(crate) fn held_against(collateral: u64, leg: &Leg) -> u64 {
     collateral.saturating_add(leg.proceeds())
 }
 
-/// Whether `held` covers `need` plus `buffer`. An infinite need (`None`) never does.
-pub(crate) fn covers(need: Option<u64>, held: u64, buffer: u64) -> bool {
-    need.is_some_and(|need| held >= need.saturating_add(buffer))
+/// Whether `held` covers `need`. An infinite need (`None`) never does.
+pub(crate) fn covers(need: Option<u64>, held: u64) -> bool {
+    need.is_some_and(|need| held >= need)
 }
 
 /// The pool a position's coverage is measured on: the pool after the operation, with the
@@ -410,7 +409,7 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_flow(side, netuid, size, opening, &market, &params, now)?;
 
-        let (pos, charge) = held.settle(market.refs.twap, params.lending.apr_bps, now);
+        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
         let (after, value) = quote_grow::<T>(side, &market.pool, size)?;
         ensure!(value > 0, Error::<T>::InvalidAmount);
         ensure!(value >= min_out, Error::<T>::SlippageExceeded);
@@ -447,7 +446,7 @@ impl<T: Config> Pallet<T> {
             .book(side)
             .checked_add(added)
             .ok_or(Error::<T>::Overflow)?;
-        let post = post_pool(after, charge);
+        let post = post_pool(after, charge.amount);
         let need = coverage_need::<T::Curve>(
             &leg,
             book_after,
@@ -456,7 +455,7 @@ impl<T: Config> Pallet<T> {
             &params,
         );
         ensure!(
-            covers(need, held_against(collateral_total, &leg), 0),
+            covers(need, held_against(collateral_total, &leg)),
             coverage_error::<T>(&leg)
         );
 
@@ -468,7 +467,7 @@ impl<T: Config> Pallet<T> {
             Side::Long => T::Pool::lift_and_buy(netuid, size, &custody)?,
         };
         ensure!(moved == value, Error::<T>::QuoteMismatch);
-        Self::pay_interest(who, netuid, side, &custody, charge)?;
+        Self::pay_interest(who, netuid, side, &custody, charge.amount, charge.rate_bps)?;
         match side {
             Side::Short => {
                 SyntheticOutstanding::<T>::insert(netuid, book_after);
@@ -549,7 +548,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, params.lending.apr_bps, now);
+        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
         let full = alpha == pos.leg.alpha();
         let quote = quote_close::<T>(&pos.leg, &market.pool, alpha, pos.collateral, bound)?;
         let leg = pos.leg.shrunk(alpha, quote.consumed);
@@ -559,7 +558,7 @@ impl<T: Config> Pallet<T> {
             .checked_sub(alpha)
             .ok_or(Error::<T>::Overflow)?;
         if !full {
-            let post = post_pool(quote.after, charge.saturating_add(quote.repaid));
+            let post = post_pool(quote.after, charge.amount.saturating_add(quote.repaid));
             let need = coverage_need::<T::Curve>(
                 &leg,
                 book,
@@ -568,7 +567,7 @@ impl<T: Config> Pallet<T> {
                 &params,
             );
             ensure!(
-                covers(need, held_against(collateral, &leg), 0),
+                covers(need, held_against(collateral, &leg)),
                 coverage_error::<T>(&leg)
             );
         }
@@ -583,7 +582,7 @@ impl<T: Config> Pallet<T> {
         if quote.repaid > 0 {
             Self::credit_pool(netuid, &custody, quote.repaid)?;
         }
-        Self::pay_interest(who, netuid, side, &custody, charge)?;
+        Self::pay_interest(who, netuid, side, &custody, charge.amount, charge.rate_bps)?;
         match side {
             Side::Short => {
                 SyntheticOutstanding::<T>::insert(netuid, book);
@@ -623,7 +622,7 @@ impl<T: Config> Pallet<T> {
             let refund_c = pos.accrual.due.min(collateral);
             let refund_p = pos.accrual.due.saturating_sub(refund_c).min(proceeds);
             let refunded = refund_c.saturating_add(refund_p);
-            Self::pay_interest(who, netuid, side, &custody, refunded)?;
+            Self::pay_interest(who, netuid, side, &custody, refunded, charge.rate_bps)?;
             payout = payout
                 .saturating_add(collateral.saturating_sub(refund_c))
                 .saturating_add(proceeds.saturating_sub(refund_p))
@@ -681,7 +680,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, params.lending.apr_bps, now);
+        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
         ensure!(
             T::Pool::tao_balance(who) >= amount,
             Error::<T>::InsufficientBalance
@@ -692,61 +691,9 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::Overflow)?;
         let custody = Self::position_custody(&key, pos.opened_at);
         Self::move_tao(who, &custody, amount)?;
-        Self::pay_interest(who, netuid, side, &custody, charge)?;
+        Self::pay_interest(who, netuid, side, &custody, charge.amount, charge.rate_bps)?;
         Positions::<T>::insert(&key, Position { collateral, ..pos });
         Self::deposit_event(Event::CollateralAdded {
-            who: who.clone(),
-            netuid,
-            side,
-            amount,
-        });
-        Ok(())
-    }
-
-    /// Withdraws collateral from one side of a position. The collateral left must still cover
-    /// the need (SPEC P2, L2) and leave the interest buffer on top of it (SPEC P20, L12).
-    pub(crate) fn do_withdraw_collateral(
-        who: &T::AccountId,
-        netuid: NetUid,
-        side: Side,
-        amount: u64,
-    ) -> DispatchResult {
-        let key = (who.clone(), netuid, side);
-        let held = Positions::<T>::get(&key).ok_or(Error::<T>::NoPosition)?;
-        ensure!(amount > 0, Error::<T>::InvalidAmount);
-        let now = frame_system::Pallet::<T>::block_number();
-        let params = Self::params();
-        let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, params.lending.apr_bps, now);
-        ensure!(amount <= pos.collateral, Error::<T>::WithdrawBreaksCoverage);
-        let collateral = pos.collateral.saturating_sub(amount);
-        let post = post_pool(market.pool, charge);
-        let need = coverage_need::<T::Curve>(
-            &pos.leg,
-            market.book(side),
-            &post,
-            &priced_at::<T::Curve>(market.refs, &post),
-            &params,
-        );
-        let held_after = held_against(collateral, &pos.leg);
-        ensure!(
-            covers(need, held_after, 0),
-            Error::<T>::WithdrawBreaksCoverage
-        );
-        let buffer = interest_for_blocks(
-            pos.leg.notional(market.refs.twap),
-            params.lending.apr_bps,
-            params.lending.withdraw_buffer_blocks,
-        );
-        ensure!(
-            covers(need, held_after, buffer),
-            Error::<T>::WithdrawBufferBreached
-        );
-        let custody = Self::position_custody(&key, pos.opened_at);
-        Self::pay_interest(who, netuid, side, &custody, charge)?;
-        Self::move_tao(&custody, who, amount)?;
-        Positions::<T>::insert(&key, Position { collateral, ..pos });
-        Self::deposit_event(Event::CollateralWithdrawn {
             who: who.clone(),
             netuid,
             side,

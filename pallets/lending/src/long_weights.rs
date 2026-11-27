@@ -35,9 +35,3 @@ pub fn close_long<T: frame_system::Config>() -> Weight {
 pub fn add_long_collateral<T: frame_system::Config>() -> Weight {
     T::DbWeight::get().reads_writes(12, 5)
 }
-
-/// `withdraw_long_collateral`: as `add_long_collateral`, plus the coverage books.
-// HOLD(longs): placeholder, not a benchmark.
-pub fn withdraw_long_collateral<T: frame_system::Config>() -> Weight {
-    T::DbWeight::get().reads_writes(14, 5)
-}

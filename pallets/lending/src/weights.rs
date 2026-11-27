@@ -41,7 +41,6 @@ pub trait WeightInfo {
 	fn close_short() -> Weight;
 	fn close_short_partial() -> Weight;
 	fn add_collateral() -> Weight;
-	fn withdraw_collateral() -> Weight;
 	fn set_enabled(s: u32, ) -> Weight;
 	fn set_longs_enabled() -> Weight;
 	fn set_lending_params() -> Weight;
@@ -397,59 +396,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `6569`
 		// Minimum execution time: 151_131_000 picoseconds.
 		Weight::from_parts(153_332_000, 6569)
-			.saturating_add(T::DbWeight::get().reads(23_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
-	}
-	/// Storage: `Lending::Positions` (r:1 w:1)
-	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
-	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(72), added: 567, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::ShortParamsStore` (r:1 w:0)
-	/// Proof: `Lending::ShortParamsStore` (`max_values`: Some(1), `max_size`: Some(12), added: 507, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LongParamsStore` (r:1 w:0)
-	/// Proof: `Lending::LongParamsStore` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::DeregParamsStore` (r:1 w:0)
-	/// Proof: `Lending::DeregParamsStore` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::TwapRing` (r:1 w:0)
-	/// Proof: `Lending::TwapRing` (`max_values`: None, `max_size`: Some(1160), added: 3635, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::RankRingGeneration` (r:1 w:0)
-	/// Proof: `Lending::RankRingGeneration` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::RankGeneration` (r:1 w:0)
-	/// Proof: `Lending::RankGeneration` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::RankPrice` (r:1 w:0)
-	/// Proof: `Lending::RankPrice` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::SubnetMechanism` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:1)
-	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Swap::SwapBalancer` (r:1 w:0)
-	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `Swap::FeeRate` (r:1 w:0)
-	/// Proof: `Swap::FeeRate` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:0)
-	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LongLockedAlpha` (r:1 w:0)
-	/// Proof: `Lending::LongLockedAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LongLiftedTao` (r:1 w:0)
-	/// Proof: `Lending::LongLiftedTao` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Custody` (r:1 w:0)
-	/// Proof: `Lending::Custody` (`max_values`: None, `max_size`: Some(83), added: 2558, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:2 w:2)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::TotalStake` (r:1 w:1)
-	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Lending::InterestTotals` (r:1 w:1)
-	/// Proof: `Lending::InterestTotals` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
-	fn withdraw_collateral() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `3104`
-		//  Estimated: `6569`
-		// Minimum execution time: 470_795_000 picoseconds.
-		Weight::from_parts(481_014_000, 6569)
 			.saturating_add(T::DbWeight::get().reads(23_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
@@ -1166,59 +1112,6 @@ impl WeightInfo for () {
 		//  Estimated: `6569`
 		// Minimum execution time: 151_131_000 picoseconds.
 		Weight::from_parts(153_332_000, 6569)
-			.saturating_add(RocksDbWeight::get().reads(23_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
-	}
-	/// Storage: `Lending::Positions` (r:1 w:1)
-	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
-	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(72), added: 567, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::ShortParamsStore` (r:1 w:0)
-	/// Proof: `Lending::ShortParamsStore` (`max_values`: Some(1), `max_size`: Some(12), added: 507, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LongParamsStore` (r:1 w:0)
-	/// Proof: `Lending::LongParamsStore` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::DeregParamsStore` (r:1 w:0)
-	/// Proof: `Lending::DeregParamsStore` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::TwapRing` (r:1 w:0)
-	/// Proof: `Lending::TwapRing` (`max_values`: None, `max_size`: Some(1160), added: 3635, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::RankRingGeneration` (r:1 w:0)
-	/// Proof: `Lending::RankRingGeneration` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::RankGeneration` (r:1 w:0)
-	/// Proof: `Lending::RankGeneration` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::RankPrice` (r:1 w:0)
-	/// Proof: `Lending::RankPrice` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::SubnetMechanism` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:1)
-	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Swap::SwapBalancer` (r:1 w:0)
-	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `Swap::FeeRate` (r:1 w:0)
-	/// Proof: `Swap::FeeRate` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:0)
-	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LongLockedAlpha` (r:1 w:0)
-	/// Proof: `Lending::LongLockedAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LongLiftedTao` (r:1 w:0)
-	/// Proof: `Lending::LongLiftedTao` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Custody` (r:1 w:0)
-	/// Proof: `Lending::Custody` (`max_values`: None, `max_size`: Some(83), added: 2558, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:2 w:2)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::TotalStake` (r:1 w:1)
-	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Lending::InterestTotals` (r:1 w:1)
-	/// Proof: `Lending::InterestTotals` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
-	fn withdraw_collateral() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `3104`
-		//  Estimated: `6569`
-		// Minimum execution time: 470_795_000 picoseconds.
-		Weight::from_parts(481_014_000, 6569)
 			.saturating_add(RocksDbWeight::get().reads(23_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}

@@ -2039,7 +2039,7 @@ class Lending:
 
     @staticmethod
     def set_lending_params(params: 'LendingParams') -> Call:
-        'Replaces `LendingParams` from the next block (SPEC 2.1).'
+        'Replaces `LendingParams` from the next block (SPEC 2.1). If the call raises the rate terms (a higher `apr_bps`, `rate_cap_bps` or `rate_floor_bps`, or any change of `rate_k`), the new terms are live only after the `rate_increase_delay_blocks` in force; the other fields still change from the next block.'
         return Call('Lending', 'set_lending_params', {'params': params})
 
     @staticmethod
@@ -2056,13 +2056,3 @@ class Lending:
     def set_short_params(params: 'ShortParams') -> Call:
         'Replaces `ShortParams` from the next block (SPEC 2.1).'
         return Call('Lending', 'set_short_params', {'params': params})
-
-    @staticmethod
-    def withdraw_collateral(netuid: 'NetUid', amount: 'u64') -> Call:
-        'Withdraws collateral from a short if coverage and the interest buffer still hold (SPEC P2, P20).'
-        return Call('Lending', 'withdraw_collateral', {'netuid': netuid, 'amount': amount})
-
-    @staticmethod
-    def withdraw_long_collateral(netuid: 'NetUid', amount: 'u64') -> Call:
-        'Withdraws collateral from a long if coverage and the interest buffer still hold (SPEC L2, L12).'
-        return Call('Lending', 'withdraw_long_collateral', {'netuid': netuid, 'amount': amount})

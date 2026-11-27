@@ -84,8 +84,8 @@ impl<T: Config> OnRuntimeUpgrade for MigrateToV1<T> {
 
     /// After any run: the storage version is 1, the pallet hotkey is registered and every live
     /// subnet has full price rings (SPEC I25, with the other invariants of `do_try_state`).
-    /// After the initialising run also: the four parameter groups are the launch defaults and
-    /// both sides are disabled (SPEC P1, L1). Root may have changed either since, so a later
+    /// After the initialising run also: the four parameter groups are the launch defaults, no
+    /// rate increase is pending and both sides are disabled (SPEC P1, L1). Root may have changed either since, so a later
     /// run does not check them.
     #[cfg(feature = "try-runtime")]
     fn post_upgrade(state: alloc::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
@@ -120,6 +120,10 @@ impl<T: Config> OnRuntimeUpgrade for MigrateToV1<T> {
                     && LongParamsStore::<T>::get() == LongParams::default()
                     && DeregParamsStore::<T>::get() == DeregParams::default(),
                 "lending v1: parameters are not the launch defaults"
+            );
+            ensure!(
+                crate::PendingRateIncrease::<T>::get().is_none(),
+                "lending v1: a rate increase is pending after the upgrade"
             );
             ensure!(
                 !crate::Enabled::<T>::get(),
