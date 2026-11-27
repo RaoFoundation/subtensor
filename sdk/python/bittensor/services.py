@@ -68,7 +68,7 @@ import zlib
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import IO, Any, Callable, Mapping, Optional, TypeVar, Union
+from typing import IO, Any, Callable, Iterable, Mapping, Optional, TypeVar, Union
 
 from . import http_auth
 from ._generated import storage
@@ -91,8 +91,10 @@ __all__ = [
 ]
 
 MAX_DOCUMENT_BYTES = 8 << 20
-# A spec can be large: Microsoft Graph's is 74 MB.
+# A service can publish a large spec, such as Microsoft Graph's 74 MB spec.
 MAX_SPEC_BYTES = 128 << 20
+MAX_SPECS = 8
+MAX_SPEC_TOKENS = 4_500_000
 # A response held in memory; one written to a file as it arrives has no limit.
 MAX_RESPONSE_BYTES = 64 << 20
 # Seconds a request may take in all, however slowly the host answers: a call or
@@ -108,6 +110,7 @@ CacheDir = Optional[Union[str, Path]]
 # How many schema nodes one resolve expands, at most, when it replaces $refs.
 RESOLVE_BUDGET = 200_000
 RESOLVE_DEPTH = 32
+MAX_TOOL_NODES = 500_000
 
 _METHODS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
 _JSON = "application/json"
@@ -285,6 +288,11 @@ class Operation:
         targets, as :meth:`Service.resolve` does."""
         return _resolve(self.spec, schema, [RESOLVE_BUDGET])
 
+    def _resolver(self) -> Callable[[Any], Any]:
+        """Resolve several inputs under one work budget."""
+        budget = [RESOLVE_BUDGET]
+        return functools.partial(_resolve, self.spec, budget=budget, strict=True)
+
     @property
     def tool_name(self) -> str:
         """Its command name within the 64 characters agent tools allow."""
@@ -392,14 +400,14 @@ class ServiceDocument:
         """Whether requests to it may be signed. The chain ties a published service's
         hotkey to its url. A document read by its url can name any hotkey, and a
         request signed for that hotkey could be passed on to its real service, so
-        only one on this machine is signed for."""
-        return self.owner is not None or self.local
+        URL mode signs only when both the document and request stay on this machine."""
+        return self.owner is not None or (self.local and _is_local(self.document_url))
 
-    def _check_signable(self) -> None:
-        if not self.signable:
+    def _check_signable(self, url: str) -> None:
+        if self.owner is None and not (self.signable and _is_local(url)):
             raise ServiceError(
                 f"{self.url} was read by its url, so nothing ties hotkey {self.hotkey} to it; "
-                "only its open operations can be called",
+                "signed requests require a published service or a local document and endpoint",
                 code="input",
             )
 
@@ -438,7 +446,7 @@ class ServiceDocument:
                 raise ServiceError(
                     "the balance must be signed by the requested hotkey", code="input"
                 )
-            self._check_signable()
+            self._check_signable(url)
             response = await _threaded(read, signer)
         record = _json_object(response, url, "the balance")
         if "hotkey" in record and record["hotkey"] != hotkey_ss58:
@@ -484,15 +492,41 @@ class Service(ServiceDocument):
         """An operation as a tool definition, as agent frameworks take one: its
         ``name`` (which :meth:`call` takes back), its ``description`` and
         ``input_schema``, the JSON Schema of its inputs. A file input is base64 text."""
-        return self._tool(self.operation(operation), {})
+        return self._tools((self.operation(operation),))[0]
 
     def tools(self) -> list[dict]:
         """Every operation's standalone tool definition."""
+        return self._tools(self.operations.values())
+
+    def _tools(self, operations: Iterable[Operation]) -> list[dict]:
         definitions: dict[tuple[int, str], tuple[Any, set[str]]] = {}
-        return [self._tool(op, definitions) for op in self.operations.values()]
+        work = [MAX_TOOL_NODES]
+        remaining = MAX_TOOL_NODES
+        tools = []
+        for op in operations:
+            tool = self._tool(op, definitions, work)
+            pending = [tool]
+            while pending:
+                node = pending.pop()
+                remaining -= _node_cost(node)
+                if remaining < 0:
+                    raise ServiceError(
+                        "the combined tool schemas are too large; request one operation's schema",
+                        code="too_large",
+                    )
+                if isinstance(node, dict):
+                    pending.extend(node.keys())
+                    pending.extend(node.values())
+                elif isinstance(node, list):
+                    pending.extend(node)
+            tools.append(tool)
+        return tools
 
     def _tool(
-        self, op: Operation, definitions: dict[tuple[int, str], tuple[Any, set[str]]]
+        self,
+        op: Operation,
+        definitions: dict[tuple[int, str], tuple[Any, set[str]]],
+        budget: list[int],
     ) -> dict:
         # Each schema a reference reaches is copied once into ``definitions``, which the
         # tools of one call share, and every tool takes those it reaches as its $defs,
@@ -502,17 +536,25 @@ class Service(ServiceDocument):
         # OpenAPI 3.0's ``nullable`` is JSON Schema's null type.
         spec = op.spec or self.spec
 
-        def copy(node: Any, refs: set[str], budget: list[int], mode="schema", depth=0) -> Any:
-            budget[0] -= 1 + (len(node) >> 6 if isinstance(node, str) else 0)
-            if budget[0] < 0 or depth > 128:
+        def copy(node: Any, refs: set[str], mode="schema", depth=0) -> Any:
+            budget[0] -= _node_cost(node)
+            if budget[0] < 0:
+                raise ServiceError(
+                    "the tool schemas are too large; request one operation's schema",
+                    code="too_large",
+                )
+            if depth > 128:
                 return {} if mode == "schema" else node
+            if mode == "text":
+                return _plain(node)
             child = "schema" if mode == "schemas" else "literal"
             if isinstance(node, list):
-                return [copy(v, refs, budget, child, depth + 1) for v in node]
+                return [copy(v, refs, child, depth + 1) for v in node]
             if not isinstance(node, dict):
                 return node
             out = {}
             for key, value in node.items():
+                budget[0] -= _node_cost(key)
                 child = "schema" if mode == "schemas" else "literal"
                 if mode == "schema":
                     if key == "$ref":
@@ -526,12 +568,12 @@ class Service(ServiceDocument):
                         out["contentEncoding"] = "base64"
                         continue
                     if key in ("description", "title") and isinstance(value, str):
-                        value = _plain(value)
+                        child = "text"
                     elif key in _SCHEMA_COLLECTIONS:
                         child = "schemas"
                     elif key in _SCHEMA_KEYWORDS:
                         child = "schemas" if isinstance(value, list) else "schema"
-                out[key] = copy(value, refs, budget, child, depth + 1)
+                out[key] = copy(value, refs, child, depth + 1)
             if mode == "schema":
                 properties = node.get("properties")
                 hidden = {
@@ -558,7 +600,8 @@ class Service(ServiceDocument):
         refs: set[str] = set()
         properties = {}
         for item in op.tool_inputs:
-            schema = copy(item.schema, refs, [RESOLVE_BUDGET])
+            budget[0] -= _node_cost(item.name) + _node_cost(item.description)
+            schema = copy(item.schema, refs)
             if isinstance(schema, dict) and item.description:
                 schema.setdefault("description", _plain(item.description))
             properties[item.name] = schema
@@ -581,7 +624,7 @@ class Service(ServiceDocument):
                 except ServiceError:
                     target = {}
                 found: set[str] = set()
-                definitions[key] = (copy(target, found, [RESOLVE_BUDGET]), found)
+                definitions[key] = (copy(target, found), found)
             reached[ref], more = definitions[key]
             pending.extend(more - reached.keys())
         if reached:
@@ -589,6 +632,9 @@ class Service(ServiceDocument):
         description = "\n\n".join(
             t for t in (op.summary, op.description if op.description != op.summary else "") if t
         )
+        budget[0] -= _node_cost(description)
+        if budget[0] < 0:
+            raise ServiceError("the tool descriptions are too large", code="too_large")
         return {
             "name": op.tool_name,
             "description": _plain(description),
@@ -644,7 +690,7 @@ class Service(ServiceDocument):
         if op.auth == "hotkey" and signer is None:
             raise ServiceError(f"{op.id} is signed by a hotkey; pass a signer", code="input")
         if signer is not None and op.auth != "open":
-            self._check_signable()
+            self._check_signable(url)
 
         def send() -> Response:
             # Signed as it is sent: a signature made before a wait for a thread goes stale.
@@ -724,7 +770,7 @@ async def load_url(
     may use http and private hosts, as on a localnet, any other only https to
     public hosts. It must list ``netuid`` and ``hotkey_ss58`` in ``publishers``,
     and without them it must list exactly one publisher, whose service it is.
-    Only a document on this machine is :attr:`~ServiceDocument.signable`.
+    Signed requests require both the document and endpoint to be on this machine.
     """
     return await _threaded(_fetch_service, netuid, hotkey_ss58, url, _is_local(url), cache)
 
@@ -834,19 +880,29 @@ def _service(
     operations: dict[str, Operation] = {}
     skipped: list[Skipped] = []
     tags: dict[str, str] = {}
-    loaded: list[tuple[str, Mapping[str, Any], str]] = []
+    first = None
+    loaded: list[str] = []
+    remaining_bytes = MAX_SPEC_BYTES
+    tokens = [MAX_SPEC_TOKENS]
+    deadline = time.monotonic() + TIMEOUT
     for spec_url in named:
         # A spec that cannot be read loses only its own operations.
         try:
-            spec, spec_url = _get_json(
+            if remaining_bytes <= 0 or tokens[0] <= 0:
+                raise ServiceError("the combined OpenAPI specs are too large", code="too_large")
+            timeout = deadline - time.monotonic()
+            if timeout <= 0:
+                raise ServiceError("timed out reading the service's OpenAPI specs", code="timeout")
+            spec, spec_url, size = _get_json(
                 spec_url,
                 "the OpenAPI spec",
                 local,
                 cache,
-                TIMEOUT,
-                MAX_SPEC_BYTES,
-                yaml=True,
+                timeout,
+                remaining_bytes,
+                spec_tokens=tokens,
             )
+            remaining_bytes -= size
             api_url = _checked_url(_server(spec_url, spec), "the API", local)
             skipped.extend(_operations(spec, spec_url, local, operations))
         except (ServiceError, ValueError) as error:
@@ -854,13 +910,15 @@ def _service(
                 raise
             skipped.append(Skipped("", _line(spec_url), "", _line(str(error))))
             continue
-        loaded.append((spec_url, spec, api_url))
+        if first is None:
+            first = spec_url, spec, api_url
+        loaded.append(spec_url)
         for tag in _list(spec.get("tags")):
             if isinstance(tag, dict) and isinstance(tag.get("name"), str):
                 tags.setdefault(tag["name"], _text(tag.get("description")))
-    if not loaded:
+    if first is None:
         raise ServiceError(f"none of the specs {url} names can be read: {skipped[0].reason}")
-    spec_url, spec, api_url = loaded[0]
+    spec_url, spec, api_url = first
     return Service(
         **vars(metadata),
         spec_url=spec_url,
@@ -869,7 +927,7 @@ def _service(
         tags=tags,
         skipped=tuple(skipped),
         spec=spec,
-        spec_urls=tuple(found for found, _, _ in loaded),
+        spec_urls=tuple(loaded),
     )
 
 
@@ -877,7 +935,7 @@ def _document(
     netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir
 ) -> ServiceDocument:
     try:
-        document, document_url = _get_json(url, "the services document", local, cache)
+        document, document_url, _ = _get_json(url, "the services document", local, cache)
         netuid, hotkey = _publisher(document, url, netuid, hotkey)
         balance = _checked_url(_gamma_balance(document, document_url), "the balance", local)
     except ValueError as error:
@@ -948,7 +1006,7 @@ def _gamma_balance(document: Mapping[str, Any], url: str) -> str:
 
 def _spec_urls(document: Mapping[str, Any], url: str) -> list[str]:
     """The urls of the OpenAPI specs the document names, each once."""
-    specs = []
+    specs: dict[str, None] = {}
     services = document.get("services")
     for service in services if isinstance(services, list) else []:
         if not isinstance(service, dict):
@@ -956,13 +1014,19 @@ def _spec_urls(document: Mapping[str, Any], url: str) -> list[str]:
         if service.get("type") not in ("openapi", "http"):
             continue
         # An openapi service's endpoint is its spec unless it names the spec apart.
-        if isinstance(service.get("spec"), str):
-            specs.append(service["spec"])
-        elif service.get("type") == "openapi" and isinstance(service.get("endpoint"), str):
-            specs.append(service["endpoint"])
+        spec = service.get("spec")
+        if not isinstance(spec, str) and service.get("type") == "openapi":
+            spec = service.get("endpoint")
+        if isinstance(spec, str):
+            specs[urllib.parse.urljoin(url, spec)] = None
+            if len(specs) > MAX_SPECS:
+                raise ServiceError(
+                    f"the document at {url} names more than {MAX_SPECS} OpenAPI specs",
+                    code="too_large",
+                )
     if not specs:
         raise ServiceError(f"the document at {url} names no OpenAPI spec")
-    return list(dict.fromkeys(urllib.parse.urljoin(url, spec) for spec in specs))
+    return list(specs)
 
 
 class _Unusable(Exception):
@@ -1010,6 +1074,7 @@ def _operations(
     declared = any(btauth({name: []}) for name in schemes)
     root_security = spec.get("security")
     commands = {op.command for op in operations.values()}
+    suffixes: dict[str, int] = {}
     skipped: list[Skipped] = []
     budget = [RESOLVE_BUDGET]  # schema nodes the bodies of the whole spec may take to read
     paths = spec.get("paths")
@@ -1076,14 +1141,14 @@ def _operations(
                 continue
             # A name another operation has, or writes the same way, goes by its method
             # and path instead, so every operation is called by a name of its own.
-            op_id = next(
-                candidate
-                for candidate in itertools.chain(
-                    (op_id, name), (f"{name} {n}" for n in itertools.count(2))
-                )
-                if candidate not in operations and _kebab(candidate) not in commands
-            )
-            commands.add(_kebab(op_id))
+            command = _kebab(op_id)
+            if command in commands:
+                base = _kebab(name)
+                op_id, command = name, base
+                if command in commands:
+                    n = _free_suffix(base, "-", commands, suffixes)
+                    op_id, command = f"{name} {n}", f"{base}-{n}"
+            commands.add(command)
             operations[op_id] = Operation(
                 id=op_id,
                 method=method.upper(),
@@ -1278,15 +1343,21 @@ def _named(inputs: list[Input]) -> list[Input]:
     order = {"path": 0, "query": 1, "header": 2, "cookie": 3, "field": 4}
     names: set[str] = set()
     commands: set[str] = set()
+    name_suffixes: dict[str, int] = {}
+    command_suffixes: dict[str, int] = {}
     named = []
     for item in sorted(inputs, key=lambda i: order[i.location]):
         name = item.name
         if name in names:
-            name = next(n for n in _numbered(f"{item.location}_{item.name}", "_") if n not in names)
+            name = f"{item.location}_{item.name}"
+            if name in names:
+                name = f"{name}_{_free_suffix(name, '_', names, name_suffixes)}"
         command, flag = _kebab(name), ""
         if not command or command in commands:
             base = _kebab(f"{item.location} {name}")
-            flag = command = next(c for c in _numbered(base, "-") if c not in commands)
+            if base in commands:
+                base = f"{base}-{_free_suffix(base, '-', commands, command_suffixes)}"
+            flag = command = base
         names.add(name)
         commands.add(command)
         named.append(
@@ -1297,10 +1368,12 @@ def _named(inputs: list[Input]) -> list[Input]:
     return named
 
 
-def _numbered(base: str, separator: str):
-    yield base
-    for n in itertools.count(2):
-        yield f"{base}{separator}{n}"
+def _free_suffix(base: str, separator: str, taken: set[str], suffixes: dict[str, int]) -> int:
+    n = suffixes.get(base, 2)
+    while f"{base}{separator}{n}" in taken:
+        n += 1
+    suffixes[base] = n + 1
+    return n
 
 
 def _media(content: Mapping[str, Any]) -> tuple[str, str, str]:
@@ -1801,7 +1874,11 @@ def _pointer(spec: Mapping[str, Any], ref: str) -> Any:
     return target
 
 
-def _resolve(spec: Mapping[str, Any], node: Any, budget: list) -> Any:
+def _node_cost(node: Any) -> int:
+    return 1 + (len(node) >> 6 if isinstance(node, str) else 0)
+
+
+def _resolve(spec: Mapping[str, Any], node: Any, budget: list, *, strict: bool = False) -> Any:
     """``node`` with local ``$ref`` replaced by their targets, spending ``budget[0]`` nodes,
     and long strings as several, so nothing grows past the budget.
 
@@ -1809,7 +1886,12 @@ def _resolve(spec: Mapping[str, Any], node: Any, budget: list) -> Any:
     """
 
     def walk(node: Any, depth: int, seen: frozenset) -> Any:
-        budget[0] -= 1 + (len(node) >> 6 if isinstance(node, str) else 0)
+        budget[0] -= _node_cost(node)
+        if budget[0] < 0 and strict:
+            raise ServiceError(
+                "the input schema is too large to expand; use --help --json for its references",
+                code="too_large",
+            )
         if budget[0] < 0 or depth > RESOLVE_DEPTH:
             return node
         if isinstance(node, dict):
@@ -2196,8 +2278,9 @@ def _get_json(
     cache: CacheDir = None,
     timeout: float = FETCH_TIMEOUT,
     limit: int = MAX_DOCUMENT_BYTES,
-    yaml: bool = False,
-) -> tuple[dict, str]:
+    *,
+    spec_tokens: Optional[list[int]] = None,
+) -> tuple[dict, str, int]:
     """The JSON object at ``url``, or the YAML one when ``yaml``, and where it was."""
     checked = _checked_url(url, what, local)
     if local:
@@ -2206,17 +2289,23 @@ def _get_json(
     if cached is not None:
         try:
             response = Response(200, {"content-type": _JSON}, cached)
-            return _json_object(response, url, what, yaml), checked
-        except ServiceError:
-            pass  # A damaged cache entry is a miss.
-    accept = f"{_JSON}, application/yaml;q=0.9, text/yaml;q=0.9" if yaml else _JSON
+            return _json_object(response, url, what, spec_tokens), checked, len(cached)
+        except ServiceError as error:
+            if error.code == "too_large":
+                raise
+            # A damaged cache entry is a miss.
+    accept = (
+        f"{_JSON}, application/yaml;q=0.9, text/yaml;q=0.9" if spec_tokens is not None else _JSON
+    )
     headers = {"User-Agent": _USER_AGENT, "Accept": accept, "Accept-Encoding": "gzip"}
     response = _gunzipped(_send("GET", checked, headers, b"", local, limit, timeout), url, limit)
-    document = _json_object(response, url, what, yaml)
+    if len(response.content) > limit:
+        raise ServiceError(f"{what} at {url} exceeds the remaining byte limit", code="too_large")
+    document = _json_object(response, url, what, spec_tokens)
     effective = response.url or checked
     if effective == checked:
         _keep(cache, checked, response, limit)
-    return document, effective
+    return document, effective, len(response.content)
 
 
 def _gunzipped(response: Response, url: str, limit: int) -> Response:
@@ -2323,7 +2412,38 @@ def _keep(cache: CacheDir, url: str, response: Response, limit: int = MAX_SPEC_B
         _sweep(path.parent)
 
 
-def _json_object(response: Response, url: str, what: str, yaml: bool = False) -> dict:
+_JSON_TOKEN = re.compile(rb'["\[{,:]')
+_JSON_STRING_TOKEN = re.compile(rb'\\[\s\S]|"')
+
+
+def _json_tokens(content: bytes, limit: int, url: str) -> int:
+    """Count container and entry delimiters before JSON can allocate their objects."""
+    if b"\0" in content[:4]:
+        content = content.decode(json.detect_encoding(content)).encode()
+    if not re.match(rb"(?:\xef\xbb\xbf)?\s*[\[{]", content):
+        return 0
+    count = cursor = 0
+    while token := _JSON_TOKEN.search(content, cursor):
+        cursor = token.end()
+        if token[0] == b'"':
+            for end in _JSON_STRING_TOKEN.finditer(content, cursor):
+                cursor = end.end()
+                if end[0] == b'"':
+                    break
+            else:
+                break  # the JSON decoder reports the unfinished string
+        else:
+            count += 1
+            if count > limit:
+                raise ServiceError(
+                    f"the OpenAPI specs at {url} have too many entries", code="too_large"
+                )
+    return count
+
+
+def _json_object(
+    response: Response, url: str, what: str, spec_tokens: Optional[list[int]] = None
+) -> dict:
     """A response as the JSON object it is, or, when ``yaml``, the YAML one."""
     if not response.ok:
         message = response.message[:200]
@@ -2334,29 +2454,27 @@ def _json_object(response: Response, url: str, what: str, yaml: bool = False) ->
             code="http",
         )
     try:
+        count = (
+            _json_tokens(response.content, spec_tokens[0], url) if spec_tokens is not None else 0
+        )
         value = response.json()
     except (ValueError, RecursionError):
-        if not yaml:
+        if spec_tokens is None:
             raise ServiceError(f"{what} at {url} is not JSON") from None
-        value = _yaml(response.text, url, what)
+        value, count = _yaml(response.text, url, what, spec_tokens[0])
     if not isinstance(value, dict):
         raise ServiceError(f"{what} at {url} is not a JSON object")
+    if spec_tokens is not None:
+        spec_tokens[0] -= count
     return value
 
 
-# Parser events a YAML spec may have: about twice Microsoft Graph beta's. Loading
-# keeps a node of several hundred bytes for each before the value exists, so a
-# spec of a few megabytes could otherwise take gigabytes; counting them first is
-# cheap and holds none.
-MAX_YAML_EVENTS = 6_000_000
-
-# Nodes a YAML spec may have once its aliases are expanded: ten times Microsoft Graph's.
-# An alias makes a node appear again without its text, so a short spec could
-# otherwise stand for more than any walk of it could finish.
-MAX_YAML_NODES = 16_000_000
+# Bound parser work and the values and text after aliases are expanded.
+MAX_YAML_EVENTS = 4_500_000
+MAX_YAML_NODES = 4_000_000
 
 
-def _yaml(text: str, url: str, what: str) -> Any:
+def _yaml(text: str, url: str, what: str, event_limit: int) -> tuple[Any, int]:
     """The YAML at ``url`` as JSON would read it: scalar keys become text, as an
     unquoted status code ``200:`` is, and values JSON has no type for are refused."""
     import yaml
@@ -2370,18 +2488,52 @@ def _yaml(text: str, url: str, what: str) -> Any:
         )
     loader = _yaml_loader()
     try:
-        for count, _ in enumerate(yaml.parse(text, Loader=loader), 1):
-            if count > MAX_YAML_EVENTS:
-                raise ServiceError(f"{what} at {url} has more than {MAX_YAML_EVENTS} YAML events")
+        # Charge an alias the cost of its anchor without walking that tree again.
+        # Only completed anchors can be used, so recursive values fail here.
+        limit = min(MAX_YAML_EVENTS, event_limit)
+        node_limit = min(MAX_YAML_NODES, event_limit)
+        anchors: dict[str, int] = {}
+        containers: list[tuple[Optional[str], int]] = [(None, 0)]
+        for count, event in enumerate(yaml.parse(text, Loader=loader), 1):
+            if count > limit:
+                raise ServiceError(
+                    f"{what} at {url} has more than {limit} YAML events", code="too_large"
+                )
+            if isinstance(event, yaml.CollectionStartEvent):
+                if event.anchor is not None:
+                    anchors.pop(event.anchor, None)
+                containers.append((event.anchor, 1))
+                continue
+            if isinstance(event, yaml.CollectionEndEvent):
+                anchor, cost = containers.pop()
+            elif isinstance(event, yaml.ScalarEvent):
+                anchor, cost = event.anchor, _node_cost(event.value)
+            elif isinstance(event, yaml.AliasEvent):
+                if event.anchor not in anchors:
+                    if any(anchor == event.anchor for anchor, _ in containers):
+                        raise ServiceError(
+                            f"{what} at {url} has a recursive YAML alias and expands past "
+                            f"{node_limit} nodes",
+                            code="too_large",
+                        )
+                    raise ServiceError(f"{what} at {url} has an undefined YAML alias")
+                anchor, cost = None, anchors[event.anchor]
+            else:
+                continue
+            if anchor is not None:
+                anchors[anchor] = cost
+            parent, size = containers[-1]
+            if size + cost > node_limit:
+                raise ServiceError(
+                    f"{what} at {url} expands past {node_limit} nodes", code="too_large"
+                )
+            containers[-1] = (parent, size + cost)
         value = yaml.load(text, Loader=loader)
     except (yaml.YAMLError, RecursionError, ValueError):
         raise ServiceError(f"{what} at {url} is neither JSON nor YAML") from None
-    count, pending = 0, [value]
+    pending = [value]
     while pending:
         node = pending.pop()
-        count += 1
-        if count > MAX_YAML_NODES:
-            raise ServiceError(f"{what} at {url} expands past {MAX_YAML_NODES} nodes")
         if isinstance(node, dict):
             if not all(isinstance(key, str) for key in node):
                 items = list(node.items())
@@ -2392,7 +2544,7 @@ def _yaml(text: str, url: str, what: str) -> Any:
             pending.extend(node)
         elif not isinstance(node, (str, int, float, type(None))):
             raise ServiceError(f"{what} at {url} holds a {type(node).__name__}, which JSON cannot")
-    return value
+    return value, max(count, containers[0][1])
 
 
 def _yaml_key(key: object, url: str, what: str) -> str:

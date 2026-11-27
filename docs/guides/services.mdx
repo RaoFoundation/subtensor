@@ -65,7 +65,8 @@ are, how to reach them, and how they are paid for:
   OpenAPI 3 spec at `spec`. The specs a document names, in JSON or YAML, cover
   every paid route, so an agent can use the whole product from the document
   alone, and clients offer the operations of all of them. A spec's first
-  `servers` url, relative to the spec, is where its operations are.
+  `servers` url, relative to the spec, is where its operations are. A document
+  can name up to eight specs, with up to 128 MiB of decompressed spec data in total.
 - `pricing` is the url of the prices in JSON, unless the spec states them.
   `docs` is the url of docs for people.
 - A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), spent at
@@ -85,8 +86,8 @@ Check a document before publishing it with
 `btcli service show --url URL --netuid 1 --service-hotkey HOTKEY`. It reads the
 document and its spec as a client would and lists the operations a client
 offers, and why it leaves any out. Nothing ties a document read by its url to
-the hotkey it names, so btcli signs calls to it only when the url is on this
-machine.
+the hotkey it names, so btcli signs calls only when the document stays on
+this machine and the operation's endpoint is here too.
 
 A `gamma` payment with `"signature": "btauth/1"` accepts
 [signed requests](/docs/guides/signed-requests). The hotkey that spent signs
@@ -243,6 +244,7 @@ With `--json`, for scripts and agents:
   has by auth.
 - `service show` lists each operation with the names of its `required` and
   `optional` inputs, and `--schemas` adds the JSON Schema of the inputs.
+  For a large service, fetch just the operation you need with `call OPERATION --help`.
 - `service call OPERATION --help` gives one operation with its `input_schema`.
 - `service call` prints `{"status", "content_type", "signed", "body"}`: `signed`
   is the hotkey that signed the request, or null, and `service balance` shows

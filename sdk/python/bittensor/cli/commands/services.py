@@ -194,7 +194,7 @@ def _url_option():
         "--url",
         help="Read the services document at this url, not the chain's, to try a service "
         "before publishing it. It must list --netuid and --service-hotkey in its "
-        "publishers when they are given. Only a url on this machine can be signed for.",
+        "publishers when they are given. Signing requires a local document and endpoint.",
     )
 
 
@@ -447,7 +447,9 @@ def call(
     for token in ctx.args:
         if token.partition("=")[0] in reserved:
             _usage(app_ctx, f"pass {token!r} before -- or use --inputs for provider fields")
-    values = _inputs(app_ctx, service, op, ctx.args, inputs)
+    resolve = op._resolver()
+    with _rendering(app_ctx):
+        values = _inputs(app_ctx, service, op, ctx.args, inputs, resolve)
     body_kw = {}
     if body is not None:
         if op.body_kind == "raw":
@@ -463,12 +465,15 @@ def call(
             if "body" in body_kw:
                 _input_error(app_ctx, service, op, "the body is given twice")
             body_kw["body"] = file
-        elif _types(op.resolve(item.schema)) == {"array"}:
-            values.setdefault(name, []).append(file)
-        elif name in values:
-            _input_error(app_ctx, service, op, f"{name!r} is given twice")
         else:
-            values[name] = file
+            with _rendering(app_ctx):
+                multiple = _types(resolve(item.schema)) == {"array"}
+            if multiple:
+                values.setdefault(name, []).append(file)
+            elif name in values:
+                _input_error(app_ctx, service, op, f"{name!r} is given twice")
+            else:
+                values[name] = file
     try:
         prepared = op.prepare(values, **body_kw)
     except services.ServiceError as error:
@@ -497,15 +502,12 @@ def call(
         }
         app_ctx.output.detail("dry run", _plain(preview))
         return
-    if signing and not service.signable:
-        _input_error(
-            app_ctx,
-            service,
-            op,
-            f"{service.url} was read by its url, so nothing ties hotkey {service.hotkey} to it "
-            f"and {op.command} cannot be signed for it"
-            + ("" if op.auth == "hotkey" else "; --unsigned sends it unsigned"),
-        )
+    if signing:
+        try:
+            service._check_signable(prepared[1])
+        except services.ServiceError as error:
+            hint = "; --unsigned sends it unsigned" if op.auth == "optional" else ""
+            _input_error(app_ctx, service, op, f"{error}{hint}")
     staged = None
     cleanup = None
     if out is not None and str(out) != "-":
@@ -787,7 +789,7 @@ def _address(app_ctx: AppContext, param: str, value: str) -> str:
         _usage(app_ctx, f"cannot resolve {address_cli_name(param)} {value!r}: {error}")
 
 
-def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
+def _inputs(app_ctx, service, op, args, inputs, resolve) -> dict[str, Any]:
     """Decode the operation's flags and combine them with named JSON inputs."""
     by_option = {_option(item): item for item in op.inputs}
     for item in op.inputs:  # the spec's own spelling works too: --gpuType, --gpu_type
@@ -812,7 +814,7 @@ def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
             )
         if item.binary:
             _input_error(app_ctx, service, op, f"{flag} takes a file: --file {item.name}=PATH")
-        schema = op.resolve(item.schema)
+        schema = resolve(item.schema)
         types = _types(schema)
         if types == {"boolean"} and not has_value:
             value: Any = not negated
@@ -821,14 +823,14 @@ def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
                 _input_error(app_ctx, service, op, f"{flag} takes no value")
             if not has_value:
                 inline = _next(app_ctx, service, op, rest, flag, by_option)
-            value = _value(app_ctx, service, op, item, schema, inline)
+            value = _value(app_ctx, service, op, item, schema, inline, resolve)
         if types == {"array"} and value is not None and values.get(item.name, []) is not None:
             values.setdefault(item.name, []).extend(value)
         elif item.name in values:
             _input_error(app_ctx, service, op, f"{flag} is given twice")
         else:
             values[item.name] = value
-    return {**_given(app_ctx, service, op, inputs, by_option), **values}
+    return {**_given(app_ctx, service, op, inputs, by_option, resolve), **values}
 
 
 def _next(app_ctx, service, op, rest, flag: str, by_option: dict) -> str:
@@ -841,7 +843,7 @@ def _next(app_ctx, service, op, rest, flag: str, by_option: dict) -> str:
     return value
 
 
-def _given(app_ctx, service, op, text: Optional[str], by_option: dict) -> dict[str, Any]:
+def _given(app_ctx, service, op, text: Optional[str], by_option: dict, resolve) -> dict[str, Any]:
     """The inputs ``--inputs`` gives: a JSON object of them by name."""
     if text is None:
         return {}
@@ -854,10 +856,10 @@ def _given(app_ctx, service, op, text: Optional[str], by_option: dict) -> dict[s
         name = item.name if item is not None else key
         if name in values:
             _input_error(app_ctx, service, op, f"{name!r} is given twice")
-        schema = op.resolve(item.schema) if item is not None and not item.binary else None
+        schema = resolve(item.schema) if item is not None and not item.binary else None
         if schema is not None and (value is not None or not _nullable(schema)):
             if _types(schema) == {"array"} and isinstance(value, list):
-                items = op.resolve(schema.get("items") or {})
+                items = resolve(schema.get("items") or {})
                 for each in value:
                     _typed(app_ctx, service, op, item, items, each)
             else:
@@ -937,14 +939,14 @@ def _preview(op: services.Operation, data: bytes) -> Any:
     return f"{len(data)} bytes"
 
 
-def _value(app_ctx, service, op, item: services.Input, schema: Any, text: str) -> Any:
+def _value(app_ctx, service, op, item: services.Input, schema: Any, text: str, resolve) -> Any:
     """A flag's value: text for a text input, JSON for any other type (text when it is
     untyped and not JSON). An array input takes one item, or a JSON array of them."""
     if text == "null" and _nullable(schema) and "string" not in _types(schema):
         return None
     if _types(schema) != {"array"}:
         return _typed(app_ctx, service, op, item, schema, _parse(text, schema))
-    items = op.resolve(schema.get("items") or {})
+    items = resolve(schema.get("items") or {})
     whole = _loads(text)
     values = whole if isinstance(whole, list) else [_parse(text, items)]
     return [_typed(app_ctx, service, op, item, items, value) for value in values]
@@ -1117,8 +1119,9 @@ def _help(app_ctx: AppContext, service: services.Service, op: services.Operation
     reserved = {flag for param in ctx.command.params for flag in param.opts}
     rows = []
     needed = []  # the required inputs as flags, for the usage line
+    resolve = op._resolver()
     for item in op.inputs:
-        schema = op.resolve(item.schema)
+        schema = resolve(item.schema)
         schema = schema if isinstance(schema, dict) else {}
         default = schema.get("const", schema.get("default"))
         flag = _option(item)

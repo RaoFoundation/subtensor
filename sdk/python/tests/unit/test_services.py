@@ -332,6 +332,34 @@ class TestLoad:
         assert "listJobs" in service.operations and service.tags["training"] == "Training runs"
         assert any(s.path == "https://svc.example/gone.json" for s in service.skipped)
 
+    def test_specs_share_the_document_limits(self, web, monkeypatch):
+        other = "https://svc.example/other.json"
+        web.pages[other] = {"openapi": "3.1.0", "paths": {}}
+        web.pages[DOC_URL] = document(
+            services=[{"type": "openapi", "endpoint": url} for url in (SPEC_URL, other)]
+        )
+        size = len(json.dumps(web.pages[SPEC_URL]).encode())
+        monkeypatch.setattr(services, "MAX_SPEC_BYTES", size)
+        service = load()
+        assert service.spec_urls == (SPEC_URL,)
+        assert any(skipped.path == other for skipped in service.skipped)
+        assert not any(url == other for _, url, _, _ in web.sent)
+
+        monkeypatch.setattr(services, "MAX_SPECS", 1)
+        with pytest.raises(ServiceError, match="more than 1 OpenAPI specs") as error:
+            load()
+        assert error.value.code == "too_large"
+
+    def test_json_spec_budget_counts_entries_and_ignores_quoted_text(self, web, monkeypatch):
+        small = {"openapi": "3.1.0", "info": {"description": '"{[],}:' * 100}, "paths": {}}
+        web.pages[SPEC_URL] = small
+        monkeypatch.setattr(services, "MAX_SPEC_TOKENS", 20)
+        assert load().spec == small
+        small["paths"] = {f"/row/{i}": {"get": {}} for i in range(20)}
+        with pytest.raises(ServiceError, match="too many entries") as error:
+            load()
+        assert error.value.code == "too_large"
+
     def test_the_spec_must_be_openapi_3(self, web):
         web.pages[SPEC_URL] = {"swagger": "2.0", "paths": {}}
         with pytest.raises(ServiceError, match=r"not an OpenAPI 3 spec \(swagger '2.0'\)"):
@@ -497,6 +525,20 @@ class TestLoad:
             load()
         web.pages[SPEC_URL] = Response(200, {}, b"a: &a [*a]\n")
         with pytest.raises(ServiceError, match="expands past 1000 nodes"):
+            load()
+
+    def test_yaml_aliases_count_the_text_they_repeat(self, web, monkeypatch):
+        monkeypatch.setattr(services, "MAX_YAML_NODES", 25)
+        web.pages[SPEC_URL] = Response(
+            200,
+            {},
+            (
+                "openapi: 3.1.0\ntext: &description "
+                + "x" * 640
+                + "\nexample: [*description, *description]\n"
+            ).encode(),
+        )
+        with pytest.raises(ServiceError, match="expands past 25 nodes"):
             load()
 
     def test_a_yaml_spec_needs_libyaml(self, web, monkeypatch):
@@ -714,6 +756,49 @@ class TestOperations:
         monkeypatch.setattr(services, "RESOLVE_BUDGET", 2)
         assert [t["name"] for t in service.tools()] == [
             op.tool_name for op in service.operations.values()
+        ]
+
+    def test_export_counts_shared_definitions_in_each_standalone_tool(self, web, monkeypatch):
+        api = spec()
+        api["components"]["schemas"]["Options"] = {"type": "string", "description": "x" * 6400}
+        api["paths"] = {
+            f"/search/{i}": {
+                "get": {
+                    "parameters": [
+                        {
+                            "name": "options",
+                            "in": "query",
+                            "schema": {
+                                "type": "array",
+                                "items": {"$ref": "#/components/schemas/Options"},
+                            },
+                        }
+                    ]
+                }
+            }
+            for i in range(5)
+        }
+        web.pages[SPEC_URL] = api
+        service = load()
+        monkeypatch.setattr(services, "MAX_TOOL_NODES", 450)
+        assert "Options" in service.tool("get-search-0")["input_schema"]["$defs"]
+        with pytest.raises(ServiceError, match="combined tool schemas") as error:
+            service.tools()
+        assert error.value.code == "too_large"
+
+    def test_normalized_operation_collisions_keep_their_numbering(self, web):
+        api = spec()
+        api["paths"] = {
+            "/first": {"get": {"operationId": "get-asset-2"}},
+            **{f"/asset{suffix}": {"get": {}} for suffix in ("", "!", "$", "!$")},
+        }
+        web.pages[SPEC_URL] = api
+        assert [op.command for op in load().operations.values()] == [
+            "get-asset-2",
+            "get-asset",
+            "get-asset-3",
+            "get-asset-4",
+            "get-asset-5",
         ]
 
     def test_a_long_operation_name_fits_a_tool_name(self, web):
@@ -1010,6 +1095,18 @@ class TestCall:
         )
         web.pages["http://127.0.0.1:8080/openapi.json"] = spec(servers=[{"url": "/"}])
         assert asyncio.run(services.load_url(local)).signable
+
+    def test_signed_url_calls_stay_on_loopback(self, web, key):
+        url = "http://127.0.0.1:8080/services.json"
+        web.pages[url] = document()
+        service = asyncio.run(services.load_url(url))
+        assert service.signable
+        with pytest.raises(ServiceError, match="local document and endpoint"):
+            asyncio.run(service.call("createJob", {"model": "m"}, signer=key))
+        assert [sent[1] for sent in web.sent] == [url, SPEC_URL]
+
+        web.pages[url] = Response(200, {}, json.dumps(document()).encode(), DOC_URL)
+        assert not asyncio.run(services.load_url(url)).signable
 
     def test_a_signed_request_binds_the_target_body_and_service_hotkey(self, web, key):
         service = load()
@@ -1881,6 +1978,29 @@ class TestCli:
         last = invoke("service", "call", "--netuid", "1", "create-job", "--help", "--json")
         assert json.loads(last.output) == record
         assert not [sent for sent in cli.sent if "/api/v1/" in sent[1]]
+
+    def test_cli_resolves_all_inputs_under_one_budget(self, cli, monkeypatch):
+        api = spec()
+        api["paths"]["/models"]["get"]["parameters"] = [
+            {
+                "name": name,
+                "in": "query",
+                "schema": {"type": "string", "description": "x" * 640},
+            }
+            for name in ("provider", "region")
+        ]
+        cli.pages[SPEC_URL] = api
+        monkeypatch.setattr(services, "RESOLVE_BUDGET", 24)
+        args = ("service", "call", "--netuid", "1", "list-models")
+        assert invoke(*args, "--provider", "abc", "--dry-run").exit_code == 0
+        for options in (
+            ("--help",),
+            ("--provider", "abc", "--region", "us", "--dry-run"),
+        ):
+            result = invoke(*args, *options)
+            assert result.exit_code == 1 and "input schema is too large" in result.stderr
+        assert invoke("--json", *args, "--help").exit_code == 0
+        assert not any(url.endswith("/api/v1/models") for _, url, _, _ in cli.sent)
 
     def test_inputs_are_flags_typed_by_the_spec(self, cli, tmp_path):
         cli.pages["https://svc.example/api/v1/jobs"] = {"id": "j1"}
