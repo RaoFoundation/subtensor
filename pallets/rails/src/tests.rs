@@ -118,9 +118,16 @@ fn flush() -> Vec<Outbound> {
     sent
 }
 
+/// Puts the existential deposit in the vault account of a subnet, as its first stake or
+/// spend would leave it there, so that a test can count in whole amounts.
+fn keep_vault_alive(raw: u16) {
+    fund_tao(Rails::vault_account(netuid(raw)), EXISTENTIAL_DEPOSIT);
+}
+
 /// Opens a market for a new subnet and lists its token on Base.
 fn open_market(raw: u16, name: &str) {
     add_subnet(raw, name);
+    keep_vault_alive(raw);
     assert_ok!(Rails::open_market(
         RuntimeOrigin::root(),
         netuid(raw),
@@ -840,6 +847,53 @@ fn stablecoin_buys_alpha_tokens_staked_by_the_vault() {
 }
 
 #[test]
+fn the_first_purchase_leaves_the_existential_deposit_in_the_vault() {
+    new_test_ext().execute_with(|| {
+        // A market whose vault account does not exist yet.
+        add_subnet(CHUTES, "Chutes");
+        assert_ok!(Rails::open_market(
+            RuntimeOrigin::root(),
+            netuid(CHUTES),
+            (1_000_000 * UNIT).into()
+        ));
+        assert_ok!(Rails::list_market(
+            RuntimeOrigin::root(),
+            netuid(CHUTES),
+            BASE,
+            wallet()
+        ));
+        let vault = Rails::vault_account(netuid(CHUTES));
+        let alpha = Destination::Alpha {
+            netuid: netuid(CHUTES),
+            to: wallet(),
+        };
+        let tao: u64 = Pool::quote_tusd_for_tao((4_000 * UNIT).into())
+            .unwrap()
+            .into();
+
+        // Staking keeps the account that pays alive: the first buyer's shares are for that
+        // much less TAO, once.
+        let shares = settled(SpokeAsset::Stable, 4_000 * UNIT, alpha.clone());
+        assert_eq!(shares, (tao - EXISTENTIAL_DEPOSIT) * ALPHA_PER_TAO);
+        assert_eq!(
+            Balances::free_balance(&vault),
+            TaoBalance::from(EXISTENTIAL_DEPOSIT)
+        );
+
+        let tao: u64 = Pool::quote_tusd_for_tao((4_000 * UNIT).into())
+            .unwrap()
+            .into();
+        let more = settled(SpokeAsset::Stable, 4_000 * UNIT, alpha);
+        assert_eq!(more, tao * ALPHA_PER_TAO);
+        assert_eq!(
+            Balances::free_balance(&vault),
+            TaoBalance::from(EXISTENTIAL_DEPOSIT)
+        );
+        assert_invariants();
+    });
+}
+
+#[test]
 fn a_share_is_worth_more_alpha_as_the_vault_earns() {
     new_test_ext().execute_with(|| {
         open_market(CHUTES, "Chutes");
@@ -1013,6 +1067,7 @@ fn stablecoin_buys_service_credits_for_an_address() {
     new_test_ext().execute_with(|| {
         add_subnet(LIUM, "lium.io");
         add_service(LIUM, SERVICE);
+        keep_vault_alive(LIUM);
         let tao: u64 = Pool::quote_tusd_for_tao((100 * UNIT).into())
             .unwrap()
             .into();
@@ -1053,6 +1108,7 @@ fn credits_are_valued_at_the_pool_price_over_time_when_it_is_lower() {
     new_test_ext().execute_with(|| {
         add_subnet(LIUM, "lium.io");
         add_service(LIUM, SERVICE);
+        keep_vault_alive(LIUM);
         // Someone sells TAO into the pool and holds its price a fifth below the oracle.
         fund_tao(BOB, 2_000 * UNIT);
         assert_ok!(Pool::swap_tao_for_tusd(
@@ -1646,19 +1702,21 @@ fn a_dissolved_subnets_tokens_redeem_the_tao_its_stake_was_paid_out_in() {
             refunded(SpokeAsset::Stable, 4_000 * UNIT, alpha.clone()),
             Error::<Test>::MarketClosed.into()
         );
-        // A quarter of the shares redeem a quarter of the TAO, whoever comes first.
+        // A quarter of the shares redeem a quarter of what the vault account holds, whoever
+        // comes first.
+        let pot = 8 * UNIT + EXISTENTIAL_DEPOSIT;
         let first = settled(
             SpokeAsset::Alpha(netuid(CHUTES)),
             shares / 4,
             Destination::NativeTao { to: ALICE },
         );
-        assert_eq!(first, 2 * UNIT);
+        assert_eq!(first, pot / 4);
         let rest = settled(
             SpokeAsset::Alpha(netuid(CHUTES)),
             shares - shares / 4,
             Destination::NativeTao { to: BOB },
         );
-        assert_eq!(rest, 6 * UNIT);
+        assert_eq!(rest, pot - pot / 4);
         assert_eq!(Balances::free_balance(vault), TaoBalance::from(0));
         assert_eq!(Markets::<Test>::get(netuid(CHUTES)).unwrap().shares, 0);
 

@@ -57,6 +57,7 @@ mod benchmarking;
 #[cfg(test)]
 mod mock;
 pub mod router;
+pub mod runtime_api;
 #[cfg(test)]
 mod tests;
 pub mod types;
@@ -72,6 +73,7 @@ use frame_support::{
 use frame_system::pallet_prelude::*;
 use sp_core::{H160, H256};
 use sp_runtime::traits::{AccountIdConversion, Zero};
+pub use subtensor_runtime_common::rails::{RailsStaking, SubnetStatus};
 use subtensor_runtime_common::{
     AlphaBalance, GammaBalance, NetUid, TaoBalance, Token,
     rails::{BridgeId, StableAsset},
@@ -666,7 +668,9 @@ impl<T: Config> Pallet<T> {
         <T as Config>::PalletId::get().into_sub_account_truncating(*b"tao/")
     }
 
-    /// The account that stakes for the market of `netuid`, and owns its index hotkey.
+    /// The account that stakes and spends on `netuid` for the hub, and owns the subnet's
+    /// index hotkey. Staking keeps the existential deposit in it: the first stake or spend
+    /// uses that much less than it was given, once.
     pub fn vault_account(netuid: NetUid) -> T::AccountId {
         <T as Config>::PalletId::get().into_sub_account_truncating((*b"vlt/", netuid))
     }

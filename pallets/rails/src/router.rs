@@ -299,8 +299,12 @@ impl<T: Config> Pallet<T> {
                     .ok_or(Error::<T>::BridgeDisabled)?
                     .route
                     .origin;
+                // The subnet's vault pays: staking keeps the existential deposit in the
+                // account that pays, and the hub account must end empty.
+                let vault = Self::vault_account(*netuid);
+                Self::transfer_tao(&hub, &vault, tao)?;
                 let (alpha_burned, gamma) = T::Staking::spend_at_service(
-                    &hub,
+                    &vault,
                     *netuid,
                     service,
                     tao,

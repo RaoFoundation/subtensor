@@ -16,6 +16,7 @@ frame-system.workspace = true
 pallet-subtensor-swap.workspace = true
 pallet-tusd.workspace = true
 scale-info = { workspace = true, features = ["derive"] }
+sp-api.workspace = true
 sp-arithmetic.workspace = true
 sp-runtime.workspace = true
 substrate-fixed.workspace = true
@@ -37,6 +38,7 @@ std = [
 	"pallet-subtensor-swap/std",
 	"pallet-tusd/std",
 	"scale-info/std",
+	"sp-api/std",
 	"sp-arithmetic/std",
 	"sp-core/std",
 	"sp-io/std",

@@ -6,12 +6,18 @@
 
 use frame_support::{
     Blake2_128Concat, PalletId, assert_ok, derive_impl, parameter_types, storage_alias,
-    traits::{EitherOfDiverse, fungible::Mutate, tokens::Preservation},
+    traits::{
+        EitherOfDiverse,
+        fungible::{Inspect, Mutate},
+        tokens::{Fortitude, Preservation},
+    },
     weights::Weight,
 };
 use frame_system::EnsureRoot;
 use sp_core::{H160, H256};
-use sp_runtime::{AccountId32, BuildStorage, DispatchError, Permill, traits::IdentityLookup};
+use sp_runtime::{
+    AccountId32, BuildStorage, DispatchError, Permill, TokenError, traits::IdentityLookup,
+};
 use subtensor_runtime_common::{
     AlphaBalance, GammaBalance, NetUid, TaoBalance, TusdBalance,
     rails::{BridgedPayment, OriginChain, Payer, StableAsset},
@@ -175,6 +181,8 @@ impl pallet_canonical_pool::Config for Test {
 
 /// Staking without a subnet AMM: every subnet pays [`ALPHA_PER_TAO`] alpha for a TAO, both
 /// ways, and holds the TAO at [`SUBNET_POOL`]. Tests add emissions with [`accrue`].
+///
+/// Like the subtensor pallet, it leaves the existential deposit in the account that pays.
 pub struct MockStaking;
 
 impl MockStaking {
@@ -183,6 +191,21 @@ impl MockStaking {
             SubnetStatus::Live { .. } => Ok(()),
             _ => Err(NOT_LIVE),
         }
+    }
+
+    /// Moves `tao` of `payer`'s into the subnet, less what keeps the payer's account alive.
+    /// Returns what moved.
+    fn pay_in(payer: &AccountId, tao: TaoBalance) -> Result<TaoBalance, DispatchError> {
+        let tao = tao.min(Balances::reducible_balance(
+            payer,
+            Preservation::Preserve,
+            Fortitude::Polite,
+        ));
+        if tao == TaoBalance::from(0) {
+            return Err(DispatchError::Token(TokenError::FundsUnavailable));
+        }
+        Balances::transfer(payer, &SUBNET_POOL, tao, Preservation::Preserve)?;
+        Ok(tao)
     }
 }
 
@@ -217,7 +240,7 @@ impl RailsStaking<AccountId> for MockStaking {
         tao: TaoBalance,
     ) -> Result<AlphaBalance, DispatchError> {
         Self::live(netuid)?;
-        Balances::transfer(vault, &SUBNET_POOL, tao, Preservation::Expendable)?;
+        let tao = Self::pay_in(vault, tao)?;
         let alpha = u64::from(tao) * ALPHA_PER_TAO;
         Staked::mutate((vault.clone(), netuid), |staked| *staked += alpha);
         Ok(alpha.into())
@@ -256,7 +279,7 @@ impl RailsStaking<AccountId> for MockStaking {
         let Payer::Evm(payer) = payment.payer else {
             return Err(DispatchError::Other("the hub pays for addresses only"));
         };
-        Balances::transfer(funder, &SUBNET_POOL, tao, Preservation::Expendable)?;
+        let tao = Self::pay_in(funder, tao)?;
         let price = u128::from(ORACLE_PRICE.min(tao_usd_price_cap));
         let gamma = (u128::from(u64::from(tao)) * price / u128::from(UNIT)) as u64;
         Spent::mutate((netuid, service.clone(), payer), |spent| *spent += gamma);

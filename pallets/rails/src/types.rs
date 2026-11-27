@@ -1,18 +1,14 @@
-//! The orders the hub settles, the messages it answers with, and what it needs from staking.
+//! The orders the hub settles and the messages it answers with.
 //!
 //! Every enum is append-only: a variant keeps its codec index for ever.
 
-use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{BoundedVec, pallet_prelude::*, weights::Weight};
+use frame_support::{BoundedVec, pallet_prelude::*};
 use scale_info::TypeInfo;
 use sp_core::{ConstU32, H160};
 use sp_runtime::DispatchError;
 use subtensor_macros::freeze_struct;
-use subtensor_runtime_common::{
-    AlphaBalance, GammaBalance, NetUid, TaoBalance,
-    rails::{BridgeId, BridgedPayment},
-};
+use subtensor_runtime_common::{AlphaBalance, NetUid, rails::BridgeId};
 
 /// The longest name of a token on a spoke, in bytes.
 pub const MAX_TOKEN_NAME: u32 = 64;
@@ -286,67 +282,4 @@ pub struct TokenInfo {
     pub address: H160,
     pub name: TokenName,
     pub symbol: TokenSymbol,
-}
-
-/// Whether a netuid holds a subnet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SubnetStatus {
-    /// A subnet lives there. `generation` changes when the netuid is registered again.
-    Live { generation: u64 },
-    /// A subnet was dissolved and its stake is still being paid out.
-    Dissolving,
-    /// No subnet, and nothing left to pay out.
-    Absent,
-}
-
-/// What the hub needs from staking. The runtime implements it over the subtensor pallet,
-/// which this pallet does not depend on.
-pub trait RailsStaking<AccountId> {
-    /// Whether `netuid` holds a subnet.
-    fn subnet_status(netuid: NetUid) -> SubnetStatus;
-
-    /// The name in the identity the subnet published on chain, if it published one.
-    fn subnet_name(netuid: NetUid) -> Option<Vec<u8>>;
-
-    /// Opens the index hotkey of `netuid`, owned by `vault`.
-    fn open_index(netuid: NetUid, vault: &AccountId) -> DispatchResult;
-
-    /// The alpha that `vault` has staked at the index hotkey of `netuid`.
-    fn staked(vault: &AccountId, netuid: NetUid) -> AlphaBalance;
-
-    /// Stakes `tao` of `vault`'s balance at the index hotkey of `netuid`. Returns the alpha
-    /// it bought.
-    fn stake(
-        vault: &AccountId,
-        netuid: NetUid,
-        tao: TaoBalance,
-    ) -> Result<AlphaBalance, DispatchError>;
-
-    /// Unstakes `alpha` of `vault`'s from the index hotkey of `netuid`. Returns the TAO that
-    /// reached `vault`'s balance.
-    fn unstake(
-        vault: &AccountId,
-        netuid: NetUid,
-        alpha: AlphaBalance,
-    ) -> Result<TaoBalance, DispatchError>;
-
-    /// Spends `tao` of `funder`'s balance as gamma of `netuid` at `service` for the payer of
-    /// `payment`, valuing a TAO at no more than `tao_usd_price_cap`. Returns the alpha burned
-    /// and the gamma spent.
-    fn spend_at_service(
-        funder: &AccountId,
-        netuid: NetUid,
-        service: &AccountId,
-        tao: TaoBalance,
-        tao_usd_price_cap: u64,
-        payment: BridgedPayment<AccountId>,
-    ) -> Result<(AlphaBalance, GammaBalance), DispatchError>;
-
-    /// At least the weight of the staking that any one route does: an unstake and then a
-    /// stake or a spend.
-    fn weight() -> Weight;
-
-    /// Benchmark setup: makes sure a subnet lives and returns its netuid.
-    #[cfg(feature = "runtime-benchmarks")]
-    fn benchmark_subnet() -> NetUid;
 }

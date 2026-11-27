@@ -31,6 +31,7 @@ mod benchmarking;
 pub mod math;
 #[cfg(test)]
 mod mock;
+pub mod runtime_api;
 #[cfg(test)]
 mod tests;
 pub mod weights;
