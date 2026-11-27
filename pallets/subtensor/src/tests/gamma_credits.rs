@@ -148,7 +148,7 @@ fn a_bridged_spend_trades_and_is_valued_like_a_mint() {
 fn a_cap_at_or_above_the_oracle_price_changes_nothing() {
     new_test_ext(1).execute_with(|| {
         let netuid = gamma_subnet();
-        let mut gamma_at = |cap: u64| {
+        let gamma_at = |cap: u64| {
             let mut gamma = GammaBalance::from(0);
             // Each probe is rolled back, so all see the same pool.
             let _ = with_storage_layer(|| {
@@ -167,7 +167,7 @@ fn a_cap_at_or_above_the_oracle_price_changes_nothing() {
 fn a_cheaper_market_price_caps_the_gamma() {
     new_test_ext(1).execute_with(|| {
         let netuid = gamma_subnet();
-        let mut gamma_at = |cap: u64| {
+        let gamma_at = |cap: u64| {
             let mut gamma = GammaBalance::from(0);
             // Each probe is rolled back, so all see the same pool.
             let _ = with_storage_layer(|| {

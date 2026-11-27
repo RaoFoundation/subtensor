@@ -183,7 +183,7 @@ impl<T: Config> Pallet<T> {
 
     /// The weight of one refresh: the two epoch vectors, five reads for each candidate, the
     /// child and parent lists rewritten on both sides, and the bookkeeping.
-    fn index_refresh_weight() -> Weight {
+    pub(crate) fn index_refresh_weight() -> Weight {
         let candidates = MAX_INDEX_CANDIDATES as u64;
         let children = MAX_INDEX_CHILDREN as u64;
         T::DbWeight::get()
@@ -218,7 +218,7 @@ impl<T: Config> Pallet<T> {
             return T::DbWeight::get().reads(1);
         };
         if !Self::if_subnet_exist(netuid) {
-            // The subnet was dissolved: its index is closed with it.
+            // Dissolution closes the index. This only guards a list that was left behind.
             IndexSubnets::<T>::mutate(|subnets| subnets.retain(|listed| *listed != netuid));
             IndexRefreshedAt::<T>::remove(netuid);
             return scan.saturating_add(T::DbWeight::get().writes(2));

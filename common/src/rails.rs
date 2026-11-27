@@ -5,10 +5,13 @@
 //! must tolerate variants they do not know.
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::pallet_prelude::*;
+use frame_support::{pallet_prelude::*, weights::Weight};
 use scale_info::TypeInfo;
 use sp_core::H160;
+use sp_runtime::{DispatchError, Vec};
 use subtensor_macros::freeze_struct;
+
+use crate::{AlphaBalance, GammaBalance, NetUid, TaoBalance};
 
 /// Identifies an approved bridge: one portal contract on one origin chain.
 pub type BridgeId = u32;
@@ -106,6 +109,69 @@ pub struct BridgedPayment<AccountId> {
     pub payer: Payer<AccountId>,
     pub origin_chain: OriginChain,
     pub origin_nonce: u64,
+}
+
+/// Whether a netuid holds a subnet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubnetStatus {
+    /// A subnet lives there. `generation` changes when the netuid is registered again.
+    Live { generation: u64 },
+    /// A subnet was dissolved and its stake is still being paid out.
+    Dissolving,
+    /// No subnet, and nothing left to pay out.
+    Absent,
+}
+
+/// What the hub of the rails needs from staking. The subtensor pallet implements it; the hub
+/// does not depend on that pallet.
+pub trait RailsStaking<AccountId> {
+    /// Whether `netuid` holds a subnet.
+    fn subnet_status(netuid: NetUid) -> SubnetStatus;
+
+    /// The name in the identity the subnet published on chain, if it published one.
+    fn subnet_name(netuid: NetUid) -> Option<Vec<u8>>;
+
+    /// Opens the index hotkey of `netuid`, owned by `vault`.
+    fn open_index(netuid: NetUid, vault: &AccountId) -> DispatchResult;
+
+    /// The alpha that `vault` has staked at the index hotkey of `netuid`.
+    fn staked(vault: &AccountId, netuid: NetUid) -> AlphaBalance;
+
+    /// Stakes `tao` of `vault`'s balance at the index hotkey of `netuid`. Returns the alpha
+    /// it bought.
+    fn stake(
+        vault: &AccountId,
+        netuid: NetUid,
+        tao: TaoBalance,
+    ) -> Result<AlphaBalance, DispatchError>;
+
+    /// Unstakes `alpha` of `vault`'s from the index hotkey of `netuid`. Returns the TAO that
+    /// reached `vault`'s balance.
+    fn unstake(
+        vault: &AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError>;
+
+    /// Spends `tao` of `funder`'s balance as gamma of `netuid` at `service` for the payer of
+    /// `payment`, valuing a TAO at no more than `tao_usd_price_cap`. Returns the alpha burned
+    /// and the gamma spent.
+    fn spend_at_service(
+        funder: &AccountId,
+        netuid: NetUid,
+        service: &AccountId,
+        tao: TaoBalance,
+        tao_usd_price_cap: u64,
+        payment: BridgedPayment<AccountId>,
+    ) -> Result<(AlphaBalance, GammaBalance), DispatchError>;
+
+    /// At least the weight of the staking that any one route does: an unstake and then a
+    /// stake or a spend.
+    fn weight() -> Weight;
+
+    /// Benchmark setup: makes sure a subnet lives and returns its netuid.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_subnet() -> NetUid;
 }
 
 /// The stablecoin a bridge locks on its origin chain.

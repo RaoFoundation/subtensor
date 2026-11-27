@@ -24,6 +24,7 @@ pub mod index_hotkey;
 pub mod lock;
 pub mod move_stake;
 pub mod order_swap;
+mod rails;
 pub mod recycle_alpha;
 pub mod remove_stake;
 pub mod set_children;
