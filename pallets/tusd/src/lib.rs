@@ -374,6 +374,27 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Gives `who` `amount` of tUSD from an unlimited bridge that exists only in benchmarks.
+    #[cfg(feature = "runtime-benchmarks")]
+    pub fn benchmark_fund(who: &T::AccountId, amount: TusdBalance) -> DispatchResult {
+        let id = BridgeId::MAX;
+        Bridges::<T>::insert(
+            id,
+            Bridge {
+                route: BridgeRoute {
+                    origin: OriginChain::Bittensor,
+                    domain: id,
+                    portal: H256::zero(),
+                    asset: StableAsset::Usdc,
+                },
+                mint_cap: TusdBalance::MAX,
+                mint_window: RateWindow::new(u64::MAX, 1),
+                enabled: true,
+            },
+        );
+        Self::mint(id, who, amount)
+    }
+
     fn credit(who: &T::AccountId, amount: TusdBalance) -> DispatchResult {
         if amount.is_zero() {
             return Ok(());

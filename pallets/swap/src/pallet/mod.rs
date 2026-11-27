@@ -10,7 +10,7 @@ use crate::{pallet::balancer::Balancer, weights::WeightInfo};
 pub use pallet::*;
 use subtensor_macros::freeze_struct;
 
-mod balancer;
+pub mod balancer;
 mod hooks;
 mod impls;
 pub mod migrations;

@@ -9844,6 +9844,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-canonical-pool"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-subtensor-swap",
+ "pallet-tusd",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "substrate-fixed",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+]
+
+[[package]]
 name = "pallet-child-bounties"
 version = "40.0.0"
 source = "git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a#cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
