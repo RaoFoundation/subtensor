@@ -152,6 +152,7 @@ class FakeSubstrate:
         self.connected = False
         self.closed = False
         self.block = 100
+        self.chain_kind = "Local"
         self.finalized = 100
         self.runtime_spec_version = 300
 
@@ -237,6 +238,9 @@ class FakeSubstrate:
     async def block_hash(self, block: Optional[int] = None) -> str:
         return f"0x{(self.block if block is None else block):064x}"
 
+    async def chain_type(self) -> str:
+        return self.chain_kind
+
     async def block_number(self) -> int:
         return self.block
 
@@ -312,7 +316,22 @@ class FakeSubstrate:
     ) -> list[tuple[Any, Any]]:
         item = (module, storage_function)
         if item in self._maps:
-            return list(self._maps[item])
+            pairs = list(self._maps[item])
+            if not params:
+                return pairs
+            # Keys seeded in full are filtered by the prefix and returned without it.
+            prefix = tuple(params)
+            return [
+                (rest[0] if len(rest) == 1 else rest, value)
+                if isinstance(key, tuple)
+                and key[: len(prefix)] == prefix
+                and (rest := key[len(prefix) :])
+                else (key, value)
+                for key, value in pairs
+                if not isinstance(key, tuple)
+                or len(key) <= len(prefix)
+                or key[: len(prefix)] == prefix
+            ]
         # Seeded point entries double as map contents (single-key maps only).
         return [
             (key[0] if len(key) == 1 else key, value)

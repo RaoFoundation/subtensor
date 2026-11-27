@@ -109,6 +109,7 @@ def isolated_cli(tmp_path, monkeypatch, wallet_dir) -> None:
         ("BTCLI_MULTISIG_CACHE", "multisig_cache.json"),
         ("BTCLI_SUBNET_NAMES_CACHE", "subnet_names.json"),
         ("BTCLI_TOKEN_SYMBOLS_CACHE", "token_symbols.json"),
+        ("BTCLI_SERVICE_DOCUMENTS_CACHE", "service_documents"),
     ]:
         monkeypatch.setenv(var, str(tmp_path / filename))
     monkeypatch.setenv("BT_WALLET_PATH", wallet_dir)

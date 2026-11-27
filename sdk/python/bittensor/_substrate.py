@@ -120,6 +120,10 @@ class Substrate(Protocol):
         """Hash of a block number (defaults to the chain head)."""
         ...
 
+    async def chain_type(self) -> str:
+        """The node's chain type: ``Live``, ``Development``, ``Local`` or a custom name."""
+        ...
+
     async def block_number(self) -> int:
         """Current chain block number."""
         ...
@@ -474,6 +478,10 @@ class RpcSubstrate:
         if block is None:
             return await self._read(lambda raw: raw.get_chain_head())
         return await self._read(lambda raw: raw.get_block_hash(block))
+
+    async def chain_type(self) -> str:
+        kind = await self._read(lambda raw: raw.rpc_request("system_chainType"))
+        return kind.get("Custom", "") if isinstance(kind, dict) else str(kind)
 
     async def block_number(self) -> int:
         return await self._read(lambda raw: raw.get_block_number(None))

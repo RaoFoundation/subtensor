@@ -41,13 +41,15 @@ are, how to reach them, and how they are paid for:
   "description": "Pay-per-call inference for open models over an OpenAI-compatible API.",
   "publishers": [{ "netuid": 1, "hotkey": "5…" }],
   "services": [
-    { "type": "openapi", "endpoint": "https://…", "spec": "https://…/openapi.json" },
+    { "type": "openapi", "endpoint": "https://…/openapi.json" },
     { "type": "mcp", "endpoint": "https://…/mcp" }
   ],
   "payments": [
     { "type": "gamma", "signature": "btauth/1", "balance": "https://…/balance" },
     { "type": "x402" }
-  ]
+  ],
+  "pricing": "https://…/pricing.json",
+  "docs": "https://…/docs"
 }
 ```
 
@@ -58,24 +60,118 @@ are, how to reach them, and how they are paid for:
   Readers ignore one that is not listed, and customers spend only at listed
   hotkeys, since anyone can publish the url.
   Without `publishers`, any may point to it.
-- An `http` service is an HTTP API at `endpoint`.
+- An `openapi` service is the OpenAPI 3 spec at `endpoint`, or at `spec` when
+  it names one apart. An `http` service is an HTTP API at `endpoint`, with its
+  OpenAPI 3 spec at `spec`. The specs a document names, in JSON or YAML, cover
+  every paid route, so an agent can use the whole product from the document
+  alone, and clients offer the operations of all of them. A spec's first
+  `servers` url, relative to the spec, is where its operations are. A document
+  can name up to eight specs, with up to 128 MiB of decompressed spec data in total.
+- `pricing` is the url of the prices in JSON, unless the spec states them.
+  `docs` is the url of docs for people.
 - A `gamma` payment accepts the subnet's [gamma](/docs/guides/gamma), spent at
   the service's hotkey. `balance` is the url where a hotkey reads its balance
   at the service.
 - An [`x402`](https://www.x402.org) payment states its price and payee in each
   HTTP 402 response.
 - Readers skip service and payment types they do not know.
-- `name`, `description` and `signature` are optional, and so is `publishers`
-  without a `gamma` payment. Readers skip fields they do not know.
+- `name`, `description`, `signature` and `docs` are optional, and so is
+  `publishers` without a `gamma` payment. Readers skip fields they do not know.
 
 Serve the document with `Access-Control-Allow-Origin: *`, so that web apps can
-read it.
+read it, and the document and spec with a `Cache-Control` max-age and gzip, so
+that a client reads a large spec once and quickly.
+
+Check a document before publishing it with
+`btcli service show --url URL --netuid 1 --service-hotkey HOTKEY`. It reads the
+document and its spec as a client would and lists the operations a client
+offers, and why it leaves any out. Nothing ties a document read by its url to
+the hotkey it names, so btcli signs calls only when the document stays on
+this machine and the operation's endpoint is here too.
 
 A `gamma` payment with `"signature": "btauth/1"` accepts
 [signed requests](/docs/guides/signed-requests). The hotkey that spent signs
 each request, with the service's hotkey as the receiver, and the service
 charges what that hotkey spent at it. Without `signature`, the service's own
-interface says how a request names its hotkey.
+interface says how a request names its hotkey, and btcli and apps cannot call
+it.
+
+## Operations
+
+Apps, agents and `btcli service` call a service through its spec alone, so the
+spec says which operations a hotkey can call. It lists what the service offers
+hotkeys, not the rest of its backend, since clients show every operation in it.
+A service whose API does more serves a second spec with only those paths, and
+names that one:
+
+```json
+{
+  "openapi": "3.1.0",
+  "servers": [{ "url": "https://api.example.com/v1" }],
+  "components": {
+    "securitySchemes": {
+      "btauth": { "type": "apiKey", "in": "header", "name": "X-Bittensor-Signature" }
+    }
+  },
+  "paths": {
+    "/chat/completions": {
+      "post": {
+        "operationId": "createChatCompletion",
+        "summary": "Chat with a model",
+        "security": [{ "btauth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["model", "messages"],
+                "properties": { "model": { "type": "string" }, "messages": { "type": "array" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models": {
+      "get": { "operationId": "listModels", "summary": "List models", "security": [] }
+    }
+  }
+}
+```
+
+Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
+
+- Declare the `btauth/1` scheme, an `apiKey` in the `X-Bittensor-Signature`
+  header, under any name in `securitySchemes`. An operation a hotkey pays for
+  lists it in a `security` requirement, with `{}` beside it when the operation
+  also works unsigned. One anyone can call has `security: []`, and needs no
+  wallet. Without the scheme, clients sign every operation with a `security`
+  requirement or the `X-Bittensor-*` headers as parameters, and one with
+  neither when the caller names a hotkey; one that only a bearer token, OAuth
+  or another such credential meets is not offered.
+- Give each operation a short, unique `operationId` and a `summary`. Clients
+  call it by that name, so `rentBySpec` beats a generated
+  `rent_by_spec_executors_rent_by_spec_post`; without one it is named by its
+  method and path (`GET /v1/models`, `get-v1-models` in btcli).
+- Describe inputs, and use `enum`, `default`, `const` and `example`: btcli shows
+  them in an operation's help, fills a `const` or default for you, and agents
+  read them as tool arguments.
+- Tag operations. Clients list them by their first tag, in the order of the
+  spec's top-level `tags`, with the first sentence of each tag's `description`.
+- Parameters go in the path, query, headers or cookies, in any style OpenAPI
+  defines. A body is JSON, a form, multipart with files, or bytes or text of any
+  type, and clients send JSON when an operation takes several. A client takes an
+  operation's inputs as one set of names, its parameters and the top-level
+  fields of its body, so give them distinct names, not even differing in case
+  (`gpuType` and `gpu_type`): when two share one, the later in that order is
+  renamed after where it goes (`query_id`).
+- A path or an operation may name its own `servers`, and a server variable
+  takes its `default`, or its first `enum` value.
+- A signed request is answered where it was sent, without a redirect, since its
+  signature covers the path.
+- Serve each spec as one file. Clients do not follow a `$ref` to another file,
+  and leave out the operations that need one.
 
 ## Accepting gamma
 
@@ -88,3 +184,126 @@ from zero when the counter has grown. The totals can be cleared in the block
 that removes the subnet, which emits `NetworkRemoved`, so a service takes the
 subnet's final totals as those of the block before plus that block's
 `GammaSpent` events at its hotkeys.
+
+A hotkey needs no other account at the service. The first spend credited to it
+opens its account, and its signed requests are its only credential. The
+`balance` url answers `GET <balance>?hotkey=<ss58>`, publicly or to a request
+the hotkey signs:
+
+```json
+{ "hotkey": "5…", "credited_usd": "5.00", "used_usd": "1.25", "remaining_usd": "3.75" }
+```
+
+The amounts are decimal strings. `remaining_usd` is what the hotkey can spend at
+the service, however it was funded, and an unknown hotkey reads zeros. Clients
+need `remaining_usd`; the other fields are optional. A request
+the balance cannot cover gets HTTP 402 with `{ "error": "insufficient_balance" }`,
+and the service does no work.
+
+## Calling a service
+
+```bash
+btcli service list                                     # the services you can use (--all: the rest, and why)
+btcli service show --netuid 1                          # the service and its operations
+btcli service call --netuid 1 list-models
+btcli service call --netuid 1 create-chat-completion --help
+btcli gamma spend --netuid 1 --service-hotkey SERVICE --amount-gamma 5 -H HOTKEY
+btcli service call --netuid 1 -H HOTKEY create-chat-completion --model m --messages '[{"role": "user", "content": "Hi"}]'
+btcli service balance --netuid 1 -H HOTKEY
+```
+
+An operation's inputs follow it as flags (`max_tokens` is `--max-tokens`), or
+all at once as a JSON object with `--inputs '{"max_tokens": 5}'`, which also
+takes names btcli keeps for itself, such as `help`. `--body` gives the whole
+body: JSON, with fields no flag names, or the text of a body that is not JSON.
+`call` without an operation lists the operations, and `OPERATION --help` its
+inputs. A text input takes text, any other takes JSON (`--n 2`,
+`--temperature 0.5`). A boolean is `--flag` or `--no-flag`, and an array input
+is repeated or takes a JSON array. A file input takes a file with
+`--file NAME=PATH`, repeated for several. `--inputs` and `--body` read a file
+with `@FILE`, or stdin with `@-`; a flag never reads a file, so a value starting
+with `@` is taken as it is.
+
+An `optional` operation is signed only when `-w` or `-H` (or `BT_WALLET`,
+`BT_WALLET_HOTKEY`) names the hotkey, and `--unsigned` sends it unsigned even
+then. `--dry-run` shows the request, the headers it sets and whether it would
+be signed, without signing or sending it. A call that timed out or was cut off
+may still have been done, so check before paying for it again.
+
+Flat objects print as fields and simple lists of records print as tables.
+Nested data prints as YAML, so text of several lines reads as written. A binary
+response goes to `--out FILE` (`--out -` for stdout, without `--json`), or to a
+temporary file without it, and a stream of events prints as it arrives. A body
+written out as it arrives may take as long as it keeps coming, each wait for
+more at most `--timeout`. With `--json` a stream is kept until it ends, up to
+64 MiB, so `--out FILE` is the way to take a long stream or a large answer.
+
+With `--json`, for scripts and agents:
+
+- `service list` says which services are `usable` and how many operations each
+  has by auth.
+- `service show` lists each operation with the names of its `required` and
+  `optional` inputs, and `--schemas` adds the JSON Schema of the inputs.
+  For a large service, fetch just the operation you need with `call OPERATION --help`.
+- `service call OPERATION --help` gives one operation with its `input_schema`.
+- `service call` prints `{"status", "content_type", "signed", "body"}`: `signed`
+  is the hotkey that signed the request, or null, and `service balance` shows
+  what it has left. A body that is not JSON is `text`, or `out` and `bytes`
+  when it went to a file, and a response without a body has none of them.
+- An error is JSON on stderr. One about the service or the call has a `code`
+  (an error reaching the chain may not): `input` when the call does not fit
+  the operation (exit code 2), and with exit code 1 `http` (with the `status`
+  and the `body` the service sent), `no_service`, `ambiguous`, `unusable` (the
+  publisher has to fix the document or spec), `unreachable`, `timeout`,
+  `too_large`, `output` and `wallet`. When the response could not be written
+  where asked, `out` is the file it was saved to instead.
+
+```python
+published = await bt.services.discover(client)  # every service, or why it is unusable
+service = await bt.services.load(client, netuid=1)
+models = (await service.call("listModels")).json()
+signer = await bt.http_auth.prepare_signer(wallet, client=client)
+messages = [{"role": "user", "content": "Hi"}]
+response = await service.call(
+    "createChatCompletion", {"model": "m", "messages": messages}, signer=signer
+)
+balance = await service.balance(signer=signer)
+tools = service.tools()  # [{"name", "description", "input_schema"}], for an agent
+auth = {tool["name"]: service.operation(tool["name"]).auth for tool in tools}
+```
+
+`call` takes a tool's `name` and its inputs back, or `body=` the whole body, and
+`auth` says whether calling a tool is `open`, `optional` or signed by a
+`hotkey`. A file input takes bytes, a `(filename, bytes)` pair, a binary file or
+base64 text, which is how a tool's schema describes it, and `into=` writes a
+successful body to a file as it arrives. btcli checks that a call fits the operation, and
+the service checks the rest. A `ServiceError` has the same `code` as above, and
+`response.raise_for_status()` makes one of an HTTP error.
+
+btcli reads which url each hotkey published, and the subnet's owner, from the
+chain on every run. It keeps a document and its spec as long as their
+`Cache-Control: max-age` allows, ten minutes at most, and `show --url` always
+reads them. In Python, pass a directory as `cache=` to keep documents and
+specs there.
+
+A client trusts only the chain. It uses the document at the url a hotkey
+published only if `publishers` lists that hotkey and a `gamma` payment takes
+`btauth/1`. It connects only to https urls on public hosts, itself and never
+through a proxy, so the host it checked is the one it reaches (http and this
+machine too on a localnet on this machine, but not on mainnet, testnet or a
+devnet through a local node). It gives each request a deadline, and signs each
+request with the service's hotkey as the receiver, so no other service can
+replay it. `bt.services.load_url(url)` reads a document by its url without the
+chain, under the same rules: a url on this machine counts as a localnet, and
+only a document there is signed for.
+
+A service follows these rules and still is not vetted. The subnet owner's hotkey
+can publish one, and so can any hotkey with a validator permit on the subnet,
+under any name. `--netuid N` means the owner's service; a validator's is used
+only when named with `--service-hotkey`, and `list` and `show` say which one
+published it (`publisher` in the JSON). Its name, descriptions, messages and
+responses are the service's own words, so an agent should treat them as data,
+not instructions; clients strip the control and invisible characters from them.
+A signature pays only for that one request, from what the hotkey has already
+spent at that service: no call moves gamma or TAO. Only `btcli gamma spend`
+does, and it names the service's hotkey from the chain.

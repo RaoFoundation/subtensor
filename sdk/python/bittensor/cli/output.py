@@ -574,7 +574,7 @@ class Output:
         self._err.print(line, soft_wrap=True)
 
     def _json(self, payload: Any) -> None:
-        self._out.print_json(_json.dumps(payload, default=str))
+        self._out.print_json(data=payload, default=str, ensure_ascii=self._out.is_terminal)
 
     def mnemonic(self, role: str, mnemonic: str) -> None:
         """A freshly generated mnemonic — the only moment it is ever shown.
@@ -706,10 +706,12 @@ class Output:
         help: Optional[str] = None,
         note: Optional[str] = None,
         see: Optional[str] = None,
+        data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Rustc diagnostic anatomy: ``error:`` states what is wrong (never how
         to fix it), ``note:`` adds context, ``help:`` carries the fix, ``see:``
-        points at a reference. Messages are lowercase with no trailing period."""
+        points at a reference. Messages are lowercase with no trailing period.
+        ``data`` adds machine-readable fields to the JSON error only."""
         if self.json_mode:
             payload: dict[str, Any] = {"error": text}
             if note:
@@ -718,7 +720,8 @@ class Output:
                 payload["help"] = help
             if see:
                 payload["see"] = see
-            self._err.print_json(_json.dumps(payload))
+            payload.update(data or {})
+            self._err.print_json(data=payload, ensure_ascii=self._err.is_terminal)
             return
         line = Text()
         line.append("error:", style=STYLE_ERROR)

@@ -16,6 +16,7 @@ DEFAULT_MULTISIGS_PATH = Path.home() / ".bittensor" / "btcli_multisigs.json"
 DEFAULT_MULTISIG_CACHE_PATH = Path.home() / ".bittensor" / "btcli_multisig_cache.json"
 DEFAULT_SUBNET_NAMES_PATH = Path.home() / ".bittensor" / "btcli_subnet_names.json"
 DEFAULT_TOKEN_SYMBOLS_PATH = Path.home() / ".bittensor" / "btcli_token_symbols.json"
+DEFAULT_SERVICE_DOCUMENTS_PATH = Path.home() / ".bittensor" / "btcli_service_documents"
 
 # Cached subnet names older than this are refreshed on the next connected
 # command. Names change rarely; a day of staleness is invisible in practice.
@@ -481,3 +482,8 @@ def save_multisig_cache_entry(call_hash: str, entry: dict[str, Any]) -> None:
     data = load_multisig_cache()
     data[key] = entry
     save_multisig_cache(data)
+
+
+def service_documents_path() -> Path:
+    """Where btcli keeps services' documents and specs, as long as their Cache-Control allows."""
+    return Path(os.getenv("BTCLI_SERVICE_DOCUMENTS_CACHE") or DEFAULT_SERVICE_DOCUMENTS_PATH)

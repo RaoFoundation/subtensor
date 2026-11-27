@@ -26,7 +26,7 @@ import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, NoReturn, Optional
 
 import typer
 from rich.console import Console
@@ -52,6 +52,7 @@ from .output import (
     PROMPT_KEY_WIDTH,
     STYLE_COMMAND,
     STYLE_HINT,
+    Output,
     kv_line,
     prompt_header,
     prompt_hint,
@@ -98,6 +99,25 @@ def interactive(app_ctx: AppContext) -> bool:
     return not out.json_mode and not out.quiet and sys.stdin.isatty() and sys.stderr.isatty()
 
 
+def _usage_error(error: click_exceptions.ClickException, args: list[str]) -> NoReturn:
+    """Report a usage error click found while parsing, as JSON under ``--json``."""
+    if not _wants_json(args):
+        rich_utils.rich_format_error(error)
+        sys.exit(error.exit_code)
+    text = error.format_message().strip().rstrip(".")
+    if text[:1].isupper() and not text[1:2].isupper():
+        text = text[0].lower() + text[1:]
+    ctx = getattr(error, "ctx", None)
+    command = ctx.command_path if ctx is not None else "btcli"
+    Output(json_mode=True).error(text, help=f"see `{command} -h`", data={"code": "input"})
+    sys.exit(error.exit_code)
+
+
+def _wants_json(args: list[str]) -> bool:
+    before = args[: args.index("--")] if "--" in args else args
+    return "--json" in before or bool(cfg.get("json", False))
+
+
 def _missing_error(app_ctx: AppContext, flags: list[str]) -> None:
     """Report every missing required option at once and exit (script-safe)."""
     joined = ", ".join(f"`{flag}`" for flag in flags)
@@ -105,6 +125,7 @@ def _missing_error(app_ctx: AppContext, flags: list[str]) -> None:
     app_ctx.output.error(
         f"missing required option{plural}: {joined}",
         help="pass the options explicitly, or run on a terminal to be prompted",
+        data={"code": "input"},
     )
     raise typer.Exit(2)
 
@@ -658,8 +679,7 @@ def _run_app(app: typer.Typer) -> None:
             obj = getattr(error.ctx, "obj", None)
             app_ctx = obj if isinstance(obj, AppContext) else None
             if app_ctx is None or error.param is None:
-                rich_utils.rich_format_error(error)
-                sys.exit(error.exit_code)
+                _usage_error(error, args)
             # Per-command --json/--quiet overrides are applied by the command
             # body, which never ran; honor them from the raw argv.
             if "--json" in args:
@@ -720,9 +740,8 @@ def _run_app(app: typer.Typer) -> None:
             # help itself; everything else gets the rich usage-error box.
             if error.__class__.__name__ == "NoArgsIsHelpError":
                 error.show()
-            else:
-                rich_utils.rich_format_error(error)
-            sys.exit(error.exit_code)
+                sys.exit(error.exit_code)
+            _usage_error(error, args)
         except click_exceptions.Abort:
             rich_utils.rich_abort_error()
             sys.exit(1)
