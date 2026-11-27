@@ -8,5 +8,6 @@
 mod golden;
 mod mock;
 mod params;
+mod positions;
 mod prices;
 mod try_state;

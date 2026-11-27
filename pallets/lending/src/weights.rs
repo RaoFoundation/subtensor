@@ -20,6 +20,16 @@ pub trait WeightInfo {
     fn on_initialize(s: u32) -> Weight;
     /// The v0 -> v1 migration with `s` live subnets.
     fn migrate_to_v1(s: u32) -> Weight;
+    /// `open_short` or `open_long`: placeholder, not a benchmark (see the module docs).
+    fn open_position() -> Weight;
+    /// `increase_short` or `increase_long`: placeholder, not a benchmark.
+    fn increase_position() -> Weight;
+    /// `close_short` or `close_long`: placeholder, not a benchmark.
+    fn close_position() -> Weight;
+    /// `add_collateral` or `add_long_collateral`: placeholder, not a benchmark.
+    fn add_collateral() -> Weight;
+    /// `withdraw_collateral` or `withdraw_long_collateral`: placeholder, not a benchmark.
+    fn withdraw_collateral() -> Weight;
 }
 
 /// Storage-access weights priced with the runtime's `DbWeight`.
@@ -59,5 +69,28 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             3u64.saturating_add(u64::from(s).saturating_mul(4)),
             5u64.saturating_add(u64::from(s).saturating_mul(5)),
         )
+    }
+    fn open_position() -> Weight {
+        // Worst case: the side and opposite-side checks, four parameter groups, the price
+        // rings, both pool reserves, the three books, the flow counters, the position, the
+        // balances and the custody legs.
+        T::DbWeight::get().reads_writes(25, 12)
+    }
+    fn increase_position() -> Weight {
+        // As `open_position` without the opposite-side and count reads.
+        T::DbWeight::get().reads_writes(22, 10)
+    }
+    fn close_position() -> Weight {
+        // Worst case: the position, parameter groups, price rings, pool reserves, books, the
+        // flow counters, the position and the custody legs.
+        T::DbWeight::get().reads_writes(20, 12)
+    }
+    fn add_collateral() -> Weight {
+        // The position, the parameter groups, price rings, pool reserves and the custody legs.
+        T::DbWeight::get().reads_writes(12, 5)
+    }
+    fn withdraw_collateral() -> Weight {
+        // As `add_collateral`, plus the coverage books.
+        T::DbWeight::get().reads_writes(14, 5)
     }
 }

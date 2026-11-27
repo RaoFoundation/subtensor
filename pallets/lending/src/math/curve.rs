@@ -69,6 +69,18 @@ pub trait Curve {
     /// TAO paid out. `None` if the reserves are not representable.
     #[must_use]
     fn after_sell(pool: &PoolState, alpha_in: u64) -> Option<(PoolState, u64)>;
+
+    /// The pool after one swap that buys exactly `alpha_out` at its minimal TAO input `cost`
+    /// (SPEC 1.1). The fee leaves the pool: `net_of_fee(cost)` reaches it. Returns the pool and
+    /// `cost`. `None` if the buy is impossible or the reserves are not representable.
+    #[must_use]
+    fn after_buy_alpha(pool: &PoolState, alpha_out: u64) -> Option<(PoolState, u64)>;
+
+    /// The pool after one swap that spends exactly `tao_in` (SPEC 7.1.1): `net_of_fee(tao_in)`
+    /// reaches the pool and the alpha it buys leaves it. Returns the pool and the alpha bought.
+    /// `None` if the reserves are not representable.
+    #[must_use]
+    fn after_buy_tao(pool: &PoolState, tao_in: u64) -> Option<(PoolState, u64)>;
 }
 
 /// 50/50 constant-product pool: exact integer math identical to `model/v201/pool.py`.
@@ -178,6 +190,25 @@ impl Curve for ConstantProduct {
             alpha: u64::try_from(alpha).ok()?,
         };
         Some((after, tao_out))
+    }
+
+    fn after_buy_alpha(pool: &PoolState, alpha_out: u64) -> Option<(PoolState, u64)> {
+        let cost = Self::tao_in_for_alpha(pool, alpha_out)?;
+        let cost_tao = u64::try_from(cost).ok()?;
+        let tao = pool
+            .tao
+            .checked_add(u64::try_from(net_of_fee(cost)?).ok()?)?;
+        let alpha = pool.alpha.checked_sub(alpha_out)?;
+        Some((PoolState { tao, alpha }, cost_tao))
+    }
+
+    fn after_buy_tao(pool: &PoolState, tao_in: u64) -> Option<(PoolState, u64)> {
+        let alpha_out = Self::out_alpha_for_tao(pool, tao_in);
+        let tao = pool
+            .tao
+            .checked_add(u64::try_from(net_of_fee(u128::from(tao_in))?).ok()?)?;
+        let alpha = pool.alpha.checked_sub(alpha_out)?;
+        Some((PoolState { tao, alpha }, alpha_out))
     }
 }
 
@@ -338,6 +369,34 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn after_buy_alpha_pays_the_minimal_cost_and_keeps_the_fee_out() {
+        let a = POOL.alpha / 1_000;
+        let (after, cost) = Cp::after_buy_alpha(&POOL, a).unwrap();
+        assert_eq!(u128::from(cost), Cp::tao_in_for_alpha(&POOL, a).unwrap());
+        assert_eq!(after.alpha, POOL.alpha - a);
+        assert_eq!(
+            after.tao,
+            POOL.tao + u64::try_from(net_of_fee(u128::from(cost)).unwrap()).unwrap()
+        );
+        assert!(Cp::out_alpha_for_tao(&POOL, cost) >= a);
+        assert_eq!(Cp::after_buy_alpha(&POOL, POOL.alpha), None);
+        assert_eq!(Cp::after_buy_alpha(&POOL, 0), Some((POOL, 0)));
+    }
+
+    #[test]
+    fn after_buy_tao_matches_the_swap_quote() {
+        let tin = 3 * RAO;
+        let (after, out) = Cp::after_buy_tao(&POOL, tin).unwrap();
+        assert_eq!(out, Cp::out_alpha_for_tao(&POOL, tin));
+        assert_eq!(after.alpha, POOL.alpha - out);
+        assert_eq!(
+            after.tao,
+            POOL.tao + u64::try_from(net_of_fee(u128::from(tin)).unwrap()).unwrap()
+        );
+        assert_eq!(Cp::after_buy_tao(&POOL, 0), Some((POOL, 0)));
     }
 
     #[test]
