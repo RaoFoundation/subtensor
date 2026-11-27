@@ -20,6 +20,9 @@ pub trait WeightInfo {
     fn on_initialize(s: u32) -> Weight;
     /// The v0 -> v1 migration with `s` live subnets.
     fn migrate_to_v1(s: u32) -> Weight;
+    /// The interest queue of one block with `c` scheduled charges (SPEC P15): placeholder, not
+    /// a benchmark.
+    fn collect_due(c: u32) -> Weight;
     /// `open_short` or `open_long`: placeholder, not a benchmark (see the module docs).
     fn open_position() -> Weight;
     /// `increase_short` or `increase_long`: placeholder, not a benchmark.
@@ -70,11 +73,27 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             5u64.saturating_add(u64::from(s).saturating_mul(5)),
         )
     }
+    fn collect_due(c: u32) -> Weight {
+        // Fixed: NextDue (read, write), LendingParamsStore, TotalPositions and a probe of each
+        // of the `MAX_DUE_BUCKETS_PER_BLOCK` buckets.
+        // Per charge. Reads: the Due key, the position, the TWAP ring, the rank generation
+        // (live and of the ring), the rank price, both pool reserves (spot), the pool TAO
+        // before and after, the custody balance, the pool reserve in the credit,
+        // InterestTotals, InterestRetry, NextDue and the event topics.
+        // Writes: the Due entry removed and added, the position, the custody balance, the pool
+        // reserve, InterestTotals, InterestRetry, NextDue and the event.
+        let buckets = u64::from(crate::interest::MAX_DUE_BUCKETS_PER_BLOCK);
+        T::DbWeight::get().reads_writes(
+            3u64.saturating_add(buckets)
+                .saturating_add(u64::from(c).saturating_mul(16)),
+            1u64.saturating_add(u64::from(c).saturating_mul(9)),
+        )
+    }
     fn open_position() -> Weight {
         // Worst case: the side and opposite-side checks, four parameter groups, the price
         // rings, both pool reserves, the three books, the flow counters, the position, the
-        // balances and the custody legs.
-        T::DbWeight::get().reads_writes(25, 12)
+        // balances, the custody legs, and the Due entry with NextDue and both position counts.
+        T::DbWeight::get().reads_writes(28, 16)
     }
     fn increase_position() -> Weight {
         // As `open_position` without the opposite-side and count reads.
@@ -82,8 +101,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     }
     fn close_position() -> Weight {
         // Worst case: the position, parameter groups, price rings, pool reserves, books, the
-        // flow counters, the position and the custody legs.
-        T::DbWeight::get().reads_writes(20, 12)
+        // flow counters, the position, the custody legs and the interest totals; a full close
+        // also removes the Due entry and the retry count and lowers both position counts.
+        T::DbWeight::get().reads_writes(25, 17)
     }
     fn add_collateral() -> Weight {
         // The position, the parameter groups, price rings, pool reserves and the custody legs.

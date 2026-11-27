@@ -3,11 +3,13 @@
 //! The normative spec is `docs/SPEC.md` and the code design is `docs/DESIGN-v2.md`.
 //! This crate currently holds the pure numeric core ([`math`]), the root-settable parameter
 //! groups with their pending-apply cycle ([`params`], SPEC 2.1) and the price rings
-//! ([`prices`], SPEC P6, P12, P13, section 9). Positions build on them in later modules.
+//! ([`prices`], SPEC P6, P12, P13, section 9), the position operations of both sides
+//! ([`positions`]) and the interest queue ([`interest`], SPEC P15).
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
+pub mod interest;
 pub mod math;
 pub mod migrations;
 pub mod params;
@@ -43,7 +45,7 @@ pub mod pallet {
         params::{DeregParams, LendingParams, LongParams, ShortParams},
         positions::Grow,
         prices::{RankState, TwapState},
-        types::{Position, PositionId, Side},
+        types::{InterestTotal, Position, PositionId, Side},
     };
 
     /// Storage layout version; v1 is the initialisation in [`migrations`].
@@ -69,6 +71,11 @@ pub mod pallet {
         /// A runtime constant because the prune weight is benchmarked against it.
         #[pallet::constant]
         type MaxLongPositionsCeiling: Get<u32>;
+
+        /// Scheduled interest charges `on_initialize` runs per block (SPEC P15); the rest of a
+        /// larger backlog carries over to the following blocks.
+        #[pallet::constant]
+        type MaxChargesPerBlock: Get<u32>;
     }
 
     /// Shorts on (SPEC P1). False until root enables lending.
@@ -161,6 +168,47 @@ pub mod pallet {
     #[pallet::storage]
     pub type LongPositionCount<T> = StorageMap<_, Identity, NetUid, u32, ValueQuery>;
 
+    /// Open positions per subnet, both sides (SPEC 7.5).
+    #[pallet::storage]
+    pub type PositionCount<T> = StorageMap<_, Identity, NetUid, u32, ValueQuery>;
+
+    /// Open positions on all subnets, both sides (SPEC 7.5).
+    #[pallet::storage]
+    pub type TotalPositions<T> = StorageValue<_, u32, ValueQuery>;
+
+    /// Scheduled interest charges by block (SPEC P15). Every open position has exactly one
+    /// entry, at its `charge_at` (SPEC I5).
+    #[pallet::storage]
+    pub type Due<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        BlockNumberFor<T>,
+        Blake2_128Concat,
+        PositionId<<T as frame_system::Config>::AccountId>,
+        (),
+        OptionQuery,
+    >;
+
+    /// Earliest `Due` bucket not yet drained; no `Due` entry is scheduled before it.
+    #[pallet::storage]
+    pub type NextDue<T> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+
+    /// Consecutive scheduled charges of a position that failed and were rescheduled
+    /// `RETRY_DELAY_BLOCKS` later. Cleared by the next charge that succeeds and on close.
+    #[pallet::storage]
+    pub type InterestRetry<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        PositionId<<T as frame_system::Config>::AccountId>,
+        u32,
+        ValueQuery,
+    >;
+
+    /// Cumulative interest per subnet (SPEC I19): the rao taken from collateral and the rao the
+    /// pool's TAO reserve rose by across those credits. The two are equal.
+    #[pallet::storage]
+    pub type InterestTotals<T> = StorageMap<_, Identity, NetUid, InterestTotal, ValueQuery>;
+
     /// Net minted alpha of the block it is tagged with, per subnet (SPEC P8). Read as zero in
     /// any other block.
     #[pallet::storage]
@@ -233,12 +281,13 @@ pub mod pallet {
             side: Side,
             amount: u64,
         },
-        /// Interest was charged from a position's collateral to the pool (SPEC P15).
+        /// Interest was charged from a position's collateral to the pool's TAO reserve
+        /// (SPEC P4, P15).
         InterestCharged {
             who: T::AccountId,
             netuid: NetUid,
             side: Side,
-            amount: u64,
+            to_pool: u64,
         },
     }
 
@@ -301,12 +350,15 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Applies pending parameters first, then samples prices for every live subnet,
-        /// whether lending is enabled or not (SPEC 2.1, section 9 item 4).
+        /// whether lending is enabled or not (SPEC 2.1, section 9 item 4), then runs the
+        /// interest charges that are due, up to `MaxChargesPerBlock` (SPEC P15).
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let subnets = T::Pool::live_subnets();
             Self::apply_pending_params(&subnets);
             Self::sample_prices(now.unique_saturated_into(), &subnets);
+            let charges = Self::collect_due(now);
             T::WeightInfo::on_initialize(u32::try_from(subnets.len()).unwrap_or(u32::MAX))
+                .saturating_add(T::WeightInfo::collect_due(charges))
         }
 
         fn on_runtime_upgrade() -> Weight {

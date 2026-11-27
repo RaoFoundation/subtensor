@@ -1,6 +1,9 @@
 //! Position operations (DESIGN-v2 sections 4 and 5; SPEC 1.1-1.4, P2-P23, L2-L12): open,
 //! increase, close, add collateral and withdraw collateral, on either side.
 //!
+//! Every operation charges interest on touch: `Position::settle` up front for the amounts and
+//! `Pallet::pay_interest` at commit, the same pair the `Due` queue runs (see `interest`).
+//!
 //! One path serves each operation. The side enters through the position's [`Leg`]: the swap
 //! leg, the close's proceeds, the custody flows and the coverage need are chosen by matching on
 //! it. Every gate and quote runs before the first leg moves funds or reserves, so a refused
@@ -8,13 +11,17 @@
 
 use frame_support::{dispatch::DispatchResult, ensure, traits::Get};
 use frame_system::pallet_prelude::BlockNumberFor;
-use sp_runtime::{DispatchError, traits::AccountIdConversion};
+use sp_runtime::{
+    DispatchError,
+    traits::{AccountIdConversion, Hash},
+};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
     BlockNetLifted, BlockNetMinted, Config, DeregParamsStore, Enabled, Error, Event,
     LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore,
-    LongPositionCount, LongsEnabled, Pallet, Positions, ShortParamsStore, SyntheticOutstanding,
+    LongPositionCount, LongsEnabled, Pallet, PositionCount, Positions, ShortParamsStore,
+    SyntheticOutstanding, TotalPositions,
     math::{
         PriceRefs,
         coverage::{long_need, short_need},
@@ -256,13 +263,16 @@ impl<T: Config> Pallet<T> {
 
     /// The custody account of one position. It is seeded with the opening block, so a position
     /// opened later gets a fresh account; a position closed in full leaves its account empty.
+    /// The seed is hashed first: the sub-account keeps only the leading bytes of its seed, and
+    /// the hash puts the side, holder, subnet and block in all of them.
     pub(crate) fn custody_of(
         side: Side,
         who: &T::AccountId,
         netuid: NetUid,
         opened_at: BlockNumberFor<T>,
     ) -> T::AccountId {
-        T::PalletId::get().into_sub_account_truncating((side, who, netuid, opened_at))
+        let seed = T::Hashing::hash_of(&(side, who, netuid, opened_at));
+        T::PalletId::get().into_sub_account_truncating(seed)
     }
 
     fn ensure_side_enabled(side: Side) -> DispatchResult {
@@ -337,27 +347,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Moves an interest charge from a position's custody into the subnet pool (SPEC P15, I19).
-    /// Pool-internal: it is not flow or volume.
-    fn pay_interest(
-        who: &T::AccountId,
-        netuid: NetUid,
-        side: Side,
-        custody: &T::AccountId,
-        amount: u64,
-    ) -> DispatchResult {
-        if amount > 0 {
-            T::Pool::credit_pool_tao(netuid, custody, amount)?;
-            Self::deposit_event(Event::InterestCharged {
-                who: who.clone(),
-                netuid,
-                side,
-                amount,
-            });
-        }
-        Ok(())
-    }
-
     /// Opens or increases one side of a position (SPEC P1-P23, L1-L12). The collateral and
     /// deposit move to custody, the pool gives the leg's value, and the books move with it.
     pub(crate) fn do_grow(who: &T::AccountId, grow: Grow) -> DispatchResult {
@@ -382,7 +371,8 @@ impl<T: Config> Pallet<T> {
                 !Positions::<T>::contains_key((who.clone(), netuid, side.other())),
                 Error::<T>::OppositeSideOpen
             );
-            Position::fresh(side, now)
+            let first_charge = Self::charge_block(now, params.lending.charge_interval_blocks);
+            Position::fresh(side, now, first_charge)
         } else {
             Positions::<T>::get(&key).ok_or(Error::<T>::NoPosition)?
         };
@@ -486,6 +476,10 @@ impl<T: Config> Pallet<T> {
             },
         );
         if opening {
+            // The first charge is one interval after the open (SPEC P15).
+            Self::schedule_charge(&key, pos.charge_at);
+            PositionCount::<T>::mutate(netuid, |count| *count = count.saturating_add(1));
+            TotalPositions::<T>::mutate(|count| *count = count.saturating_add(1));
             Self::deposit_event(Event::PositionOpened {
                 who: who.clone(),
                 netuid,
@@ -597,6 +591,11 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(proceeds.saturating_sub(refund_p))
                 .saturating_add(pos.deposit);
             Positions::<T>::remove(&key);
+            Self::unschedule_charge(&key, pos.charge_at);
+            PositionCount::<T>::mutate_exists(netuid, |count| {
+                *count = count.unwrap_or(0).checked_sub(1).filter(|left| *left > 0);
+            });
+            TotalPositions::<T>::mutate(|count| *count = count.saturating_sub(1));
         } else {
             Positions::<T>::insert(
                 &key,

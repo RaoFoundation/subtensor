@@ -12,7 +12,7 @@ use frame_support::{
     parameter_types,
     traits::{ConstU32, Hooks},
 };
-use sp_runtime::{BuildStorage, DispatchError};
+use sp_runtime::{BuildStorage, DispatchError, traits::IdentityLookup};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
@@ -27,6 +27,10 @@ use crate::{
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
+/// Wide enough that a custody account keeps bytes of its hashed seed after the pallet id, so
+/// every position has its own custody as on chain.
+pub type AccountId = u128;
+
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system = 1,
@@ -37,6 +41,8 @@ frame_support::construct_runtime!(
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
     type Block = Block;
+    type AccountId = AccountId;
+    type Lookup = IdentityLookup<AccountId>;
 }
 
 parameter_types! {
@@ -48,6 +54,7 @@ impl pallet_lending::Config for Test {
     type WeightInfo = SubstrateWeight<Test>;
     type PalletId = LendingPalletId;
     type MaxLongPositionsCeiling = ConstU32<MAX_LONG_POSITIONS_CEILING>;
+    type MaxChargesPerBlock = ConstU32<512>;
 }
 
 /// Subnet limit reported by [`FakePool`].
@@ -66,9 +73,9 @@ struct PoolEntry {
 thread_local! {
     static POOLS: RefCell<BTreeMap<u16, PoolEntry>> = const { RefCell::new(BTreeMap::new()) };
     /// Free TAO balances by account.
-    static BALANCES: RefCell<BTreeMap<u64, u64>> = const { RefCell::new(BTreeMap::new()) };
+    static BALANCES: RefCell<BTreeMap<AccountId, u64>> = const { RefCell::new(BTreeMap::new()) };
     /// Alpha held by an account on a subnet (custody keeps a long's locked alpha here).
-    static HELD: RefCell<BTreeMap<(u64, u16), u64>> = const { RefCell::new(BTreeMap::new()) };
+    static HELD: RefCell<BTreeMap<(AccountId, u16), u64>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 fn with_pool<R>(netuid: NetUid, f: impl FnOnce(&mut PoolEntry) -> R) -> R {
@@ -92,7 +99,7 @@ fn set_reserves(netuid: NetUid, pool: PoolState) {
     });
 }
 
-fn debit(who: u64, amount: u64) -> DispatchResult {
+fn debit(who: AccountId, amount: u64) -> DispatchResult {
     BALANCES.with_borrow_mut(|b| {
         let bal = b.entry(who).or_insert(0);
         *bal = bal
@@ -102,7 +109,7 @@ fn debit(who: u64, amount: u64) -> DispatchResult {
     })
 }
 
-fn credit(who: u64, amount: u64) {
+fn credit(who: AccountId, amount: u64) {
     BALANCES.with_borrow_mut(|b| {
         let bal = b.entry(who).or_insert(0);
         *bal = bal.saturating_add(amount);
@@ -116,7 +123,7 @@ fn swap_error() -> DispatchError {
 /// `LendingPoolInterface` over the thread-local pools; every pool in the map is live.
 pub struct FakePool;
 
-impl LendingPoolInterface<u64> for FakePool {
+impl LendingPoolInterface<AccountId> for FakePool {
     fn live_subnets() -> Vec<NetUid> {
         POOLS.with_borrow(|pools| pools.keys().copied().map(NetUid::from).collect())
     }
@@ -146,24 +153,24 @@ impl LendingPoolInterface<u64> for FakePool {
     fn alpha_issuance(netuid: NetUid) -> u64 {
         POOLS.with_borrow(|pools| pools.get(&u16::from(netuid)).map_or(0, |p| p.issuance))
     }
-    fn tao_balance(who: &u64) -> u64 {
+    fn tao_balance(who: &AccountId) -> u64 {
         BALANCES.with_borrow(|b| b.get(who).copied().unwrap_or(0))
     }
-    fn held_alpha(who: &u64, netuid: NetUid) -> u64 {
+    fn held_alpha(who: &AccountId, netuid: NetUid) -> u64 {
         HELD.with_borrow(|h| h.get(&(*who, u16::from(netuid))).copied().unwrap_or(0))
     }
 
-    fn transfer_tao(from: &u64, to: &u64, amount: u64) -> DispatchResult {
+    fn transfer_tao(from: &AccountId, to: &AccountId, amount: u64) -> DispatchResult {
         debit(*from, amount)?;
         credit(*to, amount);
         Ok(())
     }
-    fn credit_pool_tao(netuid: NetUid, from: &u64, amount: u64) -> DispatchResult {
+    fn credit_pool_tao(netuid: NetUid, from: &AccountId, amount: u64) -> DispatchResult {
         debit(*from, amount)?;
         with_pool(netuid, |p| p.tao = p.tao.saturating_add(amount));
         Ok(())
     }
-    fn mint_and_sell(netuid: NetUid, q: u64, to: &u64) -> Result<u64, DispatchError> {
+    fn mint_and_sell(netuid: NetUid, q: u64, to: &AccountId) -> Result<u64, DispatchError> {
         let (after, paid) =
             ConstantProduct::after_sell(&reserves(netuid), q).ok_or_else(swap_error)?;
         // The minted alpha is sold into the pool; the fee share stays issued but not in reserve.
@@ -172,7 +179,7 @@ impl LendingPoolInterface<u64> for FakePool {
         credit(*to, paid);
         Ok(paid)
     }
-    fn buy_and_burn(netuid: NetUid, from: &u64, alpha: u64) -> Result<u64, DispatchError> {
+    fn buy_and_burn(netuid: NetUid, from: &AccountId, alpha: u64) -> Result<u64, DispatchError> {
         let (after, cost) =
             ConstantProduct::after_buy_alpha(&reserves(netuid), alpha).ok_or_else(swap_error)?;
         debit(*from, cost)?;
@@ -180,7 +187,7 @@ impl LendingPoolInterface<u64> for FakePool {
         with_pool(netuid, |p| p.issuance = p.issuance.saturating_sub(alpha));
         Ok(cost)
     }
-    fn lift_and_buy(netuid: NetUid, lift: u64, to: &u64) -> Result<u64, DispatchError> {
+    fn lift_and_buy(netuid: NetUid, lift: u64, to: &AccountId) -> Result<u64, DispatchError> {
         let pool = reserves(netuid);
         let lifted = PoolState {
             tao: pool.tao.checked_sub(lift).ok_or_else(swap_error)?,
@@ -195,7 +202,7 @@ impl LendingPoolInterface<u64> for FakePool {
         });
         Ok(bought)
     }
-    fn sell_alpha(netuid: NetUid, from: &u64, alpha: u64) -> Result<u64, DispatchError> {
+    fn sell_alpha(netuid: NetUid, from: &AccountId, alpha: u64) -> Result<u64, DispatchError> {
         HELD.with_borrow_mut(|h| {
             let held = h.entry((*from, u16::from(netuid))).or_insert(0);
             *held = held
@@ -238,7 +245,7 @@ pub fn set_issuance(netuid: u16, issuance: u64) {
 }
 
 /// Sets an account's free TAO balance.
-pub fn set_balance(who: u64, amount: u64) {
+pub fn set_balance(who: AccountId, amount: u64) {
     BALANCES.with_borrow_mut(|b| {
         b.insert(who, amount);
     });

@@ -14,15 +14,14 @@ use crate::{
         PriceRefs,
         curve::PoolState,
         fixed::{Price, price},
-        interest::BLOCKS_PER_DAY,
     },
     params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
     positions::{ALPHA_SUPPLY_CAP, Params, coverage_need},
     types::{Leg, Position, Side},
 };
 
-const ALICE: u64 = 1;
-const BOB: u64 = 2;
+const ALICE: AccountId = 1;
+const BOB: AccountId = 2;
 const SN1: u16 = 1;
 
 fn sn1() -> NetUid {
@@ -51,21 +50,21 @@ fn live() -> sp_io::TestExternalities {
     ext
 }
 
-fn position(who: u64, side: Side) -> Option<Position<u64>> {
+fn position(who: AccountId, side: Side) -> Option<Position<u64>> {
     Positions::<Test>::get((who, sn1(), side))
 }
 
 /// The custody account of an open position.
-fn custody(who: u64, side: Side) -> u64 {
+fn custody(who: AccountId, side: Side) -> AccountId {
     let pos = position(who, side).expect("position is open");
     Lending::custody_of(side, &who, sn1(), pos.opened_at)
 }
 
-fn open_short(who: u64, q: u64, collateral: u64) -> DispatchResult {
+fn open_short(who: AccountId, q: u64, collateral: u64) -> DispatchResult {
     Lending::open_short(RuntimeOrigin::signed(who), sn1(), q, collateral, 0)
 }
 
-fn open_long(who: u64, lift: u64, collateral: u64) -> DispatchResult {
+fn open_long(who: AccountId, lift: u64, collateral: u64) -> DispatchResult {
     Lending::open_long(RuntimeOrigin::signed(who), sn1(), lift, collateral, 0)
 }
 
@@ -209,6 +208,26 @@ fn full_short_close_empties_custody_and_removes_the_position() {
 }
 
 #[test]
+fn every_position_has_its_own_custody_account() {
+    let base = Lending::custody_of(Side::Short, &ALICE, sn1(), 1);
+    for other in [
+        Lending::custody_of(Side::Long, &ALICE, sn1(), 1),
+        Lending::custody_of(Side::Short, &BOB, sn1(), 1),
+        Lending::custody_of(Side::Short, &ALICE, NetUid::from(2), 1),
+        Lending::custody_of(Side::Short, &ALICE, sn1(), 2),
+    ] {
+        assert_ne!(other, base);
+    }
+    // Two holders open on one subnet in one block: each custody holds its own position (I3).
+    live().execute_with(|| {
+        assert_ok!(open_short(ALICE, alpha(200), tao(45)));
+        assert_ok!(open_long(BOB, tao(20), tao(12)));
+        assert_ne!(custody(ALICE, Side::Short), custody(BOB, Side::Long));
+        healthy();
+    });
+}
+
+#[test]
 fn short_close_refuses_a_buy_back_above_the_bound() {
     live().execute_with(|| {
         assert_ok!(open_short(ALICE, alpha(200), tao(45)));
@@ -266,14 +285,15 @@ fn interest_is_charged_from_collateral_to_the_pool_on_touch() {
     live().execute_with(|| {
         assert_ok!(open_short(ALICE, alpha(200), tao(45)));
         let pool_before = FakePool::pool_tao(sn1());
-        run_to(1 + u64::from(BLOCKS_PER_DAY));
+        // Inside the first charge interval, so the touch is the only charge.
+        run_to(300);
         assert_ok!(Lending::add_collateral(
             RuntimeOrigin::signed(ALICE),
             sn1(),
             tao(1)
         ));
         let charged = event_amount(|e| match e {
-            Event::InterestCharged { amount, .. } => Some(*amount),
+            Event::InterestCharged { to_pool, .. } => Some(*to_pool),
             _ => None,
         })
         .expect("interest was charged");
@@ -577,6 +597,7 @@ fn position_at(collateral: u64, due: u64, leg: Leg, opened: u64) -> Position<u64
         collateral,
         deposit: 0,
         opened_at: opened,
+        charge_at: opened + 360,
         accrual: crate::types::Accrual {
             last_accrued: opened,
             remainder: 0,

@@ -183,7 +183,7 @@ pub struct Accrual<BlockNumber> {
 
 /// A stored position (DESIGN-v2 section 3). Its custody account is derived from the side, the
 /// holder, the subnet and `opened_at`, so a closed position's custody is never reused.
-#[freeze_struct("2bb14803e4e927f3")]
+#[freeze_struct("89d22f06a06265cc")]
 #[derive(
     Clone,
     Copy,
@@ -205,6 +205,8 @@ pub struct Position<BlockNumber> {
     pub opened_at: BlockNumber,
     /// Interest accrual.
     pub accrual: Accrual<BlockNumber>,
+    /// Block of the position's one scheduled `Due` entry (SPEC P15, I5).
+    pub charge_at: BlockNumber,
     /// Side-specific book.
     pub leg: Leg,
 }
@@ -240,13 +242,15 @@ impl<BlockNumber: Copy + UniqueSaturatedInto<u64>> Position<BlockNumber> {
 }
 
 impl<BlockNumber: Copy> Position<BlockNumber> {
-    /// A position opened at `now` with nothing deposited yet.
+    /// A position opened at `now` with nothing deposited yet and its first charge scheduled at
+    /// `charge_at`.
     #[must_use]
-    pub fn fresh(side: Side, now: BlockNumber) -> Self {
+    pub fn fresh(side: Side, now: BlockNumber, charge_at: BlockNumber) -> Self {
         Self {
             collateral: 0,
             deposit: 0,
             opened_at: now,
+            charge_at,
             accrual: Accrual {
                 last_accrued: now,
                 remainder: 0,
@@ -255,6 +259,27 @@ impl<BlockNumber: Copy> Position<BlockNumber> {
             leg: Leg::empty(side),
         }
     }
+}
+
+/// Cumulative interest of one subnet (SPEC I19).
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Debug,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub struct InterestTotal {
+    /// Σ interest taken from the collateral of the subnet's positions, in rao.
+    pub charged: u128,
+    /// Σ rise of the pool's TAO reserve measured across those credits, in rao.
+    pub to_pool: u128,
 }
 
 /// One subnet's state at the start of an operation, read once and then used for every gate and

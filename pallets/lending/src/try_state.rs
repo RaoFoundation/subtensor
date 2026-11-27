@@ -7,10 +7,11 @@ use sp_runtime::TryRuntimeError;
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    Config, DeregParamsStore, LendingParamsStore, LendingPoolInterface, LongLiftedTao,
-    LongLockedAlpha, LongParamsStore, LongPositionCount, Pallet, PendingDeregParams,
-    PendingLendingParams, PendingLongParams, PendingShortParams, Positions, RankGeneration,
-    RankPrice, RankRing, RankRingGeneration, ShortParamsStore, SyntheticOutstanding, TwapRing,
+    Config, DeregParamsStore, Due, InterestRetry, InterestTotals, LendingParamsStore,
+    LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore, LongPositionCount,
+    NextDue, Pallet, PendingDeregParams, PendingLendingParams, PendingLongParams,
+    PendingShortParams, PositionCount, Positions, RankGeneration, RankPrice, RankRing,
+    RankRingGeneration, ShortParamsStore, SyntheticOutstanding, TotalPositions, TwapRing,
     positions::ALPHA_SUPPLY_CAP,
     types::{Leg, Position},
 };
@@ -26,6 +27,8 @@ struct BookTotals {
     debt: u128,
     /// Open longs (SPEC 7.4).
     longs: u128,
+    /// Open positions of both sides (SPEC 7.5).
+    positions: u128,
 }
 
 /// Checks that each subnet's stored book equals its total over the open positions, for every
@@ -58,7 +61,10 @@ impl<T: Config> Pallet<T> {
         Self::check_i26_params()?;
         Self::check_i1_synthetic_book()?;
         Self::check_i3_custody_tao()?;
+        Self::check_i5_interest_schedule()?;
         Self::check_i12_long_books()?;
+        Self::check_i19_interest_to_pool()?;
+        Self::check_position_counts()?;
         Self::check_i21_supply_cap()
     }
 
@@ -76,6 +82,7 @@ impl<T: Config> Pallet<T> {
         let mut totals = BTreeMap::<NetUid, BookTotals>::new();
         for (netuid, _, pos) in Self::open_positions() {
             let total = totals.entry(netuid).or_default();
+            total.positions = total.positions.saturating_add(1);
             match pos.leg {
                 Leg::Short { minted, .. } => {
                     total.minted = total.minted.saturating_add(u128::from(minted));
@@ -187,6 +194,79 @@ impl<T: Config> Pallet<T> {
                 "I3: custody TAO differs from collateral + proceeds + deposit"
             );
         }
+        Ok(())
+    }
+
+    /// SPEC I5: charged interest never exceeds collateral, and every open position has exactly
+    /// one scheduled charge. A charge is `min(due, C)` taken from a `u64` collateral, so the
+    /// first half holds while custody still holds the collateral left (I3). The second half is
+    /// checked here: `Due` has one entry per position, at the position's `charge_at`, no entry
+    /// lies before `NextDue`, and a retry count belongs to an open position.
+    fn check_i5_interest_schedule() -> Result<(), TryRuntimeError> {
+        let next = NextDue::<T>::get();
+        let mut scheduled = 0u64;
+        for (at, id, ()) in Due::<T>::iter() {
+            let pos = Positions::<T>::get(&id).ok_or("I5: Due entry without a position")?;
+            ensure!(
+                pos.charge_at == at,
+                "I5: Due entry is not at the position's charge block"
+            );
+            ensure!(
+                next.is_some_and(|next| next <= at),
+                "I5: Due entry before NextDue"
+            );
+            scheduled = scheduled.saturating_add(1);
+        }
+        let mut open = 0u64;
+        for (id, pos) in Positions::<T>::iter() {
+            ensure!(
+                Due::<T>::contains_key(pos.charge_at, &id),
+                "I5: position without a scheduled charge"
+            );
+            open = open.saturating_add(1);
+        }
+        ensure!(
+            scheduled == open,
+            "I5: position with more than one scheduled charge"
+        );
+        for id in InterestRetry::<T>::iter_keys() {
+            ensure!(
+                Positions::<T>::contains_key(&id),
+                "I5: retry count without a position"
+            );
+        }
+        Ok(())
+    }
+
+    /// SPEC I19: on every subnet the pool's TAO reserve rose, across the interest credits, by
+    /// exactly the interest charged from collateral.
+    fn check_i19_interest_to_pool() -> Result<(), TryRuntimeError> {
+        for total in InterestTotals::<T>::iter_values() {
+            ensure!(
+                total.to_pool == total.charged,
+                "I19: pool TAO did not rise by the interest charged"
+            );
+        }
+        Ok(())
+    }
+
+    /// SPEC 7.5: `PositionCount` is the number of open positions of both sides per subnet and
+    /// `TotalPositions` their number on all subnets.
+    fn check_position_counts() -> Result<(), TryRuntimeError> {
+        let totals = Self::book_totals();
+        ensure_book(
+            "PositionCount is not the number of open positions",
+            &totals,
+            |total| total.positions,
+            as_book(PositionCount::<T>::iter()),
+        )?;
+        let open = totals
+            .values()
+            .fold(0u128, |sum, total| sum.saturating_add(total.positions));
+        ensure!(
+            u128::from(TotalPositions::<T>::get()) == open,
+            "TotalPositions is not the number of open positions"
+        );
         Ok(())
     }
 

@@ -6,6 +6,7 @@
 )]
 
 mod golden;
+mod interest;
 mod mock;
 mod params;
 mod positions;
