@@ -25,6 +25,7 @@
     "encoding": "0.1.13",
     "eslint": "8.36.0",
     "eslint-config-next": "13.0.0",
+    "ethers": "^6.15.0",
     "framer-motion": "10.12.16",
     "fumadocs-core": "16.11.1",
     "fumadocs-mdx": "15.1.0",
