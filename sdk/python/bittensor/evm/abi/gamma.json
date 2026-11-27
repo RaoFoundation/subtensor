@@ -1,0 +1,558 @@
+[
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			}
+		],
+		"name": "closeGammaDeposit",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			}
+		],
+		"name": "depositGamma",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "moved",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "coldkey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getGammaBalance",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getGammaDeposit",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "exists",
+				"type": "bool"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "coldkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint64",
+				"name": "balance",
+				"type": "uint64"
+			},
+			{
+				"internalType": "bool",
+				"name": "hasDailySpendCap",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint64",
+				"name": "dailySpendCap",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "spendable",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "coldkey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getGammaDepositHotkeys",
+		"outputs": [
+			{
+				"internalType": "bytes32[]",
+				"name": "hotkeys",
+				"type": "bytes32[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getGammaEnabled",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "service",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getGammaSpent",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			}
+		],
+		"name": "getService",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "exists",
+				"type": "bool"
+			},
+			{
+				"internalType": "string",
+				"name": "url",
+				"type": "string"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "minAmountOut",
+				"type": "uint64"
+			},
+			{
+				"internalType": "bool",
+				"name": "hasDailySpendCap",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint64",
+				"name": "dailySpendCap",
+				"type": "uint64"
+			}
+		],
+		"name": "mintGamma",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "credited",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "originHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "destinationHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "alphaAmount",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "minAmountOut",
+				"type": "uint64"
+			},
+			{
+				"internalType": "bool",
+				"name": "hasDailySpendCap",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint64",
+				"name": "dailySpendCap",
+				"type": "uint64"
+			}
+		],
+		"name": "mintGammaWithStake",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "credited",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "originHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "destinationHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			}
+		],
+		"name": "moveGamma",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "moved",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bool",
+				"name": "hasDailySpendCap",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint64",
+				"name": "dailySpendCap",
+				"type": "uint64"
+			}
+		],
+		"name": "setGammaDepositDailySpendCap",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "string",
+				"name": "url",
+				"type": "string"
+			}
+		],
+		"name": "setService",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			}
+		],
+		"name": "simMintGamma",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "alpha",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "value",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "gamma",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "alphaAmount",
+				"type": "uint64"
+			}
+		],
+		"name": "simMintGammaWithStake",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "alpha",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "value",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "gamma",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "service",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			}
+		],
+		"name": "spendGamma",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "destinationColdkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bool",
+				"name": "hasOriginHotkey",
+				"type": "bool"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "originHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bool",
+				"name": "hasDestinationHotkey",
+				"type": "bool"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "destinationHotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			}
+		],
+		"name": "transferGamma",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "hotkey",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint64",
+				"name": "amount",
+				"type": "uint64"
+			}
+		],
+		"name": "withdrawGamma",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "moved",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	}
+]

@@ -66,11 +66,11 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "AmountTooLow": (
         "A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the "
-        "minimum stake threshold after fees and slippage, a gamma mint came to less than "
-        "0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or a "
-        "gamma move took or left less than 0.1 gamma without emptying it, or a gamma daily spend "
-        "cap was between 0 and 0.1 gamma. Compare the amount "
-        "against the `DefaultMinStake` storage item and the subnet's alpha price before "
+        "minimum stake threshold after fees and slippage, a gamma mint or transfer came to less "
+        "than 0.1 gamma, a gamma spend took less than 0.1 gamma without emptying the deposit, or "
+        "a gamma move, deposit, withdrawal or transfer took or left less than 0.1 gamma without "
+        "emptying its source, or a gamma daily spend cap was between 0 and 0.1 gamma. Compare "
+        "the amount against the `DefaultMinStake` storage item and the subnet's alpha price before "
         "retrying with a larger amount."
     ),
     "AnnouncedColdkeyHashDoesNotMatch": (
@@ -234,7 +234,8 @@ DESCRIPTIONS: dict[str, str] = {
         "The coldkey has a pending swap announcement, so all but a small allow-list of "
         "extrinsics are blocked until the swap completes or is cleared. Check status with "
         "`btcli wallet swap-check`, then finish with `btcli wallet swap-coldkey` or clear "
-        "via `btcli tx clear-coldkey-swap-announcement`."
+        "via `btcli tx clear-coldkey-swap-announcement`. A gamma transfer that would open a "
+        "deposit for such a coldkey fails the same way; send to its balance or an open deposit."
     ),
     "ColdkeySwapAnnouncementNotFound": (
         "`swap_coldkey_announced`, `dispute_coldkey_swap`, or `clear_coldkey_swap_announcement` "
@@ -250,7 +251,8 @@ DESCRIPTIONS: dict[str, str] = {
     "ColdkeySwapDisputed": (
         "All extrinsics from this coldkey are blocked because its pending coldkey swap is under "
         "dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; the dispute must be "
-        "resolved by root before the account can transact."
+        "resolved by root before the account can transact. A gamma transfer that would open a "
+        "deposit for such a coldkey fails the same way; send to its balance or an open deposit."
     ),
     "ColdkeySwapReannouncedTooEarly": (
         "`announce_coldkey_swap` was called again before the reannouncement delay after the "
@@ -513,7 +515,8 @@ DESCRIPTIONS: dict[str, str] = {
         "emission splits summing away from 65535, max UIDs or take bounds. Check the specific "
         "argument against the min/max storage items the extrinsic validates (e.g. "
         "`MinAllowedUids`, `MaxMechanismCount`). Also a zero TAO/USD feed, a `move_gamma` to the "
-        "same hotkey, or a gamma share naming its own subnet."
+        "same hotkey, a `transfer_gamma` to its own source, or a gamma share naming its own "
+        "subnet."
     ),
     "InvalidVotingPowerEmaAlpha": (
         "The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. "
@@ -648,7 +651,8 @@ DESCRIPTIONS: dict[str, str] = {
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
         "serve, children or take changes), or the gamma deposit at the hotkey belongs to "
-        "another coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the "
+        "another coldkey, or the deposit a `transfer_gamma` credits does not belong to its "
+        "destination coldkey. Check the hotkey's `Owner` (`btcli wallet registrations`) or the "
         "gamma deposit's coldkey (`btcli gamma show`), and sign with the coldkey that owns it."
     ),
     "NotEnoughAlphaOutToRecycle": (
@@ -1089,16 +1093,17 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "TooManyGammaDeposits": (
         "The coldkey would hold more than 64 gamma deposits on this subnet, by opening one or "
-        "by a coldkey swap into it. Move gamma into an existing deposit, or close an empty one "
-        "with `close_gamma_deposit`, then retry."
+        "by a coldkey swap into it, or another coldkey's transfer would open one for it while it "
+        "holds 32 or more. Move gamma into an existing deposit, or close an empty one with "
+        "`close_gamma_deposit`, then retry."
     ),
     "GammaDepositDoesNotExist": (
         "The hotkey holds no gamma deposit on this subnet. List the coldkey's deposits with "
         "the `gamma_deposits` read."
     ),
     "GammaDepositNotEmpty": (
-        "Only an empty gamma deposit can be closed. Moving its whole balance with `move_gamma` "
-        "closes it; once its hotkey has spent it to zero, close it."
+        "Only an empty gamma deposit can be closed. Moving, withdrawing or sending its whole "
+        "balance closes it; once its hotkey has spent it to zero, close it."
     ),
     "GammaDepositSpenderMismatch": (
         "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it."
@@ -1112,8 +1117,9 @@ DESCRIPTIONS: dict[str, str] = {
         "Deprecated. Gamma deposits have no spender; the deposit's hotkey spends it."
     ),
     "InsufficientGammaBalance": (
-        "The spend is above the gamma deposit's balance. The `gamma_deposit` read gives "
-        "`spendable_gamma`, what the hotkey can spend now."
+        "The spend or transfer is above the gamma deposit's balance, or the transfer is above "
+        "the coldkey's gamma balance. The `gamma_deposit` read gives `spendable_gamma`, what the "
+        "hotkey can spend now, and `gamma_balances` a coldkey's balances."
     ),
     "GammaDepositDailySpendCapExceeded": (
         "The spend is above what the gamma deposit's daily spend cap allows now. The cap "

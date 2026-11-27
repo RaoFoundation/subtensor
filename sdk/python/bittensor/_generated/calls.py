@@ -36,6 +36,7 @@ H160 = Any
 H256 = Any
 MechId = Any
 MultiAddress = Any
+MultiSignature = Any
 NetUid = Any
 OriginCaller = Any
 PerU16 = Any
@@ -48,6 +49,7 @@ PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RegistrationDescriptor = Any
 RuntimeCall = Any
+SubnetIdentityV3 = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -215,7 +217,7 @@ class SubtensorModule:
         return Call('SubtensorModule', 'add_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount_staked': amount_staked})
 
     @staticmethod
-    def add_stake_burn(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', limit: 'Any') -> Call:
+    def add_stake_burn(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', limit: 'TaoBalance | None') -> Call:
         'The extrinsic is a combination of add_stake(add_stake_limit) and burn_alpha. We buy alpha token first and immediately burn the acquired amount of alpha (aka Subnet buyback).'
         return Call('SubtensorModule', 'add_stake_burn', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'limit': limit})
 
@@ -325,6 +327,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'decrease_take', {'hotkey': hotkey, 'take': take})
 
     @staticmethod
+    def deposit_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's balance on `netuid` to its deposit at `hotkey`: the whole balance, or at least 0.1 gamma leaving at least as much. A hotkey with no deposit opens one with no daily spend cap."
+        return Call('SubtensorModule', 'deposit_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
+
+    @staticmethod
     def disable_voting_power_tracking(netuid: 'NetUid') -> Call:
         'Schedules disabling of voting power tracking for a subnet.  This function can be called by the subnet owner or root. Voting power tracking will continue for 14 days (grace period) after this call, then automatically disable and clear all VotingPower entries for the subnet.  # Arguments * `origin`: The origin of the call, must be subnet owner or root. * `netuid`: The subnet to schedule disabling voting power tracking for.  # Errors * `SubnetNotExist`: If the subnet does not exist. * `NotSubnetOwner`: If the caller is not the subnet owner or root. * `VotingPowerTrackingNotEnabled`: If voting power tracking is not enabled.'
         return Call('SubtensorModule', 'disable_voting_power_tracking', {'netuid': netuid})
@@ -360,12 +367,12 @@ class SubtensorModule:
         return Call('SubtensorModule', 'lock_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
-    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+    def mint_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'TaoBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'GammaBalance | None') -> Call:
         "Buys alpha on `netuid` with `amount` TAO, burns it, and credits its gamma to the signer's deposit at `hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
         return Call('SubtensorModule', 'mint_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
 
     @staticmethod
-    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'Any') -> Call:
+    def mint_gamma_with_stake(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', netuid: 'NetUid', alpha_amount: 'AlphaBalance', min_amount_out: 'GammaBalance', daily_spend_cap: 'GammaBalance | None') -> Call:
         "Burns up to `alpha_amount` of the signer's stake on `origin_hotkey`, as `burn_alpha` does, and credits its gamma to the signer's deposit at `destination_hotkey`, which must have `daily_spend_cap` when it is given, or opens with it, `None` being no cap. Fails below `min_amount_out` gamma."
         return Call('SubtensorModule', 'mint_gamma_with_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'alpha_amount': alpha_amount, 'min_amount_out': min_amount_out, 'daily_spend_cap': daily_spend_cap})
 
@@ -405,7 +412,7 @@ class SubtensorModule:
         return Call('SubtensorModule', 'register', {'netuid': netuid, 'block_number': block_number, 'nonce': nonce, 'work': work, 'hotkey': hotkey, 'coldkey': coldkey})
 
     @staticmethod
-    def register_leased_network(emissions_share: 'Percent', end_block: 'Any') -> Call:
+    def register_leased_network(emissions_share: 'Percent', end_block: 'u32 | None') -> Call:
         "Register a new leased network.  The crowdloan's contributions are used to compute the share of the emissions that the contributors will receive as dividends.  The leftover cap is refunded to the contributors and the beneficiary.  # Arguments * `origin`: The signature of the caller's coldkey.  * `emissions_share`: The share of the emissions that the contributors will receive as dividends.  * `end_block`: The block at which the lease will end. If not defined, the lease is perpetual."
         return Call('SubtensorModule', 'register_leased_network', {'emissions_share': emissions_share, 'end_block': end_block})
 
@@ -420,7 +427,7 @@ class SubtensorModule:
         return Call('SubtensorModule', 'register_network', {'hotkey': hotkey})
 
     @staticmethod
-    def register_network_with_identity(hotkey: 'AccountId32', identity: 'Any') -> Call:
+    def register_network_with_identity(hotkey: 'AccountId32', identity: 'SubnetIdentityV3 | None') -> Call:
         'User register a new subnetwork'
         return Call('SubtensorModule', 'register_network_with_identity', {'hotkey': hotkey, 'identity': identity})
 
@@ -435,7 +442,7 @@ class SubtensorModule:
         return Call('SubtensorModule', 'remove_stake', {'hotkey': hotkey, 'netuid': netuid, 'amount_unstaked': amount_unstaked})
 
     @staticmethod
-    def remove_stake_full_limit(hotkey: 'AccountId32', netuid: 'NetUid', limit_price: 'Any') -> Call:
+    def remove_stake_full_limit(hotkey: 'AccountId32', netuid: 'NetUid', limit_price: 'TaoBalance | None') -> Call:
         'Removes all stake from a hotkey on a subnet with a price limit. This extrinsic allows to specify the limit price for alpha token at which or better (higher) the staking should execute. Without limit_price it remove all the stake similar to `remove_stake` extrinsic'
         return Call('SubtensorModule', 'remove_stake_full_limit', {'hotkey': hotkey, 'netuid': netuid, 'limit_price': limit_price})
 
@@ -525,7 +532,7 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_coldkey_auto_stake_hotkey', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
-    def set_gamma_deposit_daily_spend_cap(hotkey: 'AccountId32', netuid: 'NetUid', daily_spend_cap: 'Any') -> Call:
+    def set_gamma_deposit_daily_spend_cap(hotkey: 'AccountId32', netuid: 'NetUid', daily_spend_cap: 'GammaBalance | None') -> Call:
         "Sets the daily spend cap of the signer's gamma deposit at `hotkey`; `None` removes it. A changed cap keeps what the deposit can spend now, up to the new cap."
         return Call('SubtensorModule', 'set_gamma_deposit_daily_spend_cap', {'hotkey': hotkey, 'netuid': netuid, 'daily_spend_cap': daily_spend_cap})
 
@@ -535,7 +542,7 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_identity', {'name': name, 'url': url, 'github_repo': github_repo, 'image': image, 'discord': discord, 'description': description, 'additional': additional})
 
     @staticmethod
-    def set_mech_weight_delegate(netuid: 'NetUid', mecid: 'MechId', delegate: 'Any') -> Call:
+    def set_mech_weight_delegate(netuid: 'NetUid', mecid: 'MechId', delegate: 'AccountId32 | None') -> Call:
         'Authorizes an account to set weights for this registered hotkey on one mechanism.'
         return Call('SubtensorModule', 'set_mech_weight_delegate', {'netuid': netuid, 'mecid': mecid, 'delegate': delegate})
 
@@ -655,12 +662,12 @@ class SubtensorModule:
         return Call('SubtensorModule', 'swap_coldkey_announced', {'new_coldkey': new_coldkey})
 
     @staticmethod
-    def swap_hotkey(hotkey: 'AccountId32', new_hotkey: 'AccountId32', netuid: 'Any') -> Call:
+    def swap_hotkey(hotkey: 'AccountId32', new_hotkey: 'AccountId32', netuid: 'NetUid | None') -> Call:
         'The extrinsic for user to change its hotkey in subnet or all subnets.  # Arguments * `origin`: The origin of the transaction (must be signed by the coldkey). * `hotkey`: The old hotkey to be swapped. * `new_hotkey`: The new hotkey to replace the old one. * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.'
         return Call('SubtensorModule', 'swap_hotkey', {'hotkey': hotkey, 'new_hotkey': new_hotkey, 'netuid': netuid})
 
     @staticmethod
-    def swap_hotkey_v2(hotkey: 'AccountId32', new_hotkey: 'AccountId32', netuid: 'Any', keep_stake: 'bool') -> Call:
+    def swap_hotkey_v2(hotkey: 'AccountId32', new_hotkey: 'AccountId32', netuid: 'NetUid | None', keep_stake: 'bool') -> Call:
         'The extrinsic for user to change its hotkey in subnet or all subnets. This extrinsic is similar to swap_hotkey, but with keep_stake parameter bo be able to keep the stake when swapping a root key to a child key  # Arguments * `origin`: The origin of the transaction (must be signed by the coldkey). * `hotkey`: The old hotkey to be swapped. * `new_hotkey`: The new hotkey to replace the old one. * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets. * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata is transferred to the new hotkey.'
         return Call('SubtensorModule', 'swap_hotkey_v2', {'hotkey': hotkey, 'new_hotkey': new_hotkey, 'netuid': netuid, 'keep_stake': keep_stake})
 
@@ -678,6 +685,11 @@ class SubtensorModule:
     def terminate_lease(lease_id: 'u32', hotkey: 'AccountId32') -> Call:
         "Terminate a lease.  The beneficiary can terminate the lease after the end block has passed and get the subnet ownership. The subnet is transferred to the beneficiary and the lease is removed from storage.  **The hotkey must be owned by the beneficiary coldkey.**  # Arguments * `origin`: The signature of the caller's coldkey.  * `lease_id`: The ID of the lease to terminate.  * `hotkey`: The hotkey of the beneficiary to mark as subnet owner hotkey."
         return Call('SubtensorModule', 'terminate_lease', {'lease_id': lease_id, 'hotkey': hotkey})
+
+    @staticmethod
+    def transfer_gamma(destination_coldkey: 'AccountId32', origin_hotkey: 'AccountId32 | None', destination_hotkey: 'AccountId32 | None', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Sends exactly `amount` gamma on `netuid` from the signer's balance, or its deposit at `origin_hotkey`, to `destination_coldkey`'s balance, or its deposit at `destination_hotkey`: at least 0.1 gamma, leaving none or at least as much. A deposit that does not exist opens with no daily spend cap; another coldkey can open one only while the destination holds fewer than 32 across subnets, its own included, and has no coldkey swap underway. A transfer that empties a source deposit closes it."
+        return Call('SubtensorModule', 'transfer_gamma', {'destination_coldkey': destination_coldkey, 'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'netuid': netuid, 'amount': amount})
 
     @staticmethod
     def transfer_stake(destination_coldkey: 'AccountId32', hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
@@ -713,6 +725,11 @@ class SubtensorModule:
     def update_symbol(netuid: 'NetUid', symbol: 'Any') -> Call:
         'Updates the symbol for a subnet.  # Arguments * `origin`: The origin of the call, which must be the subnet owner or root. * `netuid`: The unique identifier of the subnet on which the symbol is being set. * `symbol`: The symbol to set for the subnet.  # Errors * `BadOrigin`: The transaction is not signed by the subnet owner or root. * `SubnetNotExists`: The subnet identified by `netuid` does not exist. * `SymbolDoesNotExist`: The symbol is not one of the recognized symbols. * `SymbolAlreadyInUse`: The symbol is already in use by another subnet.  # Events Emits a `SymbolUpdated` event on success.'
         return Call('SubtensorModule', 'update_symbol', {'netuid': netuid, 'symbol': symbol})
+
+    @staticmethod
+    def withdraw_gamma(hotkey: 'AccountId32', netuid: 'NetUid', amount: 'GammaBalance') -> Call:
+        "Moves up to `amount` gamma from the signer's deposit at `hotkey` to its balance on `netuid`: the whole deposit, or at least 0.1 gamma leaving at least as much. A withdrawal that empties the deposit closes it."
+        return Call('SubtensorModule', 'withdraw_gamma', {'hotkey': hotkey, 'netuid': netuid, 'amount': amount})
 
 
 class Utility:
@@ -802,22 +819,22 @@ class Multisig:
     """Call builders for the Multisig pallet."""
 
     @staticmethod
-    def approve_as_multi(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call_hash: 'Any', max_weight: 'Weight') -> Call:
+    def approve_as_multi(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Timepoint | None', call_hash: 'Any', max_weight: 'Weight') -> Call:
         'Register approval for a dispatch to be made from a deterministic composite account if approved by a total of `threshold - 1` of `other_signatories`.  Payment: `DepositBase` will be reserved if this is the first approval, plus `threshold` times `DepositFactor`. It is returned once this dispatch happens or is cancelled.  The dispatch origin for this call must be _Signed_.  - `threshold`: The total number of approvals for this dispatch before it is executed. - `other_signatories`: The accounts (other than the sender) who can approve this dispatch. May not be empty. - `maybe_timepoint`: If this is the first approval, then this must be `None`. If it is not the first approval, then it must be `Some`, with the timepoint (block number and transaction index) of the first approval transaction. - `call_hash`: The hash of the call to be executed.  NOTE: If this is the final approval, you will want to use `as_multi` instead.  ## Complexity - `O(S)`. - Up to one balance-reserve or unreserve operation. - One passthrough operation, one insert, both `O(S)` where `S` is the number of signatories. `S` is capped by `MaxSignatories`, with weight being proportional. - One encode & hash, both of complexity `O(S)`. - Up to one binary search and insert (`O(logS + S)`). - I/O: 1 read `O(S)`, up to 1 mutate `O(S)`. Up to one remove. - One event. - Storage: inserts one item, value size bounded by `MaxSignatories`, with a deposit taken for its lifetime of `DepositBase + threshold * DepositFactor`.'
         return Call('Multisig', 'approve_as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call_hash': call_hash, 'max_weight': max_weight})
 
     @staticmethod
-    def approve_as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call_hash: 'Any', max_weight: 'Weight') -> Call:
+    def approve_as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Timepoint | None', call_hash: 'Any', max_weight: 'Weight') -> Call:
         'Approve a call hash for the same off-curve composite used by `as_multi_safe`.'
         return Call('Multisig', 'approve_as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call_hash': call_hash, 'max_weight': max_weight})
 
     @staticmethod
-    def as_multi(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
+    def as_multi(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Timepoint | None', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
         'Register approval for a dispatch to be made from a deterministic composite account if approved by a total of `threshold - 1` of `other_signatories`.  If there are enough, then dispatch the call.  Payment: `DepositBase` will be reserved if this is the first approval, plus `threshold` times `DepositFactor`. It is returned once this dispatch happens or is cancelled.  The dispatch origin for this call must be _Signed_.  - `threshold`: The total number of approvals for this dispatch before it is executed. - `other_signatories`: The accounts (other than the sender) who can approve this dispatch. May not be empty. - `maybe_timepoint`: If this is the first approval, then this must be `None`. If it is not the first approval, then it must be `Some`, with the timepoint (block number and transaction index) of the first approval transaction. - `call`: The call to be executed.  NOTE: Unless this is the final approval, you will generally want to use `approve_as_multi` instead, since it only requires a hash of the call.  Result is equivalent to the dispatched result if `threshold` is exactly `1`. Otherwise on success, result is `Ok` and the result from the interior call, if it was executed, may be found in the deposited `MultisigExecuted` event.  ## Complexity - `O(S + Z + Call)`. - Up to one balance-reserve or unreserve operation. - One passthrough operation, one insert, both `O(S)` where `S` is the number of signatories. `S` is capped by `MaxSignatories`, with weight being proportional. - One call encode & hash, both of complexity `O(Z)` where `Z` is tx-len. - One encode & hash, both of complexity `O(S)`. - Up to one binary search and insert (`O(logS + S)`). - I/O: 1 read `O(S)`, up to 1 mutate `O(S)`. Up to one remove. - One event. - The weight of the `call`. - Storage: inserts one item, value size bounded by `MaxSignatories`, with a deposit taken for its lifetime of `DepositBase + threshold * DepositFactor`.'
         return Call('Multisig', 'as_multi', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call': call, 'max_weight': max_weight})
 
     @staticmethod
-    def as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Any', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
+    def as_multi_safe(threshold: 'u16', other_signatories: 'Any', maybe_timepoint: 'Timepoint | None', call: 'RuntimeCall', max_weight: 'Weight') -> Call:
         'Approve or execute a call using the registration-free off-curve derivation.'
         return Call('Multisig', 'as_multi_safe', {'threshold': threshold, 'other_signatories': other_signatories, 'maybe_timepoint': maybe_timepoint, 'call': call, 'max_weight': max_weight})
 
@@ -979,12 +996,12 @@ class Proxy:
         return Call('Proxy', 'poke_deposit', {})
 
     @staticmethod
-    def proxy(real: 'MultiAddress', force_proxy_type: 'Any', call: 'RuntimeCall') -> Call:
+    def proxy(real: 'MultiAddress', force_proxy_type: 'ProxyType | None', call: 'RuntimeCall') -> Call:
         'Dispatch the given `call` from an account that the sender is authorised for through `add_proxy`.  The dispatch origin for this call must be _Signed_.  Parameters: - `real`: The account that the proxy will make a call on behalf of. - `force_proxy_type`: Specify the exact proxy type to be used and checked for this call. - `call`: The call to be made by the `real` account.'
         return Call('Proxy', 'proxy', {'real': real, 'force_proxy_type': force_proxy_type, 'call': call})
 
     @staticmethod
-    def proxy_announced(delegate: 'MultiAddress', real: 'MultiAddress', force_proxy_type: 'Any', call: 'RuntimeCall') -> Call:
+    def proxy_announced(delegate: 'MultiAddress', real: 'MultiAddress', force_proxy_type: 'ProxyType | None', call: 'RuntimeCall') -> Call:
         'Dispatch the given `call` from an account that the sender is authorized for through `add_proxy`.  Removes any corresponding announcement(s).  The dispatch origin for this call must be _Signed_.  Parameters: - `real`: The account that the proxy will make a call on behalf of. - `force_proxy_type`: Specify the exact proxy type to be used and checked for this call. - `call`: The call to be made by the `real` account.'
         return Call('Proxy', 'proxy_announced', {'delegate': delegate, 'real': real, 'force_proxy_type': force_proxy_type, 'call': call})
 
@@ -1037,7 +1054,7 @@ class AdminUtils:
     """Call builders for the AdminUtils pallet."""
 
     @staticmethod
-    def schedule_grandpa_change(next_authorities: 'Any', in_blocks: 'u32', forced: 'Any') -> Call:
+    def schedule_grandpa_change(next_authorities: 'Any', in_blocks: 'u32', forced: 'u32 | None') -> Call:
         'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change is applied at the end of the current block, so `in_blocks` must be 0. This keeps the authority set and its set ID consistent in every persisted block state.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
         return Call('AdminUtils', 'schedule_grandpa_change', {'next_authorities': next_authorities, 'in_blocks': in_blocks, 'forced': forced})
 
@@ -1542,7 +1559,7 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_tao_flow_smoothing_factor', {'smoothing_factor': smoothing_factor})
 
     @staticmethod
-    def sudo_set_tao_usd_price_oracle(oracle: 'Any') -> Call:
+    def sudo_set_tao_usd_price_oracle(oracle: 'AccountId32 | None') -> Call:
         'Sets the account that feeds the TAO/USD price; `None` removes it. The stored price is cleared, so the next feed is accepted as it is. Root-only.'
         return Call('AdminUtils', 'sudo_set_tao_usd_price_oracle', {'oracle': oracle})
 
@@ -1669,22 +1686,22 @@ class EVM:
     """Call builders for the EVM pallet."""
 
     @staticmethod
-    def call(source: 'H160', target: 'H160', input: 'Any', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
+    def call(source: 'H160', target: 'H160', input: 'Any', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'U256 | None', nonce: 'U256 | None', access_list: 'Any', authorization_list: 'Any') -> Call:
         'Issue an EVM call operation. This is similar to a message call transaction in Ethereum. The native origin lookup precedes gas admission, so charge it independently of gas on call/create/create2, including every error and weight refund.'
         return Call('EVM', 'call', {'source': source, 'target': target, 'input': input, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
 
     @staticmethod
-    def create(source: 'H160', init: 'Any', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
+    def create(source: 'H160', init: 'Any', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'U256 | None', nonce: 'U256 | None', access_list: 'Any', authorization_list: 'Any') -> Call:
         'Issue an EVM create operation. This is similar to a contract creation transaction in Ethereum.'
         return Call('EVM', 'create', {'source': source, 'init': init, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
 
     @staticmethod
-    def create2(source: 'H160', init: 'Any', salt: 'H256', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'Any', nonce: 'Any', access_list: 'Any', authorization_list: 'Any') -> Call:
+    def create2(source: 'H160', init: 'Any', salt: 'H256', value: 'U256', gas_limit: 'u64', max_fee_per_gas: 'U256', max_priority_fee_per_gas: 'U256 | None', nonce: 'U256 | None', access_list: 'Any', authorization_list: 'Any') -> Call:
         'Issue an EVM create2 operation.'
         return Call('EVM', 'create2', {'source': source, 'init': init, 'salt': salt, 'value': value, 'gas_limit': gas_limit, 'max_fee_per_gas': max_fee_per_gas, 'max_priority_fee_per_gas': max_priority_fee_per_gas, 'nonce': nonce, 'access_list': access_list, 'authorization_list': authorization_list})
 
     @staticmethod
-    def deposit(address: 'H160', value: 'Any') -> Call:
+    def deposit(address: 'H160', value: 'TaoBalance | None') -> Call:
         'Transfer native currency to an EVM address using its mapping at execution. A missing value transfers all spendable currency while keeping the account alive. Resolving the address here avoids funding an obsolete backing account if a protected alias is established after transaction construction.'
         return Call('EVM', 'deposit', {'address': address, 'value': value})
 
@@ -1718,7 +1735,7 @@ class Drand:
     """Call builders for the Drand pallet."""
 
     @staticmethod
-    def set_beacon_config(config_payload: 'BeaconConfigurationPayload', signature: 'Any') -> Call:
+    def set_beacon_config(config_payload: 'BeaconConfigurationPayload', signature: 'MultiSignature | None') -> Call:
         'allows the root user to set the beacon configuration generally this would be called from an offchain worker context. there is no verification of configurations, so be careful with this.  * `origin`: the root user * `config`: the beacon configuration'
         return Call('Drand', 'set_beacon_config', {'config_payload': config_payload, 'signature': signature})
 
@@ -1728,7 +1745,7 @@ class Drand:
         return Call('Drand', 'set_oldest_stored_round', {'oldest_round': oldest_round})
 
     @staticmethod
-    def write_pulse(pulses_payload: 'PulsesPayload', signature: 'Any') -> Call:
+    def write_pulse(pulses_payload: 'PulsesPayload', signature: 'MultiSignature | None') -> Call:
         'Verify and write a pulse from the beacon into the runtime'
         return Call('Drand', 'write_pulse', {'pulses_payload': pulses_payload, 'signature': signature})
 
@@ -1742,7 +1759,7 @@ class Crowdloan:
         return Call('Crowdloan', 'contribute', {'crowdloan_id': crowdloan_id, 'amount': amount})
 
     @staticmethod
-    def create(deposit: 'Any', min_contribution: 'Any', cap: 'Any', end: 'Any', call: 'Any', target_address: 'Any') -> Call:
+    def create(deposit: 'Any', min_contribution: 'Any', cap: 'Any', end: 'Any', call: 'RuntimeCall | None', target_address: 'AccountId32 | None') -> Call:
         'Create a crowdloan that will raise funds up to a maximum cap and if successful, will either transfer funds to the target address or dispatch the call (using creator origin). Exactly one of call or target address must be provided. Providing both, or providing neither, is rejected.  The initial deposit will be transferred to the crowdloan account and will be refunded in case the crowdloan fails to raise the cap. Additionally, the creator will pay for the execution of the call.  The dispatch origin for this call must be _Signed_.  Parameters: - `deposit`: The initial deposit from the creator. - `min_contribution`: The minimum contribution required to contribute to the crowdloan. - `cap`: The maximum amount of funds that can be raised. - `end`: The block number at which the crowdloan will end. - `call`: The call to dispatch when the crowdloan is finalized. - `target_address`: The address to transfer the raised funds to.'
         return Call('Crowdloan', 'create', {'deposit': deposit, 'min_contribution': min_contribution, 'cap': cap, 'end': end, 'call': call, 'target_address': target_address})
 
@@ -1762,7 +1779,7 @@ class Crowdloan:
         return Call('Crowdloan', 'refund', {'crowdloan_id': crowdloan_id})
 
     @staticmethod
-    def set_max_contribution(crowdloan_id: 'Any', new_max_contribution: 'Any') -> Call:
+    def set_max_contribution(crowdloan_id: 'Any', new_max_contribution: 'TaoBalance | None') -> Call:
         'Set or clear the maximum cumulative contribution allowed per contributor for a non-finalized crowdloan.  The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.  Parameters: - `crowdloan_id`: The id of the crowdloan to update the maximum contribution of. - `new_max_contribution`: The new optional maximum contribution.'
         return Call('Crowdloan', 'set_max_contribution', {'crowdloan_id': crowdloan_id, 'new_max_contribution': new_max_contribution})
 
@@ -1879,7 +1896,7 @@ class MevShield:
     """Call builders for the MevShield pallet."""
 
     @staticmethod
-    def announce_next_key(enc_key: 'Any') -> Call:
+    def announce_next_key(enc_key: 'BoundedVec | None') -> Call:
         "Rotate the key chain and announce the current author's ML-KEM encapsulation key.  Called as an inherent every block. `enc_key` is `None` on node failure, which removes the author from future shielded tx eligibility.  Key rotation order (using pre-update AuthorKeys): 1. CurrentKey  ← PendingKey 2. PendingKey  ← NextKey 3. NextKey     ← next-next author's key  (user-facing) 4. AuthorKeys[current] ← announced key"
         return Call('MevShield', 'announce_next_key', {'enc_key': enc_key})
 

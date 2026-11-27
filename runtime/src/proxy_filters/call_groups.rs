@@ -528,14 +528,17 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::spend_gamma),]
 );
 
-// Crediting gamma to a deposit at any hotkey, which hands its use to that hotkey; granted only
-// to proxies that may transfer.
+// Crediting gamma to any coldkey or to a deposit at any hotkey, which hands its use to that
+// hotkey; granted only to proxies that may transfer.
 call_filter_group!(
     GammaCreditCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma),
         RuntimeCall::SubtensorModule(SubtensorCall::mint_gamma_with_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::move_gamma),
+        RuntimeCall::SubtensorModule(SubtensorCall::deposit_gamma),
+        RuntimeCall::SubtensorModule(SubtensorCall::withdraw_gamma),
+        RuntimeCall::SubtensorModule(SubtensorCall::transfer_gamma),
     ]
 );
 

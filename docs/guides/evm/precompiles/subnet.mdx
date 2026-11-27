@@ -61,6 +61,8 @@ getSubnetDissolutionStatus(uint16)
 getSubnetMetadata(uint16)
 getSubnetCapacityConfig(uint16)
 getMechanismEmissionSplit(uint16)
+getSubnetEmissionWeightsV2(uint16)
+getSubnetGammaEnabled(uint16)
 getBurnConfig(uint16)
 getGlobalNetworkLimits()
 getGlobalRateLimits()
@@ -184,6 +186,8 @@ real AdminUtils operations therefore use the V2 selectors below.
 | `setMinBurnV2` | `AdminUtils.sudo_set_min_burn` |
 | `setOwnerCutEnabled` | `AdminUtils.sudo_set_owner_cut_enabled` |
 | `setOwnerImmuneNeuronLimit` | `AdminUtils.sudo_set_owner_immune_neuron_limit` |
+| `setSubnetEmissionWeightsV2` | `AdminUtils.sudo_set_subnet_emission_weights_v2` |
+| `setSubnetGammaEnabled` | `AdminUtils.sudo_set_subnet_gamma_enabled` |
 | `setTempo` | `AdminUtils.sudo_set_tempo` |
 | `trimToMaxAllowedUids` | `AdminUtils.sudo_trim_to_max_allowed_uids` |
 
@@ -195,5 +199,12 @@ force. Root-only calls are classified as not EVM-callable in the
 
 These functions dispatch the listed highest-level extrinsics as the mapped
 signed caller.
+
+`setSubnetEmissionWeightsV2` replaces the whole emission split: the burn,
+recycle, owner, validator and miner shares, then the subnets whose gamma a share
+buys, in ascending order, with their shares. `getSubnetEmissionWeightsV2`
+returns the five shares, whether the subnet was created through a lease, and
+the gamma shares in the same form. Each share is a `uint64 / type(uint64).max`
+part of the subnet's emission.
 
 Source: [`subnet.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/subnet.sol)

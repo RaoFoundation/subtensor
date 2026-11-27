@@ -473,7 +473,8 @@ mod errors {
         TaoUsdPriceUnavailable,
         /// Gamma minting is disabled network-wide or on this subnet.
         GammaDisabled,
-        /// The coldkey would hold more than 64 gamma deposits on this subnet.
+        /// The coldkey would hold more than 64 gamma deposits on this subnet, or another coldkey
+        /// would open one for it while it holds 32 or more.
         TooManyGammaDeposits,
         /// The hotkey holds no gamma deposit on this subnet.
         GammaDepositDoesNotExist,
@@ -485,7 +486,7 @@ mod errors {
         GammaDepositDailySpendCapMismatch,
         /// Deprecated: deposits have no spender. Kept so SCALE error indices stay stable.
         NotGammaDepositSpender,
-        /// The gamma deposit's balance is below the amount.
+        /// The gamma deposit's balance, or the coldkey's gamma balance, is below the amount.
         InsufficientGammaBalance,
         /// The amount is above what the gamma deposit's daily spend cap allows now.
         GammaDepositDailySpendCapExceeded,

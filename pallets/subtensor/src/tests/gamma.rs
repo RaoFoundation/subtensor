@@ -113,6 +113,50 @@ pub(super) fn deposit(netuid: NetUid, hotkey: u64) -> GammaDeposit<U256> {
     GammaDeposits::<Test>::get(netuid, U256::from(hotkey)).unwrap()
 }
 
+/// The coldkey's gamma balance on `netuid`.
+fn gamma_balance(netuid: NetUid, coldkey: u64) -> GammaBalance {
+    GammaBalances::<Test>::get(netuid, U256::from(coldkey))
+}
+
+/// `coldkey` withdraws up to `amount` from its deposit at `hotkey` to its balance.
+fn withdraw(netuid: NetUid, coldkey: u64, hotkey: u64, amount: u64) -> DispatchResult {
+    SubtensorModule::withdraw_gamma(
+        RuntimeOrigin::signed(U256::from(coldkey)),
+        U256::from(hotkey),
+        netuid,
+        amount.into(),
+    )
+}
+
+/// `coldkey` deposits up to `amount` of its balance at `hotkey`.
+fn deposit_to(netuid: NetUid, coldkey: u64, hotkey: u64, amount: u64) -> DispatchResult {
+    SubtensorModule::deposit_gamma(
+        RuntimeOrigin::signed(U256::from(coldkey)),
+        U256::from(hotkey),
+        netuid,
+        amount.into(),
+    )
+}
+
+/// `coldkey` sends `amount` to `destination`, from and to a balance or the named deposits.
+fn transfer(
+    netuid: NetUid,
+    coldkey: u64,
+    destination: u64,
+    amount: u64,
+    origin_hotkey: Option<u64>,
+    destination_hotkey: Option<u64>,
+) -> DispatchResult {
+    SubtensorModule::transfer_gamma(
+        RuntimeOrigin::signed(U256::from(coldkey)),
+        U256::from(destination),
+        origin_hotkey.map(U256::from),
+        destination_hotkey.map(U256::from),
+        netuid,
+        amount.into(),
+    )
+}
+
 fn gamma_events() -> Vec<Event<Test>> {
     System::events()
         .into_iter()
@@ -122,7 +166,10 @@ fn gamma_events() -> Vec<Event<Test>> {
                 | Event::GammaMoved { .. }
                 | Event::GammaDepositClosed { .. }
                 | Event::GammaDepositDailySpendCapSet { .. }
-                | Event::GammaSpent { .. }),
+                | Event::GammaSpent { .. }
+                | Event::GammaDeposited { .. }
+                | Event::GammaWithdrawn { .. }
+                | Event::GammaTransferred { .. }),
             ) => Some(event),
             _ => None,
         })
@@ -401,7 +448,7 @@ fn opening_a_gamma_deposit_allows_owned_and_unassociated_hotkeys() {
                     Error::<Test>::NonAssociatedColdKey
                 );
                 assert_eq!(deposit(netuid, api_key).balance, funded.balance);
-                // The funder can revoke the API key by moving all its credits away.
+                // The funder can revoke the hotkey's access by moving all its credits away.
                 let destination_balance =
                     GammaDeposits::<Test>::get(netuid, U256::from(funding_hotkey))
                         .map_or(GammaBalance::ZERO, |deposit| deposit.balance);
@@ -1705,6 +1752,23 @@ fn announced_coldkey_swap_blocks_its_gamma_calls_but_not_its_hotkeys_spends() {
                 netuid,
                 daily_spend_cap: None,
             },
+            SubtensorCall::deposit_gamma {
+                hotkey: U256::from(HOTKEY),
+                netuid,
+                amount: GAMMA.into(),
+            },
+            SubtensorCall::withdraw_gamma {
+                hotkey: U256::from(HOTKEY),
+                netuid,
+                amount: GAMMA.into(),
+            },
+            SubtensorCall::transfer_gamma {
+                destination_coldkey: U256::from(COLDKEY + 100),
+                origin_hotkey: None,
+                destination_hotkey: None,
+                netuid,
+                amount: GAMMA.into(),
+            },
         ] {
             assert_eq!(dispatch(coldkey, call), announced);
         }
@@ -1876,6 +1940,9 @@ fn exits_stay_open_with_minting_off() {
             U256::from(HOTKEY + 1),
             netuid
         ));
+        assert_ok!(withdraw(netuid, COLDKEY, HOTKEY, 3 * GAMMA));
+        assert_ok!(transfer(netuid, COLDKEY, 66, GAMMA, None, None));
+        assert_ok!(deposit_to(netuid, COLDKEY, HOTKEY, GAMMA));
         assert_ok!(SubtensorModule::do_swap_coldkey(
             &U256::from(COLDKEY),
             &U256::from(66)
@@ -1883,6 +1950,551 @@ fn exits_stay_open_with_minting_off() {
         assert_eq!(deposit(netuid, HOTKEY).coldkey, U256::from(66));
         assert_gamma_invariants(netuid);
     });
+}
+
+// =============================================================================
+// Balances and transfers
+// =============================================================================
+
+#[test]
+fn withdraw_gamma_moves_up_to_the_deposit_to_the_balance() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let minted = mint(netuid, COLDKEY, HOTKEY, TAO);
+        let (coldkey, hotkey) = (U256::from(COLDKEY), U256::from(HOTKEY));
+
+        System::reset_events();
+        assert_ok!(withdraw(netuid, COLDKEY, HOTKEY, GAMMA));
+        assert_eq!(gamma_balance(netuid, COLDKEY), GAMMA.into());
+        assert_eq!(deposit(netuid, HOTKEY).balance, minted - GAMMA.into());
+        assert_eq!(
+            gamma_events(),
+            vec![Event::GammaWithdrawn {
+                netuid,
+                coldkey,
+                hotkey,
+                amount: GAMMA.into()
+            }]
+        );
+
+        // At most what is there; emptying the deposit closes it.
+        System::reset_events();
+        assert_ok!(withdraw(netuid, COLDKEY, HOTKEY, u64::MAX));
+        assert_eq!(gamma_balance(netuid, COLDKEY), minted);
+        assert_eq!(GammaDeposits::<Test>::get(netuid, hotkey), None);
+        assert_eq!(
+            gamma_events(),
+            vec![
+                Event::GammaWithdrawn {
+                    netuid,
+                    coldkey,
+                    hotkey,
+                    amount: minted - GAMMA.into()
+                },
+                Event::GammaDepositClosed {
+                    netuid,
+                    coldkey,
+                    hotkey
+                }
+            ]
+        );
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn withdraw_gamma_refusals() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        assert_noop!(
+            withdraw(netuid, COLDKEY + 100, HOTKEY, GAMMA),
+            Error::<Test>::NonAssociatedColdKey
+        );
+    });
+}
+
+#[test]
+fn deposit_gamma_moves_up_to_the_balance_to_a_deposit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        mint(netuid, COLDKEY, HOTKEY, TAO);
+        assert_ok!(withdraw(netuid, COLDKEY, HOTKEY, 3 * GAMMA));
+
+        // Opens a deposit with no cap.
+        System::reset_events();
+        assert_ok!(deposit_to(netuid, COLDKEY, HOTKEY + 1, GAMMA));
+        assert_eq!(deposit(netuid, HOTKEY + 1).balance, GAMMA.into());
+        assert_eq!(deposit(netuid, HOTKEY + 1).daily_spend_cap, None);
+        assert_eq!(gamma_balance(netuid, COLDKEY), (2 * GAMMA).into());
+        assert_eq!(
+            gamma_events(),
+            vec![Event::GammaDeposited {
+                netuid,
+                coldkey: U256::from(COLDKEY),
+                hotkey: U256::from(HOTKEY + 1),
+                amount: GAMMA.into()
+            }]
+        );
+
+        // Tops up a deposit with at most the balance, cap unchanged, and removes an emptied
+        // balance.
+        assert_ok!(SubtensorModule::set_gamma_deposit_daily_spend_cap(
+            RuntimeOrigin::signed(U256::from(COLDKEY)),
+            U256::from(HOTKEY + 1),
+            netuid,
+            Some(GAMMA.into())
+        ));
+        assert_ok!(deposit_to(netuid, COLDKEY, HOTKEY + 1, u64::MAX));
+        assert_eq!(deposit(netuid, HOTKEY + 1).balance, (3 * GAMMA).into());
+        assert_eq!(
+            SubtensorModule::gamma_cap(&deposit(netuid, HOTKEY + 1)),
+            Some(GAMMA.into())
+        );
+        assert!(!GammaBalances::<Test>::contains_key(
+            netuid,
+            U256::from(COLDKEY)
+        ));
+        assert_ok!(spend(netuid, HOTKEY + 1, GAMMA));
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn deposit_gamma_refusals() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        assert_noop!(
+            deposit_to(netuid, COLDKEY, HOTKEY, GAMMA),
+            Error::<Test>::AmountTooLow
+        );
+        assert_noop!(
+            deposit_to(NetUid::from(99), COLDKEY, HOTKEY, GAMMA),
+            Error::<Test>::SubnetNotExists
+        );
+    });
+}
+
+#[test]
+fn transfer_gamma_sends_between_balances_and_deposits() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob) = (COLDKEY, COLDKEY + 100);
+        let minted = mint(netuid, alice, HOTKEY, TAO);
+        mint(netuid, bob, HOTKEY + 100, TAO);
+        let bob_deposit = deposit(netuid, HOTKEY + 100).balance;
+
+        // From a deposit to a balance.
+        System::reset_events();
+        assert_ok!(transfer(netuid, alice, bob, 2 * GAMMA, Some(HOTKEY), None));
+        assert_eq!(deposit(netuid, HOTKEY).balance, minted - (2 * GAMMA).into());
+        assert_eq!(gamma_balance(netuid, bob), (2 * GAMMA).into());
+        assert_eq!(
+            gamma_events(),
+            vec![Event::GammaTransferred {
+                netuid,
+                origin_coldkey: U256::from(alice),
+                destination_coldkey: U256::from(bob),
+                origin_hotkey: Some(U256::from(HOTKEY)),
+                destination_hotkey: None,
+                amount: (2 * GAMMA).into()
+            }]
+        );
+
+        // From a balance to a balance, and to a deposit the receiver holds, which keeps its cap.
+        assert_ok!(transfer(netuid, bob, alice, GAMMA, None, None));
+        assert_eq!(gamma_balance(netuid, alice), GAMMA.into());
+        assert_ok!(SubtensorModule::set_gamma_deposit_daily_spend_cap(
+            RuntimeOrigin::signed(U256::from(alice)),
+            U256::from(HOTKEY),
+            netuid,
+            Some(GammaBalance::ZERO)
+        ));
+        assert_ok!(transfer(netuid, bob, alice, GAMMA, None, Some(HOTKEY)));
+        assert_eq!(deposit(netuid, HOTKEY).balance, minted - GAMMA.into());
+        assert_eq!(
+            SubtensorModule::gamma_cap(&deposit(netuid, HOTKEY)),
+            Some(GammaBalance::ZERO)
+        );
+        assert!(!GammaBalances::<Test>::contains_key(
+            netuid,
+            U256::from(bob)
+        ));
+
+        // From a deposit to a deposit; emptying the source closes it.
+        System::reset_events();
+        let rest = deposit(netuid, HOTKEY).balance;
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            rest.to_u64(),
+            Some(HOTKEY),
+            Some(HOTKEY + 100)
+        ));
+        assert_eq!(GammaDeposits::<Test>::get(netuid, U256::from(HOTKEY)), None);
+        assert_eq!(deposit(netuid, HOTKEY + 100).balance, bob_deposit + rest);
+        assert!(matches!(
+            gamma_events()[..],
+            [
+                Event::GammaTransferred { .. },
+                Event::GammaDepositClosed { .. }
+            ]
+        ));
+
+        // Between the signer's own balance and deposits.
+        assert_eq!(gamma_balance(netuid, alice), GAMMA.into());
+        assert_ok!(deposit_to(netuid, alice, HOTKEY + 1, GAMMA));
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            alice,
+            GAMMA,
+            Some(HOTKEY + 1),
+            None
+        ));
+        assert_eq!(gamma_balance(netuid, alice), GAMMA.into());
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn transfer_gamma_refusals() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob) = (COLDKEY, COLDKEY + 100);
+        let minted = mint(netuid, alice, HOTKEY, TAO).to_u64();
+        mint(netuid, bob, HOTKEY + 100, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, GAMMA));
+
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA + 1, None, None),
+            Error::<Test>::InsufficientGammaBalance
+        );
+        assert_noop!(
+            transfer(netuid, alice, bob, minted, Some(HOTKEY), None),
+            Error::<Test>::InsufficientGammaBalance
+        );
+        for amount in [0, MIN_GAMMA_AMOUNT - 1, GAMMA - MIN_GAMMA_AMOUNT + 1] {
+            assert_noop!(
+                transfer(netuid, alice, bob, amount, None, None),
+                Error::<Test>::AmountTooLow
+            );
+        }
+        // The source deposit must be the signer's.
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, Some(HOTKEY + 100), None),
+            Error::<Test>::NonAssociatedColdKey
+        );
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, Some(HOTKEY + 1), None),
+            Error::<Test>::GammaDepositDoesNotExist
+        );
+        // The destination deposit must be the destination's, and only a hotkey's owner opens one
+        // there.
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY)),
+            Error::<Test>::NonAssociatedColdKey
+        );
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 1)),
+            Error::<Test>::NonAssociatedColdKey
+        );
+        // The same source and destination.
+        assert_noop!(
+            transfer(netuid, alice, alice, GAMMA, None, None),
+            Error::<Test>::InvalidValue
+        );
+        assert_noop!(
+            transfer(netuid, alice, alice, GAMMA, Some(HOTKEY), Some(HOTKEY)),
+            Error::<Test>::InvalidValue
+        );
+        assert_noop!(
+            transfer(NetUid::from(99), alice, bob, GAMMA, None, None),
+            Error::<Test>::SubnetNotExists
+        );
+        // A transfer credits at least the minimum, even when it empties its source.
+        GammaBalances::<Test>::insert(netuid, U256::from(bob), GammaBalance::from(1u64));
+        assert_noop!(
+            transfer(netuid, bob, alice, 1, None, None),
+            Error::<Test>::AmountTooLow
+        );
+    });
+}
+
+#[test]
+fn transfer_gamma_opens_the_destination_deposit() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob) = (COLDKEY, COLDKEY + 100);
+        mint(netuid, alice, HOTKEY, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, 3 * GAMMA));
+
+        // For another coldkey, with no daily spend cap.
+        System::reset_events();
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            GAMMA,
+            None,
+            Some(HOTKEY + 101)
+        ));
+        let opened = deposit(netuid, HOTKEY + 101);
+        assert_eq!(opened.coldkey, U256::from(bob));
+        assert_eq!(opened.balance, GAMMA.into());
+        assert_eq!(SubtensorModule::gamma_cap(&opened), None);
+        assert_eq!(
+            gamma_events(),
+            vec![Event::GammaTransferred {
+                netuid,
+                origin_coldkey: U256::from(alice),
+                destination_coldkey: U256::from(bob),
+                origin_hotkey: None,
+                destination_hotkey: Some(U256::from(HOTKEY + 101)),
+                amount: GAMMA.into()
+            }]
+        );
+
+        // For the signer, from its deposit and from its balance.
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            alice,
+            GAMMA,
+            Some(HOTKEY),
+            Some(HOTKEY + 1)
+        ));
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            alice,
+            GAMMA,
+            None,
+            Some(HOTKEY + 2)
+        ));
+        assert_eq!(deposit(netuid, HOTKEY + 1).balance, GAMMA.into());
+        assert_eq!(deposit(netuid, HOTKEY + 2).balance, GAMMA.into());
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn transfer_gamma_opens_at_most_half_of_a_coldkeys_deposits_for_it() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob) = (COLDKEY, COLDKEY + 100);
+        mint(netuid, alice, HOTKEY, 10 * TAO);
+        mint(netuid, bob, HOTKEY + 100, TAO);
+        let third_party = MAX_THIRD_PARTY_GAMMA_DEPOSITS as u64;
+        assert_ok!(withdraw(netuid, alice, HOTKEY, (third_party + 2) * GAMMA));
+        for hotkey in HOTKEY + 101..HOTKEY + 100 + third_party {
+            assert_ok!(transfer(netuid, alice, bob, GAMMA, None, Some(hotkey)));
+        }
+        let listed = || ColdkeyGammaHotkeys::<Test>::get(netuid, U256::from(bob)).len();
+        assert_eq!(listed(), MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize);
+
+        // Another coldkey opens no more, but still tops up what is open.
+        let next = HOTKEY + 100 + third_party;
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(next)),
+            Error::<Test>::TooManyGammaDeposits
+        );
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            GAMMA,
+            None,
+            Some(HOTKEY + 101)
+        ));
+
+        // The coldkey itself still opens its own, and others again once it closes some.
+        assert_ok!(withdraw(netuid, bob, HOTKEY + 100, GAMMA));
+        assert_ok!(deposit_to(netuid, bob, next, GAMMA));
+        assert_eq!(listed(), MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize + 1);
+        for hotkey in [HOTKEY + 102, HOTKEY + 103] {
+            assert_ok!(withdraw(netuid, bob, hotkey, GAMMA));
+        }
+        assert_ok!(transfer(netuid, alice, bob, GAMMA, None, Some(next + 1)));
+        assert_gamma_invariants(netuid);
+    });
+}
+
+#[test]
+fn transfer_gamma_opens_no_deposit_for_a_coldkey_in_a_swap() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob, carol) = (COLDKEY, COLDKEY + 100, COLDKEY + 200);
+        mint(netuid, alice, HOTKEY, TAO);
+        mint(netuid, bob, HOTKEY + 100, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, 2 * GAMMA));
+        add_balance_to_coldkey_account(
+            &U256::from(bob),
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+            RuntimeOrigin::signed(U256::from(bob)),
+            U256::from(carol),
+        ));
+
+        // Neither the announcer nor its revealed destination gets a new deposit.
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 101)),
+            Error::<Test>::ColdkeySwapAnnounced
+        );
+        assert_noop!(
+            transfer(netuid, alice, carol, GAMMA, None, Some(HOTKEY + 201)),
+            Error::<Test>::ColdkeySwapDestinationReserved
+        );
+        // What is already open, and a balance, still receive.
+        assert_ok!(transfer(
+            netuid,
+            alice,
+            bob,
+            GAMMA,
+            None,
+            Some(HOTKEY + 100)
+        ));
+        assert_ok!(transfer(netuid, alice, bob, GAMMA, None, None));
+
+        ColdkeySwapDisputes::<Test>::insert(U256::from(bob), System::block_number());
+        assert_noop!(
+            transfer(netuid, alice, bob, GAMMA, None, Some(HOTKEY + 101)),
+            Error::<Test>::ColdkeySwapDisputed
+        );
+    });
+}
+
+// Deposits other coldkeys open count across subnets, so they never take a coldkey past what
+// one swap moves, even when its swap is announced by a hash that reserves no destination.
+#[test]
+fn deposits_opened_by_others_never_block_a_swap() {
+    new_test_ext(1).execute_with(|| {
+        let (alice, bob, carol) = (COLDKEY, COLDKEY + 100, COLDKEY + 200);
+        let [first, second, third] = [0u64, 1, 2].map(|index| {
+            let netuid =
+                add_dynamic_network(&U256::from(50_000 + index), &U256::from(60_000 + index));
+            enable_gamma(netuid, 1_000 * TAO, 1_000 * TAO);
+            mint(netuid, alice, HOTKEY + 1_000 + index, TAO);
+            assert_ok!(withdraw(netuid, alice, HOTKEY + 1_000 + index, 4 * GAMMA));
+            netuid
+        });
+        let half = u64::from(MAX_THIRD_PARTY_GAMMA_DEPOSITS) / 2;
+        for hotkey in 0..half {
+            assert_ok!(transfer(
+                first,
+                alice,
+                bob,
+                GAMMA / 10,
+                None,
+                Some(200_000 + hotkey)
+            ));
+            assert_ok!(transfer(
+                second,
+                alice,
+                bob,
+                GAMMA / 10,
+                None,
+                Some(201_000 + hotkey)
+            ));
+        }
+        assert_noop!(
+            transfer(third, alice, bob, GAMMA / 10, None, Some(300_000)),
+            Error::<Test>::TooManyGammaDeposits
+        );
+
+        let (bob, carol) = (U256::from(bob), U256::from(carol));
+        add_balance_to_coldkey_account(
+            &bob,
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        use sp_runtime::traits::Hash as _;
+        let hash = <Test as frame_system::Config>::Hashing::hash_of(&carol);
+        assert_ok!(SubtensorModule::announce_coldkey_swap(
+            RuntimeOrigin::signed(bob),
+            hash
+        ));
+        let (when, _) = ColdkeySwapAnnouncements::<Test>::get(bob).unwrap();
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(bob),
+            carol
+        ));
+        assert_eq!(
+            SubtensorModule::coldkey_gamma_deposit_count(&carol),
+            MAX_THIRD_PARTY_GAMMA_DEPOSITS
+        );
+    });
+}
+
+/// What `bob`'s swap to its reserved destination `carol` takes along: its auto-stake route,
+/// flags and lineage, and whether its lock stays perpetual. With `gamma_sent`, another coldkey
+/// sends `carol` gamma during the delay.
+fn reserved_swap_outcome(gamma_sent: bool) -> (bool, bool, bool, Option<bool>) {
+    let mut outcome = (false, false, false, None);
+    new_test_ext(1).execute_with(|| {
+        let netuid = gamma_subnet();
+        let (alice, bob, carol) = (COLDKEY, COLDKEY + 100, COLDKEY + 200);
+        mint(netuid, alice, HOTKEY, TAO);
+        assert_ok!(withdraw(netuid, alice, HOTKEY, 2 * GAMMA));
+        let (bob, carol) = (U256::from(bob), U256::from(carol));
+        let auto_stake_hotkey = U256::from(9_999);
+        AutoStakeDestination::<Test>::insert(bob, netuid, auto_stake_hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(auto_stake_hotkey, netuid, vec![bob]);
+        AccountFlags::<Test>::insert(bob, ACCOUNT_FLAGS_REJECT_STAKING_HOTKEY_GROWTH);
+        let lock_hotkey = U256::from(OWNER_HOTKEY);
+        let lock = crate::staking::lock::LockState {
+            locked_mass: 1_000_000_000u64.into(),
+            conviction: U64F64::from_num(1_000_000_000u64),
+            last_update: SubtensorModule::get_current_block_as_u64(),
+        };
+        Lock::<Test>::insert((bob, netuid, lock_hotkey), lock.clone());
+        HotkeyLock::<Test>::insert(netuid, lock_hotkey, lock);
+        DecayingLock::<Test>::insert(bob, netuid, false);
+        add_balance_to_coldkey_account(
+            &bob,
+            SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get(),
+        );
+        assert_ok!(SubtensorModule::announce_coldkey_swap_v2(
+            RuntimeOrigin::signed(bob),
+            carol
+        ));
+        if gamma_sent {
+            assert_ok!(transfer(
+                netuid,
+                alice,
+                COLDKEY + 200,
+                GAMMA / 10,
+                None,
+                None
+            ));
+        }
+        let (when, _) = ColdkeySwapAnnouncements::<Test>::get(bob).unwrap();
+        System::set_block_number(when);
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            RuntimeOrigin::signed(bob),
+            carol
+        ));
+        outcome = (
+            AutoStakeDestination::<Test>::get(carol, netuid).is_some(),
+            AccountFlags::<Test>::contains_key(carol),
+            SubtensorModule::same_coldkey_lineage(&bob, &carol),
+            DecayingLock::<Test>::get(carol, netuid),
+        );
+    });
+    outcome
+}
+
+// A gamma balance is funds, like TAO: sending one to a reserved destination changes nothing
+// about the swap.
+#[test]
+fn gamma_sent_to_a_reserved_destination_leaves_the_swap_unchanged() {
+    assert_eq!(
+        reserved_swap_outcome(false),
+        (true, true, true, Some(false))
+    );
+    assert_eq!(reserved_swap_outcome(true), reserved_swap_outcome(false));
 }
 
 // =============================================================================
@@ -1927,6 +2539,13 @@ fn gamma_runtime_api_reads_deposits() {
             ]
         );
         assert!(SubtensorModule::get_gamma_deposits_for_coldkey(&U256::from(5)).is_empty());
+
+        assert!(SubtensorModule::get_gamma_balances(&coldkey).is_empty());
+        assert_ok!(withdraw(other, COLDKEY, HOTKEY + 1, GAMMA));
+        assert_eq!(
+            SubtensorModule::get_gamma_balances(&coldkey),
+            vec![(other, GAMMA.into())]
+        );
     });
 }
 

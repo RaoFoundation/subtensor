@@ -5,8 +5,8 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V498 Upgrade: Runtime Version Bump',
-  description: 'Runtime spec 498 and what the version bump means for transaction signing.',
+  title: 'The V498 Upgrade: Gamma Balances and Transfers',
+  description: 'Runtime spec 498 lets coldkeys hold gamma outside a deposit and send it to each other.',
   alternates: {canonical: '/releases/v498-upgrade'},
 };
 
@@ -17,21 +17,31 @@ export default function Page() {
         <section className={styles.title_section}>
           <h1 className={styles.paper_title}>The V498 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Runtime version bump · Proposed upgrade
+            Gamma balances and transfers · Proposed upgrade
           </p>
         </section>
 
         <section className={styles.section} id='compatibility'>
           <h2 className={styles.subtitle}>What changes</h2>
           <p>
-            V498 raises the runtime spec version from <strong>497</strong> to <strong>498</strong>.
-            The transaction version stays at <strong>2</strong>. Relative to V497, this release adds
-            no calls, storage migrations, parameter changes, or Python SDK changes.
+            V498 lets a coldkey hold gamma outside a deposit and send it to other coldkeys. Gamma
+            sent to a coldkey lands in its gamma balance on the subnet, which no key can spend
+            until it is moved into a deposit. <code>deposit_gamma</code> and{' '}
+            <code>withdraw_gamma</code> move gamma between a balance and a deposit, and{' '}
+            <code>transfer_gamma</code> sends an exact amount from a balance or deposit to another
+            coldkey&apos;s balance or deposit. Another coldkey can open a deposit for a coldkey only
+            while it holds fewer than 32 across subnets and has no coldkey swap underway.
           </p>
           <p>
-            Once the upgrade activates, refresh the runtime metadata and rebuild signing payloads
-            prepared under earlier versions. Regenerate and review any pending root parameter
-            proposals before continuing approvals.
+            Minting is unchanged. The release adds the <code>GammaBalances</code>{' '}
+            storage item and moves <code>GammaRuntimeApi</code> to version 3 with{' '}
+            <code>get_gamma_balances</code>. It has no storage migrations or parameter changes.
+          </p>
+          <p>
+            V498 raises the runtime spec version from <strong>497</strong> to <strong>498</strong>.
+            The transaction version stays at <strong>2</strong>. Once the upgrade activates, refresh
+            the runtime metadata and rebuild signing payloads prepared under earlier versions.
+            Regenerate and review any pending root parameter proposals before continuing approvals.
           </p>
           <p>
             See the{' '}

@@ -382,6 +382,7 @@ class SubtensorModule:
     GammaDeposits = Item('SubtensorModule', 'GammaDeposits', 'GammaDeposit')
     ColdkeyGammaHotkeys = Item('SubtensorModule', 'ColdkeyGammaHotkeys', 'BoundedVec')
     GammaSpent = Item('SubtensorModule', 'GammaSpent', 'GammaBalance')
+    GammaBalances = Item('SubtensorModule', 'GammaBalances', 'GammaBalance')
     SubnetGammaPrice = Item('SubtensorModule', 'SubnetGammaPrice', 'FixedU128')
     SubnetGammaEmission = Item('SubtensorModule', 'SubnetGammaEmission', 'BoundedVec')
     PendingGammaEmission = Item('SubtensorModule', 'PendingGammaEmission', 'AlphaBalance')

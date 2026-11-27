@@ -6,7 +6,9 @@
   "audiences": [
     "node operators",
     "wallets and indexers",
+    "gamma holders",
+    "SDK users",
     "sudo signers"
   ],
-  "summary": "V498 raises the runtime spec version from 497 to 498 and keeps transaction version 2. Relative to V497 there are no new runtime calls, storage migrations, parameter changes, or Python SDK changes. Refresh runtime metadata and rebuild signing payloads after activation. Regenerate and review pending root parameter proposals before approving."
+  "summary": "V498 lets a coldkey hold gamma outside a deposit and send it to other coldkeys. Gamma sent to a coldkey lands in its gamma balance on the subnet, which no key can spend until it is moved into a deposit. New calls deposit_gamma and withdraw_gamma move gamma between a balance and a deposit, and transfer_gamma sends an exact amount from a balance or deposit to another coldkey's balance or deposit. Another coldkey can open a deposit for a coldkey only while it holds fewer than 32 across subnets and has no coldkey swap underway. Minting is unchanged. The release adds the GammaBalances storage item and moves GammaRuntimeApi to version 3 with get_gamma_balances. It has no storage migrations. Spec version 498 with transaction version 2 needs a metadata refresh. Regenerate and review pending root parameter proposals before approving."
 }

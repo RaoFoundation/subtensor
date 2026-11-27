@@ -89,6 +89,7 @@ address. The current proposal reserves:
 | `0x0811` | Timestamp |
 | `0x0812` | Runtime Configuration |
 | `0x0813` | Precompile Registry |
+| `0x0814` | Gamma |
 
 A documented reservation prevents another domain from taking the address but
 does not make the precompile callable. When implementing a reserved address,

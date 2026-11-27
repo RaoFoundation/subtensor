@@ -19,7 +19,8 @@
                     "name": "zombienet_evm_c",
                     "files": [
                         "suites/zombienet_evm/05-direct-call-precompile.test.ts",
-                        "suites/zombienet_evm/02-precompile-gas.test.ts"
+                        "suites/zombienet_evm/02-precompile-gas.test.ts",
+                        "suites/zombienet_evm/06-gamma-precompile.test.ts"
                     ]
                 }
             ]
@@ -34,7 +35,8 @@
                         "suites/zombienet_staking/03.01-move-stake-limit.test.ts",
                         "suites/zombienet_staking/04-remove-stake.test.ts",
                         "suites/zombienet_staking/06-remove-stake-limit.test.ts",
-                        "suites/zombienet_staking/08-swap-stake-limit.test.ts"
+                        "suites/zombienet_staking/08-swap-stake-limit.test.ts",
+                        "suites/zombienet_staking/12-transfer-gamma.test.ts"
                     ]
                 },
                 {

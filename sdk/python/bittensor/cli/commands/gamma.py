@@ -1,7 +1,8 @@
-"""`btcli gamma`: gamma minting, deposits, and spending."""
+"""`btcli gamma`: gamma minting, deposits, balances and transfers, and spending."""
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from typing import Optional
 
@@ -70,7 +71,7 @@ def show_deposit(
 
 @app.command(
     "list",
-    help="List every gamma deposit of a coldkey, on every subnet.\n\n"
+    help="List every gamma deposit and balance of a coldkey, on every subnet.\n\n"
     f"Docs: {query_docs_url('gamma_deposits')}",
 )
 @with_globals
@@ -86,9 +87,16 @@ def list_deposits(
     coldkey = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
 
     async def _op(client):
-        return await client.read("gamma_deposits", coldkey_ss58=coldkey)
+        return await asyncio.gather(
+            client.read("gamma_deposits", coldkey_ss58=coldkey),
+            client.read("gamma_balances", coldkey_ss58=coldkey),
+        )
 
-    deposits = app_ctx.run(_op)
+    deposits, balances = app_ctx.run(_op)
+    out = app_ctx.output
+    if out.json_mode:
+        out.value({"deposits": deposits, "balances": balances})
+        return
     rows = [
         [
             d["netuid"],
@@ -99,13 +107,25 @@ def list_deposits(
         ]
         for d in deposits
     ]
-    app_ctx.output.columns(
+    out.columns(
         "gamma deposits",
         ["netuid", "hotkey", "balance", "daily spend cap", "spendable"],
         rows,
         deposits,
         right_align={0, 2, 3, 4},
     )
+    if balances:
+        out.columns(
+            "gamma balances (on no hotkey)",
+            ["netuid", "balance"],
+            [[b["netuid"], _gamma(b["balance_gamma"])] for b in balances],
+            balances,
+            right_align={0, 1},
+        )
+        out.message(
+            "a balance is spent once moved to a deposit: "
+            "`btcli gamma deposit --netuid N --hotkey HOTKEY --all`"
+        )
 
 
 # The deposit's calls are the generated intent commands (`tx mint-gamma`
@@ -117,5 +137,8 @@ for _alias, _op in (
     ("close", "close_gamma_deposit"),
     ("set-cap", "set_gamma_deposit_daily_spend_cap"),
     ("spend", "spend_gamma"),
+    ("deposit", "deposit_gamma"),
+    ("withdraw", "withdraw_gamma"),
+    ("transfer", "transfer_gamma"),
 ):
     app.command(_alias)(intent_command(_op))

@@ -43,7 +43,7 @@ Each implemented operation is listed on the page of its target precompile:
 
 | Target precompile | Missing extrinsics assigned |
 |---|---:|
-| [Subnet](/docs/guides/evm/precompiles/subnet) | 13 |
+| [Subnet](/docs/guides/evm/precompiles/subnet) | 15 |
 | [Staking V2](/docs/guides/evm/precompiles/staking-v2) | 20 |
 | [Neuron](/docs/guides/evm/precompiles/neuron) | 21 |
 | [Alpha](/docs/guides/evm/precompiles/alpha) | 3 |
@@ -53,6 +53,7 @@ Each implemented operation is listed on the page of its target precompile:
 | [Voting power](/docs/guides/evm/precompiles/voting-power) | 2 |
 | [Leasing](/docs/guides/evm/precompiles/leasing) | 1 |
 | [Crowdloan](/docs/guides/evm/precompiles/crowdloan) | 1 |
+| [Gamma](/docs/guides/evm/precompiles/gamma) | 10 |
 
 The only remaining proposed signed operation is `Proxy.proxy_announced`. It
 requires a stable, versioned EVM description of the proxied runtime call and
@@ -64,6 +65,7 @@ must not add another SCALE-encoded `RuntimeCall` interface.
 |---|---|
 | Root-only `SubtensorModule` extrinsics | `dissolve_network`, `root_dissolve_network`, `swap_coldkey`, `sudo_set_tx_childkey_take_rate_limit`, `sudo_set_min_childkey_take`, `sudo_set_max_childkey_take`, `set_pending_childkey_cooldown`, `reset_coldkey_swap`, `reset_coldkey_swap_keep_locked`, `sudo_set_num_root_claims`, and `sudo_set_voting_power_ema_alpha` require Root. |
 | `SubtensorModule.schedule_swap_coldkey` | Deprecated compatibility call that always returns `Deprecated`. |
+| `SubtensorModule.feed_tao_usd_price` | Signed only by the TAO/USD price oracle account that Root sets. |
 | `SubtensorModule.faucet` | Build-feature-only development call; it is not part of the production runtime interface. |
 | `SubtensorModule.set_tempo` | Retained call-index compatibility entry point that succeeds without changing state. The real setting is exposed as `SubnetPrecompile.setTempo` through `AdminUtils.sudo_set_tempo`. |
 | `SubtensorModule.set_activity_cutoff_factor` | Retained call-index compatibility entry point that succeeds without changing state. The active AdminUtils operation is already covered by `SubnetPrecompile.setActivityCutoffFactor`. |

@@ -228,6 +228,14 @@ INTENT_SAMPLES: dict[str, dict] = {
         "daily_spend_cap_gamma": 10,
     },
     "spend_gamma": {"netuid": 1, "service_hotkey_ss58": BOB_HOT, "amount_gamma": 0.5},
+    "deposit_gamma": {"netuid": 1, "hotkey_ss58": ALICE_HOT, "amount_gamma": 0.5},
+    "withdraw_gamma": {"netuid": 1, "hotkey_ss58": ALICE_HOT, "amount_gamma": "all"},
+    "transfer_gamma": {
+        "netuid": 1,
+        "dest_coldkey_ss58": BOB,
+        "amount_gamma": 0.5,
+        "origin_hotkey_ss58": ALICE_HOT,
+    },
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -302,6 +310,7 @@ READ_SAMPLES: dict[str, dict] = {
     "subnet_collateral": {"netuid": 1},
     "gamma_deposit": {"netuid": 1, "hotkey_ss58": BOB_HOT},
     "gamma_deposits": {"coldkey_ss58": ALICE},
+    "gamma_balances": {"coldkey_ss58": ALICE},
     "gamma_spent": {"netuid": 1, "service_hotkey_ss58": BOB_HOT, "hotkey_ss58": ALICE_HOT},
     "quote_mint_gamma": {"netuid": 1, "amount_tao": 1.0},
     "quote_mint_gamma_with_stake": {"netuid": 1, "amount_alpha": 1.0},
@@ -437,13 +446,14 @@ INTENT_SAMPLES["execute_batched_orders"] = {**INTENT_SAMPLES["execute_orders"], 
 
 def seed_gamma(substrate, owner: str, signer_hotkey: str = ALICE_HOT) -> None:
     """Gamma deposits of ``owner`` at the samples' hotkeys (the one at ``BOB_HOT`` empty, so it
-    can close) and at ``signer_hotkey``, which signs the spend sample, and a service at
-    ``BOB_HOT`` to spend at."""
+    can close) and at ``signer_hotkey``, which signs the spend sample, a service at
+    ``BOB_HOT`` to spend at, and a gamma balance of ``owner``."""
     deposits = {}
     for hotkey, balance in ((ALICE_HOT, 10**9), (signer_hotkey, 10**9), (BOB_HOT, 0)):
         deposits[hotkey] = {"coldkey": owner, "balance": balance, "daily_spend_cap": None}
         substrate.seed("SubtensorModule", "GammaDeposits", [1, hotkey], deposits[hotkey])
     substrate.seed("SubtensorModule", "Services", [1, BOB_HOT], {"url": "https://a.example"})
+    substrate.seed("SubtensorModule", "GammaBalances", [1, owner], 10**9)
 
     def info(params):
         deposit = deposits.get(params[1])

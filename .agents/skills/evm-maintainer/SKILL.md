@@ -108,9 +108,9 @@ changes.
   function annotation.
 - Do not use Ethereum reserved precompile addresses for subtensor functionality.
 - Assign new Bittensor domain precompiles sequentially from the next unused
-  Bittensor address. Addresses `0x080f` through `0x0813` are reserved for
-  Scheduler, Drand, Timestamp, Runtime Configuration, and the Precompile
-  Registry, respectively; treat an address as implemented only once its
+  Bittensor address. Addresses `0x080f` through `0x0814` are reserved for
+  Scheduler, Drand, Timestamp, Runtime Configuration, the Precompile
+  Registry, and Gamma, respectively; treat an address as implemented only once its
   routing, tests, and runtime registration have shipped. Add routing and
   tests that lock every implemented address and selector before release.
 - Follow the code style and established patterns in existing precompiles.

@@ -1443,6 +1443,72 @@
         "type": "uint16"
       },
       {
+        "internalType": "uint64",
+        "name": "burn",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "recycle",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "owner",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "validator",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "miner",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "gammaNetuids",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "gammaShares",
+        "type": "uint64[]"
+      }
+    ],
+    "name": "setSubnetEmissionWeightsV2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setSubnetGammaEnabled",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
         "internalType": "uint16",
         "name": "immuneNeurons",
         "type": "uint16"
@@ -1689,6 +1755,59 @@
       {
         "internalType": "bool",
         "name": "createdViaLease",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetEmissionWeightsV2",
+    "outputs": [
+      {
+        "internalType": "uint64[]",
+        "name": "weights",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "bool",
+        "name": "createdViaLease",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "gammaNetuids",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint64[]",
+        "name": "gammaShares",
+        "type": "uint64[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetGammaEnabled",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
         "type": "bool"
       }
     ],

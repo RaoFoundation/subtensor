@@ -803,6 +803,7 @@ fn dissolve_clears_all_per_subnet_storages() {
             owner_cold,
             BoundedVec::truncate_from(vec![owner_hot]),
         );
+        GammaBalances::<Test>::insert(net, owner_cold, GammaBalance::from(1));
         Services::<Test>::insert(
             net,
             owner_hot,
@@ -989,6 +990,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!SubnetGammaPrice::<Test>::contains_key(net));
         assert!(!GammaDeposits::<Test>::contains_key(net, owner_hot));
         assert!(!ColdkeyGammaHotkeys::<Test>::contains_key(net, owner_cold));
+        assert!(!GammaBalances::<Test>::contains_key(net, owner_cold));
         assert!(!Services::<Test>::contains_key(net, owner_hot));
         assert!(!GammaSpent::<Test>::contains_key((
             net, owner_hot, owner_hot
