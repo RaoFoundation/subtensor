@@ -36,13 +36,14 @@ mod tests;
 pub mod weights;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-#[cfg(any(feature = "try-runtime", test))]
-use frame_support::traits::fungible::Inspect;
 use frame_support::{
     PalletId,
     pallet_prelude::*,
     storage::with_storage_layer,
-    traits::{fungible::Mutate, tokens::Preservation},
+    traits::{
+        fungible::{Inspect, Mutate},
+        tokens::Preservation,
+    },
 };
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
@@ -539,7 +540,12 @@ impl<T: Config> Pallet<T> {
         with_storage_layer(|| {
             Self::accrue_price();
             let pool = Self::account_id();
-            <T as Config>::Currency::transfer(who, &pool, cost.tao.into(), Preservation::Preserve)?;
+            <T as Config>::Currency::transfer(
+                who,
+                &pool,
+                cost.tao.into(),
+                Preservation::Expendable,
+            )?;
             pallet_tusd::Pallet::<T>::do_transfer(who, &pool, cost.tusd.into())?;
             Self::set_reserves(after);
             TotalShares::<T>::put(total_shares);
@@ -697,7 +703,7 @@ impl<T: Config> Pallet<T> {
                         who,
                         &pool,
                         amount_in.into(),
-                        Preservation::Preserve,
+                        Preservation::Expendable,
                     )?;
                     pallet_tusd::Pallet::<T>::do_transfer(&pool, who, quote.amount_out.into())?;
                 }
@@ -790,8 +796,29 @@ impl<T: Config> Pallet<T> {
             .unwrap_or(u32::MAX)
     }
 
+    /// Benchmark setup: an enabled pool of 10,000 TAO and 4,000,000 tUSD whose shares
+    /// `provider` holds, with a price history old enough that every call takes its
+    /// costliest path: the accumulator accrues and rotates its checkpoint.
+    #[cfg(feature = "runtime-benchmarks")]
+    pub fn benchmark_seed(provider: &T::AccountId) -> DispatchResult {
+        const TAO: u64 = 10_000_000_000_000;
+        const TUSD: u64 = 4_000_000_000_000_000;
+        let pool = Self::account_id();
+        <T as Config>::Currency::set_balance(&pool, TaoBalance::from(TAO));
+        pallet_tusd::Pallet::<T>::benchmark_fund(&pool, TusdBalance::from(TUSD))?;
+        ReserveTao::<T>::put(TaoBalance::from(TAO));
+        ReserveTusd::<T>::put(TusdBalance::from(TUSD));
+        let shares = math::initial_shares(TAO, TUSD);
+        TotalShares::<T>::put(shares);
+        Shares::<T>::insert(provider, shares.saturating_sub(math::MINIMUM_LIQUIDITY));
+        Accumulator::<T>::put(PriceAccumulator::default());
+        Enabled::<T>::put(true);
+        frame_system::Pallet::<T>::set_block_number(T::TwapPeriod::get().saturating_mul(3).into());
+        Ok(())
+    }
+
     /// Checks that the pool account covers the reserves and that live liquidity is sound.
-    #[cfg(any(feature = "try-runtime", test))]
+    /// Runs in `try_state`; tests call it after every operation.
     pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
         let pool = Self::account_id();
         let reserves = Self::reserves();

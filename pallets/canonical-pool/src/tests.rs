@@ -637,6 +637,38 @@ fn swap_needs_liquidity_and_funds() {
 }
 
 #[test]
+fn a_payer_may_spend_its_whole_tao_balance() {
+    new_test_ext().execute_with(|| {
+        seed(1_000 * UNIT);
+        // BOB sells every rao he holds, and CAROL deposits every rao she holds: an account
+        // that only passes funds on, like the hub of the rails, keeps nothing behind.
+        fund(BOB, 5 * UNIT, 0);
+        assert_ok!(Pool::swap_tao_for_tusd(
+            RuntimeOrigin::signed(BOB),
+            tao(5 * UNIT),
+            tusd(0)
+        ));
+        assert_eq!(Balances::free_balance(BOB), tao(0));
+        assert!(Tusd::balance(&BOB) > tusd(1_900 * UNIT));
+
+        let reserves = Pool::reserves();
+        let tusd_needed = (u128::from(reserves.tusd) * u128::from(5 * UNIT)
+            / u128::from(reserves.tao)) as u64
+            + UNIT;
+        fund(CAROL, 5 * UNIT, tusd_needed);
+        assert_ok!(Pool::add_liquidity(
+            RuntimeOrigin::signed(CAROL),
+            tao(5 * UNIT),
+            tusd(tusd_needed),
+            0
+        ));
+        assert_eq!(Balances::free_balance(CAROL), tao(0));
+        assert!(Shares::<Test>::get(CAROL) > 0);
+        assert_invariants();
+    });
+}
+
+#[test]
 fn fee_stays_in_the_pool_for_the_providers() {
     new_test_ext().execute_with(|| {
         seed(1_000 * UNIT);

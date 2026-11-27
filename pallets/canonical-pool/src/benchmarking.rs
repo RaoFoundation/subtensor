@@ -6,15 +6,12 @@
 )]
 
 use frame_benchmarking::v2::*;
-use frame_support::traits::{EnsureOrigin, Get, fungible::Mutate};
+use frame_support::traits::{EnsureOrigin, fungible::Mutate};
 use frame_system::RawOrigin;
 use sp_runtime::Permill;
 use subtensor_runtime_common::{TaoBalance, TusdBalance};
 
-use crate::{
-    Accumulator, Call, Caps, Config, Enabled, Fee, Pallet, PriceAccumulator, ReserveTao,
-    ReserveTusd, Shares, SwapCaps, TotalShares, math,
-};
+use crate::{Call, Caps, Config, Enabled, Fee, Pallet, ReserveTao, ReserveTusd, Shares, SwapCaps};
 
 const UNIT: u64 = 1_000_000_000;
 /// The seeded pool: 10,000 TAO and 4,000,000 tUSD.
@@ -29,21 +26,10 @@ fn funded<T: Config>(name: &'static str) -> T::AccountId {
     who
 }
 
-/// An enabled pool with liquidity and an old price history, so every call takes its
-/// costliest path: the accumulator accrues and rotates its checkpoint.
+/// An enabled pool with liquidity and an old price history.
 fn seed_pool<T: Config>() -> T::AccountId {
     let provider = funded::<T>("provider");
-    let pool = Pallet::<T>::account_id();
-    <T as Config>::Currency::set_balance(&pool, TaoBalance::from(POOL_TAO));
-    pallet_tusd::Pallet::<T>::benchmark_fund(&pool, TusdBalance::from(POOL_TUSD)).unwrap();
-    ReserveTao::<T>::put(TaoBalance::from(POOL_TAO));
-    ReserveTusd::<T>::put(TusdBalance::from(POOL_TUSD));
-    let shares = math::initial_shares(POOL_TAO, POOL_TUSD);
-    TotalShares::<T>::put(shares);
-    Shares::<T>::insert(&provider, shares - math::MINIMUM_LIQUIDITY);
-    Accumulator::<T>::put(PriceAccumulator::default());
-    Enabled::<T>::put(true);
-    frame_system::Pallet::<T>::set_block_number((T::TwapPeriod::get() * 3).into());
+    Pallet::<T>::benchmark_seed(&provider).unwrap();
     provider
 }
 

@@ -438,8 +438,8 @@ impl<T: Config> Pallet<T> {
             .unwrap_or(u32::MAX)
     }
 
-    /// Checks that every tUSD in existence is outstanding at exactly one bridge.
-    #[cfg(any(feature = "try-runtime", test))]
+    /// Checks that every tUSD in existence is outstanding at exactly one bridge. Runs in
+    /// `try_state`; tests call it after every operation.
     pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
         let mut outstanding = 0u128;
         for (id, amount) in BridgeOutstanding::<T>::iter() {
