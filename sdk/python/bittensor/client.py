@@ -43,6 +43,7 @@ from .namespaces import (
     Hyperparameters,
     Identity,
     Leasing,
+    Lending,
     Locks,
     Neurons,
     Prices,
@@ -199,6 +200,7 @@ class Client:
         self.hyperparameters = Hyperparameters(self)
         self.identity = Identity(self)
         self.leasing = Leasing(self)
+        self.lending = Lending(self)
         self.locks = Locks(self)
         self.neurons = Neurons(self)
         self.prices = Prices(self)

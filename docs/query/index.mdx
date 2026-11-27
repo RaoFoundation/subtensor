@@ -100,6 +100,18 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`lease`](/docs/query/lease) | A subnet lease by id (beneficiary, emissions share, end block, netuid, cost), or None. |
 | [`leases`](/docs/query/leases) | Every subnet lease on the network. |
 
+## Lending
+
+| Query | Summary |
+| --- | --- |
+| [`lending-market`](/docs/query/lending-market) | A subnet's lending market, or None for a subnet without price rings. |
+| [`lending-params`](/docs/query/lending-params) | The lending switches and the four live parameter groups. |
+| [`lending-position`](/docs/query/lending-position) | The position a coldkey holds on one side of a subnet, or None. |
+| [`lending-positions`](/docs/query/lending-positions) | Every lending position of a coldkey, on every subnet (see `lending_position`). |
+| [`quote-close-short`](/docs/query/quote-close-short) | What `close_short` of an amount on a coldkey's short would do now. |
+| [`quote-increase-short`](/docs/query/quote-increase-short) | What `increase_short` of an amount on a coldkey's short would do now. |
+| [`quote-open-short`](/docs/query/quote-open-short) | What `open_short` of an amount would do now. |
+
 ## Locks & conviction
 
 | Query | Summary |

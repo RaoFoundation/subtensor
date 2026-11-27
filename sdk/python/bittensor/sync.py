@@ -199,6 +199,7 @@ class SyncClient:
     hyperparameters: _SyncNamespace
     identity: _SyncNamespace
     leasing: _SyncNamespace
+    lending: _SyncNamespace
     locks: _SyncNamespace
     neurons: _SyncNamespace
     prices: _SyncNamespace
@@ -243,6 +244,7 @@ class SyncClient:
         self.hyperparameters = _SyncNamespace(self._client.hyperparameters, self._call)
         self.identity = _SyncNamespace(self._client.identity, self._call)
         self.leasing = _SyncNamespace(self._client.leasing, self._call)
+        self.lending = _SyncNamespace(self._client.lending, self._call)
         self.locks = _SyncNamespace(self._client.locks, self._call)
         self.neurons = _SyncNamespace(self._client.neurons, self._call)
         self.prices = _SyncNamespace(self._client.prices, self._call)

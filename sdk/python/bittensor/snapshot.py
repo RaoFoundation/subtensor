@@ -39,6 +39,7 @@ class Snapshot:
         self.hyperparameters = namespaces.Hyperparameters(self)
         self.identity = namespaces.Identity(self)
         self.leasing = namespaces.Leasing(self)
+        self.lending = namespaces.Lending(self)
         self.locks = namespaces.Locks(self)
         self.neurons = namespaces.Neurons(self)
         self.prices = namespaces.Prices(self)

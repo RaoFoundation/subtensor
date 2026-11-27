@@ -352,6 +352,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/AlphaSupplyCap/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 384,
+          "url": "/code/pallets/lending/src/lib.rs#L384",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "AlreadyApproved": {
@@ -775,6 +784,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinNotional/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 388,
+          "url": "/code/pallets/lending/src/lib.rs#L388",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "BeneficiaryDoesNotOwnHotkey": {
@@ -1198,6 +1216,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/CloseInsolvent/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 407,
+          "url": "/code/pallets/lending/src/lib.rs#L407",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "CodeInUse": {
@@ -1711,6 +1738,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/CoverageNotMet/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 395,
+          "url": "/code/pallets/lending/src/lib.rs#L395",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "CreateOriginNotAllowed": {
@@ -1952,6 +1988,13 @@
           "line": 259,
           "url": "/code/pallets/hashed-accounts/src/lib.rs#L259",
           "raw_url": "/code/raw/pallets/hashed-accounts/src/lib.rs"
+        },
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 370,
+          "url": "/code/pallets/lending/src/lib.rs#L370",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -2961,6 +3004,13 @@
           "line": 158,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        },
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 390,
+          "url": "/code/pallets/lending/src/lib.rs#L390",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -2971,6 +3021,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientFunds/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 405,
+          "url": "/code/pallets/lending/src/lib.rs#L405",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "InsufficientGammaBalance": {
@@ -3078,6 +3137,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidAmount/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 374,
+          "url": "/code/pallets/lending/src/lib.rs#L374",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "InvalidAuthorizationMode": {
@@ -3438,6 +3506,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 365,
+          "url": "/code/pallets/lending/src/lib.rs#L365",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "InvalidPort": {
@@ -3915,6 +3992,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/LiftCapExceeded/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 399,
+          "url": "/code/pallets/lending/src/lib.rs#L399",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "LimitOrdersDisabled": {
@@ -4095,6 +4181,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/LongCoverageNotMet/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 397,
+          "url": "/code/pallets/lending/src/lib.rs#L397",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "LongOpenLimit": {
@@ -4104,6 +4199,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/LongOpenLimit/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 401,
+          "url": "/code/pallets/lending/src/lib.rs#L401",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "LongsDisabled": {
@@ -4113,6 +4217,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/LongsDisabled/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 372,
+          "url": "/code/pallets/lending/src/lib.rs#L372",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "LongsPendingSpec": {
@@ -4741,6 +4854,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 378,
+          "url": "/code/pallets/lending/src/lib.rs#L378",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "NoSelfProxy": {
@@ -5220,6 +5342,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/OpenImpactTooHigh/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 386,
+          "url": "/code/pallets/lending/src/lib.rs#L386",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "OppositeSideOpen": {
@@ -5229,6 +5360,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/OppositeSideOpen/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 380,
+          "url": "/code/pallets/lending/src/lib.rs#L380",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "OrderAccountMissing": {
@@ -5453,6 +5593,13 @@
           "line": 255,
           "url": "/code/pallets/crowdloan/src/lib.rs#L255",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        },
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 413,
+          "url": "/code/pallets/lending/src/lib.rs#L413",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -5589,6 +5736,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PoolTooShallow/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 382,
+          "url": "/code/pallets/lending/src/lib.rs#L382",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "PositionExists": {
@@ -5598,6 +5754,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PositionExists/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 376,
+          "url": "/code/pallets/lending/src/lib.rs#L376",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "PreLogExists": {
@@ -5652,6 +5817,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PriceRingMissing/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 368,
+          "url": "/code/pallets/lending/src/lib.rs#L368",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "ProportionOverflow": {
@@ -5697,6 +5871,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/QuoteMismatch/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 415,
+          "url": "/code/pallets/lending/src/lib.rs#L415",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "RandomSubjectTooLong": {
@@ -6210,6 +6393,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/SlippageExceeded/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 393,
+          "url": "/code/pallets/lending/src/lib.rs#L393",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "SlippageTooHigh": {
@@ -6533,6 +6725,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/SwappedOutThisBlock/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 420,
+          "url": "/code/pallets/lending/src/lib.rs#L420",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "SymbolAlreadyInUse": {
@@ -6840,6 +7041,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyLongPositions/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 403,
+          "url": "/code/pallets/lending/src/lib.rs#L403",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "TooManyPendingExtrinsics": {
@@ -6867,6 +7077,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyPositions/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 417,
+          "url": "/code/pallets/lending/src/lib.rs#L417",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "TooManyRegistrationsThisBlock": {
@@ -7543,6 +7762,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawBreaksCoverage/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 409,
+          "url": "/code/pallets/lending/src/lib.rs#L409",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "WithdrawBufferBreached": {
@@ -7552,6 +7780,15 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawBufferBreached/content.md",
       "pallets": [
         "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 411,
+          "url": "/code/pallets/lending/src/lib.rs#L411",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+        }
       ]
     },
     "WithdrawFailed": {

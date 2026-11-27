@@ -55,6 +55,22 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | --- | --- | --- | --- |
 | [`evm-withdraw`](/docs/tx/evm-withdraw) | coldkey | signed account (pallet role may apply) | Claim TAO deposited to the coldkey's truncated EVM mirror. |
 
+## Lending
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`close-short`](/docs/tx/close-short) | coldkey | signed account (pallet role may apply) | Buy back some or all of your short on a subnet. |
+| [`increase-short`](/docs/tx/increase-short) | coldkey | signed account (pallet role may apply) | Add to your open short on a subnet. |
+| [`open-short`](/docs/tx/open-short) | coldkey | signed account (pallet role may apply) | Open a short on a subnet's alpha. |
+| [`set-lending-dereg-params`](/docs/tx/set-lending-dereg-params) | coldkey | root (chain sudo) | Change the lending parameters tied to subnet deregistration (root only). |
+| [`set-lending-enabled`](/docs/tx/set-lending-enabled) | coldkey | root (chain sudo) | Turn lending on or off (root only). |
+| [`set-lending-long-params`](/docs/tx/set-lending-long-params) | coldkey | root (chain sudo) | Change the long-side lending parameters (root only). |
+| [`set-lending-longs-enabled`](/docs/tx/set-lending-longs-enabled) | coldkey | root (chain sudo) | Turn lending longs on or off (root only). |
+| [`set-lending-params`](/docs/tx/set-lending-params) | coldkey | root (chain sudo) | Change the lending parameters shared by shorts and longs (root only). |
+| [`set-lending-short-params`](/docs/tx/set-lending-short-params) | coldkey | root (chain sudo) | Change the short-side lending parameters (root only). |
+| [`short-add-collateral`](/docs/tx/short-add-collateral) | coldkey | signed account (pallet role may apply) | Add collateral to your short on a subnet. |
+| [`short-withdraw-collateral`](/docs/tx/short-withdraw-collateral) | coldkey | signed account (pallet role may apply) | Withdraw collateral from your short on a subnet. |
+
 ## LimitOrders
 
 | Operation | Signer | Origin | Summary |

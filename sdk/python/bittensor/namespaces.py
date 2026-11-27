@@ -271,6 +271,12 @@ class Gamma(_ReadNamespace):
     _category = "Gamma"
 
 
+class Lending(_ReadNamespace):
+    """Lending parameters, positions, markets, and short quotes."""
+
+    _category = "Lending"
+
+
 class Locks(_ReadNamespace):
     """Stake locks and conviction."""
 
@@ -302,6 +308,7 @@ NAMESPACES: dict[str, type[_ReadNamespace]] = {
     "hyperparameters": Hyperparameters,
     "identity": Identity,
     "leasing": Leasing,
+    "lending": Lending,
     "locks": Locks,
     "neurons": Neurons,
     "prices": Prices,

@@ -71,6 +71,77 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "InitialStartCallDelay"): 100,
 }
 
+# The lending runtime API's views (`LendingRuntimeApi`), as the chain decodes them.
+LENDING_PARAMS: dict[str, Any] = {
+    "enabled": True,
+    "longs_enabled": False,
+    "lending": {
+        "apr_bps": 2_000,
+        "charge_interval_blocks": 360,
+        "equity_floor": 0,
+        "min_interest_cover_blocks": 7_200,
+        "pace_bps_per_block": 5,
+        "pause_twap_bps": 12_500,
+        "pause_sma_bps": 12_500,
+        "min_pool_tao": 1_000 * 10**9,
+        "min_notional": 10 * 10**9,
+        "deposit": 10**8,
+        "withdraw_buffer_blocks": 50_400,
+        "exit_hysteresis_bps": 500,
+        "twap_samples": 72,
+        "twap_interval_blocks": 300,
+    },
+    "short": {"stress_bps": 30_000, "stress_slope_bps": 20_000, "open_limit_bps": 100},
+    "long": {
+        "stress_bps": 20_000,
+        "stress_floor_bps": 15_000,
+        "lift_cap_bps": 1_000,
+        "open_limit_bps": 100,
+    },
+    "dereg": {
+        "zone_bps": 12_500,
+        "pool_tao_ema_blocks": 7_200,
+        "rank_window_days": 30,
+        "max_long_positions_per_subnet": 256,
+    },
+}
+LENDING_SHORT: dict[str, Any] = {
+    "collateral": 3 * 10**9,
+    "deposit": 10**8,
+    "opened_at": 100,
+    "accrual": {"last_accrued": 460, "remainder": 0, "due": 5_000},
+    "charge_at": 820,
+    "leg": {"Short": {"minted": 10 * 10**9, "proceeds": 10**9}},
+}
+LENDING_MARKET: dict[str, Any] = {
+    "pool_tao": 50_000 * 10**9,
+    "pool_alpha": 500_000 * 10**9,
+    "quote_weight": 5 * 10**17,
+    "swap_fee": 33,
+    "synthetic_outstanding": 10 * 10**9,
+    "long_locked_alpha": 0,
+    "long_lifted_tao": 0,
+    "spot": {"bits": 2**64 // 10},
+    "twap": {"bits": 2**64 // 10},
+    "sma": {"bits": 2**64 // 8},
+}
+LENDING_GROW_QUOTE: dict[str, Any] = {
+    "proceeds": 10**9,
+    "interest": 0,
+    "deposit": 10**8,
+    "coverage_need": 3 * 10**9,
+    "min_collateral": 2 * 10**9,
+    "spot_after": {"bits": 2**64 // 10},
+}
+LENDING_CLOSE_QUOTE: dict[str, Any] = {
+    "alpha": 10 * 10**9,
+    "cost": 11 * 10**8,
+    "from_proceeds": 10**9,
+    "from_collateral": 10**8,
+    "interest": 5_000,
+    "full": True,
+}
+
 # Runtime-API results answered when the test seeds nothing. Chosen so intent
 # builds that consult chain state (e.g. the alpha price backing the default
 # slippage-protection limit) work offline.
@@ -83,6 +154,18 @@ DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("GammaRuntimeApi", "sim_mint_gamma_with_stake"): {"Ok": (10**9, 10**9, 400 * 10**9)},
     # 1 alpha staked, for the mint_gamma_with_stake sample.
     ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**9},
+    # Lending at the chain's default parameters: a short of 10 alpha sold for 1 TAO.
+    ("LendingRuntimeApi", "params"): LENDING_PARAMS,
+    ("LendingRuntimeApi", "position"): LENDING_SHORT,
+    ("LendingRuntimeApi", "positions_of"): [
+        {"netuid": 1, "side": "Short", "position": LENDING_SHORT}
+    ],
+    ("LendingRuntimeApi", "market"): LENDING_MARKET,
+    ("LendingRuntimeApi", "quote_open_short"): {"Ok": LENDING_GROW_QUOTE},
+    ("LendingRuntimeApi", "quote_increase_short"): {
+        "Ok": {**LENDING_GROW_QUOTE, "interest": 1_000, "deposit": 0}
+    },
+    ("LendingRuntimeApi", "quote_close_short"): {"Ok": LENDING_CLOSE_QUOTE},
 }
 
 GENESIS_HASH = "0x" + "00" * 32

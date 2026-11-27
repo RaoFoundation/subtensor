@@ -835,6 +835,71 @@
     ]
   },
   {
+    "name": "close_short",
+    "summary": "Buy back some or all of your short on a subnet.",
+    "description": "Buy back some or all of your short on a subnet.\n\nBuys `amount_alpha` of alpha from the pool and retires it, paying from\nthe position's proceeds and then its collateral. `all` closes the whole\nposition, which returns the remaining collateral and the deposit to your\nfree balance. Interest due is settled from the collateral first.\nFails rather than paying more than the current quote plus\n`rate_tolerance`. A plan's `preview` holds the quote's `alpha`,\n`cost_tao`, `maximum_cost_tao`, `from_proceeds_tao`,\n`from_collateral_tao`, `interest_tao` and whether the close is\n`full`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "close_short"
+      ]
+    ],
+    "docs_url": "/docs/tx/close-short",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the short."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "Alpha bought back, or ``all`` to close the whole short."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum rise of the buy-back's TAO cost above the quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx close-short --netuid <int>",
+    "python_class": "CloseShort",
+    "markdown_url": "/llms.mdx/docs/tx/close-short/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "close_short",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 533,
+        "end_line": 541,
+        "url": "/code/pallets/lending/src/lib.rs#L531-L541",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "commit_weight_hash",
     "summary": "Submit a legacy salt-based weight hash for one subnet mechanism.",
     "description": "Submit a legacy salt-based weight hash for one subnet mechanism.\n\nUse this only with the legacy commit/reveal protocol, followed by\n`RevealWeights` with the same mechanism, uids, values, salt, and version\nkey. Most validators should use `CommitWeights` for a timelocked commit\nor `SetWeights` to select the subnet's configured path automatically.\nWith `for_hotkey`, the signing hotkey must be that validator's authorized\ndelegate on this mechanism; the delegate pays the normal transaction fee.",
@@ -1665,6 +1730,79 @@
     "cli": "btcli tx fund-evm-key --evm-address <value> --amount-tao <amount|all>",
     "python_class": "FundEvmKey",
     "markdown_url": "/llms.mdx/docs/tx/fund-evm-key/content.md"
+  },
+  {
+    "name": "increase_short",
+    "summary": "Add to your open short on a subnet.",
+    "description": "Add to your open short on a subnet.\n\nMints and sells `amount_alpha` more alpha into the position, with\n`collateral_tao` more collateral from your free balance (0 when the\nposition already covers the larger size). Interest due is settled from the\nposition's collateral first. The `quote_increase_short` read reports the\nleast collateral the larger position needs.\nFails rather than selling for less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the same quote keys as\n`open_short`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "increase_short"
+      ]
+    ],
+    "docs_url": "/docs/tx/increase-short",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the short."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Alpha minted and sold on top of the short."
+        },
+        "collateral_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO moved from your free balance into the position as collateral."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of the sale's TAO proceeds below the quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount_alpha"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx increase-short --netuid <int> --amount-alpha <amount>",
+    "python_class": "IncreaseShort",
+    "markdown_url": "/llms.mdx/docs/tx/increase-short/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "increase_short",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 508,
+        "end_line": 527,
+        "url": "/code/pallets/lending/src/lib.rs#L506-L527",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "increase_take",
@@ -2606,6 +2744,80 @@
     "cli": "btcli tx multisig-threshold-1 --other-signatories <a,b,c> --call '<json>'",
     "python_class": "MultisigThreshold1",
     "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
+  },
+  {
+    "name": "open_short",
+    "summary": "Open a short on a subnet's alpha.",
+    "description": "Open a short on a subnet's alpha.\n\nMints `amount_alpha` of alpha, sells it into the subnet's pool, and holds\nthe TAO proceeds in the position's custody account with `collateral_tao`\nfrom your free balance. The chain also takes a refundable deposit on top\nof the collateral. Collateral and proceeds together must reach the\nposition's coverage need: the `quote_open_short` read reports the least\ncollateral that does. You hold at most one short per subnet; add to it\nwith `increase_short`. Interest accrues on the proceeds and is charged\nto the collateral.\nFails rather than selling for less than the current quote less\n`rate_tolerance`. A plan's `preview` holds the quote's\n`proceeds_tao`, `minimum_proceeds_tao`, `min_collateral_tao`,\n`coverage_need_tao`, `deposit_tao` and `interest_tao`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "open_short"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-short",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha is shorted."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Alpha minted and sold."
+        },
+        "collateral_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO moved from your free balance into the position as collateral."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of the sale's TAO proceeds below the quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount_alpha",
+        "collateral_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-short --netuid <int> --amount-alpha <amount> --collateral-tao <amount>",
+    "python_class": "OpenShort",
+    "markdown_url": "/llms.mdx/docs/tx/open-short/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "open_short",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 484,
+        "end_line": 503,
+        "url": "/code/pallets/lending/src/lib.rs#L482-L503",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "pow_register",
@@ -4644,6 +4856,282 @@
     ]
   },
   {
+    "name": "set_lending_dereg_params",
+    "summary": "Change the lending parameters tied to subnet deregistration (root only).",
+    "description": "Change the lending parameters tied to subnet deregistration (root only).\n\n`changes` names the fields to change among `zone_bps`,\n`pool_tao_ema_blocks`, `rank_window_days` and\n`max_long_positions_per_subnet`; the rest keep their value. Changing\n`rank_window_days` re-seeds every subnet's rank price ring from its\npublished average. The chain refuses the group whole on any bound breach\nand applies it from the next block. Verify with the `lending_params`\nread.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "lending_params",
+    "wraps": [
+      [
+        "Lending",
+        "set_dereg_params"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-lending-dereg-params",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "changes": {
+          "type": "object",
+          "description": "Fields to change, by name; every other field keeps its value. The group is replaced whole from the next block, and a change the chain's bounds refuse changes nothing."
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-lending-dereg-params --changes '<json>'",
+    "python_class": "SetLendingDeregParams",
+    "markdown_url": "/llms.mdx/docs/tx/set-lending-dereg-params/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "set_dereg_params",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 704,
+        "end_line": 707,
+        "url": "/code/pallets/lending/src/lib.rs#L702-L707",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_lending_enabled",
+    "summary": "Turn lending on or off (root only).",
+    "description": "Turn lending on or off (root only).\n\nWhile off, no short may be opened or increased; open positions still\naccrue interest and can be closed. Turning it on re-seeds every subnet's\nrank price ring from the emission moving price. Verify with the\n`lending_params` read.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "lending_params",
+    "wraps": [
+      [
+        "Lending",
+        "set_enabled"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-lending-enabled",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "True to turn lending on, false to turn it off."
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-lending-enabled --enabled/--no-enabled",
+    "python_class": "SetLendingEnabled",
+    "markdown_url": "/llms.mdx/docs/tx/set-lending-enabled/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "set_enabled",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 661,
+        "end_line": 665,
+        "url": "/code/pallets/lending/src/lib.rs#L659-L665",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_lending_long_params",
+    "summary": "Change the long-side lending parameters (root only).",
+    "description": "Change the long-side lending parameters (root only).\n\n`changes` names the fields to change among `stress_bps`,\n`stress_floor_bps`, `lift_cap_bps` and `open_limit_bps`; the rest\nkeep their value. The chain refuses the group whole on any bound breach\nand applies it from the next block. Verify with the `lending_params`\nread.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "lending_params",
+    "wraps": [
+      [
+        "Lending",
+        "set_long_params"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-lending-long-params",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "changes": {
+          "type": "object",
+          "description": "Fields to change, by name; every other field keeps its value. The group is replaced whole from the next block, and a change the chain's bounds refuse changes nothing."
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-lending-long-params --changes '<json>'",
+    "python_class": "SetLendingLongParams",
+    "markdown_url": "/llms.mdx/docs/tx/set-lending-long-params/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "set_long_params",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 696,
+        "end_line": 699,
+        "url": "/code/pallets/lending/src/lib.rs#L694-L699",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_lending_longs_enabled",
+    "summary": "Turn lending longs on or off (root only).",
+    "description": "Turn lending longs on or off (root only).\n\nLongs are pending their specification and stay off on mainnet. Verify with\nthe `lending_params` read.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "lending_params",
+    "wraps": [
+      [
+        "Lending",
+        "set_longs_enabled"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-lending-longs-enabled",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "True to turn longs on, false to turn them off."
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-lending-longs-enabled --enabled/--no-enabled",
+    "python_class": "SetLendingLongsEnabled",
+    "markdown_url": "/llms.mdx/docs/tx/set-lending-longs-enabled/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "set_longs_enabled",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 670,
+        "end_line": 675,
+        "url": "/code/pallets/lending/src/lib.rs#L668-L675",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_lending_params",
+    "summary": "Change the lending parameters shared by shorts and longs (root only).",
+    "description": "Change the lending parameters shared by shorts and longs (root only).\n\n`changes` names the fields to change among `apr_bps`,\n`charge_interval_blocks`, `equity_floor`, `min_interest_cover_blocks`,\n`pace_bps_per_block`, `pause_twap_bps`, `pause_sma_bps`,\n`min_pool_tao`, `min_notional`, `deposit`, `withdraw_buffer_blocks`,\n`exit_hysteresis_bps`, `twap_samples` and `twap_interval_blocks`;\namounts are in rao. The rest keep their value. The chain checks the whole\ngroup against its bounds, refuses it whole on any breach, and applies it\nfrom the next block. Verify with the `lending_params` read.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "lending_params",
+    "wraps": [
+      [
+        "Lending",
+        "set_lending_params"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-lending-params",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "changes": {
+          "type": "object",
+          "description": "Fields to change, by name; every other field keeps its value. The group is replaced whole from the next block, and a change the chain's bounds refuse changes nothing."
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-lending-params --changes '<json>'",
+    "python_class": "SetLendingParams",
+    "markdown_url": "/llms.mdx/docs/tx/set-lending-params/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "set_lending_params",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 680,
+        "end_line": 683,
+        "url": "/code/pallets/lending/src/lib.rs#L678-L683",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_lending_short_params",
+    "summary": "Change the short-side lending parameters (root only).",
+    "description": "Change the short-side lending parameters (root only).\n\n`changes` names the fields to change among `stress_bps`,\n`stress_slope_bps` and `open_limit_bps`; the rest keep their value.\nThe chain refuses the group whole on any bound breach and applies it from\nthe next block. Verify with the `lending_params` read.",
+    "signer": "coldkey",
+    "origin": "root",
+    "verify": "lending_params",
+    "wraps": [
+      [
+        "Lending",
+        "set_short_params"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-lending-short-params",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "changes": {
+          "type": "object",
+          "description": "Fields to change, by name; every other field keeps its value. The group is replaced whole from the next block, and a change the chain's bounds refuse changes nothing."
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-lending-short-params --changes '<json>'",
+    "python_class": "SetLendingShortParams",
+    "markdown_url": "/llms.mdx/docs/tx/set-lending-short-params/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "set_short_params",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 688,
+        "end_line": 691,
+        "url": "/code/pallets/lending/src/lib.rs#L686-L691",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "set_mech_weight_delegate",
     "summary": "Authorize or revoke one hotkey's weight delegate on one subnet mechanism.",
     "description": "Authorize or revoke one hotkey's weight delegate on one subnet mechanism.\n\nSigned by the registered validator hotkey. The delegate may submit direct,\nlegacy commit/reveal, or timelocked weight calls *for* this hotkey and\nmechanism only, paying normal transaction fees itself. Authorization does\nnot transfer stake or ownership and is independent on every mechanism.\nPass `delegate=None` (or use the CLI's `weights delegate revoke`) to\nrevoke it. Existing delegated calls remain subject to the validator's\nregistration, permit, stake, rate-limit, and weight rules.",
@@ -5461,6 +5949,118 @@
         "end_line": 3404,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L3384-L3404",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "short_add_collateral",
+    "summary": "Add collateral to your short on a subnet.",
+    "description": "Add collateral to your short on a subnet.\n\nMoves `amount_tao` from your free balance into the position's custody.\nMore collateral raises the position's equity and the interest it can\ncover; it returns when the short is closed or through\n`short_withdraw_collateral`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "add_collateral"
+      ]
+    ],
+    "docs_url": "/docs/tx/short-add-collateral",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the short."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO added to the short's collateral."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx short-add-collateral --netuid <int> --amount-tao <amount>",
+    "python_class": "ShortAddCollateral",
+    "markdown_url": "/llms.mdx/docs/tx/short-add-collateral/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "add_collateral",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 546,
+        "end_line": 549,
+        "url": "/code/pallets/lending/src/lib.rs#L544-L549",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "short_withdraw_collateral",
+    "summary": "Withdraw collateral from your short on a subnet.",
+    "description": "Withdraw collateral from your short on a subnet.\n\nMoves `amount_tao` from the position's custody back to your free\nbalance. The chain refuses a withdrawal that leaves the position below its\ncoverage need plus the interest buffer.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Lending",
+        "withdraw_collateral"
+      ]
+    ],
+    "docs_url": "/docs/tx/short-withdraw-collateral",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the short."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO withdrawn from the short's collateral."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx short-withdraw-collateral --netuid <int> --amount-tao <amount>",
+    "python_class": "ShortWithdrawCollateral",
+    "markdown_url": "/llms.mdx/docs/tx/short-withdraw-collateral/content.md",
+    "sources": [
+      {
+        "pallet": "Lending",
+        "call": "withdraw_collateral",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 555,
+        "end_line": 562,
+        "url": "/code/pallets/lending/src/lib.rs#L553-L562",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
   },

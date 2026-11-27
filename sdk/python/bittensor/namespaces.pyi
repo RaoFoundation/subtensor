@@ -380,6 +380,72 @@ class Leasing(_ReadNamespace):
     async def leases(self, *, block: Optional[int] = None) -> list[dict]:
         """Every subnet lease on the network."""
 
+class Lending(_ReadNamespace):
+    """Lending parameters, positions, markets, and short quotes."""
+
+    async def lending_market(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """A subnet's lending market, or None for a subnet without price rings.
+
+        The pool as lending prices it (`pool_tao`, `pool_alpha`, the TAO reserve's
+        `quote_weight` and the `swap_fee`, both fractions), the books
+        (`synthetic_outstanding`: alpha minted by shorts and not yet bought back;
+        `long_locked_alpha` and `long_lifted_tao`), and the three price references
+        in TAO per alpha: the live `spot`, the `twap` median and the `sma` of daily
+        means.
+        """
+
+    async def lending_params(self, *, block: Optional[int] = None) -> dict:
+        """The lending switches and the four live parameter groups.
+
+        `enabled` and `longs_enabled` gate opening and increasing shorts and longs.
+        `lending`, `short`, `long` and `dereg` are the parameter groups as the chain
+        stores them: rates and bands in basis points, windows in blocks or days, and
+        the `lending` amounts (`equity_floor`, `min_pool_tao`, `min_notional`,
+        `deposit`) in rao. A group changed by its setter is live from the block after
+        the change.
+        """
+
+    async def lending_position(self, coldkey_ss58: str, netuid: int, side: str, *, block: Optional[int] = None) -> Optional[dict]:
+        """The position a coldkey holds on one side of a subnet, or None.
+
+        Its `netuid`, `side`, `collateral`, refundable `deposit` and `interest_due`
+        (accrued, not yet charged to the collateral) in TAO, and the blocks it was
+        opened (`opened_at`), last accrued interest (`last_accrued`) and is next
+        charged (`charge_at`). A short also has `minted_alpha`, the alpha owed back,
+        and `proceeds`, the TAO its sale paid into custody. A long has
+        `locked_alpha` and `debt`.
+        """
+
+    async def lending_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """Every lending position of a coldkey, on every subnet (see `lending_position`)."""
+
+    async def quote_close_short(self, coldkey_ss58: str, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> dict:
+        """What `close_short` of an amount on a coldkey's short would do now.
+
+        The `alpha` bought back (the request capped at the short's size), its
+        `cost` in TAO with the parts paid `from_proceeds` and `from_collateral`,
+        the `interest` settled from the collateral first, and whether the close is
+        `full`, which returns the remaining collateral and the deposit.
+        """
+
+    async def quote_increase_short(self, coldkey_ss58: str, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> dict:
+        """What `increase_short` of an amount on a coldkey's short would do now.
+
+        As `quote_open_short`, with the `interest` the call settles from the
+        position's collateral first and no deposit. `min_collateral` is the least
+        collateral the call itself must bring for the larger position.
+        """
+
+    async def quote_open_short(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> dict:
+        """What `open_short` of an amount would do now.
+
+        The sale's `proceeds`, the refundable `deposit` taken on top of the
+        collateral, the position's `coverage_need` and the least collateral that
+        meets it (`min_collateral`), all in TAO, and the pool's `spot_after` the
+        sale. Raises the chain error that stops the open, such as `Disabled`,
+        `PoolTooShallow` or `OpenImpactTooHigh`; the caller's balance is not checked.
+        """
+
 class Locks(_ReadNamespace):
     """Stake locks and conviction."""
 

@@ -2004,7 +2004,7 @@ class Lending:
 
     @staticmethod
     def close_short(netuid: 'NetUid', alpha: 'u64', max_tao_in: 'u64') -> Call:
-        'Buys back up to `alpha` of a short, retiring it (SPEC 1.4). Pays at most `max_tao_in`.'
+        'Buys back up to `alpha` of a short, retiring it (SPEC 1.4). Pays at most `max_tao_in`. Weighed as the costlier of a full close and a partial one.'
         return Call('Lending', 'close_short', {'netuid': netuid, 'alpha': alpha, 'max_tao_in': max_tao_in})
 
     @staticmethod

@@ -70,9 +70,19 @@ COVERED_PALLETS = (
     "AdminUtils",
     "Contracts",
     "HashedAccounts",
+    "Lending",
 )
 
 RAW_ONLY: dict[str, set[str]] = {
+    # HOLD(longs): the long side's specification is under review and longs are
+    # disabled on chain, so no intent wraps its calls yet.
+    "Lending": {
+        "open_long",
+        "increase_long",
+        "close_long",
+        "add_long_collateral",
+        "withdraw_long_collateral",
+    },
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship
     # through the raw call surface, not a second wallet-creation workflow.
