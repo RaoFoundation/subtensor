@@ -351,6 +351,8 @@ pub mod pallet {
         RuntimeConfiguration,
         /// Precompile lifecycle and availability registry
         PrecompileRegistry,
+        /// Canonical rails precompile
+        Rails,
     }
 
     #[pallet::type_value]

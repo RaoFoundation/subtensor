@@ -18,6 +18,9 @@ frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
 pallet-alpha-assets.workspace = true
+pallet-canonical-pool.workspace = true
+pallet-rails.workspace = true
+pallet-tusd.workspace = true
 pallet-balances.workspace = true
 pallet-evm.workspace = true
 pallet-evm-precompile-dispatch.workspace = true
@@ -61,6 +64,9 @@ std = [
 	"log/std",
 	"pallet-admin-utils/std",
 	"pallet-alpha-assets/std",
+	"pallet-canonical-pool/std",
+	"pallet-rails/std",
+	"pallet-tusd/std",
 	"pallet-balances/std",
 	"pallet-commitments/std",
 	"pallet-crowdloan/std",

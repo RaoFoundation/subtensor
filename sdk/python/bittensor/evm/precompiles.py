@@ -178,6 +178,12 @@ PRECOMPILES: dict[str, Precompile] = {
             "Inspect precompile lifecycle and operational availability.",
         ),
         Precompile(
+            "rails",
+            2069,
+            "rails.json",
+            "Canonical rails hub: quote and follow cross-chain orders, alpha token rates, credits.",
+        ),
+        Precompile(
             "ed25519-verify",
             1026,
             "ed25519Verify.json",
