@@ -1,7 +1,7 @@
 //! A minimal runtime for the pallet: `frame_system` plus lending over in-memory pools.
 //!
-//! The in-memory pools run the same constant-product curve as the pallet's quotes, so every
-//! leg's result equals the quote the pallet gated on.
+//! `Curve` is the model's `ConstantProduct`, and the in-memory pools (50/50, the model fee) run
+//! the same curve, so every leg's result equals the quote the pallet gated on.
 
 use core::cell::RefCell;
 use std::collections::BTreeMap;
@@ -12,13 +12,14 @@ use frame_support::{
     parameter_types,
     traits::{ConstU32, Hooks},
 };
+use sp_arithmetic::Perquintill;
 use sp_runtime::{BuildStorage, DispatchError, traits::IdentityLookup};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
     self as pallet_lending, Event, LendingPoolInterface,
     math::{
-        curve::{ConstantProduct, Curve, PoolState},
+        curve::{ConstantProduct, Curve, FeeRate, HALF_WEIGHT, MODEL_FEE, PoolState},
         fixed::{Price, price},
     },
     params::MAX_LONG_POSITIONS_CEILING,
@@ -51,6 +52,7 @@ parameter_types! {
 
 impl pallet_lending::Config for Test {
     type Pool = FakePool;
+    type Curve = ConstantProduct;
     type WeightInfo = SubstrateWeight<Test>;
     type PalletId = LendingPalletId;
     type MaxLongPositionsCeiling = ConstU32<MAX_LONG_POSITIONS_CEILING>;
@@ -85,10 +87,7 @@ fn with_pool<R>(netuid: NetUid, f: impl FnOnce(&mut PoolEntry) -> R) -> R {
 fn reserves(netuid: NetUid) -> PoolState {
     POOLS.with_borrow(|pools| {
         let p = pools.get(&u16::from(netuid)).expect("pool exists");
-        PoolState {
-            tao: p.tao,
-            alpha: p.alpha,
-        }
+        PoolState::model(p.tao, p.alpha)
     })
 }
 
@@ -150,6 +149,12 @@ impl LendingPoolInterface<AccountId> for FakePool {
     fn subnet_alpha_in(netuid: NetUid) -> u64 {
         reserves(netuid).alpha
     }
+    fn quote_weight(_netuid: NetUid) -> Perquintill {
+        HALF_WEIGHT
+    }
+    fn swap_fee(_netuid: NetUid) -> FeeRate {
+        MODEL_FEE
+    }
     fn alpha_issuance(netuid: NetUid) -> u64 {
         POOLS.with_borrow(|pools| pools.get(&u16::from(netuid)).map_or(0, |p| p.issuance))
     }
@@ -189,10 +194,10 @@ impl LendingPoolInterface<AccountId> for FakePool {
     }
     fn lift_and_buy(netuid: NetUid, lift: u64, to: &AccountId) -> Result<u64, DispatchError> {
         let pool = reserves(netuid);
-        let lifted = PoolState {
-            tao: pool.tao.checked_sub(lift).ok_or_else(swap_error)?,
-            alpha: pool.alpha,
-        };
+        let lifted = pool.with_reserves(
+            pool.tao.checked_sub(lift).ok_or_else(swap_error)?,
+            pool.alpha,
+        );
         let (after, bought) =
             ConstantProduct::after_buy_tao(&lifted, lift).ok_or_else(swap_error)?;
         set_reserves(netuid, after);

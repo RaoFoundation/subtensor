@@ -11403,6 +11403,7 @@ dependencies = [
  "pallet-commitments",
  "pallet-crowdloan",
  "pallet-drand",
+ "pallet-lending",
  "pallet-preimage",
  "pallet-scheduler",
  "pallet-shield",

@@ -60,6 +60,11 @@ pub mod pallet {
         /// Read access to subnet pools, implemented by `pallet_subtensor`.
         type Pool: LendingPoolInterface<Self::AccountId>;
 
+        /// The pools' pricing function: every quote the pallet gates on, and the result it
+        /// requires each swap leg of `Pool` to return. The runtime sets the swap pallet's
+        /// Balancer math; the model and the tests use `ConstantProduct`.
+        type Curve: crate::math::curve::Curve;
+
         /// Weight information for the calls and hooks of this pallet.
         type WeightInfo: WeightInfo;
 

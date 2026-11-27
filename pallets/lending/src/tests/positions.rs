@@ -12,7 +12,7 @@ use crate::{
     LongPositionCount, Positions, SyntheticOutstanding,
     math::{
         PriceRefs,
-        curve::PoolState,
+        curve::{ConstantProduct, PoolState},
         fixed::{Price, price},
     },
     params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
@@ -671,10 +671,7 @@ fn coverage_need_matches_the_model_on_golden_rows() {
         dereg: DeregParams::default(),
     };
     for (i, row) in rows.iter().enumerate() {
-        let pool = PoolState {
-            tao: golden_amount(&row["tao"]),
-            alpha: golden_amount(&row["alpha"]),
-        };
+        let pool = PoolState::model(golden_amount(&row["tao"]), golden_amount(&row["alpha"]));
         let refs = PriceRefs {
             spot: golden_price(&row["spot"]),
             twap: golden_price(&row["twap"]),
@@ -688,7 +685,13 @@ fn coverage_need_matches_the_model_on_golden_rows() {
         };
         let need = (!short["need"].is_null()).then(|| golden_amount(&short["need"]));
         assert_eq!(
-            coverage_need(&leg, golden_amount(&short["book"]), &pool, &refs, &params),
+            coverage_need::<ConstantProduct>(
+                &leg,
+                golden_amount(&short["book"]),
+                &pool,
+                &refs,
+                &params
+            ),
             need,
             "short need, row {i}"
         );
@@ -699,7 +702,13 @@ fn coverage_need_matches_the_model_on_golden_rows() {
             debt: golden_amount(&long["debt"]),
         };
         assert_eq!(
-            coverage_need(&leg, golden_amount(&long["book"]), &pool, &refs, &params),
+            coverage_need::<ConstantProduct>(
+                &leg,
+                golden_amount(&long["book"]),
+                &pool,
+                &refs,
+                &params
+            ),
             Some(golden_amount(&long["need"])),
             "long need, row {i}"
         );

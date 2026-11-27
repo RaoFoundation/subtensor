@@ -105,10 +105,7 @@ mod tests {
     use crate::math::{curve::ConstantProduct as Cp, fixed::Q64};
 
     const RAO: u64 = 1_000_000_000;
-    const POOL: PoolState = PoolState {
-        tao: 1_000 * RAO,
-        alpha: 480_000 * RAO,
-    };
+    const POOL: PoolState = PoolState::model(1_000 * RAO, 480_000 * RAO);
 
     fn refs(spot: u128, twap: u128, sma: u128) -> PriceRefs {
         PriceRefs {
@@ -199,8 +196,8 @@ mod tests {
 
     #[test]
     fn up_budget_is_zero_for_degenerate_pools() {
-        assert_eq!(up_budget::<Cp>(&PoolState { tao: 0, alpha: 0 }, 5), 0);
-        assert_eq!(up_budget::<Cp>(&PoolState { tao: RAO, alpha: 1 }, 5), 0);
+        assert_eq!(up_budget::<Cp>(&PoolState::model(0, 0), 5), 0);
+        assert_eq!(up_budget::<Cp>(&PoolState::model(RAO, 1), 5), 0);
         assert_eq!(alpha_for_up_impact::<Cp>(&POOL, Price::from_bits(0)), 0);
     }
 

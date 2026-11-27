@@ -3,15 +3,17 @@
 //! `pallet_lending` does not depend on `pallet_subtensor`; subtensor implements this trait. The
 //! reads feed the gates and quotes. The legs move TAO, alpha, reserves and issuance; the pallet
 //! checks every gate and computes every quote before it calls a leg, so a leg never decides a
-//! position's outcome. Each swap leg applies the constant-product curve (`math::curve`) to the
-//! reserves and returns the amount the pool actually gave.
+//! position's outcome. Each swap leg moves the reserves as `Config::Curve` quotes it from the
+//! pool's reserves, weight and fee, and returns the amount the pool actually gave; the pallet
+//! refuses a leg whose result differs from its quote.
 
 use alloc::vec::Vec;
 use frame_support::dispatch::DispatchResult;
+use sp_arithmetic::Perquintill;
 use sp_runtime::DispatchError;
 use subtensor_runtime_common::NetUid;
 
-use crate::math::fixed::Price;
+use crate::math::{curve::FeeRate, fixed::Price};
 
 /// Read access to subnet pools and the write legs of the positions. `AccountId` is the holder
 /// of TAO balances and of the alpha that custody keeps.
@@ -30,6 +32,10 @@ pub trait LendingPoolInterface<AccountId> {
     fn moving_alpha_price(netuid: NetUid) -> Price;
     /// Live pool alpha reserve (`SubnetAlphaIn`) in rao.
     fn subnet_alpha_in(netuid: NetUid) -> u64;
+    /// The pool's Balancer quote (TAO) weight; 1/2 is constant product.
+    fn quote_weight(netuid: NetUid) -> Perquintill;
+    /// The fee rate the pool's swaps take from their input, in units of 1/65535.
+    fn swap_fee(netuid: NetUid) -> FeeRate;
     /// Total alpha issued on the subnet (`SubnetAlphaOut` plus the pool reserve), in rao. The
     /// synthetic mint counts against the supply cap (SPEC P23).
     fn alpha_issuance(netuid: NetUid) -> u64;

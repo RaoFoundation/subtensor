@@ -74,6 +74,17 @@ pub const MIN_WEIGHT: Perquintill = Perquintill::from_parts(ACCURACY / 100);
 /// 1.0 in Perquintill
 pub const ONE: Perquintill = Perquintill::from_parts(ACCURACY);
 
+/// The fee a swap takes from an input of `amount` at `rate` (a `FeeRate` value, normalized to
+/// `u16::MAX`), rounded down. Pure: this is the one fee computation every swap uses, exposed so
+/// that other pallets can quote swaps without touching storage.
+pub fn fee_amount(rate: u16, amount: u64) -> u64 {
+    let fee_rate =
+        U64F64::saturating_from_num(rate).safe_div(U64F64::saturating_from_num(u16::MAX));
+    U64F64::saturating_from_num(amount)
+        .saturating_mul(fee_rate)
+        .saturating_to_num::<u64>()
+}
+
 #[derive(Debug)]
 pub enum BalancerError {
     /// The provided weight value is out of range
@@ -210,6 +221,112 @@ impl Balancer {
     /// (∆y is given by user, ∆x is paid out by the pool)
     pub fn exp_quote_base(&self, y: u64, dy: u64) -> U64F64 {
         self.exp_scaled(y, dy as i128, false)
+    }
+
+    /// Alpha a buy pays out when `delta_tao` (the input net of the fee) reaches the curve:
+    ///
+    ///   ∆x = x * (1 - (y / (y + ∆y))^(w2/w1)), rounded down
+    ///
+    /// Pure. Every buy swap converts its input with this method.
+    pub fn alpha_out_for_tao_in(
+        &self,
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        delta_tao: u64,
+    ) -> u64 {
+        let e = self.exp_quote_base(tao_reserve, delta_tao);
+        let one = U64F64::from_num(1);
+        U64F64::from_num(alpha_reserve)
+            .saturating_mul(one.saturating_sub(e))
+            .saturating_to_num::<u64>()
+    }
+
+    /// TAO a sell pays out when `delta_alpha` (the input net of the fee) reaches the curve:
+    ///
+    ///   ∆y = y * (1 - (x / (x + ∆x))^(w1/w2)), rounded down
+    ///
+    /// Pure. Every sell swap converts its input with this method.
+    pub fn tao_out_for_alpha_in(
+        &self,
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        delta_alpha: u64,
+    ) -> u64 {
+        let e = self.exp_base_quote(alpha_reserve, delta_alpha);
+        let one = U64F64::from_num(1);
+        U64F64::from_num(tao_reserve)
+            .saturating_mul(one.saturating_sub(e))
+            .saturating_to_num::<u64>()
+    }
+
+    /// The alpha reserve at which the pool has spot `price` after moving along its weighted
+    /// invariant (no fee, no liquidity change):
+    ///
+    ///   x' = x * (p0 / p)^w2, with p0 = (w1*y) / (w2*x), rounded down
+    ///
+    /// The ratio p0 / p is formed from the reserves, not from a rounded spot price. `None` if
+    /// a reserve or the price is zero or the result does not fit `u64`.
+    #[allow(clippy::arithmetic_side_effects)] // SafeInt is unbounded; no overflow is possible.
+    pub fn alpha_reserve_at_price(
+        &self,
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        price: U64F64,
+    ) -> Option<u64> {
+        let w1 = SafeInt::from(self.get_base_weight().deconstruct());
+        let w2 = SafeInt::from(self.get_quote_weight().deconstruct());
+        let accuracy = SafeInt::from(ACCURACY);
+        let numerator = w1 * SafeInt::from(tao_reserve) * SafeInt::from(1u128 << 64);
+        let denominator =
+            w2.clone() * SafeInt::from(alpha_reserve) * SafeInt::from(price.to_bits());
+        if numerator.is_zero() {
+            return None;
+        }
+        let ratio =
+            SafeInt::pow_ratio_scaled(&numerator, &denominator, &w2, &accuracy, 256, &accuracy)?;
+        (SafeInt::from(alpha_reserve) * ratio / accuracy)?.to_u64()
+    }
+
+    /// The TAO reserve that keeps the weighted invariant when the alpha reserve moves from
+    /// `alpha_reserve` to `new_alpha_reserve` (no fee, no liquidity change):
+    ///
+    ///   y' = y * (x / x')^(w1/w2)
+    ///
+    /// rounded up or down as asked. Rounding up may exceed the exact value by one rao, never
+    /// fall below it. `None` if `new_alpha_reserve` is zero or the result does not fit `u64`.
+    #[allow(clippy::arithmetic_side_effects)] // SafeInt is unbounded; no overflow is possible.
+    pub fn tao_reserve_on_invariant(
+        &self,
+        tao_reserve: u64,
+        alpha_reserve: u64,
+        new_alpha_reserve: u64,
+        round_up: bool,
+    ) -> Option<u64> {
+        if new_alpha_reserve == 0 {
+            return None;
+        }
+        if tao_reserve == 0 || new_alpha_reserve == alpha_reserve {
+            return Some(tao_reserve);
+        }
+        let w1 = SafeInt::from(self.get_base_weight().deconstruct());
+        let w2 = SafeInt::from(self.get_quote_weight().deconstruct());
+        let accuracy = SafeInt::from(ACCURACY);
+        let ratio = SafeInt::pow_ratio_scaled(
+            &SafeInt::from(alpha_reserve),
+            &SafeInt::from(new_alpha_reserve),
+            &w1,
+            &w2,
+            256,
+            &accuracy,
+        )?;
+        let tao = SafeInt::from(tao_reserve);
+        if round_up {
+            (tao * (ratio + SafeInt::one()))
+                .ceil_div(accuracy)?
+                .to_u64()
+        } else {
+            (tao * ratio / accuracy)?.to_u64()
+        }
     }
 
     /// Calculates price as (w1/w2) * (y/x), where

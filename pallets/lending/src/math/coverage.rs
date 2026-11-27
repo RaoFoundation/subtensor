@@ -74,10 +74,7 @@ mod tests {
     use crate::math::{curve::ConstantProduct as Cp, fixed::Price};
 
     const RAO: u64 = 1_000_000_000;
-    const POOL: PoolState = PoolState {
-        tao: 1_000 * RAO,
-        alpha: 480_000 * RAO,
-    };
+    const POOL: PoolState = PoolState::model(1_000 * RAO, 480_000 * RAO);
 
     fn flat_refs() -> PriceRefs {
         let spot = Cp::spot(&POOL);
@@ -158,10 +155,7 @@ mod tests {
             7 * RAO
         );
         assert_eq!(long_need::<Cp>(&POOL, &refs, 7 * RAO, RAO, RAO, 0), 7 * RAO);
-        let wide = PoolState {
-            tao: u64::MAX,
-            alpha: u64::MAX,
-        };
+        let wide = PoolState::model(u64::MAX, u64::MAX);
         let one = Price::from_bits(1 << 64);
         let wide_refs = PriceRefs {
             spot: one,

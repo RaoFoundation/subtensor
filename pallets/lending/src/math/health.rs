@@ -180,10 +180,7 @@ mod tests {
     use crate::math::{curve::ConstantProduct as Cp, fixed::Price};
 
     const RAO: u64 = 1_000_000_000;
-    const POOL: PoolState = PoolState {
-        tao: 1_000 * RAO,
-        alpha: 480_000 * RAO,
-    };
+    const POOL: PoolState = PoolState::model(1_000 * RAO, 480_000 * RAO);
     const TERMS: HealthTerms = HealthTerms {
         apr_bps: 2_000,
         min_interest_cover_blocks: 7_200,

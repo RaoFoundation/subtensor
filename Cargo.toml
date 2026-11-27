@@ -63,6 +63,7 @@ pallet-admin-utils = { path = "pallets/admin-utils", default-features = false }
 pallet-limit-orders = { path = "pallets/limit-orders", default-features = false }
 pallet-commitments = { path = "pallets/commitments", default-features = false }
 pallet-crowdloan = { path = "pallets/crowdloan", default-features = false }
+pallet-lending = { path = "pallets/lending", default-features = false }
 pallet-subtensor = { path = "pallets/subtensor", default-features = false }
 pallet-subtensor-swap = { path = "pallets/swap", default-features = false }
 pallet-subtensor-swap-runtime-api = { path = "pallets/swap/runtime-api", default-features = false }

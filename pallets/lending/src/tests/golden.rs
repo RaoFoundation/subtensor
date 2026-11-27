@@ -59,17 +59,11 @@ fn price(v: &Value) -> Price {
 }
 
 fn pool(row: &Value) -> PoolState {
-    PoolState {
-        tao: amount(&row["tao"]),
-        alpha: amount(&row["alpha"]),
-    }
+    PoolState::model(amount(&row["tao"]), amount(&row["alpha"]))
 }
 
 fn pool_pair(v: &Value) -> Option<PoolState> {
-    Some(PoolState {
-        tao: amount(&v[0]),
-        alpha: amount(&v[1]),
-    })
+    Some(PoolState::model(amount(&v[0]), amount(&v[1])))
 }
 
 #[test]

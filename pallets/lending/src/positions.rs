@@ -25,7 +25,7 @@ use crate::{
     math::{
         PriceRefs,
         coverage::{long_need, short_need},
-        curve::{ConstantProduct as Cp, Curve, PoolState},
+        curve::{Curve, PoolState},
         fixed::BPS,
         interest::interest_for_blocks,
     },
@@ -92,16 +92,13 @@ fn covers(need: Option<u64>, held: u64, buffer: u64) -> bool {
 /// The pool a position's coverage is measured on: the pool after the operation, with the
 /// interest charge the operation moves into it and any debt repaid to it (SPEC 1.1).
 fn post_pool(pool: PoolState, credit: u64) -> PoolState {
-    PoolState {
-        tao: pool.tao.saturating_add(credit),
-        alpha: pool.alpha,
-    }
+    pool.with_reserves(pool.tao.saturating_add(credit), pool.alpha)
 }
 
 /// The reference prices with spot read from the pool after the operation (SPEC 1.1).
-fn priced_at(refs: PriceRefs, pool: &PoolState) -> PriceRefs {
+fn priced_at<C: Curve>(refs: PriceRefs, pool: &PoolState) -> PriceRefs {
     PriceRefs {
-        spot: Cp::spot(pool),
+        spot: C::spot(pool),
         ..refs
     }
 }
@@ -110,7 +107,7 @@ fn priced_at(refs: PriceRefs, pool: &PoolState) -> PriceRefs {
 /// of the whole short book from the pumped pool, or a long's debt less its share of selling the
 /// whole long book into the dumped pool. `None` is an infinite buy-back: the position is
 /// uncovered.
-pub(crate) fn coverage_need(
+pub(crate) fn coverage_need<C: Curve>(
     leg: &Leg,
     book: u64,
     pool: &PoolState,
@@ -118,7 +115,7 @@ pub(crate) fn coverage_need(
     params: &Params,
 ) -> Option<u64> {
     match *leg {
-        Leg::Short { minted, .. } => short_need::<Cp>(
+        Leg::Short { minted, .. } => short_need::<C>(
             pool,
             refs,
             minted,
@@ -126,7 +123,7 @@ pub(crate) fn coverage_need(
             params.short.stress_bps,
             params.short.stress_slope_bps,
         ),
-        Leg::Long { locked_alpha, debt } => Some(long_need::<Cp>(
+        Leg::Long { locked_alpha, debt } => Some(long_need::<C>(
             pool,
             refs,
             debt,
@@ -169,16 +166,15 @@ fn quote_grow<T: Config>(
     size: u64,
 ) -> Result<(PoolState, u64), DispatchError> {
     let quoted = match side {
-        Side::Short => Cp::after_sell(pool, size),
+        Side::Short => T::Curve::after_sell(pool, size),
         Side::Long => {
-            let lifted = PoolState {
-                tao: pool
-                    .tao
+            let lifted = pool.with_reserves(
+                pool.tao
                     .checked_sub(size)
                     .ok_or(Error::<T>::LiftCapExceeded)?,
-                alpha: pool.alpha,
-            };
-            Cp::after_buy_tao(&lifted, size)
+                pool.alpha,
+            );
+            T::Curve::after_buy_tao(&lifted, size)
         }
     };
     quoted
@@ -198,7 +194,7 @@ fn quote_close<T: Config>(
     match *leg {
         Leg::Short { proceeds, .. } => {
             let (after, cost) =
-                Cp::after_buy_alpha(pool, alpha).ok_or(Error::<T>::SlippageExceeded)?;
+                T::Curve::after_buy_alpha(pool, alpha).ok_or(Error::<T>::SlippageExceeded)?;
             ensure!(cost <= bound, Error::<T>::SlippageExceeded);
             let consumed = cost.min(proceeds);
             let from_collateral = cost.saturating_sub(consumed);
@@ -213,7 +209,8 @@ fn quote_close<T: Config>(
             })
         }
         Leg::Long { locked_alpha, debt } => {
-            let (after, sale) = Cp::after_sell(pool, alpha).ok_or(Error::<T>::SlippageExceeded)?;
+            let (after, sale) =
+                T::Curve::after_sell(pool, alpha).ok_or(Error::<T>::SlippageExceeded)?;
             ensure!(sale >= bound, Error::<T>::SlippageExceeded);
             let repaid = sale.min(debt);
             let from_collateral = if alpha == locked_alpha {
@@ -246,13 +243,16 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// One subnet's state for an operation: pool reserves, price references and books.
+    /// One subnet's state for an operation: the pool as the curve sees it, price references and
+    /// books.
     pub(crate) fn market(netuid: NetUid) -> Result<Market, Error<T>> {
         let refs = Self::price_refs(netuid)?;
         Ok(Market {
             pool: PoolState {
                 tao: T::Pool::pool_tao(netuid),
                 alpha: T::Pool::subnet_alpha_in(netuid),
+                quote_weight: T::Pool::quote_weight(netuid),
+                fee: T::Pool::swap_fee(netuid),
             },
             refs,
             short_book: SyntheticOutstanding::<T>::get(netuid),
@@ -422,11 +422,11 @@ impl<T: Config> Pallet<T> {
             .checked_add(added)
             .ok_or(Error::<T>::Overflow)?;
         let post = post_pool(after, charge);
-        let need = coverage_need(
+        let need = coverage_need::<T::Curve>(
             &leg,
             book_after,
             &post,
-            &priced_at(market.refs, &post),
+            &priced_at::<T::Curve>(market.refs, &post),
             &params,
         );
         ensure!(
@@ -528,7 +528,13 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::Overflow)?;
         if !full {
             let post = post_pool(quote.after, charge.saturating_add(quote.repaid));
-            let need = coverage_need(&leg, book, &post, &priced_at(market.refs, &post), &params);
+            let need = coverage_need::<T::Curve>(
+                &leg,
+                book,
+                &post,
+                &priced_at::<T::Curve>(market.refs, &post),
+                &params,
+            );
             ensure!(
                 covers(need, held_against(collateral, &leg), 0),
                 coverage_error::<T>(&leg)
@@ -674,11 +680,11 @@ impl<T: Config> Pallet<T> {
         ensure!(amount <= pos.collateral, Error::<T>::WithdrawBreaksCoverage);
         let collateral = pos.collateral.saturating_sub(amount);
         let post = post_pool(market.pool, charge);
-        let need = coverage_need(
+        let need = coverage_need::<T::Curve>(
             &pos.leg,
             market.book(side),
             &post,
-            &priced_at(market.refs, &post),
+            &priced_at::<T::Curve>(market.refs, &post),
             &params,
         );
         let held_after = held_against(collateral, &pos.leg);

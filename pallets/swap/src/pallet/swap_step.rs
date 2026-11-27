@@ -184,14 +184,11 @@ impl<T: Config> SwapStep<T, TaoBalance, AlphaBalance>
         let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
         let tao_reserve = T::TaoReserve::reserve(netuid.into());
         let balancer = SwapBalancer::<T>::get(netuid);
-        let e = balancer.exp_quote_base(tao_reserve.into(), delta_in.into());
-        let one = U64F64::from_num(1);
-        let alpha_reserve_fixed = U64F64::from_num(alpha_reserve);
-        AlphaBalance::from(
-            alpha_reserve_fixed
-                .saturating_mul(one.saturating_sub(e))
-                .saturating_to_num::<u64>(),
-        )
+        AlphaBalance::from(balancer.alpha_out_for_tao_in(
+            tao_reserve.into(),
+            alpha_reserve.into(),
+            delta_in.into(),
+        ))
     }
 }
 
@@ -228,14 +225,11 @@ impl<T: Config> SwapStep<T, AlphaBalance, TaoBalance>
         let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
         let tao_reserve = T::TaoReserve::reserve(netuid.into());
         let balancer = SwapBalancer::<T>::get(netuid);
-        let e = balancer.exp_base_quote(alpha_reserve.into(), delta_in.into());
-        let one = U64F64::from_num(1);
-        let tao_reserve_fixed = U64F64::from_num(u64::from(tao_reserve));
-        TaoBalance::from(
-            tao_reserve_fixed
-                .saturating_mul(one.saturating_sub(e))
-                .saturating_to_num::<u64>(),
-        )
+        TaoBalance::from(balancer.tao_out_for_alpha_in(
+            tao_reserve.into(),
+            alpha_reserve.into(),
+            delta_in.into(),
+        ))
     }
 }
 
