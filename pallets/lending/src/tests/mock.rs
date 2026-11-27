@@ -57,6 +57,30 @@ impl pallet_lending::Config for Test {
     type PalletId = LendingPalletId;
     type MaxLongPositionsCeiling = ConstU32<MAX_LONG_POSITIONS_CEILING>;
     type MaxChargesPerBlock = ConstU32<512>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = FakePoolBenchmarkHelper;
+}
+
+/// Builds the benchmarks' pools in [`FakePool`]: the same storage of this pallet is read and
+/// written as on chain, and the pool legs cost nothing.
+#[cfg(feature = "runtime-benchmarks")]
+pub struct FakePoolBenchmarkHelper;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl crate::BenchmarkHelper<AccountId> for FakePoolBenchmarkHelper {
+    fn clear_subnets() {
+        POOLS.with_borrow_mut(BTreeMap::clear);
+    }
+    fn setup_pool(netuid: NetUid, tao: u64, alpha: u64) {
+        let netuid = u16::from(netuid);
+        remove_pool(netuid);
+        set_pool(netuid, tao, alpha);
+        set_moving_price(netuid, px(tao, alpha));
+    }
+    fn fund(who: &AccountId, tao: u64) {
+        credit(*who, tao);
+    }
+    fn set_block_author() {}
 }
 
 /// Subnet limit reported by [`FakePool`].

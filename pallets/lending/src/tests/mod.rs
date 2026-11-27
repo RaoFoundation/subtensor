@@ -8,7 +8,7 @@
 mod golden;
 mod hooks;
 mod interest;
-mod mock;
+pub(crate) mod mock;
 mod params;
 mod positions;
 mod prices;

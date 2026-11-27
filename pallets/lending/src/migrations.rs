@@ -57,9 +57,10 @@ pub fn migrate_to_v1<T: Config>() -> Weight {
     let _ = Pallet::<T>::initialize_custody();
     StorageVersion::new(1).put::<Pallet<T>>();
     mark_run::<T>();
-    // The custody registration and the `HasMigrationRun` entry, on top of the counted work.
+    // The measured run registers a pallet hotkey that the chain already knows; the first
+    // registration also writes the hotkey's owner.
     T::DbWeight::get()
-        .reads_writes(5, 5)
+        .writes(1)
         .saturating_add(T::WeightInfo::migrate_to_v1(
             u32::try_from(subnets.len()).unwrap_or(u32::MAX),
         ))

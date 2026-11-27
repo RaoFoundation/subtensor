@@ -4,7 +4,7 @@
 use frame_support::{
     assert_ok,
     traits::{Get, GetStorageVersion, Hooks, StorageVersion},
-    weights::RuntimeDbWeight,
+    weights::{RuntimeDbWeight, Weight},
 };
 use subtensor_runtime_common::NetUid;
 
@@ -465,17 +465,18 @@ fn pool_tao_ema_tracks_pool_tao_every_block() {
     });
 }
 
+/// The hook's weight in a block that samples no ring, applies nothing and collects nothing.
+fn idle_block_weight(subnets: u32) -> Weight {
+    SubstrateWeight::<Test>::on_initialize_ema(subnets)
+        .saturating_add(SubstrateWeight::<Test>::collect_due(0))
+        .saturating_add(SubstrateWeight::<Test>::collect_due_buckets(0))
+}
+
 #[test]
 fn on_initialize_charges_for_every_live_subnet() {
     migrated_ext().execute_with(|| {
-        assert_eq!(
-            Lending::on_initialize(2),
-            SubstrateWeight::<Test>::on_initialize(2)
-        );
+        assert_eq!(Lending::on_initialize(2), idle_block_weight(2));
         set_pool(3, 1, 1);
-        assert_eq!(
-            Lending::on_initialize(3),
-            SubstrateWeight::<Test>::on_initialize(3)
-        );
+        assert_eq!(Lending::on_initialize(3), idle_block_weight(3));
     });
 }

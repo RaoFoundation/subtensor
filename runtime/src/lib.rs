@@ -1541,10 +1541,14 @@ parameter_types! {
     pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
     /// Upper bound of the `max_long_positions` parameter.
     pub const LendingMaxLongPositionsCeiling: u32 = 1024;
-    /// Scheduled interest charges per block. With the placeholder weights a charge is 16
-    /// reads and 9 writes (1.3 ms at `RocksDbWeight`), so 64 charges are about 83 ms, 2.1% of
-    /// the 4 s block; price sampling at the 128-subnet limit adds about 136 ms and the bucket
-    /// probes 2 ms, for a worst-case `on_initialize` of about 221 ms (5.5%). At the default
+    /// Scheduled interest charges per block. Blocks are 12 s apart and carry at most 4 s of
+    /// reference time (`MAXIMUM_BLOCK_WEIGHT`), the budget the figures below are shares of.
+    /// With the measured weights (`RocksDbWeight` for storage) a charge is 81 us of execution,
+    /// 14 reads and 8 writes, 1.23 ms in all, so 64 charges are about 79 ms, 2.0% of that
+    /// budget. A block that also samples both price rings at the 128-subnet limit (80 ms),
+    /// applies a parameter change that re-seeds them (60 ms) and probes 64 due buckets (2 ms)
+    /// is the worst-case `on_initialize`: about 221 ms, 5.5% of the budget (1.8% of the 12 s
+    /// block time) and under the 10% this constant is held to. At the default
     /// `charge_interval_blocks` of 360 that keeps 23,040 positions on schedule; more are
     /// charged late, never skipped.
     pub const LendingMaxChargesPerBlock: u32 = 64;
@@ -1553,11 +1557,86 @@ parameter_types! {
 impl pallet_lending::Config for Runtime {
     type Pool = SubtensorModule;
     type Curve = pallet_subtensor::staking::lending::BalancerCurve;
-    // Placeholder weights (storage-access counts); see `pallet_lending::weights`.
+    // Measured for the short calls, the setters and the hooks; the long calls keep
+    // placeholders in `pallet_lending::long_weights` (HOLD(longs)).
     type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
     type PalletId = LendingPalletId;
     type MaxLongPositionsCeiling = LendingMaxLongPositionsCeiling;
     type MaxChargesPerBlock = LendingMaxChargesPerBlock;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = LendingBenchmarkHelper;
+}
+
+/// Builds the lending benchmarks' state on the real subnet pools, so the short calls are
+/// measured through the adapter's swap legs.
+#[cfg(feature = "runtime-benchmarks")]
+pub struct LendingBenchmarkHelper;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_lending::BenchmarkHelper<AccountId> for LendingBenchmarkHelper {
+    fn clear_subnets() {
+        let live: Vec<NetUid> = pallet_subtensor::NetworksAdded::<Runtime>::iter_keys()
+            .filter(|netuid| !netuid.is_root())
+            .collect();
+        for netuid in live {
+            pallet_subtensor::NetworksAdded::<Runtime>::remove(netuid);
+        }
+    }
+
+    fn setup_pool(netuid: NetUid, tao: u64, alpha: u64) {
+        use pallet_subtensor_swap::balancer::Balancer;
+
+        SubtensorModule::init_new_network(netuid, 100);
+        pallet_subtensor::SubnetMechanism::<Runtime>::insert(netuid, 1u16);
+        pallet_subtensor::SubtokenEnabled::<Runtime>::insert(netuid, true);
+        pallet_subtensor::SubnetTAO::<Runtime>::insert(netuid, TaoBalance::new(tao));
+        pallet_subtensor::SubnetAlphaIn::<Runtime>::insert(netuid, AlphaBalance::new(alpha));
+        pallet_subtensor::SubnetAlphaOut::<Runtime>::insert(netuid, AlphaBalance::new(alpha));
+        if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
+            Self::fund(&subnet_account, tao);
+        }
+        pallet_subtensor::TotalStake::<Runtime>::mutate(|total| {
+            *total = total.saturating_add(tao.into());
+        });
+        if let Ok(balancer) = Balancer::new(sp_runtime::Perquintill::from_percent(50)) {
+            pallet_subtensor_swap::SwapBalancer::<Runtime>::insert(netuid, balancer);
+        }
+        pallet_subtensor_swap::PalSwapInitialized::<Runtime>::insert(netuid, true);
+        pallet_subtensor_swap::FeeRate::<Runtime>::insert(netuid, 33);
+        // The emission moving price at spot.
+        let spot = <SubtensorModule as pallet_lending::LendingPoolInterface<AccountId>>::spot_price(
+            netuid,
+        );
+        pallet_subtensor::SubnetMovingPrice::<Runtime>::insert(
+            netuid,
+            substrate_fixed::types::I96F32::saturating_from_num(spot),
+        );
+    }
+
+    fn fund(who: &AccountId, tao: u64) {
+        let credit = SubtensorModule::mint_tao(tao.into());
+        let _ = SubtensorModule::spend_tao(who, credit, tao.into());
+    }
+
+    /// Seeds one Aura authority and the pre-runtime digest naming it, then funds that author:
+    /// the swap fee of a lending leg is paid to the block author.
+    fn set_block_author() {
+        let authorities_key: Vec<u8> = [
+            sp_io::hashing::twox_128(b"Aura"),
+            sp_io::hashing::twox_128(b"Authorities"),
+        ]
+        .concat();
+        frame_support::storage::unhashed::put(&authorities_key, &vec![[7u8; 32]]);
+        let digest = sp_runtime::Digest {
+            logs: vec![sp_runtime::DigestItem::PreRuntime(*b"aura", 0u64.encode())],
+        };
+        // `initialize` records the parent's hash, so the block is at least 1.
+        let block = System::block_number().max(1);
+        System::initialize(&block, &Default::default(), &digest);
+        if let Some(author) = <BlockAuthorFromAura<Aura> as AuthorshipInfo<AccountId>>::author() {
+            Self::fund(&author, 1_000_000_000);
+        }
+    }
 }
 
 // Limit Orders
@@ -1953,6 +2032,7 @@ mod benches {
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
         [pallet_hashed_accounts, HashedAccounts]
+        [pallet_lending, Lending]
     );
 }
 

@@ -9,8 +9,11 @@
 
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
+pub mod benchmarking;
 pub mod hooks;
 pub mod interest;
+pub mod long_weights;
 pub mod math;
 pub mod migrations;
 pub mod params;
@@ -29,6 +32,8 @@ mod tests;
 
 pub use hooks::LendingInterface;
 pub use pallet::*;
+#[cfg(feature = "runtime-benchmarks")]
+pub use pool::BenchmarkHelper;
 pub use pool::LendingPoolInterface;
 pub use weights::WeightInfo;
 
@@ -42,7 +47,7 @@ pub mod pallet {
     use subtensor_runtime_common::NetUid;
 
     use crate::{
-        LendingPoolInterface, WeightInfo,
+        LendingPoolInterface, WeightInfo, long_weights,
         math::fixed::Price,
         migrations,
         params::{DeregParams, LendingParams, LongParams, ShortParams},
@@ -84,6 +89,10 @@ pub mod pallet {
         /// larger backlog carries over to the following blocks.
         #[pallet::constant]
         type MaxChargesPerBlock: Get<u32>;
+
+        /// Builds the pools the benchmarks run against.
+        #[cfg(feature = "runtime-benchmarks")]
+        type BenchmarkHelper: crate::BenchmarkHelper<Self::AccountId>;
     }
 
     /// Shorts on (SPEC P1). False until root enables lending.
@@ -432,13 +441,27 @@ pub mod pallet {
         /// Applies pending parameters first, then samples prices for every live subnet,
         /// whether lending is enabled or not (SPEC 2.1, section 9 item 4), then runs the
         /// interest charges that are due, up to `MaxChargesPerBlock` (SPEC P15).
+        ///
+        /// The weight is the measured hook of this block's kind (one that only steps `T_ema`,
+        /// or one that samples the rings), plus the measured parts that ran on top of it: the
+        /// parameter apply if a group was pending, the charges and the `Due` buckets read.
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let subnets = T::Pool::live_subnets();
-            Self::apply_pending_params(&subnets);
-            Self::sample_prices(now.unique_saturated_into(), &subnets);
-            let charges = Self::collect_due(now);
-            T::WeightInfo::on_initialize(u32::try_from(subnets.len()).unwrap_or(u32::MAX))
+            let live = u32::try_from(subnets.len()).unwrap_or(u32::MAX);
+            let applied = Self::apply_pending_params(&subnets);
+            let sampled = Self::sample_prices(now.unique_saturated_into(), &subnets);
+            let (charges, buckets) = Self::collect_due(now);
+            let mut weight = if sampled {
+                T::WeightInfo::on_initialize_sampling(live)
+            } else {
+                T::WeightInfo::on_initialize_ema(live)
+            };
+            if applied {
+                weight = weight.saturating_add(T::WeightInfo::apply_pending_params(live));
+            }
+            weight
                 .saturating_add(T::WeightInfo::collect_due(charges))
+                .saturating_add(T::WeightInfo::collect_due_buckets(buckets))
         }
 
         fn on_runtime_upgrade() -> Weight {
@@ -457,7 +480,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// Opens a short: mints `q` alpha, sells it, and pays the proceeds to custody (SPEC P1-P23).
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::open_position())]
+        #[pallet::weight(T::WeightInfo::open_short())]
         pub fn open_short(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -481,7 +504,7 @@ pub mod pallet {
 
         /// Adds `q` to an open short (SPEC P1-P23).
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::increase_position())]
+        #[pallet::weight(T::WeightInfo::increase_short())]
         pub fn increase_short(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -504,8 +527,9 @@ pub mod pallet {
         }
 
         /// Buys back up to `alpha` of a short, retiring it (SPEC 1.4). Pays at most `max_tao_in`.
+        /// Weighed as the costlier of a full close and a partial one.
         #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::close_position())]
+        #[pallet::weight(T::WeightInfo::close_short().max(T::WeightInfo::close_short_partial()))]
         pub fn close_short(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -539,8 +563,9 @@ pub mod pallet {
 
         /// Opens a long: lifts `lift` TAO from the pool and buys alpha that custody locks
         /// (SPEC L1-L12). Receives at least `min_alpha_out`.
+        // HOLD(longs): placeholder weight, not a benchmark.
         #[pallet::call_index(6)]
-        #[pallet::weight(T::WeightInfo::open_position())]
+        #[pallet::weight(long_weights::open_long::<T>())]
         pub fn open_long(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -563,8 +588,9 @@ pub mod pallet {
         }
 
         /// Lifts `lift` more TAO into an open long (SPEC L1-L12).
+        // HOLD(longs): placeholder weight, not a benchmark.
         #[pallet::call_index(7)]
-        #[pallet::weight(T::WeightInfo::increase_position())]
+        #[pallet::weight(long_weights::increase_long::<T>())]
         pub fn increase_long(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -588,8 +614,9 @@ pub mod pallet {
 
         /// Sells up to `alpha` of a long's locked alpha and repays the debt (SPEC 7.1.4).
         /// Receives at least `min_tao_out` for the sale.
+        // HOLD(longs): placeholder weight, not a benchmark.
         #[pallet::call_index(8)]
-        #[pallet::weight(T::WeightInfo::close_position())]
+        #[pallet::weight(long_weights::close_long::<T>())]
         pub fn close_long(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -601,8 +628,9 @@ pub mod pallet {
         }
 
         /// Adds collateral to a long (SPEC L11).
+        // HOLD(longs): placeholder weight, not a benchmark.
         #[pallet::call_index(9)]
-        #[pallet::weight(T::WeightInfo::add_collateral())]
+        #[pallet::weight(long_weights::add_long_collateral::<T>())]
         pub fn add_long_collateral(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -614,8 +642,9 @@ pub mod pallet {
 
         /// Withdraws collateral from a long if coverage and the interest buffer still hold
         /// (SPEC L2, L12).
+        // HOLD(longs): placeholder weight, not a benchmark.
         #[pallet::call_index(10)]
-        #[pallet::weight(T::WeightInfo::withdraw_collateral())]
+        #[pallet::weight(long_weights::withdraw_long_collateral::<T>())]
         pub fn withdraw_long_collateral(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -647,7 +676,7 @@ pub mod pallet {
 
         /// Replaces `LendingParams` from the next block (SPEC 2.1).
         #[pallet::call_index(22)]
-        #[pallet::weight(T::WeightInfo::set_params())]
+        #[pallet::weight(T::WeightInfo::set_lending_params())]
         pub fn set_lending_params(origin: OriginFor<T>, params: LendingParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_lending_params(params)
@@ -655,7 +684,7 @@ pub mod pallet {
 
         /// Replaces `ShortParams` from the next block (SPEC 2.1).
         #[pallet::call_index(23)]
-        #[pallet::weight(T::WeightInfo::set_params())]
+        #[pallet::weight(T::WeightInfo::set_short_params())]
         pub fn set_short_params(origin: OriginFor<T>, params: ShortParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_short_params(params)
@@ -663,7 +692,7 @@ pub mod pallet {
 
         /// Replaces `LongParams` from the next block (SPEC 2.1).
         #[pallet::call_index(24)]
-        #[pallet::weight(T::WeightInfo::set_params())]
+        #[pallet::weight(T::WeightInfo::set_long_params())]
         pub fn set_long_params(origin: OriginFor<T>, params: LongParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_long_params(params)
@@ -671,7 +700,7 @@ pub mod pallet {
 
         /// Replaces `DeregParams` from the next block (SPEC 2.1).
         #[pallet::call_index(25)]
-        #[pallet::weight(T::WeightInfo::set_params())]
+        #[pallet::weight(T::WeightInfo::set_dereg_params())]
         pub fn set_dereg_params(origin: OriginFor<T>, params: DeregParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_dereg_params(params)

@@ -483,6 +483,8 @@ impl pallet_lending::Config for Test {
     type PalletId = LendingPalletId;
     type MaxLongPositionsCeiling = frame_support::traits::ConstU32<1024>;
     type MaxChargesPerBlock = frame_support::traits::ConstU32<512>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = ();
 }
 
 // Swap-related parameter types

@@ -321,6 +321,7 @@ runtime-benchmarks = [
 	"pallet-scheduler/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
+	"pallet-lending/runtime-benchmarks",
 	"runtime-common/runtime-benchmarks",
 	"pallet-babe/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",

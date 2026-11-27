@@ -68,3 +68,28 @@ pub trait LendingPoolInterface<AccountId> {
     /// Returns the TAO paid.
     fn sell_alpha(netuid: NetUid, from: &AccountId, alpha: u64) -> Result<u64, DispatchError>;
 }
+
+/// What the benchmarks need from the runtime to build the pools the calls run against. The
+/// runtime implements it over the real subnet pools, so the benchmarks measure the adapter's
+/// legs; `()` is for the mocks of pallets that only carry this pallet's `Config`.
+#[cfg(feature = "runtime-benchmarks")]
+pub trait BenchmarkHelper<AccountId> {
+    /// Removes every live non-root subnet, so that a benchmark sets the number of them.
+    fn clear_subnets();
+    /// Makes `netuid` a live subnet whose pool holds `tao` and `alpha` in reserve, backed as
+    /// the chain backs a pool, with the swap fee on. Does not seed the lending price rings.
+    fn setup_pool(netuid: NetUid, tao: u64, alpha: u64);
+    /// Adds `tao` to the free balance of `who`.
+    fn fund(who: &AccountId, tao: u64);
+    /// Gives the current block a known author, so that a swap leg settles its fee to an
+    /// account, the costlier of its two paths.
+    fn set_block_author();
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<AccountId> BenchmarkHelper<AccountId> for () {
+    fn clear_subnets() {}
+    fn setup_pool(_netuid: NetUid, _tao: u64, _alpha: u64) {}
+    fn fund(_who: &AccountId, _tao: u64) {}
+    fn set_block_author() {}
+}

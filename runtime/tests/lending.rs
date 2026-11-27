@@ -212,7 +212,7 @@ fn migration_initialises_every_live_subnet_and_runs_once() {
         let db = <Runtime as frame_system::Config>::DbWeight::get();
         assert_eq!(
             weight,
-            db.reads_writes(5, 5)
+            db.writes(1)
                 .saturating_add(SubstrateWeight::<Runtime>::migrate_to_v1(
                     subnets.len() as u32
                 ))

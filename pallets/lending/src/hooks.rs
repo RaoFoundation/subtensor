@@ -16,7 +16,7 @@ use subtensor_runtime_common::{AlphaBalance, NetUid};
 
 use crate::{
     Config, Custody, Due, Event, HolderPositions, InterestRetry, LendingPoolInterface, Pallet,
-    Positions, SwappedOutAt, SyntheticOutstanding,
+    Positions, SwappedOutAt, SyntheticOutstanding, WeightInfo,
     types::{PositionId, Side},
 };
 
@@ -173,15 +173,17 @@ impl<T: Config> Pallet<T> {
     ///
     /// If a moved position was opened in this block, `old` opens nothing more in this block
     /// (`SwappedOutAt`): the open would derive the custody account the moved position uses.
-    fn rekey_positions(old: &T::AccountId, new: &T::AccountId) -> Weight {
-        let db = T::DbWeight::get();
-        let mut weight = db.reads(2);
+    ///
+    /// Returns the measured weight of moving the positions it found (`rekey_positions`); a
+    /// swap that moves nothing read the two position lists.
+    pub(crate) fn rekey_positions(old: &T::AccountId, new: &T::AccountId) -> Weight {
+        let nothing_moved = T::DbWeight::get().reads(2);
         if old == new {
-            return weight;
+            return nothing_moved;
         }
         let held = HolderPositions::<T>::get(old);
         if held.is_empty() {
-            return weight;
+            return nothing_moved;
         }
         let admitted = HolderPositions::<T>::decode_len(new).unwrap_or(0) == 0;
         debug_assert!(
@@ -189,12 +191,12 @@ impl<T: Config> Pallet<T> {
             "coldkey swap onto a lending holder was not refused"
         );
         if !admitted {
-            return weight;
+            return nothing_moved;
         }
+        let moved = u32::try_from(held.len()).unwrap_or(MAX_POSITIONS_PER_HOLDER);
         let now = frame_system::Pallet::<T>::block_number();
         let mut opened_now = false;
         for (netuid, side) in held.iter().copied() {
-            weight = weight.saturating_add(Self::rekey_weight());
             let from = (old.clone(), netuid, side);
             let to = (new.clone(), netuid, side);
             let Some(pos) = Positions::<T>::take(&from) else {
@@ -228,14 +230,7 @@ impl<T: Config> Pallet<T> {
             !Positions::<T>::iter_keys().any(|(who, _, _)| who == *old),
             "a coldkey swap left a lending position with the old key"
         );
-        weight.saturating_add(db.writes(3))
-    }
-
-    /// One position's re-key: the position, `Custody`, `Due` and `InterestRetry` read; the
-    /// position, its `Due` entry, its retry count and its custody record each removed under
-    /// the old key and written under the new one.
-    fn rekey_weight() -> Weight {
-        T::DbWeight::get().reads_writes(4, 8)
+        T::WeightInfo::rekey_positions(moved)
     }
 }
 
@@ -263,24 +258,21 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
             || HolderPositions::<T>::decode_len(new).unwrap_or(0) == 0
     }
 
-    /// Both holders' position lists.
+    /// Both holders' position lists, as measured.
     fn coldkey_swap_admission_weight() -> Weight {
-        T::DbWeight::get().reads(2)
+        T::WeightInfo::coldkey_swap_destination_ok()
     }
 
     fn on_coldkey_swap(old: &T::AccountId, new: &T::AccountId) -> Weight {
         Self::rekey_positions(old, new)
     }
 
-    /// The admission check, both holders' position lists again, one re-key for each of the
-    /// at most [`MAX_POSITIONS_PER_HOLDER`] positions of the old key, the two lists written
-    /// back and the same-block marker.
+    /// The admission check and the measured re-key of the most positions the old key can
+    /// hold, [`MAX_POSITIONS_PER_HOLDER`]: each with its `Due` entry, retry count and custody
+    /// record, then the two lists written back and the same-block marker.
     fn coldkey_swap_weight() -> Weight {
         Self::coldkey_swap_admission_weight()
-            .saturating_add(T::DbWeight::get().reads_writes(2, 3))
-            .saturating_add(
-                Self::rekey_weight().saturating_mul(u64::from(MAX_POSITIONS_PER_HOLDER)),
-            )
+            .saturating_add(T::WeightInfo::rekey_positions(MAX_POSITIONS_PER_HOLDER))
     }
 
     fn pallet_hotkey() -> Option<T::AccountId> {

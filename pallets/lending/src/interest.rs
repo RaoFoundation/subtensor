@@ -106,22 +106,25 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Runs the scheduled charges due at or before `now`, oldest bucket first, and returns how
-    /// many it ran. It stops at `MaxChargesPerBlock` charges or [`MAX_DUE_BUCKETS_PER_BLOCK`]
-    /// buckets; `NextDue` keeps the place for the next block (SPEC P15).
-    pub(crate) fn collect_due(now: BlockNumberFor<T>) -> u32 {
+    /// many it ran and how many buckets it read. It stops at `MaxChargesPerBlock` charges or
+    /// [`MAX_DUE_BUCKETS_PER_BLOCK`] buckets; `NextDue` keeps the place for the next block
+    /// (SPEC P15).
+    pub(crate) fn collect_due(now: BlockNumberFor<T>) -> (u32, u32) {
         let Some(mut cursor) = NextDue::<T>::get() else {
-            return 0;
+            return (0, 0);
         };
         if cursor > now {
-            return 0;
+            return (0, 0);
         }
         let lending = LendingParamsStore::<T>::get();
         let budget = T::MaxChargesPerBlock::get();
         let mut charges = 0u32;
+        let mut buckets = 0u32;
         for _ in 0..MAX_DUE_BUCKETS_PER_BLOCK {
             if cursor > now {
                 break;
             }
+            buckets = buckets.saturating_add(1);
             let room = usize::try_from(budget.saturating_sub(charges)).unwrap_or(usize::MAX);
             let ids: Vec<_> = Due::<T>::iter_key_prefix(cursor).take(room).collect();
             for id in &ids {
@@ -140,7 +143,7 @@ impl<T: Config> Pallet<T> {
         } else {
             NextDue::<T>::put(cursor);
         }
-        charges
+        (charges, buckets)
     }
 
     /// Charges one position whose `Due` entry was just taken, and schedules its next charge. A

@@ -244,7 +244,9 @@ impl<T: Config> Pallet<T> {
     /// One block of sampling for every live subnet (SPEC P6, P12, P13): `T_ema` every block,
     /// the TWAP ring every `twap_interval_blocks`, the rank ring hourly with the day closing
     /// (and `RankPrice` republished) every `BLOCKS_PER_DAY`. Only existing state is advanced.
-    pub(crate) fn sample_prices(now: u64, subnets: &[NetUid]) {
+    /// Returns whether this block sampled a ring, which `on_initialize` weighs apart from a
+    /// block that only steps `T_ema`.
+    pub(crate) fn sample_prices(now: u64, subnets: &[NetUid]) -> bool {
         let twap_due = is_due(now, LendingParamsStore::<T>::get().twap_interval_blocks);
         let rank_due = is_due(now, RANK_SAMPLE_INTERVAL_BLOCKS);
         let day_due = is_due(now, BLOCKS_PER_DAY);
@@ -279,5 +281,6 @@ impl<T: Config> Pallet<T> {
                 });
             }
         }
+        twap_due || rank_due
     }
 }

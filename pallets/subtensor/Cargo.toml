@@ -158,6 +158,7 @@ runtime-benchmarks = [
 	"pallet-commitments/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
 	"pallet-drand/runtime-benchmarks",
+	"pallet-lending/runtime-benchmarks",
 	"pallet-subtensor-proxy/runtime-benchmarks",
 	"pallet-subtensor-swap/runtime-benchmarks",
 	"pallet-subtensor-utility/runtime-benchmarks",

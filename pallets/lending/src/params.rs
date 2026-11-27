@@ -321,10 +321,13 @@ impl<T: Config> Pallet<T> {
 
     /// Applies every pending group (SPEC 2.1, I26): one `<Group>ParamsSet` event each, and the
     /// ring re-seeds that a TWAP or rank window change requires. No position is touched.
-    pub(crate) fn apply_pending_params(subnets: &[NetUid]) {
+    /// Returns whether any group was pending.
+    pub(crate) fn apply_pending_params(subnets: &[NetUid]) -> bool {
+        let mut applied = false;
         if let Some((old, new)) =
             take_pending::<_, LendingParamsStore<T>, PendingLendingParams<T>>()
         {
+            applied = true;
             if (old.twap_samples, old.twap_interval_blocks)
                 != (new.twap_samples, new.twap_interval_blocks)
             {
@@ -333,17 +336,21 @@ impl<T: Config> Pallet<T> {
             Self::deposit_event(Event::LendingParamsSet { old, new });
         }
         if let Some((old, new)) = take_pending::<_, ShortParamsStore<T>, PendingShortParams<T>>() {
+            applied = true;
             Self::deposit_event(Event::ShortParamsSet { old, new });
         }
         if let Some((old, new)) = take_pending::<_, LongParamsStore<T>, PendingLongParams<T>>() {
+            applied = true;
             Self::deposit_event(Event::LongParamsSet { old, new });
         }
         if let Some((old, new)) = take_pending::<_, DeregParamsStore<T>, PendingDeregParams<T>>() {
+            applied = true;
             if old.rank_window_days != new.rank_window_days {
                 Self::reseed_rank_rings_from_published(subnets, new.rank_window_days);
             }
             Self::deposit_event(Event::DeregParamsSet { old, new });
         }
+        applied
     }
 }
 
