@@ -11646,6 +11646,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-tusd"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+]
+
+[[package]]
 name = "pallet-tx-pause"
 version = "22.0.0"
 source = "git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a#cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
