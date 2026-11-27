@@ -23,9 +23,11 @@ BTreeSet = Any
 BasketTradePriceReference = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
+BridgeRoute = Any
 CommitmentInfo = Any
 ConsensusMode = Any
 DerivedDescriptor = Any
+Destination = Any
 Determinism = Any
 EpochConsensus = Any
 EquivocationProof = Any
@@ -36,7 +38,9 @@ H160 = Any
 H256 = Any
 MechId = Any
 MultiAddress = Any
+NativeAsset = Any
 NetUid = Any
+Order = Any
 OriginCaller = Any
 PerU16 = Any
 Percent = Any
@@ -48,10 +52,13 @@ PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RegistrationDescriptor = Any
 RuntimeCall = Any
+SpokeAsset = Any
+SwapCaps = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
 TransactionV3 = Any
+TusdBalance = Any
 U256 = Any
 VersionedOrder = Any
 Void = Any
@@ -1978,3 +1985,125 @@ class HashedAccounts:
     def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
         "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
         return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})
+
+
+class Tusd:
+    """Call builders for the Tusd pallet."""
+
+    @staticmethod
+    def set_bridge(id: 'u32', route: 'BridgeRoute', mint_cap: 'TusdBalance', window_limit: 'TusdBalance', window_period: 'u32') -> Call:
+        'Registers bridge `id`, or changes its terms. A new bridge starts disabled. A changed bridge keeps what it has outstanding, what its window has consumed and whether it is enabled.'
+        return Call('Tusd', 'set_bridge', {'id': id, 'route': route, 'mint_cap': mint_cap, 'window_limit': window_limit, 'window_period': window_period})
+
+    @staticmethod
+    def set_bridge_enabled(id: 'u32', enabled: 'bool') -> Call:
+        'Enables or disables bridge `id`. The pause origin may only disable.'
+        return Call('Tusd', 'set_bridge_enabled', {'id': id, 'enabled': enabled})
+
+    @staticmethod
+    def transfer(dest: 'MultiAddress', amount: 'TusdBalance') -> Call:
+        "Sends `amount` of the signer's tUSD to `dest`."
+        return Call('Tusd', 'transfer', {'dest': dest, 'amount': amount})
+
+
+class CanonicalPool:
+    """Call builders for the CanonicalPool pallet."""
+
+    @staticmethod
+    def add_liquidity(max_tao: 'TaoBalance', max_tusd: 'TusdBalance', min_shares: 'u128') -> Call:
+        "Adds liquidity: takes at most `max_tao` and `max_tusd` from the signer in the pool's current ratio and mints shares, at least `min_shares` of them.  The first deposit sets the price. It must be within [`Config::MaxInitialPriceDeviation`] of the oracle's price, and it leaves [`math::MINIMUM_LIQUIDITY`] shares locked in the pool."
+        return Call('CanonicalPool', 'add_liquidity', {'max_tao': max_tao, 'max_tusd': max_tusd, 'min_shares': min_shares})
+
+    @staticmethod
+    def remove_liquidity(shares: 'u128', min_tao: 'TaoBalance', min_tusd: 'TusdBalance') -> Call:
+        "Removes liquidity: burns `shares` of the signer's and pays out their part of both reserves, at least `min_tao` and `min_tusd`. Open even while the pool is disabled."
+        return Call('CanonicalPool', 'remove_liquidity', {'shares': shares, 'min_tao': min_tao, 'min_tusd': min_tusd})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        'Enables or disables swaps and deposits. The pause origin may only disable.'
+        return Call('CanonicalPool', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_fee(fee: 'Permill') -> Call:
+        'Sets the swap fee, within [`MIN_FEE`] and [`MAX_FEE`].'
+        return Call('CanonicalPool', 'set_fee', {'fee': fee})
+
+    @staticmethod
+    def set_swap_caps(caps: 'SwapCaps') -> Call:
+        'Sets the swap caps.'
+        return Call('CanonicalPool', 'set_swap_caps', {'caps': caps})
+
+    @staticmethod
+    def swap_tao_for_tusd(amount_in: 'TaoBalance', min_out: 'TusdBalance') -> Call:
+        "Swaps `amount_in` of the signer's TAO for at least `min_out` tUSD."
+        return Call('CanonicalPool', 'swap_tao_for_tusd', {'amount_in': amount_in, 'min_out': min_out})
+
+    @staticmethod
+    def swap_tusd_for_tao(amount_in: 'TusdBalance', min_out: 'TaoBalance') -> Call:
+        "Swaps `amount_in` of the signer's tUSD for at least `min_out` TAO."
+        return Call('CanonicalPool', 'swap_tusd_for_tao', {'amount_in': amount_in, 'min_out': min_out})
+
+
+class Rails:
+    """Call builders for the Rails pallet."""
+
+    @staticmethod
+    def ack_outbound(position: 'u64') -> Call:
+        'Takes the message at `position`, the head of the outbox, out of it. Only the gateway may call this, in the transaction in which it hands the message to the transport: if that fails, this is undone with it.'
+        return Call('Rails', 'ack_outbound', {'position': position})
+
+    @staticmethod
+    def bridge_out(bridge: 'u32', source: 'NativeAsset', amount: 'u64', destination: 'Destination', min_out: 'u64') -> Call:
+        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`."
+        return Call('Rails', 'bridge_out', {'bridge': bridge, 'source': source, 'amount': amount, 'destination': destination, 'min_out': min_out})
+
+    @staticmethod
+    def execute(domain: 'u32', sender: 'H256', order: 'Order') -> Call:
+        'Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, the order is out of sequence, or the answer cannot be queued. An order that cannot be settled for any other reason is taken and refunded.'
+        return Call('Rails', 'execute', {'domain': domain, 'sender': sender, 'order': order})
+
+    @staticmethod
+    def list_market(netuid: 'NetUid', bridge: 'u32', address: 'H160') -> Call:
+        'Lists the alpha token of `netuid` on the spoke of `bridge`: enters it in the registry at `address`, under the name the subnet published on chain, and tells the spoke to create it there. The spoke refuses if it would create the token at another address.'
+        return Call('Rails', 'list_market', {'netuid': netuid, 'bridge': bridge, 'address': address})
+
+    @staticmethod
+    def open_market(netuid: 'NetUid', cap: 'AlphaBalance') -> Call:
+        "Opens a market for the subnet at `netuid`: opens its index hotkey, owned by the market's vault, and lets the vault hold up to `cap` alpha."
+        return Call('Rails', 'open_market', {'netuid': netuid, 'cap': cap})
+
+    @staticmethod
+    def register_token(bridge: 'u32', asset: 'SpokeAsset', address: 'H160') -> Call:
+        'Enters in the registry the contract that stands for the stablecoin or for canonical TAO on the spoke of `bridge`. Alpha tokens enter through [`Pallet::list_market`].'
+        return Call('Rails', 'register_token', {'bridge': bridge, 'asset': asset, 'address': address})
+
+    @staticmethod
+    def set_gateway(gateway: 'Any') -> Call:
+        'Sets the account of the gateway contract, or removes it.'
+        return Call('Rails', 'set_gateway', {'gateway': gateway})
+
+    @staticmethod
+    def set_guardian(guardian: 'Any') -> Call:
+        'Sets the account that may pause the rails, or removes it.'
+        return Call('Rails', 'set_guardian', {'guardian': guardian})
+
+    @staticmethod
+    def set_market_cap(netuid: 'NetUid', cap: 'AlphaBalance') -> Call:
+        'Sets the most alpha the vault of `netuid` may hold after a purchase.'
+        return Call('Rails', 'set_market_cap', {'netuid': netuid, 'cap': cap})
+
+    @staticmethod
+    def set_paused(paused: 'bool') -> Call:
+        'Pauses or resumes the hub. The pause origin may only pause.'
+        return Call('Rails', 'set_paused', {'paused': paused})
+
+    @staticmethod
+    def set_tao_cap(bridge: 'u32', cap: 'TaoBalance') -> Call:
+        'Sets the most canonical TAO the spoke of `bridge` may have outstanding.'
+        return Call('Rails', 'set_tao_cap', {'bridge': bridge, 'cap': cap})
+
+    @staticmethod
+    def skip_order(bridge: 'u32', nonce: 'u64') -> Call:
+        'Passes over the next order of `bridge` without reading it, so that the orders behind it can settle. For an order that the gateway cannot decode: what its payer locked stays on the spoke and has to be returned by governance.'
+        return Call('Rails', 'skip_order', {'bridge': bridge, 'nonce': nonce})

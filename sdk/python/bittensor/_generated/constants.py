@@ -195,3 +195,17 @@ class HashedAccounts:
     DerivedRegistrationDeposit = Item('HashedAccounts', 'DerivedRegistrationDeposit')
     MldsaAccountProfiles = Item('HashedAccounts', 'MldsaAccountProfiles')
     FalconAccountProfiles = Item('HashedAccounts', 'FalconAccountProfiles')
+
+class Tusd:
+    MinBalance = Item('Tusd', 'MinBalance')
+
+class CanonicalPool:
+    PalletId = Item('CanonicalPool', 'PalletId')
+    MaxInitialPriceDeviation = Item('CanonicalPool', 'MaxInitialPriceDeviation')
+    MinReserve = Item('CanonicalPool', 'MinReserve')
+    TwapPeriod = Item('CanonicalPool', 'TwapPeriod')
+
+class Rails:
+    PalletId = Item('Rails', 'PalletId')
+    MaxOutbox = Item('Rails', 'MaxOutbox')
+    ReceiptsKept = Item('Rails', 'ReceiptsKept')
