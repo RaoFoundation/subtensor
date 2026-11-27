@@ -9,6 +9,7 @@
 !website/yarn.lock
 !sdk/python/uv.lock
 !sudo/package-lock.json
+!contracts/evm/soldeer.lock
 
 *.ipynb
 

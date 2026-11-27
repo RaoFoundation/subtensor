@@ -1,0 +1,43 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+script = "script"
+libs = ["dependencies"]
+solc_version = "0.8.30"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+# The Rails precompile interface is kept with the precompile.
+allow_paths = ["../../precompiles/src/solidity"]
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
+[profile.default.fuzz]
+runs = 512
+
+[profile.default.invariant]
+runs = 64
+depth = 128
+fail_on_revert = true
+
+[lint]
+# Reviewed and accepted; AUDIT.md lists them under "Static analysis".
+# - reentrancy-events: the external calls go to the transport's Mailbox, to the hub's
+#   precompile, or to this system's own vault and tokens.
+# - calls-loop: the gateway hands a bounded number of answers to the transport.
+# - arbitrary-send-eth: the transport's fee goes to the Mailbox, the change to the payer.
+# - missing-zero-check: zero is a meaning for a guardian and for a security module.
+exclude_lints = ["reentrancy-events", "calls-loop", "arbitrary-send-eth", "missing-zero-check"]
+
+[fmt]
+line_length = 100
+tab_width = 4
+sort_imports = true
+
+[dependencies]
+forge-std = "1.9.7"
+"@openzeppelin-contracts" = "5.4.0"
+"@openzeppelin-contracts-upgradeable" = "5.4.0"
+
+[soldeer]
+remappings_generate = false

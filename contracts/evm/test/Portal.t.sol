@@ -1,0 +1,369 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {
+    PausableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
+import {Portal} from "../src/Portal.sol";
+import {RateLimit} from "../src/RateLimit.sol";
+import {Wire} from "../src/Wire.sol";
+import {AlphaToken} from "../src/tokens/AlphaToken.sol";
+import {Fixture} from "./Fixture.sol";
+
+/// @notice A payer that takes the change of a transport fee and counts it.
+contract PayingContract {
+    uint256 public change;
+
+    receive() external payable {
+        change += msg.value;
+    }
+}
+
+contract PortalTest is Fixture {
+    event OrderSent(
+        uint64 indexed nonce,
+        address indexed payer,
+        uint8 source,
+        uint16 sourceNetuid,
+        uint64 amount,
+        Wire.Destination destination,
+        uint64 minOut,
+        uint64 deadline,
+        bytes32 messageId
+    );
+    event Credited(
+        uint64 indexed nonce,
+        address indexed to,
+        uint8 asset,
+        uint16 netuid,
+        uint64 amount,
+        bool answersOrder,
+        uint64 indexed order,
+        bool refund
+    );
+    event TokenCreated(uint16 indexed netuid, address token, string name, string symbol);
+    event RegistryMismatch(uint16 indexed netuid, address listed, address token);
+
+    // ---------------------------------------------------------------- orders
+
+    function test_ADepositBecomesTheOrderTheHubReads() public {
+        stable.mint(alice, 250 * USDC);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 250 * USDC);
+        uint64 nonce = vault.deposit(
+            250 * USDC, toCredits(51, keccak256("service"), bob), uint64(240 * UNIT), 1_900_000_000
+        );
+        vm.stopPrank();
+
+        assertEq(nonce, 0);
+        assertEq(portal.nextOrder(), 1);
+        (uint32 destination, bytes32 recipient, bytes memory body,) = mailbox.sent(0);
+        assertEq(destination, HUB_DOMAIN);
+        assertEq(recipient, GATEWAY);
+        assertEq(
+            body,
+            abi.encode(
+                Wire.ORDER_VERSION,
+                uint64(0),
+                alice,
+                Wire.ASSET_STABLE,
+                uint16(0),
+                uint64(250 * UNIT),
+                Wire.TO_CREDITS,
+                uint16(51),
+                keccak256("service"),
+                bob,
+                uint64(240 * UNIT),
+                uint64(1_900_000_000)
+            )
+        );
+        assertEq(body.length, 384);
+    }
+
+    function test_OrdersAreNumberedInSequence() public {
+        for (uint64 i = 0; i < 5; ++i) {
+            assertEq(deposit(alice, 10 * USDC, toTao(alice)), i);
+            assertEq(lastOrder().nonce, i);
+        }
+        assertEq(mailbox.sentCount(), 5);
+    }
+
+    function test_OnlyTheVaultAndTheTokensSendOrders() public {
+        Wire.Destination memory destination = toTao(alice);
+        for (uint256 i = 0; i < 5; ++i) {
+            address caller = [alice, guardian, multisig, address(timelock), address(tao)][i];
+            vm.prank(caller);
+            vm.expectRevert(Portal.OnlyVault.selector);
+            portal.deposited(alice, 100 * USDC, destination, 0, type(uint64).max);
+        }
+        for (uint256 i = 0; i < 5; ++i) {
+            address caller = [alice, guardian, multisig, address(timelock), address(vault)][i];
+            vm.prank(caller);
+            vm.expectRevert(abi.encodeWithSelector(Portal.NotACanonicalToken.selector, caller));
+            portal.sold(alice, 100, destination, 0, type(uint64).max);
+        }
+        assertEq(mailbox.sentCount(), 0);
+    }
+
+    function test_AnOrderOfNothingOrForItsOwnAssetIsRefused() public {
+        stable.mint(alice, 100 * USDC);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 100 * USDC);
+        vm.expectRevert(Portal.SameAsset.selector);
+        vault.deposit(100 * USDC, toStable(alice), 0, type(uint64).max);
+        vm.expectRevert(abi.encodeWithSelector(Wire.UnknownDestination.selector, 9));
+        vault.deposit(
+            100 * USDC, Wire.Destination(9, 0, bytes32(0), address(0)), 0, type(uint64).max
+        );
+        vm.stopPrank();
+        assertEq(stable.balanceOf(alice), 100 * USDC);
+    }
+
+    function test_AnAmountBeyondTheHubsRangeIsRefused() public {
+        uint256 tooMuch = uint256(type(uint64).max) / 1000 + 1;
+        stable.mint(alice, tooMuch);
+        vm.startPrank(alice);
+        stable.approve(address(vault), tooMuch);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SafeCast.SafeCastOverflowedUintDowncast.selector, 64, tooMuch * 1000
+            )
+        );
+        vault.deposit(tooMuch, toTao(alice), 0, type(uint64).max);
+        vm.stopPrank();
+    }
+
+    function test_ThePayerPaysTheTransportAndGetsTheChange() public {
+        mailbox.setFee(0.01 ether);
+        assertEq(portal.orderFee(), 0.01 ether);
+        stable.mint(alice, 100 * USDC);
+        vm.deal(alice, 1 ether);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 100 * USDC);
+
+        vm.expectRevert(abi.encodeWithSelector(Portal.FeeNotPaid.selector, 0.01 ether, 0.009 ether));
+        vault.deposit{value: 0.009 ether}(50 * USDC, toTao(alice), 0, type(uint64).max);
+
+        vault.deposit{value: 0.3 ether}(50 * USDC, toTao(alice), 0, type(uint64).max);
+        vm.stopPrank();
+        assertEq(alice.balance, 0.99 ether);
+        assertEq(address(mailbox).balance, 0.01 ether);
+        assertEq(address(portal).balance, 0);
+        assertEq(address(vault).balance, 0);
+    }
+
+    function test_AContractThatPaysGetsItsChangeToo() public {
+        mailbox.setFee(0.01 ether);
+        PayingContract payer = new PayingContract();
+        vm.deal(address(payer), 1 ether);
+        credit(Wire.ASSET_TAO, 0, address(payer), 5 * UNIT, 0);
+        vm.prank(address(payer));
+        tao.sell{value: 0.05 ether}(uint64(5 * UNIT), toStable(address(payer)), 0, type(uint64).max);
+        assertEq(payer.change(), 0.04 ether);
+        assertEq(address(portal).balance, 0);
+    }
+
+    // ---------------------------------------------------------------- the hub's answers
+
+    function test_ACreditOfTheStablecoinIsReleasedFromTheVault() public {
+        deposit(alice, 250 * USDC, toTao(alice));
+
+        vm.expectEmit(address(portal));
+        emit Credited(0, bob, Wire.ASSET_STABLE, 0, uint64(99 * UNIT + 999), true, 0, true);
+        mailbox.deliver(
+            portal,
+            HUB_DOMAIN,
+            GATEWAY,
+            creditBody(0, Wire.ASSET_STABLE, 0, bob, uint64(99 * UNIT + 999), true, 0, true, 0)
+        );
+
+        // The hub's 9 decimals are cut to the stablecoin's 6. The dust stays in the vault.
+        assertEq(stable.balanceOf(bob), 99 * USDC);
+        assertEq(stable.balanceOf(address(vault)), 151 * USDC);
+        assertTrue(portal.processed(0));
+    }
+
+    function test_ACreditOfATokenIsMinted() public {
+        AlphaToken chutes = registerToken(CHUTES, "Chutes", "CHUTES");
+        credit(Wire.ASSET_TAO, 0, alice, 7 * UNIT, 0);
+        credit(Wire.ASSET_ALPHA, CHUTES, bob, 20 * UNIT, 1.25e18);
+        assertEq(tao.balanceOf(alice), 7 * UNIT);
+        assertEq(chutes.balanceOf(bob), 20 * UNIT);
+        assertEq(chutes.rate(), 1.25e18);
+    }
+
+    function test_TheHubCreatesAnAlphaTokenWhereThePortalPutsIt() public {
+        address expected = portal.alphaTokenAddress(CHUTES);
+        assertEq(expected.code.length, 0);
+
+        vm.expectEmit(address(portal));
+        emit TokenCreated(CHUTES, expected, "Chutes", "CHUTES");
+        AlphaToken chutes = registerToken(CHUTES, "Chutes", "CHUTES");
+
+        assertEq(address(chutes), expected);
+        assertEq(address(chutes.portal()), address(portal));
+        // Each subnet has its own token.
+        AlphaToken lium = registerToken(51, "lium.io", "LIUM");
+        assertTrue(address(lium) != address(chutes));
+        assertEq(address(lium), portal.alphaTokenAddress(51));
+        assertEq(lium.symbol(), "LIUM");
+    }
+
+    function test_AWrongListingInTheHubIsReportedAndDoesNotStopTheToken() public {
+        address expected = portal.alphaTokenAddress(CHUTES);
+        vm.expectEmit(address(portal));
+        emit TokenCreated(CHUTES, expected, "Chutes", "CHUTES");
+        vm.expectEmit(address(portal));
+        emit RegistryMismatch(CHUTES, address(0xBAD), expected);
+        mailbox.deliver(
+            portal,
+            HUB_DOMAIN,
+            GATEWAY,
+            abi.encode(
+                Wire.KIND_REGISTER_TOKEN, hubNonce++, CHUTES, address(0xBAD), "Chutes", "CHUTES"
+            )
+        );
+        credit(Wire.ASSET_ALPHA, CHUTES, alice, UNIT, 1e18);
+        assertEq(portal.alphaTokens(CHUTES).balanceOf(alice), UNIT);
+    }
+
+    function test_ATokenIsCreatedOnce() public {
+        registerToken(CHUTES, "Chutes", "CHUTES");
+        vm.expectRevert(abi.encodeWithSelector(Portal.TokenExists.selector, CHUTES));
+        mailbox.deliver(
+            portal,
+            HUB_DOMAIN,
+            GATEWAY,
+            abi.encode(Wire.KIND_REGISTER_TOKEN, hubNonce, CHUTES, address(0), "Again", "AGAIN")
+        );
+    }
+
+    function test_ACreditForATokenThatIsNotThereYetWaits() public {
+        bytes memory body =
+            creditBody(1, Wire.ASSET_ALPHA, CHUTES, alice, UNIT, false, 0, false, 1e18);
+        // The transport delivered the credit before the token's registration.
+        vm.expectRevert(abi.encodeWithSelector(Portal.NoSuchToken.selector, CHUTES));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertFalse(portal.processed(1));
+
+        registerToken(CHUTES, "Chutes", "CHUTES");
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(portal.alphaTokens(CHUTES).balanceOf(alice), UNIT);
+    }
+
+    function test_OnlyTheTransportDeliversAndOnlyFromTheHub() public {
+        bytes memory body = creditBody(0, Wire.ASSET_TAO, 0, alice, UNIT, false, 0, false, 0);
+        for (uint256 i = 0; i < 4; ++i) {
+            address caller = [alice, guardian, multisig, address(timelock)][i];
+            vm.prank(caller);
+            vm.expectRevert(Portal.OnlyMailbox.selector);
+            portal.handle(HUB_DOMAIN, GATEWAY, body);
+        }
+        // The right transport, another chain or another sender.
+        vm.expectRevert(abi.encodeWithSelector(Portal.NotTheHub.selector, 1, GATEWAY));
+        mailbox.deliver(portal, 1, GATEWAY, body);
+        bytes32 other = bytes32(uint256(0xBAD));
+        vm.expectRevert(abi.encodeWithSelector(Portal.NotTheHub.selector, HUB_DOMAIN, other));
+        mailbox.deliver(portal, HUB_DOMAIN, other, body);
+        assertEq(tao.totalSupply(), 0);
+    }
+
+    function test_AMessageOfTheHubIsCarriedOutOnce() public {
+        bytes memory body = creditBody(4, Wire.ASSET_TAO, 0, alice, UNIT, false, 0, false, 0);
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        vm.expectRevert(abi.encodeWithSelector(Portal.AlreadyProcessed.selector, 4));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(tao.balanceOf(alice), UNIT);
+        // Messages need not arrive in order.
+        mailbox.deliver(
+            portal,
+            HUB_DOMAIN,
+            GATEWAY,
+            creditBody(2, Wire.ASSET_TAO, 0, alice, UNIT, false, 0, false, 0)
+        );
+        assertEq(tao.balanceOf(alice), 2 * UNIT);
+    }
+
+    function test_AMessageThePortalDoesNotKnowIsRefused() public {
+        vm.expectRevert(abi.encodeWithSelector(Portal.UnknownMessage.selector, 3));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, abi.encode(uint8(3), uint64(0)));
+        vm.expectRevert(abi.encodeWithSelector(Portal.UnknownAsset.selector, 3));
+        mailbox.deliver(
+            portal, HUB_DOMAIN, GATEWAY, creditBody(0, 3, 0, alice, UNIT, false, 0, false, 0)
+        );
+        vm.expectRevert();
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, hex"");
+    }
+
+    function test_AReleaseBeyondTheVaultsLimitWaitsForTheRefill() public {
+        deposit(alice, 2_000_000 * USDC, toTao(alice));
+        bytes memory body =
+            creditBody(0, Wire.ASSET_STABLE, 0, bob, uint64(1_500_000 * UNIT), false, 0, false, 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RateLimit.RateLimited.selector, 1_500_000 * USDC, 1_000_000 * USDC
+            )
+        );
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        // The window holds one limit at most: the owner raises it for a larger release.
+        timelocked(
+            address(vault),
+            abi.encodeCall(vault.setReleaseLimit, (uint128(2_000_000 * USDC), 1 days))
+        );
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(stable.balanceOf(bob), 1_500_000 * USDC);
+    }
+
+    // ---------------------------------------------------------------- pause
+
+    function test_APausedPortalTakesNoOrderAndNoMessage() public {
+        credit(Wire.ASSET_TAO, 0, alice, 5 * UNIT, 0);
+        vm.prank(guardian);
+        portal.pause();
+
+        stable.mint(alice, 100 * USDC);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 100 * USDC);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        vault.deposit(100 * USDC, toTao(alice), 0, type(uint64).max);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        tao.sell(uint64(UNIT), toStable(alice), 0, type(uint64).max);
+        vm.stopPrank();
+        // Nothing was taken.
+        assertEq(stable.balanceOf(alice), 100 * USDC);
+        assertEq(tao.balanceOf(alice), 5 * UNIT);
+
+        // A message of the hub stays with the transport, which delivers it later.
+        bytes memory body = creditBody(hubNonce, Wire.ASSET_TAO, 0, bob, UNIT, false, 0, false, 0);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        timelocked(address(portal), abi.encodeCall(portal.unpause, ()));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(tao.balanceOf(bob), UNIT);
+    }
+
+    /// Whatever a payer deposits, the order carries that amount in 9 decimals, the vault
+    /// holds it, and the portal holds nothing.
+    function testFuzz_ADepositIsAnOrderForExactlyWhatWasLocked(uint256 amount, uint8 kind) public {
+        amount = bound(amount, 1, 10_000_000_000 * USDC);
+        kind = uint8(bound(kind, 1, 5));
+        Wire.Destination memory destination = kind <= Wire.TO_ALPHA
+            ? Wire.Destination(
+                kind, kind == Wire.TO_ALPHA ? CHUTES : 0, bytes32(uint256(uint160(bob))), address(0)
+            )
+            : Wire.Destination(
+                kind,
+                kind == Wire.TO_CREDITS ? CHUTES : 0,
+                keccak256("account"),
+                kind == Wire.TO_CREDITS ? bob : address(0)
+            );
+        deposit(alice, amount, destination);
+        Wire.Order memory order = lastOrder();
+        assertEq(uint256(order.amount), amount * 1000);
+        assertEq(order.destination, kind);
+        assertEq(stable.balanceOf(address(vault)), amount);
+        assertEq(stable.balanceOf(address(portal)), 0);
+    }
+}

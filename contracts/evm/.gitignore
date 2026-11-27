@@ -1,0 +1,7 @@
+# Build output and fetched dependencies. `forge soldeer install` restores the dependencies
+# that soldeer.lock pins.
+out/
+cache/
+broadcast/
+dependencies/
+deployments/

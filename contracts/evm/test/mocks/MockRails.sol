@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {IRails} from "precompiles/rails.sol";
+
+/// @notice The hub's precompile for tests of the gateway: it records what it is asked and
+/// answers what a test set.
+contract MockRails is IRails {
+    struct Outbound {
+        uint32 domain;
+        bytes32 recipient;
+        bytes body;
+    }
+
+    struct Executed {
+        address caller;
+        uint32 domain;
+        bytes32 sender;
+        bytes order;
+    }
+
+    Executed[] public executed;
+    Outbound[] public outbox;
+    uint64 public head;
+    uint8 public status = 1;
+    uint64 public amountOut;
+    bool public refuse;
+    /// @notice An answer queued by the next `execute`, as the hub queues a credit.
+    Outbound private _answer;
+    bool private _hasAnswer;
+
+    function setResult(uint8 status_, uint64 amountOut_) external {
+        status = status_;
+        amountOut = amountOut_;
+    }
+
+    function setRefuse(bool refuse_) external {
+        refuse = refuse_;
+    }
+
+    function setAnswer(uint32 domain, bytes32 recipient, bytes calldata body) external {
+        _answer = Outbound(domain, recipient, body);
+        _hasAnswer = true;
+    }
+
+    function enqueue(uint32 domain, bytes32 recipient, bytes calldata body) external {
+        outbox.push(Outbound(domain, recipient, body));
+    }
+
+    function executedCount() external view returns (uint256) {
+        return executed.length;
+    }
+
+    function execute(uint32 domain, bytes32 sender, bytes calldata order)
+        external
+        returns (uint8, uint64)
+    {
+        require(!refuse, "dispatch execution failed: OrderOutOfSequence");
+        executed.push(Executed(msg.sender, domain, sender, order));
+        if (_hasAnswer) {
+            outbox.push(_answer);
+            _hasAnswer = false;
+        }
+        return (status, amountOut);
+    }
+
+    function ackOutbound(uint64 position) external {
+        require(
+            position == head && head < outbox.length, "dispatch execution failed: NotOutboxHead"
+        );
+        head++;
+    }
+
+    function nextOutbound()
+        external
+        view
+        returns (bool pending, uint64 position, uint32 domain, bytes32 recipient, bytes memory body)
+    {
+        if (head >= outbox.length) return (false, 0, 0, bytes32(0), "");
+        Outbound storage next = outbox[head];
+        return (true, head, next.domain, next.recipient, next.body);
+    }
+
+    function quote(uint32, bytes calldata) external pure returns (bool, uint64, string memory) {
+        return (true, 0, "");
+    }
+
+    function receipt(uint32, uint64) external pure returns (uint8, uint64, uint32) {
+        return (0, 0, 0);
+    }
+
+    function nextOrder(uint32) external pure returns (uint64) {
+        return 0;
+    }
+
+    function alphaRate(uint16) external pure returns (uint256) {
+        return 1e18;
+    }
+
+    function creditsOf(uint16, bytes32, address) external pure returns (uint64) {
+        return 0;
+    }
+}
