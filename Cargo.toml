@@ -59,6 +59,7 @@ useless_conversion = "allow"     # until polkadot is patched
 [workspace.dependencies]
 pallet-alpha-assets = { path = "pallets/alpha-assets", default-features = false }
 pallet-canonical-pool = { path = "pallets/canonical-pool", default-features = false }
+pallet-rails = { path = "pallets/rails", default-features = false }
 pallet-tusd = { path = "pallets/tusd", default-features = false }
 node-subtensor-runtime = { path = "runtime", default-features = false }
 pallet-admin-utils = { path = "pallets/admin-utils", default-features = false }
