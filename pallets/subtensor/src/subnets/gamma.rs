@@ -9,7 +9,10 @@ use frame_support::storage::with_storage_layer;
 use safe_math::*;
 use sp_runtime::ArithmeticError;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, GammaBalance, NetUid, TaoBalance};
+use subtensor_runtime_common::{
+    AlphaBalance, GammaBalance, NetUid, TaoBalance,
+    rails::{BridgedPayment, SpenderKind},
+};
 use subtensor_swap_interface::SwapHandler;
 
 use super::*;
@@ -139,10 +142,19 @@ impl<T: Config> Pallet<T> {
         alpha: AlphaBalance,
         mark: U64F64,
     ) -> Result<(TaoBalance, GammaBalance), DispatchError> {
+        let price = Self::mint_tao_usd_price(Self::get_current_block_as_u64())?;
+        Self::gamma_at_price(alpha, mark, price)
+    }
+
+    /// The TAO value and gamma of `alpha` burned at `mark`, at `price` dollars per TAO.
+    fn gamma_at_price(
+        alpha: AlphaBalance,
+        mark: U64F64,
+        price: u64,
+    ) -> Result<(TaoBalance, GammaBalance), DispatchError> {
         let value = mark
             .saturating_mul(U64F64::saturating_from_num(alpha.to_u64()))
             .saturating_to_num::<u64>();
-        let price = Self::mint_tao_usd_price(Self::get_current_block_as_u64())?;
         let gamma = Self::mul_div_u64(value, price, 1_000_000_000);
         ensure!(gamma >= crate::MIN_GAMMA_AMOUNT, Error::<T>::AmountTooLow);
         Ok((value.into(), gamma.into()))
@@ -559,6 +571,57 @@ impl<T: Config> Pallet<T> {
             amount,
         });
         Ok(())
+    }
+
+    /// Buys alpha with `amount` of `funder`'s TAO, burns it and spends its gamma at `service`
+    /// for the payer of a bridged `payment`, all at once. No deposit opens: the gamma is
+    /// burned for that service as it is minted, and cannot be moved or refunded after.
+    ///
+    /// The gamma is valued like a mint's, except that a TAO counts for no more dollars than
+    /// `tao_usd_price_cap`: the bridge bought the TAO at a market price, and passes the
+    /// time-weighted price of that market so that a cheap market cannot mint more credit
+    /// than the dollars paid.
+    ///
+    /// Returns the TAO taken, the alpha burned and the gamma spent. The caller must run
+    /// this in a storage layer and discard it if the gamma is less than the payer accepts.
+    pub fn do_spend_tao_at_service(
+        funder: &T::AccountId,
+        netuid: NetUid,
+        service: &T::AccountId,
+        amount: TaoBalance,
+        tao_usd_price_cap: u64,
+        payment: BridgedPayment<T::AccountId>,
+    ) -> Result<(TaoBalance, AlphaBalance, GammaBalance), DispatchError> {
+        Self::ensure_gamma_mintable(netuid)?;
+        ensure!(
+            Services::<T>::contains_key(netuid, service),
+            Error::<T>::ServiceDoesNotExist
+        );
+        ensure!(
+            Self::can_remove_balance_from_coldkey_account(funder, amount),
+            Error::<T>::NotEnoughBalanceToStake
+        );
+        Self::ensure_add_stake_input_within_swap_limit(netuid, amount)?;
+        let mark = Self::gamma_mark(netuid);
+        let (tao, alpha) = Self::buy_and_burn_alpha(netuid, funder, amount)?;
+        let price =
+            Self::mint_tao_usd_price(Self::get_current_block_as_u64())?.min(tao_usd_price_cap);
+        let (_, gamma) = Self::gamma_at_price(alpha, mark, price)?;
+        GammaSpentByPayer::<T>::mutate((netuid, service, &payment.payer), |spent| {
+            *spent = spent.saturating_add(gamma)
+        });
+        Self::deposit_event(Event::GammaSpentV2 {
+            netuid,
+            service: service.clone(),
+            payer: payment.payer,
+            origin_chain: payment.origin_chain,
+            spender_kind: SpenderKind::Bridge {
+                chain: payment.origin_chain,
+            },
+            amount: gamma,
+            origin_nonce: Some(payment.origin_nonce),
+        });
+        Ok((tao, alpha, gamma))
     }
 
     /// The deposit at `hotkey` once it spends `amount` at `service` now, if it can: `service` has

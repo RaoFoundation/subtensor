@@ -20,6 +20,7 @@ pub mod decrease_take;
 mod deferred_dividends_reference;
 pub mod helpers;
 pub mod increase_take;
+pub mod index_hotkey;
 pub mod lock;
 pub mod move_stake;
 pub mod order_swap;

@@ -133,7 +133,7 @@ impl<T: Config> Pallet<T> {
         Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            !Self::is_system_hotkey(hotkey),
             Error::<T>::CannotUseSystemAccount
         );
         // An in-flight coldkey-swap announcement reserves its destination so a
@@ -165,7 +165,7 @@ impl<T: Config> Pallet<T> {
         Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            !Self::is_system_hotkey(hotkey),
             Error::<T>::CannotUseSystemAccount
         );
         // Same reservation guard as create_account: hotkey-swap must not assign
@@ -216,6 +216,10 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// The take value of the hotkey.
     pub fn get_hotkey_take(hotkey: &T::AccountId) -> u16 {
+        // An index hotkey takes nothing, whatever storage says.
+        if Self::is_index_hotkey(hotkey) {
+            return 0;
+        }
         Delegates::<T>::get(hotkey).deconstruct()
     }
     pub fn get_hotkey_take_float(hotkey: &T::AccountId) -> U96F32 {

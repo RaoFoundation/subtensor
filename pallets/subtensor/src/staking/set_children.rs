@@ -36,9 +36,16 @@ impl<T: Config> PCRelations<T> {
         Ok(())
     }
 
-    /// Ensure that the number of children does not exceed 5
-    pub fn ensure_childkey_count(children: &BTreeMap<T::AccountId, u64>) -> DispatchResult {
-        ensure!(children.len() <= 5, Error::<T>::TooManyChildren);
+    /// Ensure that the number of children does not exceed what the pivot may have: 5, or 8
+    /// for an index hotkey
+    pub fn ensure_childkey_count(
+        pivot: &T::AccountId,
+        children: &BTreeMap<T::AccountId, u64>,
+    ) -> DispatchResult {
+        ensure!(
+            children.len() <= Pallet::<T>::max_children(pivot),
+            Error::<T>::TooManyChildren
+        );
 
         Ok(())
     }
@@ -81,7 +88,7 @@ impl<T: Config> PCRelations<T> {
 
         // Check constraints
         Self::ensure_no_self_loop(&self.pivot, &new_children)?;
-        Self::ensure_childkey_count(&new_children)?;
+        Self::ensure_childkey_count(&self.pivot, &new_children)?;
         Self::ensure_total_proportions(&new_children)?;
         Self::ensure_bipartite_separation(&new_children, &self.parents)?;
 
@@ -547,6 +554,16 @@ impl<T: Config> Pallet<T> {
             unique_children.push(child_i.clone());
         }
 
+        // An index hotkey takes its children from the protocol and is nobody's child: a
+        // parent of it would stand between it and the validators its rule picks.
+        ensure!(
+            !Self::is_index_hotkey(&hotkey)
+                && !children
+                    .iter()
+                    .any(|(_, child)| Self::is_index_hotkey(child)),
+            Error::<T>::InvalidChild
+        );
+
         // Ensure we don't break consistency when these new childkeys are set:
         //  - Ensure that the number of children does not exceed 5
         //  - Each child is not the hotkey.
@@ -688,6 +705,10 @@ impl<T: Config> Pallet<T> {
     /// weight budget, never inside the signed extrinsic. Costs one or two reads, plus one
     /// write for parents.
     pub fn queue_childkey_threshold_check(hotkey: &T::AccountId) {
+        // The threshold does not apply to an index hotkey.
+        if Self::is_index_hotkey(hotkey) {
+            return;
+        }
         if ChildkeyThresholdSuspended::<T>::contains_key(hotkey)
             || ChildKeys::<T>::iter_key_prefix(hotkey).next().is_some()
         {
@@ -742,7 +763,10 @@ impl<T: Config> Pallet<T> {
     /// child.
     pub fn recheck_childkey_threshold(hotkey: &T::AccountId) {
         let threshold = StakeThreshold::<T>::get();
-        if threshold == 0 || Self::get_total_stake_for_hotkey(hotkey) >= threshold.into() {
+        if threshold == 0
+            || Self::is_index_hotkey(hotkey)
+            || Self::get_total_stake_for_hotkey(hotkey) >= threshold.into()
+        {
             ChildkeyThresholdSuspended::<T>::remove(hotkey);
         } else {
             ChildkeyThresholdSuspended::<T>::insert(hotkey, ());

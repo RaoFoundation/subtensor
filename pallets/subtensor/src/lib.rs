@@ -146,6 +146,9 @@ pub const ROOT_CLAIM_HOTKEY_COUNT_READS: u32 = 10;
 /// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
 /// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
 pub const MAX_THIRD_PARTY_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK / 2;
+/// The most children an ordinary hotkey may have on a subnet. An index hotkey may have
+/// [`staking::index_hotkey::MAX_INDEX_CHILDREN`].
+pub const MAX_CHILDREN: usize = 5;
 /// Longest `StakingHotkeys` list a coldkey may hold in total. Every stake exit walks this
 /// list (lock and collateral availability), so its length is a weight dimension of every
 /// unstake-side call; bounding it keeps [`Pallet::staking_hotkeys_walk_bound`] finite. Equal
@@ -376,6 +379,7 @@ pub mod pallet {
     use subtensor_macros::freeze_struct;
     use subtensor_runtime_common::{
         AlphaBalance, GammaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance, Token,
+        rails::{OriginChain, Payer, SpenderKind},
     };
 
     /// Origin for the pallet
@@ -4269,6 +4273,35 @@ pub mod pallet {
         GammaBalance,
         ValueQuery,
     >;
+
+    /// NMAP ( netuid, service, payer ) --> gamma | The gamma a payer has spent at the service
+    /// on the subnet through a bridge. The payer is the identity that paid on its own chain;
+    /// the service credits it by the growth of this total.
+    #[pallet::storage]
+    pub type GammaSpentByPayer<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Blake2_128Concat, T::AccountId>,
+            NMapKey<Blake2_128Concat, Payer<T::AccountId>>,
+        ),
+        GammaBalance,
+        ValueQuery,
+    >;
+
+    /// ITEM --> netuids | The subnets whose index hotkey is open, in the order they take
+    /// their turn to be refreshed.
+    #[pallet::storage]
+    pub type IndexSubnets<T: Config> = StorageValue<
+        _,
+        BoundedVec<NetUid, ConstU32<{ crate::staking::index_hotkey::MAX_INDEX_SUBNETS }>>,
+        ValueQuery,
+    >;
+
+    /// MAP ( netuid ) --> block | When the children of the subnet's index hotkey were last
+    /// set by the rule.
+    #[pallet::storage]
+    pub type IndexRefreshedAt<T: Config> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
 
     /// MAP ( netuid ) --> gamma_price | The highest price a subnet's alpha mints gamma at: set to the
     /// median subnet alpha price at registration, each block it falls to the spot price at once

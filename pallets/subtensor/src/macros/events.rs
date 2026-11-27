@@ -1087,5 +1087,23 @@ mod events {
             /// Authorized account, or `None` after revocation.
             delegate: Option<T::AccountId>,
         },
+        /// A payer spent gamma at a service through a bridge; the gamma is burned. The
+        /// service credits the payer by the growth of `GammaSpentByPayer`, not by this event.
+        GammaSpentV2 {
+            /// Subnet of the service.
+            netuid: NetUid,
+            /// Hotkey of the service.
+            service: T::AccountId,
+            /// The identity that paid on its own chain.
+            payer: Payer<T::AccountId>,
+            /// The chain the payment was authorized on.
+            origin_chain: OriginChain,
+            /// Who submitted the spend on Bittensor.
+            spender_kind: SpenderKind,
+            /// Gamma spent.
+            amount: GammaBalance,
+            /// The bridge's sequence number of the payment on its origin chain.
+            origin_nonce: Option<u64>,
+        },
     }
 }

@@ -99,6 +99,15 @@ pub enum SpenderKind {
     Multisig,
 }
 
+/// A payment that a bridge relays: who paid, on which chain, and the bridge's sequence number
+/// of the payment there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BridgedPayment<AccountId> {
+    pub payer: Payer<AccountId>,
+    pub origin_chain: OriginChain,
+    pub origin_nonce: u64,
+}
+
 /// The stablecoin a bridge locks on its origin chain.
 #[non_exhaustive]
 #[derive(

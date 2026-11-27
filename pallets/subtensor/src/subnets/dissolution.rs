@@ -257,6 +257,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             GammaSpent::<T>::clear_prefix((netuid,), limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            GammaSpentByPayer::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             UnconvertedGammaEmission::<T>::clear_prefix(netuid, limit, None)
         });
 
