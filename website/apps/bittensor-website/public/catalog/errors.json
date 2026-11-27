@@ -423,7 +423,9 @@
       "docs_url": "/docs/errors/chain/AmountTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/AmountTooLow/content.md",
       "pallets": [
-        "SubtensorModule"
+        "SubtensorModule",
+        "CanonicalPool",
+        "Rails"
       ],
       "sources": [
         {
@@ -432,6 +434,20 @@
           "line": 190,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L190",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        },
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 292,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L292",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        },
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 322,
+          "url": "/code/pallets/rails/src/lib.rs#L322",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -759,6 +775,24 @@
         }
       ]
     },
+    "BelowMinimumBalance": {
+      "code": "invalid_argument",
+      "description": "The transfer would leave an account holding some tUSD but less than the minimum balance (`Tusd.MinBalance`, 0.01 tUSD). Send the whole balance, or leave at least the minimum on both sides.",
+      "docs_url": "/docs/errors/chain/BelowMinimumBalance",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinimumBalance/content.md",
+      "pallets": [
+        "Tusd"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 183,
+          "url": "/code/pallets/tusd/src/lib.rs#L183",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
+        }
+      ]
+    },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
       "description": "When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns.",
@@ -846,6 +880,50 @@
           "line": 285,
           "url": "/code/pallets/admin-utils/src/lib.rs#L285",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
+    "BridgeDisabled": {
+      "code": "disabled",
+      "description": "The bridge is unknown or disabled: it mints nothing, releases nothing and takes no order until the admin origin enables it. Check `Tusd.Bridges` for its `enabled` flag.",
+      "docs_url": "/docs/errors/chain/BridgeDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BridgeDisabled/content.md",
+      "pallets": [
+        "Tusd",
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 187,
+          "url": "/code/pallets/tusd/src/lib.rs#L187",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
+        },
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 311,
+          "url": "/code/pallets/rails/src/lib.rs#L311",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
+    "BridgeUnknown": {
+      "code": "not_found",
+      "description": "No bridge has this id. List the bridges with `btcli bridge tokens` or read `Tusd.Bridges`.",
+      "docs_url": "/docs/errors/chain/BridgeUnknown",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BridgeUnknown/content.md",
+      "pallets": [
+        "Tusd"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 185,
+          "url": "/code/pallets/tusd/src/lib.rs#L185",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
         }
       ]
     },
@@ -2269,6 +2347,24 @@
         "Balances"
       ]
     },
+    "Expired": {
+      "code": "expired",
+      "description": "The order's deadline passed before the hub could settle it, so it was refunded. Resubmit with a later deadline.",
+      "docs_url": "/docs/errors/chain/Expired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Expired/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 318,
+          "url": "/code/pallets/rails/src/lib.rs#L318",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "ExpiredWeightCommit": {
       "code": "expired",
       "description": "The hash supplied to `reveal_weights` matches a commit whose reveal window has already passed, so it can no longer be revealed. Check the `commit_reveal_period` hyperparameter and reveal within the allowed epochs after committing; re-commit and reveal on time.",
@@ -2320,6 +2416,24 @@
           "line": 103,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L103",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "FeeOutOfRange": {
+      "code": "invalid_argument",
+      "description": "The swap fee is outside the allowed range, 0.05% to 1%. Set a fee within it.",
+      "docs_url": "/docs/errors/chain/FeeOutOfRange",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FeeOutOfRange/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 308,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L308",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
         }
       ]
     },
@@ -2836,6 +2950,24 @@
         "Contracts"
       ]
     },
+    "InitialPriceOutOfRange": {
+      "code": "invalid_argument",
+      "description": "The first deposit sets a price too far from the TAO/USD oracle price (`CanonicalPool.MaxInitialPriceDeviation`). Deposit TAO and tUSD in the ratio of the oracle price.",
+      "docs_url": "/docs/errors/chain/InitialPriceOutOfRange",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InitialPriceOutOfRange/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 306,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L306",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        }
+      ]
+    },
     "InputForwarded": {
       "code": "invalid_argument",
       "description": "The contract forwarded its input to a callee via `seal_call` with the FORWARD_INPUT flag and then tried to read or forward it again. Check the call flags used; use CLONE_INPUT when the input is still needed afterwards.",
@@ -2889,7 +3021,8 @@
       "pallets": [
         "Balances",
         "Crowdloan",
-        "Swap"
+        "Swap",
+        "Tusd"
       ],
       "sources": [
         {
@@ -2905,6 +3038,13 @@
           "line": 158,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        },
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 181,
+          "url": "/code/pallets/tusd/src/lib.rs#L181",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
         }
       ]
     },
@@ -2967,6 +3107,24 @@
           "line": 152,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L152",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "InsufficientShares": {
+      "code": "insufficient_balance",
+      "description": "The account does not hold that many shares of the pool. Check `btcli pool show` for its shares.",
+      "docs_url": "/docs/errors/chain/InsufficientShares",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientShares/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 302,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L302",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
         }
       ]
     },
@@ -3049,6 +3207,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidCallFlags/content.md",
       "pallets": [
         "Contracts"
+      ]
+    },
+    "InvalidCaps": {
+      "code": "invalid_argument",
+      "description": "The swap caps name a fraction of zero or a window of zero blocks. Every cap must be positive.",
+      "docs_url": "/docs/errors/chain/InvalidCaps",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidCaps/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 310,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L310",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        }
       ]
     },
     "InvalidChainId": {
@@ -3462,6 +3638,24 @@
           "line": 268,
           "url": "/code/pallets/drand/src/lib.rs#L268",
           "raw_url": "/code/raw/pallets/drand/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidRoute": {
+      "code": "invalid_argument",
+      "description": "The destination is the asset the payment is made with, or one that cannot be paid for this way. An exit from Bittensor delivers the stablecoin, canonical TAO or an alpha token on the spoke.",
+      "docs_url": "/docs/errors/chain/InvalidRoute",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidRoute/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 316,
+          "url": "/code/pallets/rails/src/lib.rs#L316",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -3924,6 +4118,96 @@
         }
       ]
     },
+    "MarketCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The purchase would put the market's vault over its cap of alpha (`Rails.Markets`). Buy less, or wait until the cap is raised.",
+      "docs_url": "/docs/errors/chain/MarketCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MarketCapExceeded/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 340,
+          "url": "/code/pallets/rails/src/lib.rs#L340",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
+    "MarketClosed": {
+      "code": "disabled",
+      "description": "The market's subnet is gone. Its token can still be sold, for a share of the TAO its stake was paid out in, but not bought.",
+      "docs_url": "/docs/errors/chain/MarketClosed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MarketClosed/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 336,
+          "url": "/code/pallets/rails/src/lib.rs#L336",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
+    "MarketExists": {
+      "code": "already_exists",
+      "description": "The subnet already has a market, or its token is already listed on this spoke. A netuid has one market.",
+      "docs_url": "/docs/errors/chain/MarketExists",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MarketExists/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 334,
+          "url": "/code/pallets/rails/src/lib.rs#L334",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
+    "MarketSettling": {
+      "code": "too_early",
+      "description": "The market's subnet is being dissolved and its stake is not paid out yet. Its token can be sold once the dissolution has finished.",
+      "docs_url": "/docs/errors/chain/MarketSettling",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MarketSettling/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 338,
+          "url": "/code/pallets/rails/src/lib.rs#L338",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
+    "MarketUnknown": {
+      "code": "not_found",
+      "description": "The subnet has no market, so it has no alpha token. List the markets with `btcli bridge tokens`.",
+      "docs_url": "/docs/errors/chain/MarketUnknown",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MarketUnknown/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 332,
+          "url": "/code/pallets/rails/src/lib.rs#L332",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "MaxAllowedUIdsLessThanCurrentUIds": {
       "code": "invalid_argument",
       "description": "`sudo_set_max_allowed_uids` was given a value below the number of neurons already registered on the subnet. Compare the `max_allowed_uids` argument against `SubnetworkN` for that netuid.",
@@ -4237,6 +4521,42 @@
         "Multisig"
       ]
     },
+    "MintCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The mint would put the bridge over its cap on tUSD outstanding. Check `Tusd.BridgeOutstanding` against the bridge's `mint_cap`; a smaller deposit may fit.",
+      "docs_url": "/docs/errors/chain/MintCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MintCapExceeded/content.md",
+      "pallets": [
+        "Tusd"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 189,
+          "url": "/code/pallets/tusd/src/lib.rs#L189",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
+        }
+      ]
+    },
+    "MintRateLimited": {
+      "code": "rate_limited",
+      "description": "The bridge has minted as much tUSD as its window allows for now. The window refills evenly over its period; retry later or deposit less.",
+      "docs_url": "/docs/errors/chain/MintRateLimited",
+      "markdown_url": "/llms.mdx/docs/errors/chain/MintRateLimited/content.md",
+      "pallets": [
+        "Tusd"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 191,
+          "url": "/code/pallets/tusd/src/lib.rs#L191",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
+        }
+      ]
+    },
     "MultiBlockMigrationsOngoing": {
       "code": "too_early",
       "description": "Runtime code replacement is blocked while a multi-block migration is still executing. Wait for the ongoing migrations to complete (check the multi-block migrations cursor) before retrying `set_code` or the authorized upgrade.",
@@ -4477,6 +4797,24 @@
           "line": 526,
           "url": "/code/pallets/limit-orders/src/lib.rs#L526",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "NoLiquidity": {
+      "code": "insufficient_liquidity",
+      "description": "The tUSD/TAO pool holds no liquidity yet, so it cannot swap. Someone must make the first deposit with `btcli pool add`.",
+      "docs_url": "/docs/errors/chain/NoLiquidity",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoLiquidity/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 290,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L290",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
         }
       ]
     },
@@ -4833,6 +5171,24 @@
         }
       ]
     },
+    "NotGateway": {
+      "code": "not_authorized",
+      "description": "Only the gateway contract's account (`Rails.Gateway`) delivers orders and takes messages from the outbox. This call is not for accounts.",
+      "docs_url": "/docs/errors/chain/NotGateway",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotGateway/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 305,
+          "url": "/code/pallets/rails/src/lib.rs#L305",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "NotMechWeightDelegate": {
       "code": "not_authorized",
       "description": "The signer is not the validator's currently authorized delegate for this exact netuid and mechanism, or the validator's grant is still moving after a hotkey change. Query the delegate for the validator and mechanism, wait for lifecycle cleanup, and have the validator grant or renew the delegation before retrying.",
@@ -4858,6 +5214,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/NotNoted/content.md",
       "pallets": [
         "Preimage"
+      ]
+    },
+    "NotOutboxHead": {
+      "code": "invalid_argument",
+      "description": "The position is not the head of the hub's outbox. Messages leave first in, first out; read `Rails.OutboxBounds`.",
+      "docs_url": "/docs/errors/chain/NotOutboxHead",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotOutboxHead/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 348,
+          "url": "/code/pallets/rails/src/lib.rs#L348",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
       ]
     },
     "NotOwner": {
@@ -4993,6 +5367,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/NothingAuthorized/content.md",
       "pallets": [
         "System"
+      ]
+    },
+    "OracleUnavailable": {
+      "code": "disabled",
+      "description": "The first deposit into the pool is checked against the TAO/USD price, and there is no fresh price. Check `tao_usd_price` and retry once the oracle has fed.",
+      "docs_url": "/docs/errors/chain/OracleUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OracleUnavailable/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 304,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L304",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        }
       ]
     },
     "OrderAccountMissing": {
@@ -5139,6 +5531,24 @@
         }
       ]
     },
+    "OrderOutOfSequence": {
+      "code": "invalid_argument",
+      "description": "The order is not the next of its bridge: it was settled before, or an earlier order has not arrived. Check `Rails.NextOrder` for the bridge.",
+      "docs_url": "/docs/errors/chain/OrderOutOfSequence",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderOutOfSequence/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 314,
+          "url": "/code/pallets/rails/src/lib.rs#L314",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "OrderSignerFrozen": {
       "code": "not_authorized",
       "description": "The order owner is temporarily prohibited from moving funds, so the order cannot be executed. Retry once the owner's freeze has lifted.",
@@ -5184,6 +5594,24 @@
         "Contracts"
       ]
     },
+    "OutboxFull": {
+      "code": "limit_exceeded",
+      "description": "Too many of the hub's messages wait for the gateway (`Rails.MaxOutbox`). Anyone can call the gateway's `flush` to hand them to the transport.",
+      "docs_url": "/docs/errors/chain/OutboxFull",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OutboxFull/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 346,
+          "url": "/code/pallets/rails/src/lib.rs#L346",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "OutputBufferTooSmall": {
       "code": "invalid_argument",
       "description": "The output buffer the contract supplied to an API call is smaller than the data the runtime needs to write back. Check the output length pointer the contract passes and enlarge the buffer; usually a contract-side bug.",
@@ -5200,7 +5628,9 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/Overflow/content.md",
       "pallets": [
         "SubtensorModule",
-        "Crowdloan"
+        "Crowdloan",
+        "CanonicalPool",
+        "Rails"
       ],
       "sources": [
         {
@@ -5216,6 +5646,20 @@
           "line": 255,
           "url": "/code/pallets/crowdloan/src/lib.rs#L255",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        },
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 312,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L312",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        },
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 350,
+          "url": "/code/pallets/rails/src/lib.rs#L350",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -5336,6 +5780,24 @@
         "Grandpa"
       ]
     },
+    "Paused": {
+      "code": "disabled",
+      "description": "The hub of the rails is paused: it takes no order and no exit until the admin origin resumes it. Check `Rails.Paused`.",
+      "docs_url": "/docs/errors/chain/Paused",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Paused/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 307,
+          "url": "/code/pallets/rails/src/lib.rs#L307",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "PaymentOverflow": {
       "code": "internal",
       "description": "Arithmetic overflowed while computing the total payment or refund for an EVM transaction, such as refunding remaining gas at the effective gas price. Check for extreme gas price or gas limit values in the transaction.",
@@ -5343,6 +5805,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PaymentOverflow/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "PoolDisabled": {
+      "code": "disabled",
+      "description": "The tUSD/TAO pool is disabled: swaps and deposits wait until the admin origin enables it. Withdrawals stay open. Check `btcli pool show`.",
+      "docs_url": "/docs/errors/chain/PoolDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PoolDisabled/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 288,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L288",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        }
+      ]
+    },
+    "PortalAlreadyRegistered": {
+      "code": "already_exists",
+      "description": "Another bridge already uses this portal address on this transport domain. Each portal belongs to one bridge; check `Tusd.BridgeByPortal`.",
+      "docs_url": "/docs/errors/chain/PortalAlreadyRegistered",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PortalAlreadyRegistered/content.md",
+      "pallets": [
+        "Tusd"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 195,
+          "url": "/code/pallets/tusd/src/lib.rs#L195",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
+        }
       ]
     },
     "PreLogExists": {
@@ -5450,6 +5948,24 @@
           "line": 439,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L439",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "RedeemExceedsOutstanding": {
+      "code": "insufficient_liquidity",
+      "description": "The exit asks the bridge to release more of the stablecoin than it brought in. A bridge releases only against its own `Tusd.BridgeOutstanding`; exit less, or through another bridge.",
+      "docs_url": "/docs/errors/chain/RedeemExceedsOutstanding",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RedeemExceedsOutstanding/content.md",
+      "pallets": [
+        "Tusd"
+      ],
+      "sources": [
+        {
+          "pallet": "Tusd",
+          "path": "pallets/tusd/src/lib.rs",
+          "line": 193,
+          "url": "/code/pallets/tusd/src/lib.rs#L193",
+          "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
         }
       ]
     },
@@ -5586,6 +6102,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/RescheduleNoChange/content.md",
       "pallets": [
         "Scheduler"
+      ]
+    },
+    "ReserveDust": {
+      "code": "invalid_argument",
+      "description": "The exit would leave the reserve behind canonical TAO with less than an account can hold. Unwrap a little less, or the whole supply.",
+      "docs_url": "/docs/errors/chain/ReserveDust",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ReserveDust/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 330,
+          "url": "/code/pallets/rails/src/lib.rs#L330",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
+    "ReserveTooLow": {
+      "code": "insufficient_liquidity",
+      "description": "The operation would leave one of the pool's reserves below the minimum reserve (`CanonicalPool.MinReserve`). Swap or withdraw less.",
+      "docs_url": "/docs/errors/chain/ReserveTooLow",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ReserveTooLow/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 300,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L300",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        }
       ]
     },
     "ReservesOutOfBalance": {
@@ -5930,6 +6482,32 @@
         "Multisig"
       ]
     },
+    "SlippageExceeded": {
+      "code": "insufficient_liquidity",
+      "description": "The result is worse than the minimum the caller set: fewer shares, less of an asset, or less of an order's destination. Quote again and resubmit, or raise the tolerance.",
+      "docs_url": "/docs/errors/chain/SlippageExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SlippageExceeded/content.md",
+      "pallets": [
+        "CanonicalPool",
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 294,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L294",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        },
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 320,
+          "url": "/code/pallets/rails/src/lib.rs#L320",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "SlippageTooHigh": {
       "code": "insufficient_liquidity",
       "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, raise `--rate-tolerance`, or, for stake, disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
@@ -6182,6 +6760,24 @@
         }
       ]
     },
+    "SubnetUnknown": {
+      "code": "subnet_not_exists",
+      "description": "There is no live subnet at this netuid to open a market for. The root network has no alpha token.",
+      "docs_url": "/docs/errors/chain/SubnetUnknown",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SubnetUnknown/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 342,
+          "url": "/code/pallets/rails/src/lib.rs#L342",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "SubtokenDisabled": {
       "code": "subtoken_disabled",
       "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli hparams start` after registration. Check readiness with `btcli hparams check-start`.",
@@ -6226,6 +6822,24 @@
         }
       ]
     },
+    "SwapRateLimited": {
+      "code": "rate_limited",
+      "description": "Swaps in this direction have used up the pool's window (`CanonicalPool.Caps.per_window`). It refills evenly over the window; retry later.",
+      "docs_url": "/docs/errors/chain/SwapRateLimited",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SwapRateLimited/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 298,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L298",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+        }
+      ]
+    },
     "SwapReturnedZero": {
       "code": "insufficient_liquidity",
       "description": "The netted pool swap in `execute_batched_orders` produced zero output for a non-zero input, meaning the pool lacks liquidity or the derived price limit clamped the swap entirely. Check the subnet pool's reserves and the batch's tightest slippage-derived price limit.",
@@ -6241,6 +6855,24 @@
           "line": 495,
           "url": "/code/pallets/limit-orders/src/lib.rs#L495",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "SwapTooLarge": {
+      "code": "limit_exceeded",
+      "description": "The swap pays in more than the pool allows in one swap, a fraction of the reserve (`CanonicalPool.Caps.per_swap`). Split the amount into smaller swaps.",
+      "docs_url": "/docs/errors/chain/SwapTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SwapTooLarge/content.md",
+      "pallets": [
+        "CanonicalPool"
+      ],
+      "sources": [
+        {
+          "pallet": "CanonicalPool",
+          "path": "pallets/canonical-pool/src/lib.rs",
+          "line": 296,
+          "url": "/code/pallets/canonical-pool/src/lib.rs#L296",
+          "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
         }
       ]
     },
@@ -6277,6 +6909,24 @@
           "line": 247,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L247",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "TaoCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The spoke would hold more canonical TAO than its cap (`Rails.TaoCap`). Buy less, or wait until the cap is raised.",
+      "docs_url": "/docs/errors/chain/TaoCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TaoCapExceeded/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 328,
+          "url": "/code/pallets/rails/src/lib.rs#L328",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -6367,6 +7017,24 @@
           "line": 243,
           "url": "/code/pallets/commitments/src/lib.rs#L243",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
+    "TokenNotRegistered": {
+      "code": "not_found",
+      "description": "The destination token is not in the registry for this spoke. List what a spoke has with `btcli bridge tokens`.",
+      "docs_url": "/docs/errors/chain/TokenNotRegistered",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TokenNotRegistered/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 326,
+          "url": "/code/pallets/rails/src/lib.rs#L326",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -6540,6 +7208,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyHolds/content.md",
       "pallets": [
         "Balances"
+      ]
+    },
+    "TooManyIndexSubnets": {
+      "code": "limit_exceeded",
+      "description": "No more subnets can have an index hotkey: the list of index subnets is full. An index closes when its subnet is dissolved; check `SubtensorModule.IndexSubnets`.",
+      "docs_url": "/docs/errors/chain/TooManyIndexSubnets",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyIndexSubnets/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 513,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L513",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "TooManyPendingExtrinsics": {
@@ -6776,6 +7462,24 @@
         }
       ]
     },
+    "TwapUnavailable": {
+      "code": "too_early",
+      "description": "Credits are valued at the pool's time-weighted price, and the pool does not have a full period of price history yet. Retry after `CanonicalPool.TwapPeriod` blocks.",
+      "docs_url": "/docs/errors/chain/TwapUnavailable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TwapUnavailable/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 344,
+          "url": "/code/pallets/rails/src/lib.rs#L344",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "TxChildkeyTakeRateLimitExceeded": {
       "code": "rate_limited",
       "description": "`set_childkey_take` was called again for the hotkey on this subnet before its rate-limit window elapsed. Check the block of the last childkey-take change against `TxChildkeyTakeRateLimit` and wait out the remainder.",
@@ -6921,6 +7625,24 @@
         }
       ]
     },
+    "Unbacked": {
+      "code": "insufficient_balance",
+      "description": "The spoke reports a burn of more canonical tokens than the hub let it mint. The hub releases nothing for it. Check `Rails.TaoSupply` or `Rails.AlphaSupply`.",
+      "docs_url": "/docs/errors/chain/Unbacked",
+      "markdown_url": "/llms.mdx/docs/errors/chain/Unbacked/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 324,
+          "url": "/code/pallets/rails/src/lib.rs#L324",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "Undefined": {
       "code": "internal",
       "description": "Catch-all EVM validation error for cases without a dedicated variant, such as a malformed EIP-7702 authorization list or an unknown validation failure. Inspect the raw transaction for unsupported fields and check the node logs.",
@@ -6972,6 +7694,24 @@
           "line": 241,
           "url": "/code/pallets/commitments/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
+    "UnknownPortal": {
+      "code": "not_found",
+      "description": "No bridge has this portal on this transport domain, so the hub does not take its orders. Check `Tusd.BridgeByPortal`.",
+      "docs_url": "/docs/errors/chain/UnknownPortal",
+      "markdown_url": "/llms.mdx/docs/errors/chain/UnknownPortal/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 309,
+          "url": "/code/pallets/rails/src/lib.rs#L309",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },

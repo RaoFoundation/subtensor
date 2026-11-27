@@ -221,13 +221,16 @@ PALLET_DIRS = {
     "HashedAccounts": "pallets/hashed-accounts",
     "SubtensorModule": "pallets/subtensor",
     "AdminUtils": "pallets/admin-utils",
+    "CanonicalPool": "pallets/canonical-pool",
     "Commitments": "pallets/commitments",
     "Crowdloan": "pallets/crowdloan",
     "Drand": "pallets/drand",
     "LimitOrders": "pallets/limit-orders",
     "MevShield": "pallets/shield",
     "Proxy": "pallets/proxy",
+    "Rails": "pallets/rails",
     "Swap": "pallets/swap",
+    "Tusd": "pallets/tusd",
     "Utility": "pallets/utility",
 }
 

@@ -19,6 +19,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `not_f
 
 | Chain error | Description |
 | --- | --- |
+| [`BridgeUnknown`](/docs/errors/chain/BridgeUnknown) | No bridge has this id. List the bridges with `btcli bridge tokens` or read `Tusd.Bridges`. |
 | [`CallUnavailable`](/docs/errors/chain/CallUnavailable) | During `finalize` the crowdloan's stored call could not be fetched from preimage storage, so nothing was dispatched. Check that the preimage referenced by the `call` field of the `Crowdloans` entry still exists in the preimage pallet. |
 | [`CodeInfoNotFound`](/docs/errors/chain/CodeInfoNotFound) | No `CodeInfoOf` entry exists for the supplied code hash, so its owner and deposit metadata cannot be read. Verify the code hash argument and that the code was uploaded and not since removed. |
 | [`CodeNotFound`](/docs/errors/chain/CodeNotFound) | No uploaded WASM binary exists under the supplied code hash. Verify the `code_hash` argument used in instantiation, `set_code`, or a delegate call, and that the code was uploaded via `upload_code` and not removed. |
@@ -31,6 +32,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `not_f
 | [`InvalidCrowdloanId`](/docs/errors/chain/InvalidCrowdloanId) | No crowdloan exists in the `Crowdloans` storage map for the given `crowdloan_id`; it was never created or has been dissolved. Check `Crowdloans` for the id and `NextCrowdloanId` for the range of ids ever issued. |
 | [`LeaseDoesNotExist`](/docs/errors/chain/LeaseDoesNotExist) | The `lease_id` argument does not correspond to any stored lease. Query the `SubnetLeases` storage map to confirm the lease id and whether it was already terminated. |
 | [`LeaseNetuidNotFound`](/docs/errors/chain/LeaseNetuidNotFound) | After registering the leased network, no subnet owned by the lease's derived coldkey could be found, so the netuid lookup failed. Inspect `SubnetOwner` entries for the lease coldkey; this usually indicates the registration did not complete. |
+| [`MarketUnknown`](/docs/errors/chain/MarketUnknown) | The subnet has no market, so it has no alpha token. List the markets with `btcli bridge tokens`. |
 | [`NoContribution`](/docs/errors/chain/NoContribution) | The account has no contribution recorded for this crowdloan, so `withdraw` has nothing to pay out (or `dissolve` finds no creator contribution). Check the `Contributions` double map under the `crowdloan_id` for the account in question. |
 | [`NoDeposit`](/docs/errors/chain/NoDeposit) | No safe-mode deposit exists for the given account and block combination, so nothing can be released or slashed. Check the `Deposits` storage map for an entry under that account and deposit block. |
 | [`NoExistingLock`](/docs/errors/chain/NoExistingLock) | move_lock was called but no conviction lock exists for the signing coldkey on that subnet. Check the lock storage for the coldkey and netuid, and create a lock before attempting to move it to another hotkey. |
@@ -44,5 +46,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `not_f
 | [`OrderAccountMissing`](/docs/errors/chain/OrderAccountMissing) | The approval owner has no live System account. Fund the owner with the normal existential balance before approving an order; no registration or extra deposit is required. |
 | [`ServiceDoesNotExist`](/docs/errors/chain/ServiceDoesNotExist) | Gamma is spent only at a hotkey listed as a service on the deposit's subnet, and this one is not. List the subnet's services with the `services` read. |
 | [`SymbolDoesNotExist`](/docs/errors/chain/SymbolDoesNotExist) | The requested token symbol is not in the chain's predefined symbol table, so it cannot be assigned to a subnet. Check the symbol argument against the chain's built-in `SYMBOLS` list and choose a valid entry. |
+| [`TokenNotRegistered`](/docs/errors/chain/TokenNotRegistered) | The destination token is not in the registry for this spoke. List what a spoke has with `btcli bridge tokens`. |
+| [`UnknownPortal`](/docs/errors/chain/UnknownPortal) | No bridge has this portal on this transport domain, so the hub does not take its orders. Check `Tusd.BridgeByPortal`. |
 
 The same explanation is available in the terminal: `btcli explain not_found` (or `btcli explain <ChainErrorName>` for one exact chain error).

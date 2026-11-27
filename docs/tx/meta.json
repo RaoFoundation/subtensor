@@ -15,6 +15,10 @@
     "fund-evm-key",
     "transfer",
     "transfer-all",
+    "---CanonicalPool---",
+    "add-pool-liquidity",
+    "remove-pool-liquidity",
+    "swap-pool",
     "---Commitments---",
     "set-channel-commitment",
     "---Crowdloan---",
@@ -50,6 +54,8 @@
     "remove-proxies",
     "remove-proxy",
     "remove-proxy-announcement",
+    "---Rails---",
+    "bridge-out",
     "---SubtensorModule---",
     "add-collateral",
     "add-stake",
@@ -115,6 +121,8 @@
     "unstake-all",
     "unstake-all-alpha",
     "update-symbol",
+    "---Tusd---",
+    "transfer-tusd",
     "---Utility---",
     "batch"
   ]
