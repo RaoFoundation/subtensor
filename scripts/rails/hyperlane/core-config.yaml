@@ -1,0 +1,17 @@
+# The transport's core contracts on each local chain. One validator signs for each chain
+# and one signature passes: a rig, not a security model. A production deployment sets the
+# rails' own security module on the portal and the gateway.
+owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+defaultIsm:
+  type: messageIdMultisigIsm
+  validators:
+    - "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+  threshold: 1
+defaultHook:
+  type: merkleTreeHook
+requiredHook:
+  type: protocolFee
+  owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  beneficiary: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  maxProtocolFee: "1000000000000000000"
+  protocolFee: "0"

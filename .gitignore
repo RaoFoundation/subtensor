@@ -95,3 +95,6 @@ sdk/python/dist/
 .github/scripts/deploy/proxy_proxy_blob.hex
 .github/scripts/deploy/pending-release.json
 .github/scripts/deploy/deployment-multisig-proposal.hex
+
+# The local rig of the canonical rails (scripts/rails): chain state, logs, addresses
+.rails/
