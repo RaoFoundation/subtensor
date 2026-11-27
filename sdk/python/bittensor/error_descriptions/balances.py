@@ -31,9 +31,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "InsufficientBalance": (
         "The caller's spendable balance is below what the operation needs, whether a plain "
-        "transfer, a crowdloan deposit or contribution, or a swap. Compare the account's free "
-        "balance in `System.Account` (net of holds, freezes, and fees) against the amount "
-        "being moved."
+        "transfer, a crowdloan deposit or contribution, a swap, or the collateral and deposit "
+        "of a lending position. Compare the account's free balance in `System.Account` (net "
+        "of holds, freezes, and fees) against the amount being moved."
     ),
     "IssuanceDeactivated": (
         "Total issuance cannot be adjusted because issuance has already been deactivated. Check "

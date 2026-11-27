@@ -503,6 +503,9 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(db_weight.writes(1));
         }
 
+        // The pool has its first reserves: lending seeds the subnet's price rings from them.
+        weight.saturating_accrue(T::Lending::on_subnet_registered(netuid_to_register));
+
         // --- 8. Add the identity if it exists
         if let Some(identity_value) = identity {
             SubnetIdentitiesV3::<T>::insert(netuid_to_register, identity_value);

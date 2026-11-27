@@ -18,6 +18,7 @@ use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
 use pallet_grandpa::Call as GrandpaCall;
 use pallet_hashed_accounts::Call as HashedAccountsCall;
+use pallet_lending::Call as LendingCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
@@ -234,6 +235,51 @@ call_filter_group!(
     [
         RuntimeCall::Utility(UtilityCall::as_protected_derivative),
         RuntimeCall::Proxy(ProxyCall::create_protected_pure),
+    ]
+);
+
+// Operating lending positions. These move the principal's TAO into position custody and
+// open leveraged exposure, so no broad proxy grants them: only `Any` and the explicit
+// `ProxyType::Lending` grant.
+call_filter_group!(
+    LendingCalls,
+    [
+        RuntimeCall::Lending(LendingCall::open_short),
+        RuntimeCall::Lending(LendingCall::increase_short),
+        RuntimeCall::Lending(LendingCall::close_short),
+        RuntimeCall::Lending(LendingCall::add_collateral),
+        RuntimeCall::Lending(LendingCall::withdraw_collateral),
+        RuntimeCall::Lending(LendingCall::open_long),
+        RuntimeCall::Lending(LendingCall::increase_long),
+        RuntimeCall::Lending(LendingCall::close_long),
+        RuntimeCall::Lending(LendingCall::add_long_collateral),
+        RuntimeCall::Lending(LendingCall::withdraw_long_collateral),
+    ]
+);
+
+// Lending's root setters. Inventory-only: every one needs `ensure_root`, and no restricted
+// proxy lists them.
+call_filter_group!(
+    LendingRootCalls,
+    [
+        RuntimeCall::Lending(LendingCall::set_enabled),
+        RuntimeCall::Lending(LendingCall::set_longs_enabled),
+        RuntimeCall::Lending(LendingCall::set_lending_params),
+        RuntimeCall::Lending(LendingCall::set_short_params),
+        RuntimeCall::Lending(LendingCall::set_long_params),
+        RuntimeCall::Lending(LendingCall::set_dereg_params),
+    ]
+);
+
+// The batch wrappers `ProxyType::Lending` may use. Each dispatches its children on the
+// proxy's own filtered origin, so a child outside `LendingCalls` (or these wrappers) is
+// refused with `CallFiltered`. Policy group: the calls are inventoried in `UtilityCalls`.
+call_filter_group!(
+    LendingUtilityCalls,
+    [
+        RuntimeCall::Utility(UtilityCall::batch),
+        RuntimeCall::Utility(UtilityCall::batch_all),
+        RuntimeCall::Utility(UtilityCall::force_batch),
     ]
 );
 
@@ -906,6 +952,8 @@ type WholesalePalletCalls = (
     EvmCalls,
     CrowdloanCalls,
     ContractsCalls,
+    LendingCalls,
+    LendingRootCalls,
 );
 
 // Balances + pallet-subtensor, split by proxy membership.

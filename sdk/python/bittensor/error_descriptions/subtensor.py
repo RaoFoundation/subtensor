@@ -740,9 +740,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "Overflow": (
         "A checked arithmetic operation overflowed, e.g. incrementing `NextSubnetLeaseId` when "
-        "registering a leased network, or adding to a crowdloan's `raised` amount or "
-        "contributor count. Internal guard; inspect the amounts involved as this should not "
-        "occur with realistic values."
+        "registering a leased network, adding to a crowdloan's `raised` amount or "
+        "contributor count, or a lending amount leaving the fixed-point range. Internal "
+        "guard; inspect the amounts involved as this should not occur with realistic values."
     ),
     "ProportionOverflow": (
         "The child proportions passed to `set_children` sum to more than u64::MAX. Reduce the "

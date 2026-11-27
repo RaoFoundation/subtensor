@@ -105,6 +105,26 @@ fn migration_prefills_every_live_subnet_with_lending_disabled() {
     });
 }
 
+/// FRAME sets the storage version of a pallet that is new to a chain before any migration
+/// runs. The initialisation still runs then: it is guarded by `HasMigrationRun`.
+#[test]
+fn migration_runs_on_a_chain_whose_storage_version_is_already_set() {
+    new_test_ext().execute_with(|| {
+        set_pool(1, 1_000, 10_000);
+        set_moving_price(1, px(800, 10_000));
+        StorageVersion::new(1).put::<Lending>();
+        assert!(!crate::migrations::has_run::<Test>());
+
+        let weight = Lending::on_runtime_upgrade();
+
+        assert_eq!(weight, SubstrateWeight::<Test>::migrate_to_v1(1));
+        assert!(crate::migrations::has_run::<Test>());
+        assert_eq!(twap(1), TwapState::seeded(px(1_000, 10_000), 72));
+        assert_eq!(RankPrice::<Test>::get(sn(1)), Some(px(800, 10_000)));
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
 #[test]
 fn migration_runs_once() {
     migrated_ext().execute_with(|| {

@@ -65,6 +65,10 @@ pub trait LendingInterface<AccountId> {
     fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter);
     /// Alpha added to the conviction bar a challenger must clear to take ownership of `netuid`.
     fn conviction_bar_extra(netuid: NetUid) -> AlphaBalance;
+    /// Called when `netuid` is registered (or registered again), once its pool has its first
+    /// reserves: lending seeds the subnet's price rings at the pool's price, so every live
+    /// subnet has them (SPEC I25). Returns the weight used.
+    fn on_subnet_registered(netuid: NetUid) -> Weight;
 }
 
 impl<AccountId> LendingInterface<AccountId> for () {
@@ -104,6 +108,10 @@ impl<AccountId> LendingInterface<AccountId> for () {
 
     fn conviction_bar_extra(_netuid: NetUid) -> AlphaBalance {
         AlphaBalance::from(0u64)
+    }
+
+    fn on_subnet_registered(_netuid: NetUid) -> Weight {
+        Weight::zero()
     }
 }
 
@@ -285,5 +293,13 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     // HOLD(2.6): pending spec decision
     fn conviction_bar_extra(_netuid: NetUid) -> AlphaBalance {
         AlphaBalance::from(0u64)
+    }
+
+    /// Seeds the five price items of the subnet (`prices::seed_subnet`), overwriting what a
+    /// dissolved subnet of the same netuid left. Reads the two ring sizes, the generation and
+    /// the pool (reserves, weight, price).
+    fn on_subnet_registered(netuid: NetUid) -> Weight {
+        Self::on_subnet_registered(netuid);
+        T::DbWeight::get().reads_writes(8, 5)
     }
 }

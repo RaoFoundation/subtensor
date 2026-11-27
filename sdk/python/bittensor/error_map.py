@@ -534,7 +534,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OrderAccountMissing": _C.NOT_FOUND,
     "InvalidAuthorizationMode": _C.INVALID_ARGUMENT,
     # ── HashedAccounts ──────────────────────────────────────────────────
-    "Disabled": _C.DISABLED,
+    "Disabled": _C.DISABLED,  # also Lending (shorts switched off)
     "UnsupportedDescriptor": _C.INVALID_ARGUMENT,
     "DescriptorMismatch": _C.INVALID_ARGUMENT,
     "NotRegistered": _C.NOT_REGISTERED,
@@ -547,6 +547,35 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidDerivedAuthority": _C.INVALID_ARGUMENT,
     "DerivedAuthorityTooComplex": _C.LIMIT_EXCEEDED,
     "RegistrationDepositTooHigh": _C.LIMIT_EXCEEDED,
+    # ── Lending ─────────────────────────────────────────────────────────
+    # `Disabled`, `InsufficientBalance` and `Overflow` are classified above.
+    "InvalidParams": _C.INVALID_ARGUMENT,
+    "PriceRingMissing": _C.NOT_FOUND,
+    "LongsDisabled": _C.DISABLED,
+    "InvalidAmount": _C.INVALID_ARGUMENT,
+    "PositionExists": _C.ALREADY_EXISTS,
+    "NoPosition": _C.NOT_FOUND,
+    "OppositeSideOpen": _C.ALREADY_EXISTS,
+    "PoolTooShallow": _C.INSUFFICIENT_LIQUIDITY,
+    "AlphaSupplyCap": _C.LIMIT_EXCEEDED,
+    # Per-block caps relative to the pool: a smaller size passes now, the same
+    # size may pass in a later block.
+    "OpenImpactTooHigh": _C.LIMIT_EXCEEDED,
+    "LiftCapExceeded": _C.LIMIT_EXCEEDED,
+    "LongOpenLimit": _C.LIMIT_EXCEEDED,
+    "BelowMinNotional": _C.INVALID_ARGUMENT,
+    "SlippageExceeded": _C.INSUFFICIENT_LIQUIDITY,  # user bound, as SlippageTooHigh
+    # Collateral short of what the position needs: more collateral fixes it.
+    "CoverageNotMet": _C.INSUFFICIENT_BALANCE,
+    "LongCoverageNotMet": _C.INSUFFICIENT_BALANCE,
+    "InsufficientFunds": _C.INSUFFICIENT_BALANCE,
+    "CloseInsolvent": _C.INSUFFICIENT_BALANCE,
+    "WithdrawBreaksCoverage": _C.INSUFFICIENT_BALANCE,
+    "WithdrawBufferBreached": _C.INSUFFICIENT_BALANCE,
+    "TooManyLongPositions": _C.LIMIT_EXCEEDED,
+    "TooManyPositions": _C.LIMIT_EXCEEDED,
+    "QuoteMismatch": _C.INTERNAL,
+    "SwappedOutThisBlock": _C.TOO_EARLY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

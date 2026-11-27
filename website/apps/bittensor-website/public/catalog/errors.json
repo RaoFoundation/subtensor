@@ -345,6 +345,15 @@
         }
       ]
     },
+    "AlphaSupplyCap": {
+      "code": "limit_exceeded",
+      "description": "Opening or increasing the short would mint alpha past the subnet's 21,000,000 alpha supply cap. Compare the subnet's alpha issuance plus the requested `q` with the cap and reduce `q`.",
+      "docs_url": "/docs/errors/chain/AlphaSupplyCap",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AlphaSupplyCap/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "AlreadyApproved": {
       "code": "already_exists",
       "description": "The sender has already approved this multisig call, so a repeat approval is redundant. Check the `Multisigs` entry for the call hash: the sender's account already appears in its `approvals` list.",
@@ -759,6 +768,15 @@
         }
       ]
     },
+    "BelowMinNotional": {
+      "code": "invalid_argument",
+      "description": "The position's notional, its alpha size valued at the subnet's TWAP, would be below `min_notional` in `Lending.LendingParamsStore`. Open a larger position, or close the position in full instead of leaving a remainder below the minimum.",
+      "docs_url": "/docs/errors/chain/BelowMinNotional",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BelowMinNotional/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
       "description": "When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns.",
@@ -1171,6 +1189,15 @@
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L275",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
+      ]
+    },
+    "CloseInsolvent": {
+      "code": "insufficient_balance",
+      "description": "Closing the long would not repay its debt: the TAO from selling its alpha plus its collateral is less than the TAO it lifted from the pool. Add collateral with `add_long_collateral` before closing.",
+      "docs_url": "/docs/errors/chain/CloseInsolvent",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CloseInsolvent/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "CodeInUse": {
@@ -1677,6 +1704,15 @@
         }
       ]
     },
+    "CoverageNotMet": {
+      "code": "insufficient_balance",
+      "description": "The short's collateral and sale proceeds together are below its coverage need, on an open or increase, or for the part that a partial close leaves. Read the least collateral from `LendingRuntimeApi.quote_open_short` or `quote_increase_short` (`min_collateral`) and bring at least that much, or reduce `q`.",
+      "docs_url": "/docs/errors/chain/CoverageNotMet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/CoverageNotMet/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "CreateOriginNotAllowed": {
       "code": "not_authorized",
       "description": "A CREATE, or a CALL that performs a nested CREATE, was attempted from an EVM address not permitted to deploy contracts. Check whether the deploying address is in the chain's allowed-deployers list.",
@@ -1902,11 +1938,12 @@
     },
     "Disabled": {
       "code": "disabled",
-      "description": "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; creating a wallet locally does not activate runtime support.",
+      "description": "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; creating a wallet locally does not activate runtime support. The Lending pallet raises the same name when short positions are switched off (`Lending.Enabled` is false): `open_short` and `increase_short` are refused, existing positions can still be closed.",
       "docs_url": "/docs/errors/chain/Disabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/Disabled/content.md",
       "pallets": [
-        "HashedAccounts"
+        "HashedAccounts",
+        "Lending"
       ],
       "sources": [
         {
@@ -2901,13 +2938,14 @@
     },
     "InsufficientBalance": {
       "code": "insufficient_balance",
-      "description": "The caller's spendable balance is below what the operation needs, whether a plain transfer, a crowdloan deposit or contribution, or a swap. Compare the account's free balance in `System.Account` (net of holds, freezes, and fees) against the amount being moved.",
+      "description": "The caller's spendable balance is below what the operation needs, whether a plain transfer, a crowdloan deposit or contribution, a swap, or the collateral and deposit of a lending position. Compare the account's free balance in `System.Account` (net of holds, freezes, and fees) against the amount being moved.",
       "docs_url": "/docs/errors/chain/InsufficientBalance",
       "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientBalance/content.md",
       "pallets": [
         "Balances",
         "Crowdloan",
-        "Swap"
+        "Swap",
+        "Lending"
       ],
       "sources": [
         {
@@ -2924,6 +2962,15 @@
           "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
+      ]
+    },
+    "InsufficientFunds": {
+      "code": "insufficient_balance",
+      "description": "The short's proceeds and collateral together cannot pay for buying back the alpha being closed. Compare `cost` from `LendingRuntimeApi.quote_close_short` with the position's `collateral` and proceeds in `Lending.Positions`; add collateral with `add_collateral` or close a smaller amount.",
+      "docs_url": "/docs/errors/chain/InsufficientFunds",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InsufficientFunds/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "InsufficientGammaBalance": {
@@ -3022,6 +3069,15 @@
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L225",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
+      ]
+    },
+    "InvalidAmount": {
+      "code": "invalid_argument",
+      "description": "A size, amount or quoted value is zero, or a close asks for more than the position holds. Pass a non-zero amount, and for a close no more than the position's alpha in `Lending.Positions`.",
+      "docs_url": "/docs/errors/chain/InvalidAmount",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidAmount/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "InvalidAuthorizationMode": {
@@ -3373,6 +3429,15 @@
           "url": "/code/pallets/crowdloan/src/lib.rs#L265",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
         }
+      ]
+    },
+    "InvalidParams": {
+      "code": "invalid_argument",
+      "description": "A root parameter update (`set_lending_params`, `set_short_params`, `set_long_params` or `set_dereg_params`) violates a bound or a cross-check between the parameter groups, so nothing was written. Compare each field with its allowed range and with the related fields of the live groups from `LendingRuntimeApi.params`.",
+      "docs_url": "/docs/errors/chain/InvalidParams",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "InvalidPort": {
@@ -3843,6 +3908,15 @@
         }
       ]
     },
+    "LiftCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The long would take this block's total lifted TAO past `lift_cap_bps` of the subnet's pool. Reduce `lift` or retry in a later block.",
+      "docs_url": "/docs/errors/chain/LiftCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LiftCapExceeded/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "LimitOrdersDisabled": {
       "code": "disabled",
       "description": "Order execution was attempted while the pallet's global switch is off. Check the `LimitOrdersEnabled` storage value; root must call `set_pallet_status` with true to enable the pallet.",
@@ -4012,6 +4086,33 @@
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L333",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
+      ]
+    },
+    "LongCoverageNotMet": {
+      "code": "insufficient_balance",
+      "description": "The long's collateral is below its coverage need, on an open or increase, or for the part that a partial close leaves. Bring more collateral or reduce `lift`.",
+      "docs_url": "/docs/errors/chain/LongCoverageNotMet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LongCoverageNotMet/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
+    "LongOpenLimit": {
+      "code": "limit_exceeded",
+      "description": "The long would take this block's net lifted TAO on the subnet past `open_limit_bps` of its pool. Reduce `lift` or retry in a later block.",
+      "docs_url": "/docs/errors/chain/LongOpenLimit",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LongOpenLimit/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
+    "LongsDisabled": {
+      "code": "disabled",
+      "description": "Long positions are switched off: `Lending.LongsEnabled` is false, so `open_long` and `increase_long` are refused. Existing positions can still be closed. Check `longs_enabled` in `LendingRuntimeApi.params`.",
+      "docs_url": "/docs/errors/chain/LongsDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LongsDisabled/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "LongsPendingSpec": {
@@ -4633,6 +4734,15 @@
         }
       ]
     },
+    "NoPosition": {
+      "code": "not_found",
+      "description": "The coldkey holds no position on this side of the subnet. Check `Lending.Positions` for (coldkey, netuid, side), or list the coldkey's positions with `LendingRuntimeApi.positions_of`; when signing through a proxy, the position belongs to the real account.",
+      "docs_url": "/docs/errors/chain/NoPosition",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "NoSelfProxy": {
       "code": "invalid_argument",
       "description": "An account attempted to register itself as its own proxy, which is not allowed. Check the `delegate` argument to `add_proxy` and ensure it differs from the calling (delegator) account.",
@@ -5103,6 +5213,24 @@
         "System"
       ]
     },
+    "OpenImpactTooHigh": {
+      "code": "limit_exceeded",
+      "description": "The short would take this block's net minted alpha on the subnet past `open_limit_bps` of its pool. Reduce `q` or retry in a later block.",
+      "docs_url": "/docs/errors/chain/OpenImpactTooHigh",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OpenImpactTooHigh/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
+    "OppositeSideOpen": {
+      "code": "already_exists",
+      "description": "The coldkey already holds a position on the other side of this subnet, and a holder may have only one side per subnet. Close the existing position first.",
+      "docs_url": "/docs/errors/chain/OppositeSideOpen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OppositeSideOpen/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "OrderAccountMissing": {
       "code": "not_found",
       "description": "The approval owner has no live System account. Fund the owner with the normal existential balance before approving an order; no registration or extra deposit is required.",
@@ -5303,12 +5431,13 @@
     },
     "Overflow": {
       "code": "internal",
-      "description": "A checked arithmetic operation overflowed, e.g. incrementing `NextSubnetLeaseId` when registering a leased network, or adding to a crowdloan's `raised` amount or contributor count. Internal guard; inspect the amounts involved as this should not occur with realistic values.",
+      "description": "A checked arithmetic operation overflowed, e.g. incrementing `NextSubnetLeaseId` when registering a leased network, adding to a crowdloan's `raised` amount or contributor count, or a lending amount leaving the fixed-point range. Internal guard; inspect the amounts involved as this should not occur with realistic values.",
       "docs_url": "/docs/errors/chain/Overflow",
       "markdown_url": "/llms.mdx/docs/errors/chain/Overflow/content.md",
       "pallets": [
         "SubtensorModule",
-        "Crowdloan"
+        "Crowdloan",
+        "Lending"
       ],
       "sources": [
         {
@@ -5453,6 +5582,24 @@
         "EVM"
       ]
     },
+    "PoolTooShallow": {
+      "code": "insufficient_liquidity",
+      "description": "The subnet's TAO reserve is below `min_pool_tao` in `Lending.LendingParamsStore`, now or after the trade, so positions cannot be opened or increased there. Compare `pool_tao` from `LendingRuntimeApi.market` with `min_pool_tao`.",
+      "docs_url": "/docs/errors/chain/PoolTooShallow",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PoolTooShallow/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
+    "PositionExists": {
+      "code": "already_exists",
+      "description": "The coldkey already holds a position on this side of the subnet. Use `increase_short` or `increase_long` to grow it instead of opening another.",
+      "docs_url": "/docs/errors/chain/PositionExists",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PositionExists/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "PreLogExists": {
       "code": "invalid_argument",
       "description": "An `ethereum.transact` extrinsic was submitted in a block that already carries a pre-log digest, meaning an Ethereum transaction is being injected by other means. Check the block's digest for a pre-runtime Ethereum log; transact is not allowed alongside it.",
@@ -5498,6 +5645,15 @@
         }
       ]
     },
+    "PriceRingMissing": {
+      "code": "not_found",
+      "description": "The subnet has no lending price history (TWAP ring or rank ring), so lending cannot price a position there; there is no fallback price. Check that the netuid is a live subnet: `LendingRuntimeApi.market` returns nothing for a subnet without rings.",
+      "docs_url": "/docs/errors/chain/PriceRingMissing",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PriceRingMissing/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "ProportionOverflow": {
       "code": "invalid_argument",
       "description": "The child proportions passed to `set_children` sum to more than u64::MAX. Reduce the per-child proportion values so their total fits in a u64; each proportion is a fraction of u64::MAX.",
@@ -5532,6 +5688,15 @@
           "url": "/code/pallets/drand/src/lib.rs#L270",
           "raw_url": "/code/raw/pallets/drand/src/lib.rs"
         }
+      ]
+    },
+    "QuoteMismatch": {
+      "code": "internal",
+      "description": "The pool moved a different amount than the quote the lending pallet checked its gates against, so the call was rolled back. This is an internal consistency check; retry the call.",
+      "docs_url": "/docs/errors/chain/QuoteMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/QuoteMismatch/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "RandomSubjectTooLong": {
@@ -6038,6 +6203,15 @@
         "Multisig"
       ]
     },
+    "SlippageExceeded": {
+      "code": "insufficient_liquidity",
+      "description": "The trade's price moved past the caller's bound: an open or increase would pay out less than `min_tao_out` (or `min_alpha_out` for a long), or a close would cost more than `max_tao_in`. Re-quote with `LendingRuntimeApi.quote_open_short`, `quote_increase_short` or `quote_close_short` and resubmit with a bound that matches the current price.",
+      "docs_url": "/docs/errors/chain/SlippageExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SlippageExceeded/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "SlippageTooHigh": {
       "code": "insufficient_liquidity",
       "description": "A stake, unstake, or move would move the price past the slippage-protection limit (default 5% tolerance), or a gamma mint would credit less than its minimum. Retry, raise `--rate-tolerance`, or, for stake, disable protection with `--no-slippage-protection`; check the current price with `btcli subnets price`.",
@@ -6352,6 +6526,15 @@
         }
       ]
     },
+    "SwappedOutThisBlock": {
+      "code": "too_early",
+      "description": "A coldkey swap moved away a position this coldkey opened in the current block, so the coldkey cannot open another position until the next block. Retry in the next block.",
+      "docs_url": "/docs/errors/chain/SwappedOutThisBlock",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SwappedOutThisBlock/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "SymbolAlreadyInUse": {
       "code": "already_exists",
       "description": "The token symbol requested for the subnet is already assigned to another subnet. Scan `TokenSymbol` across netuids and pick a symbol that is not taken.",
@@ -6650,6 +6833,15 @@
         "Balances"
       ]
     },
+    "TooManyLongPositions": {
+      "code": "limit_exceeded",
+      "description": "The subnet already has `max_long_positions_per_subnet` long positions (`Lending.LongPositionCount`). Wait for a long to close, or use another subnet.",
+      "docs_url": "/docs/errors/chain/TooManyLongPositions",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyLongPositions/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
     "TooManyPendingExtrinsics": {
       "code": "limit_exceeded",
       "description": "`store_encrypted` was rejected because the shield pallet's queue of encrypted extrinsics is already at capacity. Compare the `PendingExtrinsics` count against `MaxPendingExtrinsicsLimit` and wait for queued items to be processed or expire.",
@@ -6666,6 +6858,15 @@
           "url": "/code/pallets/shield/src/lib.rs#L242",
           "raw_url": "/code/raw/pallets/shield/src/lib.rs"
         }
+      ]
+    },
+    "TooManyPositions": {
+      "code": "limit_exceeded",
+      "description": "The coldkey already holds the maximum of 32 lending positions (`Lending.HolderPositions`). Close a position before opening another.",
+      "docs_url": "/docs/errors/chain/TooManyPositions",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyPositions/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "TooManyRegistrationsThisBlock": {
@@ -7333,6 +7534,24 @@
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L51",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
+      ]
+    },
+    "WithdrawBreaksCoverage": {
+      "code": "insufficient_balance",
+      "description": "The withdrawal would take the position's collateral below its coverage need. Withdraw less, or reduce the position first.",
+      "docs_url": "/docs/errors/chain/WithdrawBreaksCoverage",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawBreaksCoverage/content.md",
+      "pallets": [
+        "Lending"
+      ]
+    },
+    "WithdrawBufferBreached": {
+      "code": "insufficient_balance",
+      "description": "The withdrawal would leave less collateral than the position's coverage need plus the buffer kept for upcoming interest charges. Withdraw less.",
+      "docs_url": "/docs/errors/chain/WithdrawBufferBreached",
+      "markdown_url": "/llms.mdx/docs/errors/chain/WithdrawBufferBreached/content.md",
+      "pallets": [
+        "Lending"
       ]
     },
     "WithdrawFailed": {

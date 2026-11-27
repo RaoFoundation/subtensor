@@ -42,6 +42,7 @@ PROXY_TYPES = (
     "Weights",
     "Lock",
     "GammaSpend",
+    "Lending",
 )
 
 

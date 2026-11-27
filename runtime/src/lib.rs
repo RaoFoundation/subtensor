@@ -280,7 +280,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 497,
+    spec_version: 498,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,
@@ -1158,7 +1158,7 @@ impl pallet_subtensor::Config for Runtime {
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
     type AlphaAssets = AlphaAssets;
-    type Lending = ();
+    type Lending = Lending;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = BlockAuthorFromAura<Aura>;
     type SubtensorPalletId = SubtensorPalletId;
@@ -1535,6 +1535,31 @@ impl pallet_crowdloan::Config for Runtime {
     type MaxContributors = MaxContributors;
 }
 
+// Lending
+parameter_types! {
+    /// Seed of the lending pallet account, the pallet hotkey and every custody account.
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
+    /// Upper bound of the `max_long_positions` parameter.
+    pub const LendingMaxLongPositionsCeiling: u32 = 1024;
+    /// Scheduled interest charges per block. With the placeholder weights a charge is 16
+    /// reads and 9 writes (1.3 ms at `RocksDbWeight`), so 64 charges are about 83 ms, 2.1% of
+    /// the 4 s block; price sampling at the 128-subnet limit adds about 136 ms and the bucket
+    /// probes 2 ms, for a worst-case `on_initialize` of about 221 ms (5.5%). At the default
+    /// `charge_interval_blocks` of 360 that keeps 23,040 positions on schedule; more are
+    /// charged late, never skipped.
+    pub const LendingMaxChargesPerBlock: u32 = 64;
+}
+
+impl pallet_lending::Config for Runtime {
+    type Pool = SubtensorModule;
+    type Curve = pallet_subtensor::staking::lending::BalancerCurve;
+    // Placeholder weights (storage-access counts); see `pallet_lending::weights`.
+    type WeightInfo = pallet_lending::weights::SubstrateWeight<Runtime>;
+    type PalletId = LendingPalletId;
+    type MaxLongPositionsCeiling = LendingMaxLongPositionsCeiling;
+    type MaxChargesPerBlock = LendingMaxChargesPerBlock;
+}
+
 // Limit Orders
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
@@ -1759,6 +1784,7 @@ construct_runtime!(
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
         HashedAccounts: pallet_hashed_accounts = 33,
+        Lending: pallet_lending = 34,
     }
 );
 
@@ -1874,6 +1900,13 @@ type Migrations = (
     // try-runtime compares the complete result with a pre-upgrade snapshot and checks the
     // one-shot marker.
     pallet_subtensor::migrations::migrate_subnet_state::subnet_state::Migration<Runtime>,
+    // Spec 498: initialise pallet-lending on a chain that has no lending storage. Registers
+    // the pallet hotkey, writes the default parameters and seeds the TWAP and rank rings of
+    // every live subnet; lending and longs stay disabled. Guarded by the pallet's
+    // `HasMigrationRun` flag, not its `StorageVersion`: FRAME stamps the in-code version on a
+    // pallet with no storage before any migration runs. try-runtime checks the rings, the
+    // defaults and both switches.
+    pallet_lending::migrations::MigrateToV1<Runtime>,
 );
 
 // Unchecked extrinsic type as expected by this runtime.
@@ -2886,6 +2919,51 @@ impl_runtime_apis! {
             _key_owner_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
         ) -> Option<()> {
             None
+        }
+    }
+
+    impl pallet_lending_runtime_api::LendingRuntimeApi<Block, AccountId, BlockNumber> for Runtime {
+        fn params() -> pallet_lending::views::ParamsView {
+            Lending::params_view()
+        }
+
+        fn position(
+            coldkey: AccountId,
+            netuid: NetUid,
+            side: pallet_lending::types::Side,
+        ) -> Option<pallet_lending::types::Position<BlockNumber>> {
+            Lending::position_view(&coldkey, netuid, side)
+        }
+
+        fn positions_of(coldkey: AccountId) -> Vec<pallet_lending::views::HeldPosition<BlockNumber>> {
+            Lending::positions_of(&coldkey)
+        }
+
+        fn market(netuid: NetUid) -> Option<pallet_lending::views::MarketView> {
+            Lending::market_view(netuid)
+        }
+
+        fn quote_open_short(
+            netuid: NetUid,
+            q: u64,
+        ) -> Result<pallet_lending::views::ShortGrowQuote, sp_runtime::DispatchError> {
+            Lending::quote_open_short(netuid, q)
+        }
+
+        fn quote_increase_short(
+            coldkey: AccountId,
+            netuid: NetUid,
+            q: u64,
+        ) -> Result<pallet_lending::views::ShortGrowQuote, sp_runtime::DispatchError> {
+            Lending::quote_increase_short(&coldkey, netuid, q)
+        }
+
+        fn quote_close_short(
+            coldkey: AccountId,
+            netuid: NetUid,
+            alpha: u64,
+        ) -> Result<pallet_lending::views::ShortCloseQuote, sp_runtime::DispatchError> {
+            Lending::quote_close_short(&coldkey, netuid, alpha)
         }
     }
 

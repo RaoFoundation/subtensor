@@ -33,6 +33,8 @@ pallet-balances = { workspace = true }
 pallet-subtensor = { workspace = true }
 pallet-subtensor-swap = { workspace = true }
 pallet-subtensor-swap-runtime-api = { workspace = true }
+pallet-lending.workspace = true
+pallet-lending-runtime-api.workspace = true
 substrate-fixed = { workspace = true }
 subtensor-swap-interface = { workspace = true }
 subtensor-transaction-fee = { workspace = true }
@@ -288,6 +290,8 @@ std = [
 	"substrate-fixed/std",
 	"pallet-subtensor-swap/std",
 	"pallet-subtensor-swap-runtime-api/std",
+	"pallet-lending/std",
+	"pallet-lending-runtime-api/std",
 	"subtensor-swap-interface/std",
 	"pallet-contracts/std",
 	"subtensor-chain-extensions/std",
@@ -349,6 +353,7 @@ runtime-benchmarks = [
 ]
 try-runtime = [
 	"pallet-hashed-accounts/try-runtime",
+	"pallet-lending/try-runtime",
 	"frame-try-runtime/try-runtime",
 	"frame-executive/try-runtime",
 	"frame-system/try-runtime",

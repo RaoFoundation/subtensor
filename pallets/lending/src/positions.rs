@@ -57,20 +57,20 @@ pub struct Grow {
 }
 
 /// What closing `alpha` of one side does, quoted before any leg moves.
-struct Close {
+pub(crate) struct Close {
     /// The pool after the swap, before the repayment and the interest charge are credited.
-    after: PoolState,
+    pub(crate) after: PoolState,
     /// The TAO the swap moved: the buy-back cost (short) or the sale (long).
-    value: u64,
+    pub(crate) value: u64,
     /// The leg's book retired: the proceeds used (short) or the debt repaid (long).
-    consumed: u64,
+    pub(crate) consumed: u64,
     /// Collateral that pays the close: the buy-back beyond the proceeds, or a long's debt beyond
     /// its sale on a full close (SPEC 7.1.4).
-    from_collateral: u64,
+    pub(crate) from_collateral: u64,
     /// TAO a long credits back to the pool from custody: the repaid debt.
-    repaid: u64,
+    pub(crate) repaid: u64,
     /// TAO a long's sale leaves for the holder.
-    surplus: u64,
+    pub(crate) surplus: u64,
 }
 
 /// `total * BPS <= bps * of`: `total` is within `bps` of `of` (SPEC P8, L5, L8).
@@ -80,23 +80,23 @@ fn within_share(total: u128, of: u64, bps: u32) -> bool {
 
 /// What a position holds against its coverage need: its collateral, plus the proceeds a short
 /// holds (SPEC P2). A long holds collateral only (SPEC L2).
-fn held_against(collateral: u64, leg: &Leg) -> u64 {
+pub(crate) fn held_against(collateral: u64, leg: &Leg) -> u64 {
     collateral.saturating_add(leg.proceeds())
 }
 
 /// Whether `held` covers `need` plus `buffer`. An infinite need (`None`) never does.
-fn covers(need: Option<u64>, held: u64, buffer: u64) -> bool {
+pub(crate) fn covers(need: Option<u64>, held: u64, buffer: u64) -> bool {
     need.is_some_and(|need| held >= need.saturating_add(buffer))
 }
 
 /// The pool a position's coverage is measured on: the pool after the operation, with the
 /// interest charge the operation moves into it and any debt repaid to it (SPEC 1.1).
-fn post_pool(pool: PoolState, credit: u64) -> PoolState {
+pub(crate) fn post_pool(pool: PoolState, credit: u64) -> PoolState {
     pool.with_reserves(pool.tao.saturating_add(credit), pool.alpha)
 }
 
 /// The reference prices with spot read from the pool after the operation (SPEC 1.1).
-fn priced_at<C: Curve>(refs: PriceRefs, pool: &PoolState) -> PriceRefs {
+pub(crate) fn priced_at<C: Curve>(refs: PriceRefs, pool: &PoolState) -> PriceRefs {
     PriceRefs {
         spot: C::spot(pool),
         ..refs
@@ -160,7 +160,7 @@ fn bump_block_net<B: PartialEq + Copy>(
 
 /// Quotes a grow: the pool after it and the value the pool gives. A short sells `size` alpha
 /// into the pool for `P`; a long lifts `size` TAO out of the pool and buys `A` with it (SPEC 7.1.1).
-fn quote_grow<T: Config>(
+pub(crate) fn quote_grow<T: Config>(
     side: Side,
     pool: &PoolState,
     size: u64,
@@ -184,7 +184,7 @@ fn quote_grow<T: Config>(
 
 /// Quotes a close of `alpha` from a leg with `collateral` settled. `bound` is the caller's limit:
 /// the most a short may pay for its buy-back, or the least a long may take for its sale.
-fn quote_close<T: Config>(
+pub(crate) fn quote_close<T: Config>(
     leg: &Leg,
     pool: &PoolState,
     alpha: u64,
@@ -290,7 +290,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    fn ensure_side_enabled(side: Side) -> DispatchResult {
+    pub(crate) fn ensure_side_enabled(side: Side) -> DispatchResult {
         match side {
             Side::Short => {
                 ensure!(Enabled::<T>::get(), Error::<T>::Disabled);
@@ -305,7 +305,7 @@ impl<T: Config> Pallet<T> {
     /// Flow gates, checked before any quote: the supply cap and the net-minted limit (SPEC P23,
     /// P8) on shorts; the longs cap, the lift cap and the net-lifted limit (SPEC 7.4, L5, L8) on
     /// longs.
-    fn ensure_flow(
+    pub(crate) fn ensure_flow(
         side: Side,
         netuid: NetUid,
         size: u64,

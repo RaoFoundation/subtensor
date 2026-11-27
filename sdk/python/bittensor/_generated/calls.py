@@ -25,6 +25,7 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
+DeregParams = Any
 DerivedDescriptor = Any
 Determinism = Any
 EpochConsensus = Any
@@ -34,6 +35,8 @@ FixedU128 = Any
 GammaBalance = Any
 H160 = Any
 H256 = Any
+LendingParams = Any
+LongParams = Any
 MechId = Any
 MultiAddress = Any
 NetUid = Any
@@ -48,6 +51,7 @@ PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RegistrationDescriptor = Any
 RuntimeCall = Any
+ShortParams = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
@@ -1978,3 +1982,87 @@ class HashedAccounts:
     def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
         "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
         return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})
+
+
+class Lending:
+    """Call builders for the Lending pallet."""
+
+    @staticmethod
+    def add_collateral(netuid: 'NetUid', amount: 'u64') -> Call:
+        'Adds collateral to a short (SPEC P19).'
+        return Call('Lending', 'add_collateral', {'netuid': netuid, 'amount': amount})
+
+    @staticmethod
+    def add_long_collateral(netuid: 'NetUid', amount: 'u64') -> Call:
+        'Adds collateral to a long (SPEC L11).'
+        return Call('Lending', 'add_long_collateral', {'netuid': netuid, 'amount': amount})
+
+    @staticmethod
+    def close_long(netuid: 'NetUid', alpha: 'u64', min_tao_out: 'u64') -> Call:
+        "Sells up to `alpha` of a long's locked alpha and repays the debt (SPEC 7.1.4). Receives at least `min_tao_out` for the sale."
+        return Call('Lending', 'close_long', {'netuid': netuid, 'alpha': alpha, 'min_tao_out': min_tao_out})
+
+    @staticmethod
+    def close_short(netuid: 'NetUid', alpha: 'u64', max_tao_in: 'u64') -> Call:
+        'Buys back up to `alpha` of a short, retiring it (SPEC 1.4). Pays at most `max_tao_in`.'
+        return Call('Lending', 'close_short', {'netuid': netuid, 'alpha': alpha, 'max_tao_in': max_tao_in})
+
+    @staticmethod
+    def increase_long(netuid: 'NetUid', lift: 'u64', collateral: 'u64', min_alpha_out: 'u64') -> Call:
+        'Lifts `lift` more TAO into an open long (SPEC L1-L12).'
+        return Call('Lending', 'increase_long', {'netuid': netuid, 'lift': lift, 'collateral': collateral, 'min_alpha_out': min_alpha_out})
+
+    @staticmethod
+    def increase_short(netuid: 'NetUid', q: 'u64', collateral: 'u64', min_tao_out: 'u64') -> Call:
+        'Adds `q` to an open short (SPEC P1-P23).'
+        return Call('Lending', 'increase_short', {'netuid': netuid, 'q': q, 'collateral': collateral, 'min_tao_out': min_tao_out})
+
+    @staticmethod
+    def open_long(netuid: 'NetUid', lift: 'u64', collateral: 'u64', min_alpha_out: 'u64') -> Call:
+        'Opens a long: lifts `lift` TAO from the pool and buys alpha that custody locks (SPEC L1-L12). Receives at least `min_alpha_out`.'
+        return Call('Lending', 'open_long', {'netuid': netuid, 'lift': lift, 'collateral': collateral, 'min_alpha_out': min_alpha_out})
+
+    @staticmethod
+    def open_short(netuid: 'NetUid', q: 'u64', collateral: 'u64', min_tao_out: 'u64') -> Call:
+        'Opens a short: mints `q` alpha, sells it, and pays the proceeds to custody (SPEC P1-P23).'
+        return Call('Lending', 'open_short', {'netuid': netuid, 'q': q, 'collateral': collateral, 'min_tao_out': min_tao_out})
+
+    @staticmethod
+    def set_dereg_params(params: 'DeregParams') -> Call:
+        'Replaces `DeregParams` from the next block (SPEC 2.1).'
+        return Call('Lending', 'set_dereg_params', {'params': params})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        'Turns lending on or off (SPEC P1). Turning it on re-seeds every rank ring from the emission moving price in this call (SPEC section 9 item 3, I25).'
+        return Call('Lending', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_lending_params(params: 'LendingParams') -> Call:
+        'Replaces `LendingParams` from the next block (SPEC 2.1).'
+        return Call('Lending', 'set_lending_params', {'params': params})
+
+    @staticmethod
+    def set_long_params(params: 'LongParams') -> Call:
+        'Replaces `LongParams` from the next block (SPEC 2.1).'
+        return Call('Lending', 'set_long_params', {'params': params})
+
+    @staticmethod
+    def set_longs_enabled(enabled: 'bool') -> Call:
+        'Turns longs on or off (SPEC L1).'
+        return Call('Lending', 'set_longs_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_short_params(params: 'ShortParams') -> Call:
+        'Replaces `ShortParams` from the next block (SPEC 2.1).'
+        return Call('Lending', 'set_short_params', {'params': params})
+
+    @staticmethod
+    def withdraw_collateral(netuid: 'NetUid', amount: 'u64') -> Call:
+        'Withdraws collateral from a short if coverage and the interest buffer still hold (SPEC P2, P20).'
+        return Call('Lending', 'withdraw_collateral', {'netuid': netuid, 'amount': amount})
+
+    @staticmethod
+    def withdraw_long_collateral(netuid: 'NetUid', amount: 'u64') -> Call:
+        'Withdraws collateral from a long if coverage and the interest buffer still hold (SPEC L2, L12).'
+        return Call('Lending', 'withdraw_long_collateral', {'netuid': netuid, 'amount': amount})

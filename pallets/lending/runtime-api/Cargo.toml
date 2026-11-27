@@ -1,0 +1,29 @@
+[package]
+name = "pallet-lending-runtime-api"
+publish = false
+version = "0.1.0"
+description = "Runtime API for the lending pallet"
+edition.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+pallet-lending.workspace = true
+sp-api.workspace = true
+sp-runtime.workspace = true
+sp-std.workspace = true
+subtensor-runtime-common = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"pallet-lending/std",
+	"sp-api/std",
+	"sp-runtime/std",
+	"sp-std/std",
+	"subtensor-runtime-common/std",
+]

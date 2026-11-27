@@ -18,6 +18,7 @@ pub mod pool;
 pub mod positions;
 pub mod prices;
 pub mod types;
+pub mod views;
 pub mod weights;
 
 // Always built: the integration tests of the pool adapter run the invariants too.
@@ -92,6 +93,14 @@ pub mod pallet {
     /// Longs on (SPEC L1).
     #[pallet::storage]
     pub type LongsEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// Named one-off migrations that have run; the value is always `true`. The initialisation
+    /// is guarded by this and not by the `StorageVersion`: FRAME sets the storage version of a
+    /// pallet that is new to a chain before any migration runs, so a version guard would skip
+    /// it on the very upgrade that adds the pallet.
+    #[pallet::storage]
+    pub type HasMigrationRun<T> =
+        StorageMap<_, Identity, BoundedVec<u8, ConstU32<32>>, bool, ValueQuery>;
 
     /// Live parameters shared by both sides (SPEC 2.1).
     #[pallet::storage]
@@ -400,6 +409,22 @@ pub mod pallet {
         /// A coldkey swap moved away a position this coldkey opened in this block; it opens
         /// again from the next block.
         SwappedOutThisBlock,
+    }
+
+    /// Nothing to configure: a chain that starts with this pallet gets the state the runtime
+    /// upgrade gives an existing one, with lending and longs disabled.
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        #[serde(skip)]
+        pub _phantom: core::marker::PhantomData<T>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            migrations::initialize_at_genesis::<T>();
+        }
     }
 
     #[pallet::hooks]

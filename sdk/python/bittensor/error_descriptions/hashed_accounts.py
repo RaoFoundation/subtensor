@@ -3,7 +3,10 @@
 DESCRIPTIONS: dict[str, str] = {
     "Disabled": (
         "Hashed accounts are not enabled on this chain. Check AdminUtils.HashedAccountsEnabled; "
-        "creating a wallet locally does not activate runtime support."
+        "creating a wallet locally does not activate runtime support. The Lending pallet "
+        "raises the same name when short positions are switched off (`Lending.Enabled` is "
+        "false): `open_short` and `increase_short` are refused, existing positions can still "
+        "be closed."
     ),
     "UnsupportedDescriptor": (
         "The hashed descriptor version or underlying signing scheme is unsupported. "

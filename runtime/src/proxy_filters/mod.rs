@@ -36,6 +36,13 @@ type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 /// `Lock`: stake conviction-lock management and nothing else.
 type LockAllowed = LockCalls;
 
+/// `Lending`: operate the real account's lending positions and nothing else. The ten
+/// position calls plus the three batch wrappers; a batch dispatches its children on this
+/// same filtered origin, so it carries only lending calls. No root setter, no transfer, no
+/// stake call, and (unlike the other granting proxies) no recipient-guard calls: lending
+/// calls name no recipient.
+type LendingAllowed = (LendingCalls, LendingUtilityCalls);
+
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
 
@@ -74,11 +81,12 @@ type ValidateAllowed = (WeightCalls, NeuronServingCalls, CommitmentCalls);
 /// owner-key rotation, deferred order approvals, protected-account creation,
 /// crediting gamma to a hotkey, lifting a gamma deposit's daily spend cap,
 /// or listing a service, basket trading (which needs the explicit
-/// `BasketTrading` grant) and gamma spending (only `Any`). Sudo is excluded
+/// `BasketTrading` grant), lending positions (which need the explicit `Lending`
+/// grant) and gamma spending (only `Any`). Sudo is excluded
 /// because a sudo-key principal would otherwise hand the delegate root,
 /// including forced transfers.
-/// `SudoCalls` and `TaoUsdPriceFeedCalls` are inventory-only: no restricted
-/// proxy grants them.
+/// `SudoCalls`, `TaoUsdPriceFeedCalls` and `LendingRootCalls` are inventory-only:
+/// no restricted proxy grants them.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -123,7 +131,8 @@ type NonFungibleAllowed = (
 /// wrappers (they re-dispatch a caller-supplied call as the real coldkey),
 /// Multisig wrappers, `store_encrypted`, owner-key rotation, deferred order approvals,
 /// protected-account creation, basket trading (which needs the explicit
-/// `BasketTrading` grant) or gamma spending (only `Any`). EVM execution can
+/// `BasketTrading` grant), lending positions (which need the explicit `Lending`
+/// grant) or gamma spending (only `Any`). EVM execution can
 /// reconstruct an unrestricted native origin through precompiles, so it requires
 /// full authority even when the requested target is an ordinary contract.
 type NonCriticalAllowed = (
@@ -152,8 +161,13 @@ type NonCriticalAllowed = (
 );
 
 fn supports_recipient_guards(proxy_type: &ProxyType) -> bool {
-    // Hotkey-operation grants cannot move funds and deliberately exclude wrappers.
-    !proxy_type.is_deprecated() && !matches!(proxy_type, ProxyType::Validate | ProxyType::Weights)
+    // Hotkey-operation grants cannot move funds and deliberately exclude wrappers. `Lending`
+    // is an exact allow-list whose calls name no recipient; it lists its own batch wrappers.
+    !proxy_type.is_deprecated()
+        && !matches!(
+            proxy_type,
+            ProxyType::Validate | ProxyType::Weights | ProxyType::Lending
+        )
 }
 
 pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> bool {
@@ -178,6 +192,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::Validate => ValidateAllowed::contains(call),
         ProxyType::Weights => WeightsAllowed::contains(call),
         ProxyType::Lock => LockAllowed::contains(call),
+        ProxyType::Lending => LendingAllowed::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -201,7 +216,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             // move value must not become addable through `NonTransfer` by
             // default. `SudoUncheckedSetCode` is not listed: `NonTransfer`
             // no longer reaches Sudo. `SubnetLeaseBeneficiary` is not listed: it
-            // lists the subnet's service.
+            // lists the subnet's service. `Lending` is not listed: it opens leveraged
+            // positions with the account's TAO.
             (
                 ProxyType::NonTransfer,
                 ProxyType::Owner
@@ -254,6 +270,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::Validate => FilterMode::Allow(ValidateAllowed::call_infos()),
         ProxyType::Weights => FilterMode::Allow(WeightsAllowed::call_infos()),
         ProxyType::Lock => FilterMode::Allow(LockAllowed::call_infos()),
+        ProxyType::Lending => FilterMode::Allow(LendingAllowed::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -423,6 +440,7 @@ mod tests {
                 ProtectedAccountCreationCalls,
             )>();
         let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRootCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -458,6 +476,7 @@ mod tests {
                 ProtectedAccountCreationCalls,
             )>();
         let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRootCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -761,6 +780,7 @@ mod tests {
                 ProtectedAccountCreationCalls,
             )>();
         let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
+        let denied = &denied | &group_calls::<(LendingCalls, LendingRootCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -1729,6 +1749,230 @@ mod tests {
             &ProxyType::BasketTrading,
             &swap_basket_many
         ));
+    }
+
+    /// `Lending` admits exactly the ten position calls and the three batch wrappers: no root
+    /// setter, no transfer, no stake call, no recipient-guard call, no other wrapper. Only
+    /// `Any` admits a lending call besides it, and only `Any` may grant it onward.
+    #[test]
+    fn lending_proxy_grants_exactly_position_calls_and_batches() {
+        use alloc::boxed::Box;
+        use pallet_lending::Call as LendingCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        assert_eq!(
+            allowed_calls(ProxyType::Lending),
+            expected_calls(&[
+                "Lending::open_short",
+                "Lending::increase_short",
+                "Lending::close_short",
+                "Lending::add_collateral",
+                "Lending::withdraw_collateral",
+                "Lending::open_long",
+                "Lending::increase_long",
+                "Lending::close_long",
+                "Lending::add_long_collateral",
+                "Lending::withdraw_long_collateral",
+                "Utility::batch",
+                "Utility::batch_all",
+                "Utility::force_batch",
+            ])
+        );
+        // The inventory holds every lending call: the user group is the pallet's calls less
+        // the root setters.
+        let lending_calls = all_runtime_calls()
+            .into_iter()
+            .filter(|name| name.starts_with("Lending::"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            lending_calls,
+            &group_calls::<LendingCalls>() | &group_calls::<LendingRootCalls>()
+        );
+        assert!(group_calls::<LendingCalls>().is_disjoint(&group_calls::<LendingRootCalls>()));
+
+        let netuid = NetUid::from(1);
+        let user_calls = [
+            RuntimeCall::Lending(LendingCall::open_short {
+                netuid,
+                q: 1,
+                collateral: 1,
+                min_tao_out: 0,
+            }),
+            RuntimeCall::Lending(LendingCall::increase_short {
+                netuid,
+                q: 1,
+                collateral: 1,
+                min_tao_out: 0,
+            }),
+            RuntimeCall::Lending(LendingCall::close_short {
+                netuid,
+                alpha: 1,
+                max_tao_in: 1,
+            }),
+            RuntimeCall::Lending(LendingCall::add_collateral { netuid, amount: 1 }),
+            RuntimeCall::Lending(LendingCall::withdraw_collateral { netuid, amount: 1 }),
+            RuntimeCall::Lending(LendingCall::open_long {
+                netuid,
+                lift: 1,
+                collateral: 1,
+                min_alpha_out: 0,
+            }),
+            RuntimeCall::Lending(LendingCall::increase_long {
+                netuid,
+                lift: 1,
+                collateral: 1,
+                min_alpha_out: 0,
+            }),
+            RuntimeCall::Lending(LendingCall::close_long {
+                netuid,
+                alpha: 1,
+                min_tao_out: 0,
+            }),
+            RuntimeCall::Lending(LendingCall::add_long_collateral { netuid, amount: 1 }),
+            RuntimeCall::Lending(LendingCall::withdraw_long_collateral { netuid, amount: 1 }),
+        ];
+        let root_calls = [
+            RuntimeCall::Lending(LendingCall::set_enabled { enabled: true }),
+            RuntimeCall::Lending(LendingCall::set_longs_enabled { enabled: true }),
+            RuntimeCall::Lending(LendingCall::set_lending_params {
+                params: Default::default(),
+            }),
+            RuntimeCall::Lending(LendingCall::set_short_params {
+                params: Default::default(),
+            }),
+            RuntimeCall::Lending(LendingCall::set_long_params {
+                params: Default::default(),
+            }),
+            RuntimeCall::Lending(LendingCall::set_dereg_params {
+                params: Default::default(),
+            }),
+        ];
+
+        for call in &user_calls {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in all_proxy_types() {
+                let expected = matches!(proxy_type, ProxyType::Any | ProxyType::Lending);
+                assert_eq!(
+                    proxy_type.filter(call),
+                    expected,
+                    "{proxy_type:?}: Lending::{name}"
+                );
+            }
+        }
+        // No restricted proxy reaches a root setter, `Lending` included.
+        for call in &root_calls {
+            let name = call.get_call_metadata().function_name;
+            for proxy_type in all_proxy_types() {
+                assert_eq!(
+                    proxy_type.filter(call),
+                    proxy_type == ProxyType::Any,
+                    "{proxy_type:?}: Lending::{name}"
+                );
+            }
+        }
+
+        // The three batch wrappers pass; every other wrapper and every value call is refused.
+        let child = user_calls[0].clone();
+        let batches = [
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch {
+                calls: vec![child.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::batch_all {
+                calls: vec![child.clone()],
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::force_batch {
+                calls: vec![child.clone()],
+            }),
+        ];
+        for call in &batches {
+            assert!(ProxyType::Lending.filter(call));
+        }
+        let who = AccountId::new([7u8; 32]);
+        let denied = [
+            RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+                dest: who.clone().into(),
+                value: TaoBalance::from(1),
+            }),
+            RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
+                dest: who.clone().into(),
+                value: TaoBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake {
+                hotkey: who.clone(),
+                netuid,
+                amount_staked: TaoBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake {
+                hotkey: who.clone(),
+                netuid,
+                amount_unstaked: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake {
+                destination_coldkey: who.clone(),
+                hotkey: who.clone(),
+                origin_netuid: netuid,
+                destination_netuid: netuid,
+                alpha_amount: AlphaBalance::from(1),
+            }),
+            RuntimeCall::System(frame_system::Call::remark { remark: vec![] }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::as_derivative {
+                index: 0,
+                call: Box::new(child.clone()),
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::as_safe_derivative {
+                index: 0,
+                call: Box::new(child.clone()),
+            }),
+            RuntimeCall::Utility(pallet_subtensor_utility::Call::with_weight {
+                call: Box::new(child.clone()),
+                weight: frame_support::weights::Weight::from_parts(1, 1),
+            }),
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::add_proxy {
+                delegate: who.clone().into(),
+                proxy_type: ProxyType::Lending,
+                delay: 0,
+            }),
+            RuntimeCall::Proxy(pallet_subtensor_proxy::Call::proxy {
+                real: who.clone().into(),
+                force_proxy_type: None,
+                call: Box::new(child.clone()),
+            }),
+            RuntimeCall::Multisig(pallet_multisig::Call::as_multi_threshold_1 {
+                other_signatories: vec![who],
+                call: Box::new(child),
+            }),
+            RuntimeCall::HashedAccounts(pallet_hashed_accounts::Call::check_registration_deposit {
+                max_deposit: TaoBalance::from(1),
+            }),
+        ];
+        for call in &denied {
+            let metadata = call.get_call_metadata();
+            assert!(
+                !ProxyType::Lending.filter(call),
+                "Lending must not dispatch {}::{}",
+                metadata.pallet_name,
+                metadata.function_name
+            );
+        }
+
+        // Only `Any` covers the lending grant, and the lending grant covers nothing else.
+        let supersets = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::Lending))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            supersets,
+            [ProxyType::Any, ProxyType::Lending]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
+        for other in all_proxy_types() {
+            assert_eq!(
+                ProxyType::Lending.is_superset(&other),
+                other == ProxyType::Lending,
+                "Lending.is_superset({other:?})"
+            );
+        }
     }
 
     #[test]

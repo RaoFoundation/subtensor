@@ -84,6 +84,11 @@ Prefer the narrowest type that covers the job:
   does not manage stake; `Staking` already includes both calls.
 * **BasketTrading** — `swap_basket` and `swap_basket_many` only: rebalance a
   root validator's basket without being able to deposit, withdraw, or claim.
+* **Lending** — the lending position calls only (`open_short`,
+  `increase_short`, `close_short`, `add_collateral`, `withdraw_collateral` and
+  their long counterparts), alone or in a `Utility` batch of only those calls.
+  It cannot transfer, stake, or change lending parameters. No other proxy type
+  except `Any` reaches these calls.
 * **Validate** — run a validator *hotkey* from an operations key:
   every weights call (`set_weights`, `commit_weights`, `reveal_weights`,
   their mechanism, timelocked, CRv3 and batch variants), `serve_axon`,
@@ -155,7 +160,7 @@ btcli proxy add --delegate ops --proxy-type Staking -w safe --ledger
 
 After the first grant, a `NonTransfer` proxy can add and remove the account's
 other proxies except `Any`, `NonCritical`, `Transfer`, `SmallTransfer`,
-`BasketTrading`, `GammaSpend`, `SubnetLeaseBeneficiary` and
+`BasketTrading`, `GammaSpend`, `Lending`, `SubnetLeaseBeneficiary` and
 `SudoUncheckedSetCode` — so the primary coldkey is only ever needed once (see
 [the recommended architecture](#a-recommended-architecture) below).
 
@@ -374,8 +379,8 @@ perspective:
    for that).
 2. **Manager proxy** (`NonTransfer`, `delay > 0`) creates, removes, and
    monitors all other proxies except `Any`, `NonCritical`, `Transfer`,
-   `SmallTransfer`, `BasketTrading`, `GammaSpend`, `SubnetLeaseBeneficiary` and
-   `SudoUncheckedSetCode`, and rejects hostile
+   `SmallTransfer`, `BasketTrading`, `GammaSpend`, `Lending`,
+   `SubnetLeaseBeneficiary` and `SudoUncheckedSetCode`, and rejects hostile
    announcements. It cannot transfer funds even if leaked, and its own actions
    are announced and delayed — visible before they bite.
 3. **Scoped daily proxies** (`Staking`, `Registration`, `ChildKeys`, ...,
