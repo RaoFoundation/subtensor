@@ -78,6 +78,13 @@ thread_local! {
     static BALANCES: RefCell<BTreeMap<AccountId, u64>> = const { RefCell::new(BTreeMap::new()) };
     /// Alpha held by an account on a subnet (custody keeps a long's locked alpha here).
     static HELD: RefCell<BTreeMap<(AccountId, u16), u64>> = const { RefCell::new(BTreeMap::new()) };
+    /// The `(coldkey, hotkey)` the pallet hotkey was registered with.
+    static HOTKEY_OWNER: RefCell<Option<(AccountId, AccountId)>> = const { RefCell::new(None) };
+}
+
+/// The `(coldkey, hotkey)` registered through `register_pallet_hotkey`.
+pub fn registered_pallet_hotkey() -> Option<(AccountId, AccountId)> {
+    HOTKEY_OWNER.with_borrow(|owner| *owner)
 }
 
 fn with_pool<R>(netuid: NetUid, f: impl FnOnce(&mut PoolEntry) -> R) -> R {
@@ -165,15 +172,29 @@ impl LendingPoolInterface<AccountId> for FakePool {
         HELD.with_borrow(|h| h.get(&(*who, u16::from(netuid))).copied().unwrap_or(0))
     }
 
-    fn transfer_tao(from: &AccountId, to: &AccountId, amount: u64) -> DispatchResult {
+    fn register_pallet_hotkey(coldkey: &AccountId, hotkey: &AccountId) -> DispatchResult {
+        HOTKEY_OWNER.with_borrow_mut(|owner| match *owner {
+            Some((cold, hot)) if cold == *coldkey && hot == *hotkey => Ok(()),
+            Some(_) => Err(DispatchError::Other("mock: pallet hotkey registered twice")),
+            None => {
+                *owner = Some((*coldkey, *hotkey));
+                Ok(())
+            }
+        })
+    }
+    fn transfer_tao(from: &AccountId, to: &AccountId, amount: u64) -> Result<u64, DispatchError> {
         debit(*from, amount)?;
         credit(*to, amount);
-        Ok(())
+        Ok(amount)
     }
-    fn credit_pool_tao(netuid: NetUid, from: &AccountId, amount: u64) -> DispatchResult {
+    fn credit_pool_tao(
+        netuid: NetUid,
+        from: &AccountId,
+        amount: u64,
+    ) -> Result<u64, DispatchError> {
         debit(*from, amount)?;
         with_pool(netuid, |p| p.tao = p.tao.saturating_add(amount));
-        Ok(())
+        Ok(amount)
     }
     fn mint_and_sell(netuid: NetUid, q: u64, to: &AccountId) -> Result<u64, DispatchError> {
         let (after, paid) =
@@ -281,6 +302,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     POOLS.with_borrow_mut(BTreeMap::clear);
     BALANCES.with_borrow_mut(BTreeMap::clear);
     HELD.with_borrow_mut(BTreeMap::clear);
+    HOTKEY_OWNER.with_borrow_mut(|owner| *owner = None);
     let storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .expect("system genesis builds");

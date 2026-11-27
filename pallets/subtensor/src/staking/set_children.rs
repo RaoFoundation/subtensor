@@ -513,6 +513,12 @@ impl<T: Config> Pallet<T> {
             "do_set_children( coldkey:{coldkey:?} hotkey:{netuid:?} netuid:{hotkey:?} children:{children:?} )"
         );
 
+        // Lending guard: the pallet hotkey is nobody's parent and nobody's child.
+        Self::ensure_not_lending_hotkey(&hotkey)?;
+        for (_, child) in &children {
+            Self::ensure_not_lending_hotkey(child)?;
+        }
+
         // Ensure the hotkey passes the rate limit.
         ensure!(
             TransactionType::SetChildren.passes_rate_limit_on_subnet::<T>(
@@ -844,6 +850,9 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         take: PerU16,
     ) -> DispatchResult {
+        // Lending guard: the pallet hotkey takes no childkey take.
+        Self::ensure_not_lending_hotkey(&hotkey)?;
+
         // Ensure the coldkey owns the hotkey
         ensure!(
             Self::coldkey_owns_hotkey(&coldkey, &hotkey),

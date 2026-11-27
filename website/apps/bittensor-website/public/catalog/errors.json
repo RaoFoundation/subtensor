@@ -1344,6 +1344,24 @@
         }
       ]
     },
+    "ColdkeySwapDestinationHasLendingPositions": {
+      "code": "already_exists",
+      "description": "The coldkey being swapped holds lending positions and the destination coldkey holds lending positions of its own, so the swap was refused when announced or executed: every position must move to the new key and the two sets cannot be merged. Pick a destination coldkey with no lending positions, or close the destination's positions first.",
+      "docs_url": "/docs/errors/chain/ColdkeySwapDestinationHasLendingPositions",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeySwapDestinationHasLendingPositions/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 526,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L526",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "ColdkeySwapDestinationReservationNotFound": {
       "code": "not_found",
       "description": "No live coldkey-swap destination reservation exists for this account, so `release_own_coldkey_swap_destination_reservation` has nothing to free. Confirm the account is the reserved destination of an in-flight announcement.",
@@ -3753,6 +3771,78 @@
         }
       ]
     },
+    "LendingCustodyAccount": {
+      "code": "not_authorized",
+      "description": "The coldkey of a stake, lock or key-swap call is an account of the lending pallet (a position's custody account, the pallet account or the pallet hotkey). Those accounts hold collateral and locked alpha for open positions and are moved only by lending itself. Use the position holder's own coldkey and the lending calls instead.",
+      "docs_url": "/docs/errors/chain/LendingCustodyAccount",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LendingCustodyAccount/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 514,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L514",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LendingLegMismatch": {
+      "code": "internal",
+      "description": "A lending pool leg (the swap behind opening or closing a position) did not move exactly the amount it was asked to move, so the whole call was rolled back. This is an internal consistency check on the pool; retry with a smaller size or after the pool's reserves change.",
+      "docs_url": "/docs/errors/chain/LendingLegMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LendingLegMismatch/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 523,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L523",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LendingLockedAlpha": {
+      "code": "insufficient_balance",
+      "description": "The call tried to take more alpha from the coldkey than it holds outside the alpha lending keeps locked for open positions. Reduce the amount to the unlocked balance, or close the lending position to release the locked alpha.",
+      "docs_url": "/docs/errors/chain/LendingLockedAlpha",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LendingLockedAlpha/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 516,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L516",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LendingPalletHotkey": {
+      "code": "not_authorized",
+      "description": "The hotkey is the lending pallet's own hotkey, which holds the alpha of lending custody accounts. Nobody else may stake or lock to it, register it, swap to it, name it as a child or parent, or use it as a subnet owner hotkey. Use a different hotkey.",
+      "docs_url": "/docs/errors/chain/LendingPalletHotkey",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LendingPalletHotkey/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 519,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L519",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "LimitOrdersDisabled": {
       "code": "disabled",
       "description": "Order execution was attempted while the pallet's global switch is off. Check the `LimitOrdersEnabled` storage value; root must call `set_pallet_status` with true to enable the pallet.",
@@ -3920,6 +4010,24 @@
           "path": "pallets/subtensor/src/macros/errors.rs",
           "line": 333,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L333",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LongsPendingSpec": {
+      "code": "disabled",
+      "description": "The long legs of the lending pool adapter are not implemented on this runtime, so opening or closing a long position cannot execute. Only short positions are available.",
+      "docs_url": "/docs/errors/chain/LongsPendingSpec",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LongsPendingSpec/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 521,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L521",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

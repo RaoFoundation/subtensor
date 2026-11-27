@@ -946,6 +946,8 @@ impl<T: Config> Pallet<T> {
     /// * Update the SubnetOwnerHotkey storage.
     /// * Emits a SubnetOwnerHotkeySet event.
     pub fn set_subnet_owner_hotkey(netuid: NetUid, hotkey: &T::AccountId) -> DispatchResult {
+        // Lending guard: the pallet hotkey is never an owner hotkey.
+        Self::ensure_not_lending_hotkey(hotkey)?;
         // Ensure that hotkey is not a special account
         ensure!(
             Self::is_subnet_account_id(hotkey).is_none(),

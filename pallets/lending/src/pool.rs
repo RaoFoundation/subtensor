@@ -44,11 +44,18 @@ pub trait LendingPoolInterface<AccountId> {
     /// Alpha of `netuid` held by `who` (the custody's locked alpha for a long).
     fn held_alpha(who: &AccountId, netuid: NetUid) -> u64;
 
-    /// Moves `amount` TAO from `from` to `to`.
-    fn transfer_tao(from: &AccountId, to: &AccountId, amount: u64) -> DispatchResult;
+    /// Registers `hotkey`, the hotkey custody alpha is staked on, as owned by `coldkey`. A
+    /// no-op if it is already registered to `coldkey`.
+    fn register_pallet_hotkey(coldkey: &AccountId, hotkey: &AccountId) -> DispatchResult;
+
+    /// Moves `amount` TAO from `from` to `to`. Returns the TAO moved. Like every leg below, it
+    /// records no TAO flow, protocol flow or subnet volume (SPEC I18, I19).
+    fn transfer_tao(from: &AccountId, to: &AccountId, amount: u64) -> Result<u64, DispatchError>;
     /// Moves `amount` TAO from `from` into the subnet pool's TAO reserve: interest, repayment
     /// of a long's debt, and the fee-net part of a buy-back. Pool-internal; not flow (SPEC I19).
-    fn credit_pool_tao(netuid: NetUid, from: &AccountId, amount: u64) -> DispatchResult;
+    /// Returns the TAO credited.
+    fn credit_pool_tao(netuid: NetUid, from: &AccountId, amount: u64)
+    -> Result<u64, DispatchError>;
     /// Mints `q` alpha, sells it into the pool and pays the TAO out to `to`. Returns the TAO
     /// paid (`P`).
     fn mint_and_sell(netuid: NetUid, q: u64, to: &AccountId) -> Result<u64, DispatchError>;

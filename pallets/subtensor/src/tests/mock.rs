@@ -141,6 +141,7 @@ frame_support::construct_runtime!(
         Crowdloan: pallet_crowdloan = 11,
         Commitments: pallet_commitments = 12,
         Proxy: pallet_subtensor_proxy = 13,
+        Lending: pallet_lending = 14,
     }
 );
 
@@ -460,6 +461,7 @@ impl crate::Config for Test {
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
     type AlphaAssets = AlphaAssets;
+    type Lending = Lending;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
     type SubtensorPalletId = SubtensorPalletId;
@@ -467,6 +469,20 @@ impl crate::Config for Test {
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
     type LegacyAlphaCompatibility = frame_support::traits::ConstBool<true>;
+}
+
+parameter_types! {
+    pub const LendingPalletId: PalletId = PalletId(*b"bt/lends");
+}
+
+// Lending on the real pool adapter, priced by the swap pallet's Balancer math.
+impl pallet_lending::Config for Test {
+    type Pool = SubtensorModule;
+    type Curve = crate::staking::lending::BalancerCurve;
+    type WeightInfo = pallet_lending::weights::SubstrateWeight<Test>;
+    type PalletId = LendingPalletId;
+    type MaxLongPositionsCeiling = frame_support::traits::ConstU32<1024>;
+    type MaxChargesPerBlock = frame_support::traits::ConstU32<512>;
 }
 
 // Swap-related parameter types

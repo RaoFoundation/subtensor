@@ -71,6 +71,10 @@ mod config {
         /// Interface to mint, burn, and recycle subnet alpha.
         type AlphaAssets: AlphaAssetsInterface;
 
+        /// Lending hooks: custody guards, the coldkey-swap re-key, the pallet hotkey and the
+        /// dissolution and conviction-bar hook points. `()` is a runtime without lending.
+        type Lending: pallet_lending::LendingInterface<Self::AccountId>;
+
         /// Rate limit for associating an EVM key.
         type EvmKeyAssociateRateLimit: Get<u64>;
 

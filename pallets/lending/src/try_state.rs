@@ -7,11 +7,11 @@ use sp_runtime::TryRuntimeError;
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    Config, DeregParamsStore, Due, InterestRetry, InterestTotals, LendingParamsStore,
-    LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore, LongPositionCount,
-    NextDue, Pallet, PendingDeregParams, PendingLendingParams, PendingLongParams,
-    PendingShortParams, PositionCount, Positions, RankGeneration, RankPrice, RankRing,
-    RankRingGeneration, ShortParamsStore, SyntheticOutstanding, TotalPositions, TwapRing,
+    Config, DeregParamsStore, Due, HolderPositions, InterestRetry, InterestTotals,
+    LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore,
+    LongPositionCount, NextDue, Pallet, PendingDeregParams, PendingLendingParams,
+    PendingLongParams, PendingShortParams, PositionCount, Positions, RankGeneration, RankPrice,
+    RankRing, RankRingGeneration, ShortParamsStore, SyntheticOutstanding, TotalPositions, TwapRing,
     positions::ALPHA_SUPPLY_CAP,
     types::{Leg, Position},
 };
@@ -65,6 +65,7 @@ impl<T: Config> Pallet<T> {
         Self::check_i12_long_books()?;
         Self::check_i19_interest_to_pool()?;
         Self::check_position_counts()?;
+        Self::check_holder_positions()?;
         Self::check_i21_supply_cap()
     }
 
@@ -72,7 +73,7 @@ impl<T: Config> Pallet<T> {
     fn open_positions() -> impl Iterator<Item = (NetUid, T::AccountId, Position<BlockNumberFor<T>>)>
     {
         Positions::<T>::iter().map(|((who, netuid, side), pos)| {
-            let custody = Self::custody_of(side, &who, netuid, pos.opened_at);
+            let custody = Self::position_custody(&(who, netuid, side), pos.opened_at);
             (netuid, custody, pos)
         })
     }
@@ -266,6 +267,35 @@ impl<T: Config> Pallet<T> {
         ensure!(
             u128::from(TotalPositions::<T>::get()) == open,
             "TotalPositions is not the number of open positions"
+        );
+        Ok(())
+    }
+
+    /// `HolderPositions` lists exactly the open positions of each coldkey: every entry is an
+    /// open position, every open position is listed once, and no list is stored empty. The
+    /// list's type bounds it at `hooks::MAX_POSITIONS_PER_HOLDER`.
+    fn check_holder_positions() -> Result<(), TryRuntimeError> {
+        let mut listed = 0u32;
+        for (who, held) in HolderPositions::<T>::iter() {
+            ensure!(!held.is_empty(), "HolderPositions stores an empty list");
+            for (index, (netuid, side)) in held.iter().enumerate() {
+                ensure!(
+                    Positions::<T>::contains_key((who.clone(), *netuid, *side)),
+                    "HolderPositions lists a position that is not open"
+                );
+                ensure!(
+                    !held
+                        .iter()
+                        .skip(index.saturating_add(1))
+                        .any(|other| other.0 == *netuid),
+                    "HolderPositions lists two positions on one subnet"
+                );
+                listed = listed.saturating_add(1);
+            }
+        }
+        ensure!(
+            listed == TotalPositions::<T>::get(),
+            "HolderPositions does not list every open position"
         );
         Ok(())
     }

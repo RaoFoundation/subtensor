@@ -18,6 +18,7 @@ use frame_support::{
     traits::tokens::fungible,
     weights::WeightMeter,
 };
+use pallet_lending::LendingInterface;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{DispatchError, PerU16, Perbill};

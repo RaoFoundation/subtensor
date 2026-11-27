@@ -721,6 +721,8 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         amount: AlphaBalance,
     ) -> Result<(), Error<T>> {
+        // Lending guard: alpha that lending keeps locked is unavailable on every path.
+        Self::ensure_alpha_not_lending_locked(coldkey, netuid, amount)?;
         let alpha_available = Self::available_to_unstake(coldkey, netuid);
         ensure!(alpha_available >= amount, Error::<T>::StakeUnavailable);
         Ok(())
@@ -735,6 +737,10 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         amount: AlphaBalance,
     ) -> dispatch::DispatchResult {
+        // Lending guard: custody alpha takes no conviction lock, and no lock gives the pallet
+        // hotkey conviction (which could make it an owner hotkey).
+        Self::ensure_not_lending_custody(coldkey)?;
+        Self::ensure_not_lending_hotkey(hotkey)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(!amount.is_zero(), Error::<T>::AmountTooLow);
         ensure!(
@@ -1144,8 +1150,13 @@ impl<T: Config> Pallet<T> {
         let one = sp_core::U256::from(U64F64::saturating_from_num(1u64).to_bits());
         let lhs = sp_core::U256::from(king_conviction.to_bits())
             .saturating_mul(sp_core::U256::from(100u64));
+        // HOLD(2.6): pending spec decision. Lending may add alpha to the bar:
+        // `conviction > eligible_alpha * 18 / 100 + extra`. The pallet returns zero, which
+        // leaves the bar at 18% of eligible alpha.
+        let extra = u64::from(T::Lending::conviction_bar_extra(netuid));
         let rhs = sp_core::U256::from(u64::from(eligible_alpha))
             .saturating_mul(sp_core::U256::from(18u64))
+            .saturating_add(sp_core::U256::from(extra).saturating_mul(sp_core::U256::from(100u64)))
             .saturating_mul(one);
         if lhs <= rhs {
             return;
@@ -1693,6 +1704,9 @@ impl<T: Config> Pallet<T> {
         destination_hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> DispatchResult {
+        // Lending guard: as in `do_lock_stake`.
+        Self::ensure_not_lending_custody(coldkey)?;
+        Self::ensure_not_lending_hotkey(destination_hotkey)?;
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             Self::hotkey_account_exists(destination_hotkey),

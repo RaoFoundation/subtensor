@@ -130,6 +130,9 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
     ) -> DispatchResult {
+        // Lending guard: every registration path creates its hotkey here, so the pallet
+        // hotkey can never be registered as a validator, miner or owner hotkey.
+        Self::ensure_not_lending_hotkey(hotkey)?;
         Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(
@@ -162,6 +165,8 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn set_hotkey_owner(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+        // Lending guard: a hotkey swap cannot hand the pallet hotkey to anyone.
+        Self::ensure_not_lending_hotkey(hotkey)?;
         Self::ensure_hotkey_owner_policy(coldkey, hotkey)?;
         // Only allow to register non-system hotkeys
         ensure!(

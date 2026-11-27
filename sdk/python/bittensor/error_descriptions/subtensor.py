@@ -10,6 +10,13 @@ DESCRIPTIONS: dict[str, str] = {
         "can check getRejectStakingHotkeyGrowth before transferring to avoid a refused "
         "precompile call."
     ),
+    "ColdkeySwapDestinationHasLendingPositions": (
+        "The coldkey being swapped holds lending positions and the destination coldkey holds "
+        "lending positions of its own, so the swap was refused when announced or executed: "
+        "every position must move to the new key and the two sets cannot be merged. Pick a "
+        "destination coldkey with no lending positions, or close the destination's positions "
+        "first."
+    ),
     "HotkeyOwnerPolicyViolation": (
         "This ownership change would weaken a protected hotkey's authorization. "
         "Use a coldkey account with a compatible authorization policy before registering, "
@@ -105,6 +112,33 @@ DESCRIPTIONS: dict[str, str] = {
         "When ending a subnet lease, the hotkey passed for the ownership handover is not owned "
         "by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass "
         "a hotkey the beneficiary coldkey actually owns."
+    ),
+    "LendingCustodyAccount": (
+        "The coldkey of a stake, lock or key-swap call is an account of the lending pallet (a "
+        "position's custody account, the pallet account or the pallet hotkey). Those accounts "
+        "hold collateral and locked alpha for open positions and are moved only by lending "
+        "itself. Use the position holder's own coldkey and the lending calls instead."
+    ),
+    "LendingLegMismatch": (
+        "A lending pool leg (the swap behind opening or closing a position) did not move "
+        "exactly the amount it was asked to move, so the whole call was rolled back. This is "
+        "an internal consistency check on the pool; retry with a smaller size or after the "
+        "pool's reserves change."
+    ),
+    "LendingLockedAlpha": (
+        "The call tried to take more alpha from the coldkey than it holds outside the alpha "
+        "lending keeps locked for open positions. Reduce the amount to the unlocked balance, "
+        "or close the lending position to release the locked alpha."
+    ),
+    "LendingPalletHotkey": (
+        "The hotkey is the lending pallet's own hotkey, which holds the alpha of lending "
+        "custody accounts. Nobody else may stake or lock to it, register it, swap to it, name "
+        "it as a child or parent, or use it as a subnet owner hotkey. Use a different hotkey."
+    ),
+    "LongsPendingSpec": (
+        "The long legs of the lending pool adapter are not implemented on this runtime, so "
+        "opening or closing a long position cannot execute. Only short positions are "
+        "available."
     ),
     "RootClaimTooHeavy": (
         "A root claim would process more than its admission envelope. A coldkey-wide claim "

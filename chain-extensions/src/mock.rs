@@ -429,6 +429,7 @@ impl pallet_subtensor::Config for Test {
     type Yuma3On = InitialYuma3On;
     type Preimages = Preimage;
     type AlphaAssets = AlphaAssets;
+    type Lending = ();
     type InitialColdkeySwapAnnouncementDelay = InitialColdkeySwapAnnouncementDelay;
     type InitialColdkeySwapReannouncementDelay = InitialColdkeySwapReannouncementDelay;
     type InitialDissolveNetworkScheduleDuration = InitialDissolveNetworkScheduleDuration;

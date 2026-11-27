@@ -10,11 +10,31 @@
 //! At quote weight 1/2 the pool is constant product and the quotes agree with the lending
 //! model's `ConstantProduct` up to rounding; `tests::lending_curve` measures the difference.
 
-use pallet_lending::math::{
-    curve::{Curve, PoolState},
-    fixed::Price,
+//!
+//! The second half of the file is the pool adapter: `pallet_lending`'s `LendingPoolInterface`
+//! on this pallet. Its legs move TAO, alpha, reserves and issuance with the same swap and the
+//! same fee settlement as staking, and record no TAO flow, protocol flow or subnet volume
+//! (pallet_lending SPEC I18, I19).
+
+use frame_support::{dispatch::DispatchResult, ensure};
+use pallet_lending::{
+    LendingInterface, LendingPoolInterface,
+    math::{
+        curve::{Curve, FeeRate, PoolState},
+        fixed::Price,
+    },
 };
 use pallet_subtensor_swap::balancer::{Balancer, fee_amount};
+use sp_runtime::traits::Zero;
+use sp_runtime::{DispatchError, Perquintill};
+use sp_std::vec::Vec;
+use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
+use subtensor_swap_interface::SwapHandler;
+
+use crate::{
+    Config, Error, NetworksAdded, OwnedHotkeys, Owner, Pallet, StakingHotkeys, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetLimit, SubnetTAO, TotalStake,
+};
 
 /// Fee rates are parts of `u16::MAX`.
 const FEE_DEN: u128 = 65_535;
@@ -210,5 +230,263 @@ impl Curve for BalancerCurve {
         let tao = pool.tao.checked_add(net_of_fee(pool, tao_in))?;
         let alpha = pool.alpha.checked_sub(alpha_out)?;
         Some((pool.with_reserves(tao, alpha), alpha_out))
+    }
+}
+
+impl<T: Config + pallet_subtensor_swap::Config> Pallet<T> {
+    /// The live pool of `netuid` as [`BalancerCurve`] prices it.
+    #[must_use]
+    pub fn lending_pool_state(netuid: NetUid) -> PoolState {
+        PoolState {
+            tao: SubnetTAO::<T>::get(netuid).to_u64(),
+            alpha: SubnetAlphaIn::<T>::get(netuid).to_u64(),
+            quote_weight: pallet_subtensor_swap::SwapBalancer::<T>::get(netuid).get_quote_weight(),
+            fee: pallet_subtensor_swap::FeeRate::<T>::get(netuid),
+        }
+    }
+}
+
+impl<T: Config + pallet_subtensor_swap::Config> LendingPoolInterface<T::AccountId> for Pallet<T> {
+    fn live_subnets() -> Vec<NetUid> {
+        NetworksAdded::<T>::iter()
+            .filter(|(netuid, added)| *added && !netuid.is_root())
+            .map(|(netuid, _)| netuid)
+            .collect()
+    }
+
+    fn subnet_limit() -> u32 {
+        u32::from(SubnetLimit::<T>::get())
+    }
+
+    fn spot_price(netuid: NetUid) -> Price {
+        T::SwapInterface::current_alpha_price(netuid)
+    }
+
+    fn pool_tao(netuid: NetUid) -> u64 {
+        SubnetTAO::<T>::get(netuid).to_u64()
+    }
+
+    fn moving_alpha_price(netuid: NetUid) -> Price {
+        Self::get_moving_alpha_price(netuid)
+    }
+
+    fn subnet_alpha_in(netuid: NetUid) -> u64 {
+        SubnetAlphaIn::<T>::get(netuid).to_u64()
+    }
+
+    fn quote_weight(netuid: NetUid) -> Perquintill {
+        pallet_subtensor_swap::SwapBalancer::<T>::get(netuid).get_quote_weight()
+    }
+
+    fn swap_fee(netuid: NetUid) -> FeeRate {
+        pallet_subtensor_swap::FeeRate::<T>::get(netuid)
+    }
+
+    /// `get_alpha_issuance`: the reserve, the outstanding alpha and the swap pallet's
+    /// reservoir. A short's minted alpha lands in the first two (see `mint_and_sell`), so it
+    /// is counted once (SPEC I7, P23).
+    fn alpha_issuance(netuid: NetUid) -> u64 {
+        Self::get_alpha_issuance(netuid).to_u64()
+    }
+
+    fn tao_balance(who: &T::AccountId) -> u64 {
+        Self::get_coldkey_balance(who).to_u64()
+    }
+
+    /// The stake of `who` on the pallet hotkey; zero in a runtime without lending.
+    fn held_alpha(who: &T::AccountId, netuid: NetUid) -> u64 {
+        T::Lending::pallet_hotkey().map_or(0, |hotkey| {
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, who, netuid).to_u64()
+        })
+    }
+
+    /// Writes the ownership records of `create_account_if_non_existent` directly: that
+    /// function refuses a lending account as a hotkey for every caller. Idempotent; fails if
+    /// the hotkey is already owned by another coldkey.
+    fn register_pallet_hotkey(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+        if let Ok(owner) = Owner::<T>::try_get(hotkey) {
+            ensure!(owner == *coldkey, Error::<T>::NonAssociatedColdKey);
+        } else {
+            Owner::<T>::insert(hotkey, coldkey);
+        }
+        OwnedHotkeys::<T>::mutate(coldkey, |hotkeys| {
+            if !hotkeys.contains(hotkey) {
+                hotkeys.push(hotkey.clone());
+            }
+        });
+        StakingHotkeys::<T>::mutate(coldkey, |hotkeys| {
+            if !hotkeys.contains(hotkey) {
+                hotkeys.push(hotkey.clone());
+            }
+        });
+        Ok(())
+    }
+
+    fn transfer_tao(
+        from: &T::AccountId,
+        to: &T::AccountId,
+        amount: u64,
+    ) -> Result<u64, DispatchError> {
+        Self::transfer_tao(from, to, TaoBalance::from(amount))?;
+        Ok(amount)
+    }
+
+    /// The TAO joins the reserve as `swap_tao_for_alpha` adds it: `SubnetTAO` and `TotalStake`
+    /// rise together, backed by the subnet account. No alpha is created, and nothing is
+    /// recorded as flow or volume.
+    fn credit_pool_tao(
+        netuid: NetUid,
+        from: &T::AccountId,
+        amount: u64,
+    ) -> Result<u64, DispatchError> {
+        if amount == 0 {
+            return Ok(0);
+        }
+        let subnet_account =
+            Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+        let tao = TaoBalance::from(amount);
+        Self::transfer_tao(from, &subnet_account, tao)?;
+        Self::increase_provided_tao_reserve(netuid, tao);
+        TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao));
+        Ok(amount)
+    }
+
+    /// Mints `q` into the outstanding alpha and sells it with the swap an unstake runs, so
+    /// the reserves move as `BalancerCurve::after_sell` quotes: the alpha reserve gains `q`
+    /// less the fee and the TAO reserve loses the proceeds. The fee alpha is settled as for
+    /// any sale (`settle_lending_alpha_fee`). Issuance rises by exactly `q` (SPEC I7).
+    fn mint_and_sell(netuid: NetUid, q: u64, to: &T::AccountId) -> Result<u64, DispatchError> {
+        let alpha = AlphaBalance::from(q);
+        Self::resolve_to_alpha_out(Self::mint_alpha(netuid, alpha));
+        let swap = Self::swap_alpha_for_tao_no_volume(
+            netuid,
+            alpha,
+            T::SwapInterface::min_price::<TaoBalance>(),
+            false,
+        )?;
+        ensure!(
+            swap.amount_paid_in.saturating_add(swap.fee_paid) == alpha,
+            Error::<T>::LendingLegMismatch
+        );
+        Self::transfer_tao_from_subnet(netuid, to, swap.amount_paid_out)?;
+        Self::settle_lending_alpha_fee(netuid, swap.fee_to_block_author)?;
+        Ok(swap.amount_paid_out.to_u64())
+    }
+
+    /// Buys with the smallest TAO input that returns `alpha` (`BalancerCurve::tao_in_for_alpha`)
+    /// through the swap a stake runs, and recycles exactly `alpha`. Alpha the input buys beyond
+    /// `alpha` (rounding) goes back to the reserve, so the reserves move as
+    /// `BalancerCurve::after_buy_alpha` quotes and issuance falls by exactly `alpha` (SPEC I7).
+    fn buy_and_burn(netuid: NetUid, from: &T::AccountId, alpha: u64) -> Result<u64, DispatchError> {
+        if alpha == 0 {
+            return Ok(0);
+        }
+        let pool = Self::lending_pool_state(netuid);
+        let cost = BalancerCurve::tao_in_for_alpha(&pool, alpha)
+            .and_then(|cost| u64::try_from(cost).ok())
+            .ok_or(Error::<T>::InsufficientLiquidity)?;
+        let subnet_account =
+            Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+        let tao = TaoBalance::from(cost);
+        Self::transfer_tao(from, &subnet_account, tao)?;
+        let swap = Self::swap_tao_for_alpha_no_volume(
+            netuid,
+            tao,
+            T::SwapInterface::max_price::<TaoBalance>(),
+            false,
+        )?;
+        ensure!(
+            swap.amount_paid_in.saturating_add(swap.fee_paid) == tao,
+            Error::<T>::LendingLegMismatch
+        );
+        let wanted = AlphaBalance::from(alpha);
+        let excess = swap
+            .amount_paid_out
+            .to_u64()
+            .checked_sub(alpha)
+            .map(AlphaBalance::from)
+            .ok_or(Error::<T>::LendingLegMismatch)?;
+        if !excess.is_zero() {
+            SubnetAlphaOut::<T>::mutate(netuid, |total| *total = total.saturating_sub(excess));
+            Self::increase_provided_alpha_reserve(netuid, excess);
+        }
+        Self::recycle_subnet_alpha(netuid, wanted);
+        Self::settle_tao_fee_to_author(netuid, swap.fee_to_block_author)?;
+        Ok(cost)
+    }
+
+    // HOLD(longs): spec under review
+    fn lift_and_buy(_netuid: NetUid, _lift: u64, _to: &T::AccountId) -> Result<u64, DispatchError> {
+        Err(Error::<T>::LongsPendingSpec.into())
+    }
+
+    // HOLD(longs): spec under review
+    fn sell_alpha(
+        _netuid: NetUid,
+        _from: &T::AccountId,
+        _alpha: u64,
+    ) -> Result<u64, DispatchError> {
+        Err(Error::<T>::LongsPendingSpec.into())
+    }
+}
+
+impl<T: Config> Pallet<T> {
+    /// Refuses a lending account (a position's custody, the pallet account, the pallet hotkey)
+    /// as the coldkey of a stake, lock or key-swap call.
+    pub fn ensure_not_lending_custody(who: &T::AccountId) -> Result<(), Error<T>> {
+        ensure!(
+            !T::Lending::is_lending_custody(who),
+            Error::<T>::LendingCustodyAccount
+        );
+        Ok(())
+    }
+
+    /// Refuses a lending account as a hotkey: nobody stakes or locks to the pallet hotkey,
+    /// registers it, names it as a parent or child or makes it an owner hotkey.
+    pub fn ensure_not_lending_hotkey(hotkey: &T::AccountId) -> Result<(), Error<T>> {
+        ensure!(
+            !T::Lending::is_lending_custody(hotkey),
+            Error::<T>::LendingPalletHotkey
+        );
+        Ok(())
+    }
+
+    /// Refuses to take `amount` alpha of `netuid` from `coldkey` if that reaches into the
+    /// alpha lending keeps locked. Free for an account with no locked alpha.
+    pub fn ensure_alpha_not_lending_locked(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> Result<(), Error<T>> {
+        let locked = AlphaBalance::from(T::Lending::locked_alpha(coldkey, netuid));
+        if !locked.is_zero() {
+            let free = Self::total_coldkey_alpha_on_subnet(coldkey, netuid).saturating_sub(locked);
+            ensure!(amount <= free, Error::<T>::LendingLockedAlpha);
+        }
+        Ok(())
+    }
+
+    /// `settle_alpha_fee_to_author` without the `SubnetVolume` record: the fee alpha of a
+    /// lending sale is swapped fee-free for TAO that goes to the block author, or burned when
+    /// no author is known. Either way the alpha stays in issuance.
+    fn settle_lending_alpha_fee(netuid: NetUid, fee: AlphaBalance) -> DispatchResult {
+        if fee.is_zero() {
+            return Ok(());
+        }
+        match <T as Config>::AuthorshipProvider::author() {
+            Some(author) => {
+                let swap = Self::swap_alpha_for_tao_no_volume(
+                    netuid,
+                    fee,
+                    T::SwapInterface::min_price::<TaoBalance>(),
+                    true,
+                )?;
+                Self::transfer_tao_from_subnet(netuid, &author, swap.amount_paid_out)
+            }
+            None => {
+                Self::burn_subnet_alpha(netuid, fee);
+                Ok(())
+            }
+        }
     }
 }

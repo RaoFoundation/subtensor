@@ -1158,6 +1158,7 @@ impl pallet_subtensor::Config for Runtime {
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
     type AlphaAssets = AlphaAssets;
+    type Lending = ();
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = BlockAuthorFromAura<Aura>;
     type SubtensorPalletId = SubtensorPalletId;

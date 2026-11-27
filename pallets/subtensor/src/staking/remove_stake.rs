@@ -163,6 +163,9 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 
+        // Lending guard: custody alpha leaves only through the lending pallet.
+        Self::ensure_not_lending_custody(&coldkey)?;
+
         // 2. Ensure that the hotkey account exists this is only possible through registration.
         ensure!(
             Self::hotkey_account_exists(&hotkey),
@@ -374,6 +377,8 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
+        // Lending guard: custody alpha leaves only through the lending pallet.
+        Self::ensure_not_lending_custody(&coldkey)?;
         Self::ensure_beta_basket_seed_idle()?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 

@@ -57,7 +57,7 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
         let before = T::Pool::pool_tao(netuid);
-        T::Pool::credit_pool_tao(netuid, custody, amount)?;
+        Self::credit_pool(netuid, custody, amount)?;
         let risen = T::Pool::pool_tao(netuid).saturating_sub(before);
         InterestTotals::<T>::mutate(netuid, |total| {
             total.charged = total.charged.saturating_add(u128::from(amount));
@@ -184,7 +184,7 @@ impl<T: Config> Pallet<T> {
         let (who, netuid, side) = id;
         let twap = Self::price_refs(*netuid)?.twap;
         let (settled, charge) = pos.settle(twap, apr_bps, now);
-        let custody = Self::custody_of(*side, who, *netuid, pos.opened_at);
+        let custody = Self::position_custody(id, pos.opened_at);
         Self::pay_interest(who, *netuid, *side, &custody, charge)?;
         Ok(settled)
     }

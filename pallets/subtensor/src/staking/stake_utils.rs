@@ -993,6 +993,25 @@ impl<T: Config> Pallet<T> {
     ) -> Result<SwapResult<TaoBalance, AlphaBalance>, DispatchError> {
         #[cfg(test)]
         crate::tests::mock::inc_basket_swap_ops();
+        let swap_result = Self::swap_tao_for_alpha_no_volume(netuid, tao, price_limit, drop_fees)?;
+
+        // Increase total subnet TAO volume.
+        SubnetVolume::<T>::mutate(netuid, |total| {
+            *total = total.saturating_add(tao.to_u64() as u128);
+        });
+
+        Ok(swap_result)
+    }
+
+    /// [`Self::swap_tao_for_alpha`] without the `SubnetVolume` record: the swap and its
+    /// reserve, outstanding and total-stake accounting. Lending's buy-back is not trading
+    /// volume (pallet_lending SPEC I18).
+    pub(crate) fn swap_tao_for_alpha_no_volume(
+        netuid: NetUid,
+        tao: TaoBalance,
+        price_limit: TaoBalance,
+        drop_fees: bool,
+    ) -> Result<SwapResult<TaoBalance, AlphaBalance>, DispatchError> {
         // Step 1: Get the mechanism type for the subnet (0 for Stable, 1 for Dynamic)
         let mechanism_id: u16 = SubnetMechanism::<T>::get(netuid);
         let swap_result = if mechanism_id == 1 {
@@ -1030,11 +1049,6 @@ impl<T: Config> Pallet<T> {
         });
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(reserve_delta));
 
-        // Increase total subnet TAO volume.
-        SubnetVolume::<T>::mutate(netuid, |total| {
-            *total = total.saturating_add(tao.to_u64() as u128);
-        });
-
         Ok(swap_result)
     }
 
@@ -1049,6 +1063,27 @@ impl<T: Config> Pallet<T> {
     ) -> Result<SwapResult<AlphaBalance, TaoBalance>, DispatchError> {
         #[cfg(test)]
         crate::tests::mock::inc_basket_swap_ops();
+        let swap_result =
+            Self::swap_alpha_for_tao_no_volume(netuid, alpha, price_limit, drop_fees)?;
+
+        // Increase total subnet TAO volume.
+        SubnetVolume::<T>::mutate(netuid, |total| {
+            *total = total.saturating_add(swap_result.amount_paid_out.to_u64() as u128)
+        });
+
+        // Return the tao received.
+        Ok(swap_result)
+    }
+
+    /// [`Self::swap_alpha_for_tao`] without the `SubnetVolume` record: the swap and its
+    /// reserve, outstanding and total-stake accounting. Lending's synthetic sale is not
+    /// trading volume (pallet_lending SPEC I18).
+    pub(crate) fn swap_alpha_for_tao_no_volume(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        price_limit: TaoBalance,
+        drop_fees: bool,
+    ) -> Result<SwapResult<AlphaBalance, TaoBalance>, DispatchError> {
         // Step 1: Get the mechanism type for the subnet (0 for Stable, 1 for Dynamic)
         let mechanism_id: u16 = SubnetMechanism::<T>::get(netuid);
         // Step 2: Swap alpha and attain tao
@@ -1083,12 +1118,6 @@ impl<T: Config> Pallet<T> {
         // Reduce total TAO reserves.
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(swap_result.amount_paid_out));
 
-        // Increase total subnet TAO volume.
-        SubnetVolume::<T>::mutate(netuid, |total| {
-            *total = total.saturating_add(swap_result.amount_paid_out.to_u64() as u128)
-        });
-
-        // Return the tao received.
         Ok(swap_result)
     }
 
@@ -1827,6 +1856,10 @@ impl<T: Config> Pallet<T> {
         max_amount: TaoBalance,
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
+        // Lending guard: custody accounts do not stake, and nobody stakes to the pallet hotkey.
+        Self::ensure_not_lending_custody(coldkey)?;
+        Self::ensure_not_lending_hotkey(hotkey)?;
+
         // Root stake changes during the multi-block basket seed break snapshotted
         // conversion (`Σ owed == BasketShares`); pause until the seed finishes.
         if netuid.is_root() {
@@ -1915,6 +1948,9 @@ impl<T: Config> Pallet<T> {
         max_amount: AlphaBalance,
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
+        // Lending guard: custody alpha leaves only through the lending pallet.
+        Self::ensure_not_lending_custody(coldkey)?;
+
         if netuid.is_root() {
             Self::ensure_beta_basket_seed_idle()?;
         }
@@ -1984,6 +2020,9 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         only_alpha: bool,
     ) -> Result<(), Error<T>> {
+        // Lending guard: custody alpha leaves only through the lending pallet.
+        Self::ensure_not_lending_custody(coldkey)?;
+
         // `unstake_all` (not only_alpha) withdraws root stake too.
         if !only_alpha {
             Self::ensure_beta_basket_seed_idle()?;
@@ -2037,6 +2076,13 @@ impl<T: Config> Pallet<T> {
         maybe_allow_partial: Option<bool>,
         check_transfer_toggle: bool,
     ) -> Result<(), Error<T>> {
+        // Lending guard: no move, transfer or swap takes stake out of a custody account or
+        // puts stake into one, and none uses the pallet hotkey on either end.
+        Self::ensure_not_lending_custody(origin_coldkey)?;
+        Self::ensure_not_lending_custody(destination_coldkey)?;
+        Self::ensure_not_lending_hotkey(origin_hotkey)?;
+        Self::ensure_not_lending_hotkey(destination_hotkey)?;
+
         if origin_netuid.is_root() || destination_netuid.is_root() {
             Self::ensure_beta_basket_seed_idle()?;
         }

@@ -18,10 +18,10 @@ use sp_runtime::{
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    BlockNetLifted, BlockNetMinted, Config, DeregParamsStore, Enabled, Error, Event,
-    LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore,
-    LongPositionCount, LongsEnabled, Pallet, PositionCount, Positions, ShortParamsStore,
-    SyntheticOutstanding, TotalPositions,
+    BlockNetLifted, BlockNetMinted, Config, Custody, DeregParamsStore, Enabled, Error, Event,
+    HolderPositions, LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha,
+    LongParamsStore, LongPositionCount, LongsEnabled, Pallet, PositionCount, Positions,
+    ShortParamsStore, SwappedOutAt, SyntheticOutstanding, TotalPositions,
     math::{
         PriceRefs,
         coverage::{long_need, short_need},
@@ -275,6 +275,21 @@ impl<T: Config> Pallet<T> {
         T::PalletId::get().into_sub_account_truncating(seed)
     }
 
+    /// Moves `amount` TAO between two accounts and refuses a pool that moved any other amount.
+    pub(crate) fn move_tao(from: &T::AccountId, to: &T::AccountId, amount: u64) -> DispatchResult {
+        let moved = T::Pool::transfer_tao(from, to, amount)?;
+        ensure!(moved == amount, Error::<T>::QuoteMismatch);
+        Ok(())
+    }
+
+    /// Credits `amount` TAO from `from` to the pool's reserve and refuses a pool that credited
+    /// any other amount.
+    pub(crate) fn credit_pool(netuid: NetUid, from: &T::AccountId, amount: u64) -> DispatchResult {
+        let moved = T::Pool::credit_pool_tao(netuid, from, amount)?;
+        ensure!(moved == amount, Error::<T>::QuoteMismatch);
+        Ok(())
+    }
+
     fn ensure_side_enabled(side: Side) -> DispatchResult {
         match side {
             Side::Short => {
@@ -371,6 +386,17 @@ impl<T: Config> Pallet<T> {
                 !Positions::<T>::contains_key((who.clone(), netuid, side.other())),
                 Error::<T>::OppositeSideOpen
             );
+            // A coldkey holds a bounded number of positions, which bounds the re-key of a
+            // coldkey swap (`hooks::rekey_positions`).
+            ensure!(
+                HolderPositions::<T>::decode_len(who).unwrap_or(0)
+                    < crate::hooks::MAX_POSITIONS_PER_HOLDER as usize,
+                Error::<T>::TooManyPositions
+            );
+            ensure!(
+                SwappedOutAt::<T>::get(who) != Some(now),
+                Error::<T>::SwappedOutThisBlock
+            );
             let first_charge = Self::charge_block(now, params.lending.charge_interval_blocks);
             Position::fresh(side, now, first_charge)
         } else {
@@ -435,8 +461,8 @@ impl<T: Config> Pallet<T> {
         );
 
         // Commit: custody funded, the leg moves the pool, then the charge is paid.
-        let custody = Self::custody_of(side, who, netuid, pos.opened_at);
-        T::Pool::transfer_tao(who, &custody, funded)?;
+        let custody = Self::position_custody(&key, pos.opened_at);
+        Self::move_tao(who, &custody, funded)?;
         let moved = match side {
             Side::Short => T::Pool::mint_and_sell(netuid, size, &custody)?,
             Side::Long => T::Pool::lift_and_buy(netuid, size, &custody)?,
@@ -480,6 +506,12 @@ impl<T: Config> Pallet<T> {
             Self::schedule_charge(&key, pos.charge_at);
             PositionCount::<T>::mutate(netuid, |count| *count = count.saturating_add(1));
             TotalPositions::<T>::mutate(|count| *count = count.saturating_add(1));
+            HolderPositions::<T>::try_append(who, (netuid, side))
+                .map_err(|()| Error::<T>::TooManyPositions)?;
+            // A marker of an earlier block has done its work.
+            if SwappedOutAt::<T>::contains_key(who) {
+                SwappedOutAt::<T>::remove(who);
+            }
             Self::deposit_event(Event::PositionOpened {
                 who: who.clone(),
                 netuid,
@@ -542,14 +574,14 @@ impl<T: Config> Pallet<T> {
         }
 
         // Commit: the leg moves alpha and TAO, then the repayment, the charge and the books.
-        let custody = Self::custody_of(side, who, netuid, pos.opened_at);
+        let custody = Self::position_custody(&key, pos.opened_at);
         let paid = match side {
             Side::Short => T::Pool::buy_and_burn(netuid, &custody, alpha)?,
             Side::Long => T::Pool::sell_alpha(netuid, &custody, alpha)?,
         };
         ensure!(paid == quote.value, Error::<T>::QuoteMismatch);
         if quote.repaid > 0 {
-            T::Pool::credit_pool_tao(netuid, &custody, quote.repaid)?;
+            Self::credit_pool(netuid, &custody, quote.repaid)?;
         }
         Self::pay_interest(who, netuid, side, &custody, charge)?;
         match side {
@@ -597,11 +629,20 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(proceeds.saturating_sub(refund_p))
                 .saturating_add(pos.deposit);
             Positions::<T>::remove(&key);
+            Custody::<T>::remove(&key);
             Self::unschedule_charge(&key, pos.charge_at);
             PositionCount::<T>::mutate_exists(netuid, |count| {
                 *count = count.unwrap_or(0).checked_sub(1).filter(|left| *left > 0);
             });
             TotalPositions::<T>::mutate(|count| *count = count.saturating_sub(1));
+            HolderPositions::<T>::mutate_exists(who, |held| {
+                if let Some(list) = held {
+                    list.retain(|entry| *entry != (netuid, side));
+                    if list.is_empty() {
+                        *held = None;
+                    }
+                }
+            });
         } else {
             Positions::<T>::insert(
                 &key,
@@ -613,7 +654,7 @@ impl<T: Config> Pallet<T> {
             );
         }
         if payout > 0 {
-            T::Pool::transfer_tao(&custody, who, payout)?;
+            Self::move_tao(&custody, who, payout)?;
         }
         Self::deposit_event(Event::PositionClosed {
             who: who.clone(),
@@ -649,8 +690,8 @@ impl<T: Config> Pallet<T> {
             .collateral
             .checked_add(amount)
             .ok_or(Error::<T>::Overflow)?;
-        let custody = Self::custody_of(side, who, netuid, pos.opened_at);
-        T::Pool::transfer_tao(who, &custody, amount)?;
+        let custody = Self::position_custody(&key, pos.opened_at);
+        Self::move_tao(who, &custody, amount)?;
         Self::pay_interest(who, netuid, side, &custody, charge)?;
         Positions::<T>::insert(&key, Position { collateral, ..pos });
         Self::deposit_event(Event::CollateralAdded {
@@ -701,9 +742,9 @@ impl<T: Config> Pallet<T> {
             covers(need, held_after, buffer),
             Error::<T>::WithdrawBufferBreached
         );
-        let custody = Self::custody_of(side, who, netuid, pos.opened_at);
+        let custody = Self::position_custody(&key, pos.opened_at);
         Self::pay_interest(who, netuid, side, &custody, charge)?;
-        T::Pool::transfer_tao(&custody, who, amount)?;
+        Self::move_tao(&custody, who, amount)?;
         Positions::<T>::insert(&key, Position { collateral, ..pos });
         Self::deposit_event(Event::CollateralWithdrawn {
             who: who.clone(),

@@ -509,5 +509,20 @@ mod errors {
         NotMechWeightDelegate,
         /// A Null weight row exceeds the total row budget divided by mechanism count.
         TooManyWeightsForNullMechanism,
+        /// The account belongs to the lending pallet (a position's custody, the pallet account
+        /// or the pallet hotkey); no stake, lock or key-swap call may act on it.
+        LendingCustodyAccount,
+        /// The amount exceeds the alpha that lending does not keep locked.
+        LendingLockedAlpha,
+        /// The hotkey is the lending pallet's; nobody else may stake to it, register it, name it
+        /// as a child or parent, or use it as an owner hotkey.
+        LendingPalletHotkey,
+        /// Long legs of the lending pool adapter are not implemented.
+        LongsPendingSpec,
+        /// A lending pool leg did not move exactly the amount it was asked to move.
+        LendingLegMismatch,
+        /// The coldkey being swapped holds lending positions and the destination coldkey holds
+        /// lending positions of its own; the two sets cannot be merged.
+        ColdkeySwapDestinationHasLendingPositions,
     }
 }

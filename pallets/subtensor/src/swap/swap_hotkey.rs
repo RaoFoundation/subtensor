@@ -212,6 +212,8 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
     ) -> Result<Weight, DispatchError> {
         let coldkey = coldkey.clone();
+        // Lending guard: nobody swaps onto the pallet hotkey.
+        Self::ensure_not_lending_hotkey(new_hotkey)?;
         Self::ensure_hotkey_owner_policy(&coldkey, new_hotkey)?;
         if let Some(netuid) = netuid {
             ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);

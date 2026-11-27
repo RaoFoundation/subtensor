@@ -9,6 +9,7 @@
 
 extern crate alloc;
 
+pub mod hooks;
 pub mod interest;
 pub mod math;
 pub mod migrations;
@@ -19,12 +20,13 @@ pub mod prices;
 pub mod types;
 pub mod weights;
 
-#[cfg(any(test, feature = "try-runtime"))]
+// Always built: the integration tests of the pool adapter run the invariants too.
 mod try_state;
 
 #[cfg(test)]
 mod tests;
 
+pub use hooks::LendingInterface;
 pub use pallet::*;
 pub use pool::LendingPoolInterface;
 pub use weights::WeightInfo;
@@ -157,6 +159,41 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// The custody account of a position a coldkey swap moved to a new holder. A position
+    /// without an entry keeps the account derived from its own key (`custody_of`).
+    #[pallet::storage]
+    pub type Custody<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        PositionId<<T as frame_system::Config>::AccountId>,
+        <T as frame_system::Config>::AccountId,
+        OptionQuery,
+    >;
+
+    /// The open positions of a coldkey, on every subnet and side: at most
+    /// `hooks::MAX_POSITIONS_PER_HOLDER`. The open gate enforces the cap, so a coldkey swap
+    /// moves a bounded number of positions without reading any other holder's.
+    #[pallet::storage]
+    pub type HolderPositions<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        <T as frame_system::Config>::AccountId,
+        BoundedVec<(NetUid, Side), ConstU32<{ crate::hooks::MAX_POSITIONS_PER_HOLDER }>>,
+        ValueQuery,
+    >;
+
+    /// The block in which a coldkey swap moved away a position this coldkey had opened in
+    /// that same block. The coldkey opens nothing more in that block: a new position would
+    /// derive the custody account the moved one still uses. Cleared by its next open.
+    #[pallet::storage]
+    pub type SwappedOutAt<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        <T as frame_system::Config>::AccountId,
+        BlockNumberFor<T>,
+        OptionQuery,
+    >;
+
     /// `SyntheticOutstanding`: the short book `Q`, synthetic alpha owed back (SPEC I1).
     #[pallet::storage]
     pub type SyntheticOutstanding<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
@@ -244,6 +281,14 @@ pub mod pallet {
         LongParamsSet { old: LongParams, new: LongParams },
         /// A pending `DeregParams` became live.
         DeregParamsSet { old: DeregParams, new: DeregParams },
+        /// A coldkey swap moved a position, with its interest schedule and its custody
+        /// account, from `old` to `new`.
+        PositionRekeyed {
+            old: T::AccountId,
+            new: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+        },
         /// A short or long position was opened.
         PositionOpened {
             who: T::AccountId,
@@ -350,6 +395,11 @@ pub mod pallet {
         Overflow,
         /// The pool moved a different amount than the quote the pallet gated on.
         QuoteMismatch,
+        /// The coldkey already holds `hooks::MAX_POSITIONS_PER_HOLDER` positions.
+        TooManyPositions,
+        /// A coldkey swap moved away a position this coldkey opened in this block; it opens
+        /// again from the next block.
+        SwappedOutThisBlock,
     }
 
     #[pallet::hooks]

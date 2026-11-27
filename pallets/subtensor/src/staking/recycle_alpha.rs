@@ -24,6 +24,9 @@ impl<T: Config> Pallet<T> {
     ) -> Result<AlphaBalance, DispatchError> {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
+        // Lending guard: custody alpha is burned only by the lending pallet.
+        Self::ensure_not_lending_custody(&coldkey)?;
+
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
         ensure!(
@@ -85,6 +88,9 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
     ) -> Result<AlphaBalance, DispatchError> {
         let coldkey = ensure_signed(origin)?;
+
+        // Lending guard: custody alpha is burned only by the lending pallet.
+        Self::ensure_not_lending_custody(&coldkey)?;
 
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 

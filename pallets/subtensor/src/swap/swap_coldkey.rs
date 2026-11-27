@@ -196,6 +196,7 @@ impl<T: Config> Pallet<T> {
                 ),
             )
             .saturating_add(reservation)
+            .saturating_add(T::Lending::coldkey_swap_admission_weight())
             .saturating_add(policy_snapshot)
             .saturating_add(lock_terms_snapshot)
             .saturating_add(lock_mode_check)
@@ -325,6 +326,8 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey(),
             Self::coldkey_swap_max_work(),
         )
+        // The lending re-key, at its bound.
+        .saturating_add(T::Lending::coldkey_swap_weight())
         .saturating_add(T::DbWeight::get().writes(2))
     }
 
@@ -334,6 +337,8 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey(),
             work,
         )
+        // The lending re-key, at its bound.
+        .saturating_add(T::Lending::coldkey_swap_weight())
         .saturating_add(T::DbWeight::get().writes(2))
     }
 
@@ -343,6 +348,8 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced(),
             Self::coldkey_swap_max_work(),
         )
+        // The lending re-key, at its bound.
+        .saturating_add(T::Lending::coldkey_swap_weight())
         // V2 commitment recovery reads the announcement-time policy and lock terms.
         .saturating_add(T::DbWeight::get().reads(2))
         // Successful execution removes the announcement and both V2 snapshot rows.
@@ -355,6 +362,8 @@ impl<T: Config> Pallet<T> {
             <T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced(),
             work,
         )
+        // The lending re-key, at its bound.
+        .saturating_add(T::Lending::coldkey_swap_weight())
         .saturating_add(T::DbWeight::get().writes(3))
     }
 
@@ -735,6 +744,17 @@ impl<T: Config> Pallet<T> {
         // and grief the victim with ActiveLockExists (Skeptic fid:fb099e4c).
         Self::ensure_coldkey_swap_destination_reservable(old_coldkey, new_coldkey)
             .map_err(|e| (precheck().saturating_add(reservation_weight), e))?;
+        // Lending positions of the source all move to the destination, so a destination
+        // with positions of its own is refused here, read-only, at announce and at execute:
+        // none may stay with a source key that is being replaced.
+        if !T::Lending::coldkey_swap_destination_ok(old_coldkey, new_coldkey) {
+            return Err((
+                precheck()
+                    .saturating_add(reservation_weight)
+                    .saturating_add(T::Lending::coldkey_swap_admission_weight()),
+                Error::<T>::ColdkeySwapDestinationHasLendingPositions,
+            ));
+        }
         // Blocking locks on the destination (locked mass or residual conviction
         // above dust) cannot be merged safely with source locks, and announce
         // admission must stay read-only w.r.t. the destination — a third party
@@ -929,6 +949,15 @@ impl<T: Config> Pallet<T> {
         }
         with_transaction(|| {
             let result = (|| -> DispatchResult {
+                // Lending: a custody account is on neither end of a swap, and every position
+                // of `old_coldkey`, with its interest schedule and custody, follows it to
+                // `new_coldkey` (admission refused a destination with positions). No funds
+                // move and the hook cannot fail. Its weight is the bound the dispatch
+                // declares (`T::Lending::coldkey_swap_weight`).
+                Self::ensure_not_lending_custody(old_coldkey)?;
+                Self::ensure_not_lending_custody(new_coldkey)?;
+                let _ = T::Lending::on_coldkey_swap(old_coldkey, new_coldkey);
+
                 // Decide which destination policies to preserve before moving any state.
                 let saved_dest_flags = AccountFlags::<T>::get(new_coldkey);
                 let saved_source_flags = AccountFlags::<T>::get(old_coldkey);

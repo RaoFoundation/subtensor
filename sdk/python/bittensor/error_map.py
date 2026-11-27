@@ -273,6 +273,14 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "NoExistingLock": _C.NOT_FOUND,
     "ActiveLockExists": _C.ALREADY_EXISTS,
     "CannotUseSystemAccount": _C.NOT_AUTHORIZED,
+    # Lending: custody accounts and the pallet hotkey are off limits to every
+    # stake, lock and key-swap call.
+    "LendingCustodyAccount": _C.NOT_AUTHORIZED,
+    "LendingPalletHotkey": _C.NOT_AUTHORIZED,
+    "LendingLockedAlpha": _C.INSUFFICIENT_BALANCE,
+    "LongsPendingSpec": _C.DISABLED,
+    "LendingLegMismatch": _C.INTERNAL,
+    "ColdkeySwapDestinationHasLendingPositions": _C.ALREADY_EXISTS,
     # Emission weight vector (`sudo_set_subnet_emission_weights`): one error per
     # rule so a caller learns the constraint from the failure alone.
     "EmissionWeightsLengthMismatch": _C.INVALID_ARGUMENT,

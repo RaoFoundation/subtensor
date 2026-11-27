@@ -823,6 +823,11 @@ impl<T: Config> Pallet<T> {
                     let done = Self::clean_up_root_claimed_for_subnet(netuid, weight_meter);
 
                     if done {
+                        // HOLD(2.8/2.9): payout split pending spec decision. The lending hook
+                        // runs once per dissolved subnet, here, before the first step of the
+                        // pot distribution, and takes its own weight from the meter. The
+                        // pallet's implementation does nothing.
+                        T::Lending::on_dissolve(netuid, weight_meter);
                         status.set_phase(DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue);
                         status.last_key = None;
                     }

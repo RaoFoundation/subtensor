@@ -92,8 +92,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     fn open_position() -> Weight {
         // Worst case: the side and opposite-side checks, four parameter groups, the price
         // rings, both pool reserves, the three books, the flow counters, the position, the
-        // balances, the custody legs, and the Due entry with NextDue and both position counts.
-        T::DbWeight::get().reads_writes(28, 16)
+        // balances, the custody legs, the Due entry with NextDue and both position counts,
+        // and the holder's position list with its coldkey-swap marker.
+        T::DbWeight::get().reads_writes(30, 18)
     }
     fn increase_position() -> Weight {
         // As `open_position` without the opposite-side and count reads.
