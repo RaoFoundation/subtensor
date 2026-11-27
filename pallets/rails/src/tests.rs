@@ -1808,6 +1808,101 @@ fn a_quote_is_what_the_order_then_delivers_and_changes_nothing() {
     });
 }
 
+#[test]
+fn a_payment_from_bittensor_is_quoted_as_it_then_settles() {
+    new_test_ext().execute_with(|| {
+        open_market(CHUTES, "Chutes");
+        fund_tao(ALICE, 101 * UNIT);
+        // The bridge releases only the dollars it brought in.
+        settled(
+            SpokeAsset::Stable,
+            10_000 * UNIT,
+            Destination::NativeTusd { to: ALICE },
+        );
+        for (source, amount, destination) in [
+            (
+                NativeAsset::Tusd,
+                200 * UNIT,
+                Destination::Stable { to: wallet() },
+            ),
+            (
+                NativeAsset::Tao,
+                10 * UNIT,
+                Destination::Stable { to: wallet() },
+            ),
+            (
+                NativeAsset::Tao,
+                10 * UNIT,
+                Destination::Tao { to: wallet() },
+            ),
+            (
+                NativeAsset::Tusd,
+                200 * UNIT,
+                Destination::Alpha {
+                    netuid: netuid(CHUTES),
+                    to: wallet(),
+                },
+            ),
+        ] {
+            let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            let quote =
+                Rails::quote_bridge_out(&ALICE, BASE, source, amount, destination.clone()).unwrap();
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+            // With the quote as the minimum the payment goes through; with one more it fails.
+            assert_noop!(
+                Rails::bridge_out(
+                    RuntimeOrigin::signed(ALICE),
+                    BASE,
+                    source,
+                    amount,
+                    destination.clone(),
+                    quote + 1
+                ),
+                Error::<Test>::SlippageExceeded
+            );
+            assert_ok!(Rails::bridge_out(
+                RuntimeOrigin::signed(ALICE),
+                BASE,
+                source,
+                amount,
+                destination,
+                quote
+            ));
+        }
+        // What would fail is quoted as its error.
+        assert_eq!(
+            Rails::quote_bridge_out(
+                &BOB,
+                BASE,
+                NativeAsset::Tusd,
+                UNIT,
+                Destination::Stable { to: wallet() }
+            ),
+            Err(pallet_tusd::Error::<Test>::InsufficientBalance.into())
+        );
+        assert_ok!(Rails::set_paused(RuntimeOrigin::signed(GUARDIAN), true));
+        assert_eq!(
+            Rails::quote_bridge_out(
+                &ALICE,
+                BASE,
+                NativeAsset::Tao,
+                UNIT,
+                Destination::Tao { to: wallet() }
+            ),
+            Err(Error::<Test>::Paused.into())
+        );
+        assert_eq!(
+            Rails::quote_order(
+                BASE,
+                SpokeAsset::Stable,
+                UNIT,
+                Destination::NativeTusd { to: ALICE }
+            ),
+            Err(Error::<Test>::Paused.into())
+        );
+    });
+}
+
 // ---------------------------------------------------------------- vault arithmetic
 
 #[test]

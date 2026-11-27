@@ -704,12 +704,32 @@ impl<T: Config> Pallet<T> {
             min_out: 0,
             deadline: u64::MAX,
         };
+        ensure!(!Paused::<T>::get(), Error::<T>::Paused);
         Self::ensure_bridge_enabled(bridge)?;
         Self::ensure_backed(bridge, source, amount)?;
+        Self::undone(|| Self::route_order(bridge, &order))
+    }
+
+    /// What a payment of `amount` of `who`'s `source` would deliver to `destination` on the
+    /// spoke of `bridge` now, or why it would fail. Runs the payment as
+    /// [`Pallet::bridge_out`] would and undoes it.
+    pub fn quote_bridge_out(
+        who: &T::AccountId,
+        bridge: BridgeId,
+        source: NativeAsset,
+        amount: u64,
+        destination: Destination<T::AccountId>,
+    ) -> Result<u64, DispatchError> {
+        ensure!(!Paused::<T>::get(), Error::<T>::Paused);
+        Self::ensure_bridge_enabled(bridge)?;
+        Self::undone(|| Self::route_native(who, bridge, source, amount, &destination, 0))
+    }
+
+    /// Runs `route` and rolls back whatever it changed: a quote changes nothing.
+    fn undone(route: impl FnOnce() -> Result<u64, DispatchError>) -> Result<u64, DispatchError> {
         let mut quote = Err(Error::<T>::Overflow.into());
-        // Always rolled back: a quote changes nothing.
         let _ = with_storage_layer(|| {
-            quote = Self::route_order(bridge, &order);
+            quote = route();
             Err::<(), DispatchError>(DispatchError::Other("quote"))
         });
         quote

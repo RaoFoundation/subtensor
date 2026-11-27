@@ -2981,6 +2981,16 @@ impl_runtime_apis! {
             Rails::quote_order(bridge, source, amount, destination)
         }
 
+        fn quote_bridge_out(
+            who: AccountId,
+            bridge: subtensor_runtime_common::rails::BridgeId,
+            source: pallet_rails::NativeAsset,
+            amount: u64,
+            destination: pallet_rails::Destination<AccountId>,
+        ) -> Result<u64, sp_runtime::DispatchError> {
+            Rails::quote_bridge_out(&who, bridge, source, amount, destination)
+        }
+
         fn alpha_rate(netuid: NetUid) -> Option<u128> {
             Rails::alpha_rate(netuid)
         }
