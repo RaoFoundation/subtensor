@@ -46,6 +46,7 @@ from .namespaces import (
     Locks,
     Neurons,
     Prices,
+    Rails,
     Staking,
     Subnets,
     Weights,
@@ -202,6 +203,7 @@ class Client:
         self.locks = Locks(self)
         self.neurons = Neurons(self)
         self.prices = Prices(self)
+        self.rails = Rails(self)
         self.staking = Staking(self)
         self.subnets = Subnets(self)
         self.weights = Weights(self)

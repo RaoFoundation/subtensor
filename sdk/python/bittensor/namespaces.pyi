@@ -489,6 +489,78 @@ class Prices(_ReadNamespace):
     async def quote_unstake(self, netuid: int, amount_alpha: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate unstaking `amount_alpha` alpha from a subnet: TAO out, fee, and slippage."""
 
+class Rails(_ReadNamespace):
+    """tUSD, the tUSD/TAO pool, canonical tokens, and bridge orders."""
+
+    async def bridge_order(self, bridge: int, nonce: int, *, block: Optional[int] = None) -> dict:
+        """What became of an order that a portal sent to the hub.
+
+        `status` is `pending` (the hub has not taken it yet), `settled`,
+        `refunded` (the portal returns what it took; `error` says why),
+        `rejected`, `skipped`, or `unknown` when the hub has taken the order but
+        no longer keeps its receipt. `amount_out` is what a settled order
+        delivered, with 9 decimals, and `block` where the hub disposed of it.
+        """
+
+    async def bridges(self, *, block: Optional[int] = None) -> list[dict]:
+        """Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.
+
+        `outstanding_tusd` is the tUSD the bridge minted and has not burned: the
+        stablecoin its vault must hold. `mint_cap_tusd` bounds it. `available_tao`
+        and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
+        """
+
+    async def canonical_pool(self, *, block: Optional[int] = None) -> dict:
+        """The canonical tUSD/TAO pool: its reserves, prices, fee, caps and whether it is on.
+
+        `price_usd` is the pool's spot price of a TAO and `twap_usd` its price
+        averaged over the last period, which values credits; `twap_usd` is None
+        until the pool has a full period of history. `fee` is the swap fee as a
+        fraction. One swap may pay in at most `max_swap_fraction` of the paying
+        reserve, and each direction at most `window_fraction` of it over
+        `window_blocks` blocks.
+        """
+
+    async def credits_spent(self, netuid: int, service_hotkey_ss58: str, payer_address: str, *, block: Optional[int] = None) -> str:
+        """The gamma that payments through the rails spent at a service for an address.
+
+        An exact decimal string. It only grows, until the subnet is dissolved. A
+        service credits an address by the growth of this total, read at a finalized
+        block.
+        """
+
+    async def pool_shares(self, coldkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """An account's shares of the canonical pool and what they redeem now.
+
+        `tao` and `tusd` are the parts of the reserves that `shares` redeem,
+        which grow with the swap fees the pool earns.
+        """
+
+    async def quote_pool_swap(self, sell: str, amount: float, *, block: Optional[int] = None) -> dict:
+        """What a swap in the canonical pool would pay now, after its fee.
+
+        `receive` is in the other asset: tUSD as an exact decimal string when TAO
+        is sold, TAO when tUSD is sold. The pool's caps can still refuse a swap of
+        this size; `swap_pool` reports that when it plans the call.
+        """
+
+    async def rails_tokens(self, *, block: Optional[int] = None) -> list[dict]:
+        """The registry of canonical tokens: which contract on which chain stands for which asset.
+
+        One row per bridge and asset. `asset` is `stable`, `tao` or `alpha`, with
+        the subnet of an alpha token in `netuid`. For an alpha token, `rate` is
+        the alpha that one token is worth now, and `supply` the tokens outstanding
+        on that bridge's chain; a token never rebases, its rate grows. `rate` is
+        None once the subnet was dissolved and the token only redeems TAO.
+        """
+
+    async def tusd_balance(self, coldkey_ss58: str, *, block: Optional[int] = None) -> str:
+        """The tUSD an account holds, as an exact decimal string.
+
+        tUSD is the chain's dollar: bridges mint it one for one against a
+        stablecoin they lock on another chain.
+        """
+
 class Staking(_ReadNamespace):
     """Stake amounts and positions, plus every "Staking" read."""
 
