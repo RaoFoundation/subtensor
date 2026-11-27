@@ -36,6 +36,7 @@ from .call import call as call_command
 from .commands import (
     addresses,
     axon,
+    bridge,
     collateral,
     commitments,
     config,
@@ -46,6 +47,7 @@ from .commands import (
     lock,
     misc,
     multisig,
+    pool,
     proxy,
     root,
     stake,
@@ -102,6 +104,8 @@ PANEL_ADDITIONAL = "Additional"
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
 app.add_typer(gamma.app, name="gamma")
+app.add_typer(bridge.app, name="bridge")
+app.add_typer(pool.app, name="pool")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")
