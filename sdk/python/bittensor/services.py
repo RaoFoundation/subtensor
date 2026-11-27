@@ -68,7 +68,7 @@ import zlib
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import IO, Any, Callable, Mapping, Optional, Union
+from typing import IO, Any, Callable, Mapping, Optional, TypeVar, Union
 
 from . import http_auth
 from ._generated import storage
@@ -77,7 +77,6 @@ from .wallets import is_bittensor_address
 
 __all__ = [
     "Input",
-    "Listing",
     "Operation",
     "Published",
     "Response",
@@ -86,10 +85,8 @@ __all__ = [
     "ServiceError",
     "Skipped",
     "discover",
-    "listing",
     "load",
     "load_document",
-    "load_listed",
     "load_url",
 ]
 
@@ -180,6 +177,8 @@ _RESERVED_HEADERS = {
     "host",
     "transfer-encoding",
 }
+# Security schemes a signature cannot stand in for.
+_FOREIGN_SCHEMES = frozenset(["http", "oauth2", "openIdConnect", "mutualTLS"])
 _TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 _USER_AGENT = "bittensor-services/1"
 
@@ -190,9 +189,8 @@ class ServiceError(BittensorError):
     def __init__(self, message: str, *, status: Optional[int] = None, code: str = "unusable"):
         # The message quotes what the service sent, which a terminal must not act
         # on, and one line of it must not pass for another.
-        text = "".join(c if c.isprintable() else " " if c.isspace() else "" for c in message)
-        super().__init__(" ".join(text.split()))
-        self.status = status  # the HTTP status the service answered, if that is the error
+        super().__init__(_line(message))
+        self.status = status  # the HTTP status, when the service answered
         self.code = code  # its kind, as the module lists them
 
 
@@ -445,6 +443,8 @@ class ServiceDocument:
         record = _json_object(response, url, "the balance")
         if "hotkey" in record and record["hotkey"] != hotkey_ss58:
             raise ServiceError(f"the balance at {url} is {record['hotkey']}'s, not {hotkey_ss58}'s")
+        if not isinstance(record.get("remaining_usd"), str):
+            raise ServiceError(f"the balance at {url} has no remaining_usd")
         return record
 
 
@@ -497,7 +497,10 @@ class Service(ServiceDocument):
         # Each schema a reference reaches is copied once into ``definitions``, which the
         # tools of one call share, and every tool takes those it reaches as its $defs,
         # so recursive schemas stay finite and each tool stands alone. A copy keeps the
-        # spec's literals as they are and only drops what a tool cannot use.
+        # spec's literals as they are and only drops what a tool cannot use. It
+        # describes a request: a read-only property is the service's to fill, and
+        # OpenAPI 3.0's ``nullable`` is JSON Schema's null type.
+        spec = op.spec or self.spec
 
         def copy(node: Any, refs: set[str], budget: list[int], mode="schema", depth=0) -> Any:
             budget[0] -= 1 + (len(node) >> 6 if isinstance(node, str) else 0)
@@ -529,6 +532,27 @@ class Service(ServiceDocument):
                     elif key in _SCHEMA_KEYWORDS:
                         child = "schemas" if isinstance(value, list) else "schema"
                 out[key] = copy(value, refs, budget, child, depth + 1)
+            if mode == "schema":
+                properties = node.get("properties")
+                hidden = {
+                    name
+                    for name, prop in (properties.items() if isinstance(properties, dict) else ())
+                    if _get(_deref(spec, prop), "readOnly") is True
+                }
+                if hidden and isinstance(out.get("properties"), dict):
+                    out["properties"] = {
+                        k: v for k, v in out["properties"].items() if k not in hidden
+                    }
+                    if isinstance(out.get("required"), list):
+                        out["required"] = [r for r in out["required"] if r not in hidden]
+                if node.get("nullable") is True:
+                    out.pop("nullable", None)
+                    if isinstance(out.get("enum"), list) and None not in out["enum"]:
+                        out["enum"] = [*out["enum"], None]
+                    if isinstance(out.get("type"), str):
+                        out["type"] = [out["type"], "null"]
+                    elif "type" not in out:
+                        out = {"anyOf": [out, {"type": "null"}]}
             return out
 
         refs: set[str] = set()
@@ -544,7 +568,6 @@ class Service(ServiceDocument):
             "properties": properties,
             "required": [item.name for item in op.tool_inputs if item.must_supply],
         }
-        spec = op.spec or self.spec
         reached: dict[str, Any] = {}
         pending = sorted(refs)
         while pending:
@@ -636,26 +659,6 @@ class Service(ServiceDocument):
         return await _threaded(send)
 
 
-@dataclass(frozen=True)
-class Listing:
-    """What the chain says of a subnet's services: the url each hotkey published there,
-    and the subnet owner's hotkey. :func:`load_listed` loads one without the chain."""
-
-    netuid: int
-    urls: Mapping[str, str]
-    owner: Optional[str] = None
-    local: bool = False  # the chain is a localnet on this machine
-
-
-async def listing(client, netuid: int) -> Listing:
-    """Read a subnet's services and its owner's hotkey from the chain."""
-    snapshot, local = await asyncio.gather(client.at(), _on_local_chain(client))
-    published = await snapshot.read("services", netuid=netuid)
-    urls = {hotkey: entry["url"] for hotkey, entry in published.items()}
-    owner = next((hotkey for hotkey, entry in published.items() if entry["owner"]), None)
-    return Listing(netuid, urls, owner, local)
-
-
 async def load(
     client, netuid: int, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
 ) -> Service:
@@ -666,46 +669,45 @@ async def load(
     named by its hotkey. With ``cache``, a directory, a document or spec is kept there
     as long as its Cache-Control max-age allows, up to CACHE_MAX_SECONDS.
     """
-    return await load_listed(await listing(client, netuid), hotkey_ss58, cache=cache)
-
-
-async def load_listed(
-    listed: Listing, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
-) -> Service:
-    """:func:`load` from a :class:`Listing` read before, without the chain."""
-    hotkey, url = _select(listed, hotkey_ss58)
-    service = await _threaded(_fetch_service, listed.netuid, hotkey, url, listed.local, cache)
-    return dataclasses.replace(service, owner=hotkey == listed.owner)
+    return await _load_published(client, netuid, hotkey_ss58, cache, _fetch_service)
 
 
 async def load_document(
     client, netuid: int, hotkey_ss58: Optional[str] = None, *, cache: CacheDir = None
 ) -> ServiceDocument:
     """Read current publisher and payment metadata without fetching its OpenAPI spec."""
-    listed = await listing(client, netuid)
-    hotkey, url = _select(listed, hotkey_ss58)
-    document = await _threaded(_document, netuid, hotkey, url, listed.local, cache)
-    return dataclasses.replace(document, owner=hotkey == listed.owner)
+    return await _load_published(client, netuid, hotkey_ss58, cache, _document)
 
 
-def _select(listed: Listing, hotkey_ss58: Optional[str]) -> tuple[str, str]:
-    netuid, urls, owner = listed.netuid, listed.urls, listed.owner
+_Document = TypeVar("_Document", bound=ServiceDocument)
+
+
+async def _load_published(
+    client,
+    netuid: int,
+    hotkey_ss58: Optional[str],
+    cache: CacheDir,
+    fetch: Callable[[int, str, str, bool, CacheDir], _Document],
+) -> _Document:
+    snapshot, local = await asyncio.gather(client.at(), _on_local_chain(client))
+    published = await snapshot.read("services", netuid=netuid)
     if hotkey_ss58 is None:
-        if not urls:
+        if not published:
             raise ServiceError(f"netuid {netuid} has no services", code="no_service")
-        if owner is None or owner not in urls:
+        hotkey_ss58 = next((hotkey for hotkey, entry in published.items() if entry["owner"]), None)
+        if hotkey_ss58 is None:
             raise ServiceError(
                 f"netuid {netuid} has no service from its subnet owner; name a validator's "
-                "hotkey: " + ", ".join(sorted(urls)),
+                "hotkey: " + ", ".join(sorted(published)),
                 code="ambiguous",
             )
-        hotkey_ss58 = owner
-    url = urls.get(hotkey_ss58)
-    if url is None:
+    entry = published.get(hotkey_ss58)
+    if entry is None:
         raise ServiceError(
             f"{hotkey_ss58} has published no service on netuid {netuid}", code="no_service"
         )
-    return hotkey_ss58, url
+    service = await _threaded(fetch, netuid, hotkey_ss58, entry["url"], local, cache)
+    return dataclasses.replace(service, owner=entry["owner"])
 
 
 async def load_url(
@@ -734,8 +736,8 @@ class Published:
     netuid: int
     hotkey: str
     url: str
-    service: Optional[Service] = None  # None when it cannot be used as published
-    problem: str = ""  # why it cannot
+    service: Optional[Service] = None  # None when it cannot be read
+    problem: str = ""  # why it cannot be used, as when it offers no operation
     owner: bool = False  # published by the subnet owner's hotkey, not a validator's
 
 
@@ -770,11 +772,20 @@ async def discover(
             try:
                 service = await _threaded(_fetch_service, n, hotkey, url, local, cache)
             except Exception as error:  # one service's failure is never the listing's
-                problem = str(ServiceError(str(error)))
-                item = Published(n, hotkey, url, problem=problem, owner=owner)
+                item = Published(n, hotkey, url, problem=_line(str(error)), owner=owner)
             else:
+                problem = (
+                    ""
+                    if service.operations
+                    else f"offers no operation ({len(service.skipped)} not offered)"
+                )
                 item = Published(
-                    n, hotkey, url, dataclasses.replace(service, owner=owner), owner=owner
+                    n,
+                    hotkey,
+                    url,
+                    dataclasses.replace(service, owner=owner),
+                    problem=problem,
+                    owner=owner,
                 )
             found[index] = select(item) if select else item
 
@@ -810,7 +821,7 @@ def _fetch_service(
     netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir = None
 ) -> Service:
     try:
-        return _service(netuid, hotkey, url, local, None if local else cache)
+        return _service(netuid, hotkey, url, local, cache)
     except ValueError as error:  # a url the service wrote that is not one
         raise ServiceError(f"the service at {url} has a bad url: {error}") from None
 
@@ -828,7 +839,7 @@ def _service(
         # A spec that cannot be read loses only its own operations.
         try:
             spec, spec_url = _get_json(
-                _checked_url(spec_url, "the OpenAPI spec", local),
+                spec_url,
                 "the OpenAPI spec",
                 local,
                 cache,
@@ -866,9 +877,7 @@ def _document(
     netuid: Optional[int], hotkey: Optional[str], url: str, local: bool, cache: CacheDir
 ) -> ServiceDocument:
     try:
-        document, document_url = _get_json(
-            url, "the services document", local, None if local else cache
-        )
+        document, document_url = _get_json(url, "the services document", local, cache)
         netuid, hotkey = _publisher(document, url, netuid, hotkey)
         balance = _checked_url(_gamma_balance(document, document_url), "the balance", local)
     except ValueError as error:
@@ -987,6 +996,17 @@ def _operations(
         names = [_btauth_header(_deref(spec, schemes.get(name))) for name in requirement]
         return http_auth.HEADER_SIGNATURE.lower() in names and all(names)
 
+    def foreign(requirement: Any) -> bool:
+        """A requirement only other credentials meet, as a bearer token or OAuth."""
+        return (
+            isinstance(requirement, dict)
+            and bool(requirement)
+            and all(
+                _get(_deref(spec, schemes.get(name)), "type") in _FOREIGN_SCHEMES
+                for name in requirement
+            )
+        )
+
     declared = any(btauth({name: []}) for name in schemes)
     root_security = spec.get("security")
     commands = {op.command for op in operations.values()}
@@ -1033,6 +1053,12 @@ def _operations(
                     # is one that takes the btauth/1 headers as parameters.
                     if signs is not None:
                         auth = "hotkey" if signs else "optional"
+                    elif any(map(foreign, requirements)) and all(
+                        r == {} or foreign(r) for r in requirements
+                    ):
+                        if not anonymous:
+                            raise _Unusable("needs credentials other than btauth/1")
+                        auth = "open"
                     else:
                         auth = "open" if security == [] else "optional" if anonymous else "hotkey"
                 elif anonymous:
@@ -1136,7 +1162,7 @@ def _inputs(
     # Operation-level definitions override path-level parameters.
     definitions = {}
     for raw in parameters:
-        param = _deref(spec, raw)
+        param = _deref(spec, raw, strict=True)
         if isinstance(param, dict) and isinstance(param.get("name"), str):
             definitions[(param["name"], str(param.get("in")))] = param
     in_route = set(re.findall(r"\{([^{}]*)\}", route))
@@ -1177,7 +1203,7 @@ def _inputs(
     declared = {item.name for item in params if item.location == "path"}
     for name in sorted(in_route - declared):  # a path parameter the spec forgot to declare
         params.append(Input(name, "path", True, "", {"type": "string"}, style="simple"))
-    body = _deref(spec, op.get("requestBody"))
+    body = _deref(spec, op.get("requestBody"), strict=True)
     content = body.get("content") if isinstance(body, dict) else None
     body_required = isinstance(body, dict) and bool(body.get("required"))
     fields: list[Input] = []
@@ -1401,6 +1427,12 @@ def _request(op: Operation, inputs: Mapping[str, Any], body: Any = _NOT_GIVEN):
                     break
     missing = [i.name for i in required if inputs.get(i.name) is None and i.location != "field"]
     missing += [i.name for i in required if i.location == "field" and i.name not in inputs]
+    if raw and isinstance(body, Mapping):  # a whole body needs the fields its schema requires
+        missing += [
+            i.sent_as
+            for i in op.inputs
+            if i.location == "field" and i.required_in_body and i.sent_as not in body
+        ]
     if missing:
         raise ServiceError(f"{op.id} needs {', '.join(map(repr, missing))}", code="input")
     path = op.route or op.path
@@ -1701,10 +1733,13 @@ def _deref(
     spec: Mapping[str, Any], node: Any, *, schema: bool = False, strict: bool = False
 ) -> Any:
     """``node``, or the target of the local ``$ref`` it is, followed to the end. A
-    reference to nothing is an empty object, one that says nothing, unless ``strict``."""
+    reference to nothing is an empty object, one that says nothing, unless ``strict``,
+    and one to another file is left as it is, unless ``strict``."""
     seen = set()
     while isinstance(node, dict) and isinstance(node.get("$ref"), str):
         ref = node["$ref"]
+        if not ref.startswith("#/") and strict:
+            raise ServiceError(f"the spec refers to {ref!r} in another file; serve it as one")
         if ref in seen or not ref.startswith("#/"):
             return node
         seen.add(ref)
@@ -2165,6 +2200,8 @@ def _get_json(
 ) -> tuple[dict, str]:
     """The JSON object at ``url``, or the YAML one when ``yaml``, and where it was."""
     checked = _checked_url(url, what, local)
+    if local:
+        cache = None
     cached = _cached(cache, checked, limit)
     if cached is not None:
         try:
@@ -2327,7 +2364,10 @@ def _yaml(text: str, url: str, what: str) -> Any:
     # The pure Python parser takes time quadratic in nesting depth, so a few
     # kilobytes of brackets would hold it for minutes; libyaml does not.
     if not yaml.__with_libyaml__:
-        raise ServiceError(f"{what} at {url} is YAML, which needs PyYAML built with libyaml")
+        raise ServiceError(
+            f"{what} at {url} is YAML, which needs PyYAML built with libyaml: reinstall "
+            "PyYAML from its wheel, or ask the publisher to serve JSON"
+        )
     loader = _yaml_loader()
     try:
         for count, _ in enumerate(yaml.parse(text, Loader=loader), 1):
@@ -2398,13 +2438,28 @@ def _stream(reply, sink: IO[bytes], url: str, headers: Mapping[str, str]) -> Non
     if raw is not None and ("transfer-encoding" in headers or not re.fullmatch(r"[0-9]+", raw)):
         raise ServiceError(f"the response from {url} has an invalid Content-Length")
     read = getattr(reply, "read1", reply.read)
+    status = getattr(reply, "status", None)
     written = 0
     while chunk := read(1 << 16):
-        sink.write(chunk)
-        sink.flush()
+        try:
+            rest = chunk
+            while rest:
+                count = sink.write(rest)
+                if count is None:  # a sink that does not count takes it all
+                    break
+                if count <= 0:
+                    raise OSError("the output took nothing")
+                rest = rest[count:]
+            sink.flush()
+        except OSError as error:
+            raise ServiceError(
+                f"cannot write the response from {url}: {error}", status=status, code="output"
+            ) from None
         written += len(chunk)
     if raw is not None and written != int(raw):
-        raise ServiceError(f"the response from {url} ended early", code="unreachable")
+        raise ServiceError(
+            f"the response from {url} ended early", status=status, code="unreachable"
+        )
 
 
 def _read(reply, limit: int, url: str, headers: Mapping[str, str]) -> bytes:
@@ -2423,5 +2478,9 @@ def _read(reply, limit: int, url: str, headers: Mapping[str, str]) -> bytes:
     if len(content) > limit:
         raise ServiceError(f"the response from {url} is over {limit >> 20} MiB", code="too_large")
     if expected is not None and len(content) != expected:
-        raise ServiceError(f"the response from {url} ended early", code="unreachable")
+        raise ServiceError(
+            f"the response from {url} ended early",
+            status=getattr(reply, "status", None),
+            code="unreachable",
+        )
     return content

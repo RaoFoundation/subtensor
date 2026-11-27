@@ -23,7 +23,6 @@ import shlex
 import sys
 import tempfile
 import threading
-import unicodedata
 import urllib.parse
 from pathlib import Path
 from typing import IO, Any, Awaitable, Callable, NoReturn, Optional, TypeVar
@@ -35,9 +34,11 @@ from ... import config as cfg
 from ... import http_auth, services, wallets
 from ...keyfiles import KeyfileError
 from ...result import BittensorError
+from ...services import _not_json, _plain
 from ...settings import DEFAULT_NETWORK, guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals
+from ..output import Output
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -46,12 +47,8 @@ app = typer.Typer(
     f"Guide: {guide_docs_url('services')}",
 )
 
-# Columns shown for a list of records; --json shows every field.
+# Wider records are easier to read as YAML.
 MAX_COLUMNS = 8
-# Rows in a human preview. JSON and file output always preserve all rows.
-MAX_ROWS = 50
-# Records of a list shown whole, each with every field, rather than as a table.
-MAX_BLOCKS = 3
 # Characters of an error response shown; a validation error lists every field.
 MAX_ERROR = 2000
 # Operations listed as not offered; --json lists them all.
@@ -60,15 +57,11 @@ MAX_SKIPPED = 20
 T = TypeVar("T")
 
 
-def _netuid_option():
-    return typer.Option(..., "--netuid", help="Subnet of the service.")
-
-
 def _service_option():
     return typer.Option(
         None,
         address_cli_name("service_hotkey_ss58"),
-        help="Hotkey that published the service, when the subnet has more than one. "
+        help="A validator's hotkey, to use the service it published, not the subnet owner's. "
         + ss58_param_help("service_hotkey_ss58"),
     )
 
@@ -86,13 +79,21 @@ def list_services(
     every: bool = typer.Option(False, "--all", help="Also list the services btcli cannot use."),
 ):
     app_ctx: AppContext = ctx_of(ctx)
-    records = app_ctx.run(
-        lambda client: services.discover(
-            client, netuid, cache=cfg.service_documents_path(), select=_list_record
+    with app_ctx.output.activity("reading the services…") as progress:
+        read: list[services.Published] = []
+
+        def record(item: services.Published) -> dict:
+            read.append(item)
+            progress(f"read {len(read)} services…")
+            return _list_record(item)
+
+        records = app_ctx.run(
+            lambda client: services.discover(
+                client, netuid, cache=cfg.service_documents_path(), select=record
+            )
         )
-    )
     if app_ctx.output.json_mode:
-        app_ctx.output.value(_clean(records))
+        app_ctx.output.value(_plain(records))
         return
     usable = [row for row in records if row["usable"]]
     broken = [row for row in records if not row["usable"]]
@@ -135,8 +136,6 @@ def list_services(
 def _list_record(item: services.Published) -> dict:
     service = item.service
     problem = item.problem.replace(f" at {item.url}", "")
-    if service and not service.operations:
-        problem = f"offers no operation ({len(service.skipped)} not offered; `show` says why)"
     return {
         "netuid": item.netuid,
         "hotkey": item.hotkey,
@@ -228,7 +227,7 @@ def _show(app_ctx: AppContext, service: services.Service, schemas: bool = False)
     output = app_ctx.output
     links = {key: _link(service.document.get(key)) for key in ("docs", "pricing")}
     if output.json_mode:
-        record = _clean(
+        record = _plain(
             {
                 "netuid": service.netuid,
                 "hotkey": service.hotkey,
@@ -254,7 +253,7 @@ def _show(app_ctx: AppContext, service: services.Service, schemas: bool = False)
                 _definition(op, tool) for op, tool in zip(operations, service.tools(), strict=True)
             ]
         else:
-            record["operations"] = [_clean(_brief(op)) for op in operations]
+            record["operations"] = [_plain(_brief(op)) for op in operations]
         output.value(record)
         return
     counts = _auth_counts(service)
@@ -329,7 +328,7 @@ def _brief(op: services.Operation) -> dict:
 
 def _definition(op: services.Operation, tool: dict) -> dict:
     """An operation in full: what it is, and the JSON Schema of its inputs."""
-    return _clean(
+    return _plain(
         {
             **_brief(op),
             "id": op.id,
@@ -352,8 +351,8 @@ def _definition(op: services.Operation, tool: dict) -> dict:
     "OPERATION the service's operations are listed. --inputs and --body read a file "
     "named with @ (@- reads stdin).\n\n"
     "A service may charge your balance for a signed call. An optional operation is "
-    "signed only when you name a wallet or hotkey (-w, -H), and --unsigned leaves it "
-    "unsigned even then.\n\n"
+    "signed only when you name a wallet or hotkey (-w, -H, or BT_WALLET, BT_WALLET_HOTKEY), "
+    "and --unsigned leaves it unsigned even then.\n\n"
     "With --json the answer is `{status, content_type, signed, body}` (`text` when the "
     "body is not JSON, `out` when it went to a file), and an error is JSON on stderr with "
     "a `code`. It exits 2 when the call does not fit the operation, and 1 for any other "
@@ -458,12 +457,13 @@ def call(
             if raw is _NOT_JSON:
                 _input_error(app_ctx, service, op, "--body takes a JSON value")
             body_kw["body"] = raw
-    for name, file in _files(app_ctx, service, op, files or []):
-        if op.body_input is not None and name == op.body_input.name:
+    for item, file in _files(app_ctx, service, op, files or []):
+        name = item.name
+        if item is op.body_input:
             if "body" in body_kw:
                 _input_error(app_ctx, service, op, "the body is given twice")
             body_kw["body"] = file
-        elif _types(op.resolve(_input(op, name).schema)) == {"array"}:
+        elif _types(op.resolve(item.schema)) == {"array"}:
             values.setdefault(name, []).append(file)
         elif name in values:
             _input_error(app_ctx, service, op, f"{name!r} is given twice")
@@ -480,6 +480,23 @@ def call(
     signing = op.auth == "hotkey" or (
         op.auth == "optional" and not unsigned and (app_ctx.wallet_given or app_ctx.hotkey_given)
     )
+    if app_ctx.dry_run or dry_run:
+        method, url, _, headers, data = prepared
+        preview = {
+            "dry_run": True,
+            "operation": op.command,
+            "method": method,
+            "url": url,
+            "headers": sorted(set(headers) - {"User-Agent", "Content-Type"}),
+            "content_type": headers.get("Content-Type"),
+            "body": _preview(op, data),
+            "auth": op.auth,
+            "signs": signing,
+            "netuid": service.netuid,
+            "service_hotkey": service.hotkey,
+        }
+        app_ctx.output.detail("dry run", _plain(preview))
+        return
     if signing and not service.signable:
         _input_error(
             app_ctx,
@@ -489,24 +506,6 @@ def call(
             f"and {op.command} cannot be signed for it"
             + ("" if op.auth == "hotkey" else "; --unsigned sends it unsigned"),
         )
-    if app_ctx.dry_run or dry_run:
-        method, url, _, headers, data = prepared
-        preview = {
-            "dry_run": True,
-            "operation": op.command,
-            "method": method,
-            "url": url,
-            "content_type": headers.get("Content-Type"),
-            "body": _preview(op, data),
-            "auth": op.auth,
-            "netuid": service.netuid,
-            "service_hotkey": service.hotkey,
-        }
-        if app_ctx.output.json_mode:
-            app_ctx.output.value(_clean(preview))
-        else:
-            app_ctx.output.detail("dry run", _clean(preview))
-        return
     staged = None
     cleanup = None
     if out is not None and str(out) != "-":
@@ -518,19 +517,22 @@ def call(
             _input_error(app_ctx, service, op, f"cannot write to {out}: {error}")
     key = _hotkey(app_ctx) if signing else None
 
-    def slow(error: services.ServiceError) -> Optional[str]:
-        return (
-            "check the outcome before retrying; --timeout SECONDS allows a longer wait"
-            if error.code == "timeout"
-            else None
-        )
+    def explain(error: services.ServiceError) -> Optional[str]:
+        if error.code == "too_large":
+            return "`--out FILE` writes a response of any size as it arrives"
+        if error.code == "timeout":
+            return "check the outcome before retrying; --timeout SECONDS allows a longer wait"
+        if error.status is not None:  # the service answered, so it may have done the work
+            return "check the outcome before retrying"
+        return None
 
-    sinks: list[_Sink] = []
+    sink: Optional[_Sink] = None
 
     def into(head: services.Response) -> Optional[IO[bytes]]:
         """Where a successful body goes as it arrives: the file it was asked for, the
         terminal for a stream of events, a file for one that is not text, or None to
         read it whole."""
+        nonlocal sink
         temporary = None
         if out is not None:
             target: IO[bytes] = sys.stdout.buffer if str(out) == "-" else staged
@@ -541,24 +543,23 @@ def call(
             temporary = Path(target.name)
         else:
             return None
-        sinks.append(_Sink(target, temporary))
-        return sinks[-1]
+        sink = _Sink(target, temporary)
+        return sink
 
     try:
         response = _signing(
             app_ctx,
             key,
-            lambda signer: service.call(
-                op.id, values, signer=signer, timeout=timeout, into=into, **body_kw
+            lambda signer: service._send_prepared(
+                op, prepared, signer=signer, timeout=timeout, into=into
             ),
             f"calling {_short(service.name, 40)}…",
-            slow,
+            explain,
         )
     except BaseException:
-        for sink in sinks:
+        if sink is not None:
             sink.discard()
         raise
-    sink = sinks[-1] if sinks else None
     if sink is not None and isinstance(sink.target, _Kept):
         response = dataclasses.replace(response, content=sink.target.getvalue())
         sink = None
@@ -592,17 +593,15 @@ def call(
 @with_globals
 def balance(
     ctx: typer.Context,
-    netuid: int = _netuid_option(),
+    netuid: int = typer.Option(..., "--netuid", help="Subnet of the service."),
     hotkey: Optional[str] = typer.Option(
         None, "--hotkey", help="Read this hotkey's balance (an address), not your wallet's."
     ),
     service_hotkey: Optional[str] = _service_option(),
 ):
     app_ctx: AppContext = ctx_of(ctx)
-    hotkey_ss58 = app_ctx.resolve_address("hotkey_ss58", hotkey) if hotkey else None
-    publisher = (
-        app_ctx.resolve_address("service_hotkey_ss58", service_hotkey) if service_hotkey else None
-    )
+    hotkey_ss58 = _address(app_ctx, "hotkey_ss58", hotkey) if hotkey else None
+    publisher = _address(app_ctx, "service_hotkey_ss58", service_hotkey) if service_hotkey else None
     service = _attempt(
         app_ctx,
         lambda client: services.load_document(
@@ -610,9 +609,10 @@ def balance(
         ),
     )
     key = None if hotkey_ss58 else _hotkey(app_ctx, or_else="--hotkey ADDRESS")
+    address = hotkey_ss58 or key.ss58_address
 
     def explain(error: services.ServiceError) -> Optional[str]:
-        if error.status == 402:
+        if error.status == 402 and not hotkey_ss58:  # a spend pays for the hotkey that signs it
             return _pay_help(app_ctx, service)
         if error.status in (401, 403) and hotkey_ss58:
             return (
@@ -621,13 +621,22 @@ def balance(
             )
         return None
 
-    record = _signing(
-        app_ctx,
-        key,
-        lambda signer: service.balance(hotkey_ss58, signer=signer),
-        f"reading {_short(service.name, 40)}…",
-        explain,
-    )
+    label = f"reading {_short(service.name, 40)}…"
+
+    async def unsigned() -> Optional[dict]:
+        """The balance read openly; None when the service asks for a signature."""
+        try:
+            return await service.balance(address)
+        except services.ServiceError as error:
+            if key is not None and error.status in (401, 403):
+                return None
+            raise
+
+    record = _offline(app_ctx, unsigned(), label, explain)
+    if record is None:
+        record = _signing(
+            app_ctx, key, lambda signer: service.balance(address, signer=signer), label, explain
+        )
     with _rendering(app_ctx):
         if app_ctx.output.json_mode:
             app_ctx.output.value(record)
@@ -662,21 +671,18 @@ def _service(
     service_hotkey: Optional[str],
     url: Optional[str] = None,
 ) -> services.Service:
-    hotkey = (
-        app_ctx.resolve_address("service_hotkey_ss58", service_hotkey) if service_hotkey else None
-    )
+    hotkey = _address(app_ctx, "service_hotkey_ss58", service_hotkey) if service_hotkey else None
     if url is not None:
         return _offline(
             app_ctx, services.load_url(url, netuid, hotkey), f"reading {_short(url, 60)}…"
         )
     if netuid is None:
-        app_ctx.output.error(
+        _usage(
+            app_ctx,
             "missing required option: `--netuid`",
             help="name the subnet, as in `btcli service show --netuid 19`; "
             "`btcli service list` shows the services",
-            data={"code": "input"},
         )
-        raise typer.Exit(2)
     return _attempt(
         app_ctx,
         lambda client: services.load(client, netuid, hotkey, cache=cfg.service_documents_path()),
@@ -699,10 +705,10 @@ def _signing(
 
         return _attempt(app_ctx, _prepared, explain)
 
-    async def _plain() -> T:
+    async def _without_chain() -> T:
         return await work(None if key is None else await http_auth.prepare_signer(key, client=None))
 
-    return _offline(app_ctx, _plain(), label, explain)
+    return _offline(app_ctx, _without_chain(), label, explain)
 
 
 def _offline(
@@ -741,7 +747,15 @@ def _attempt(
 
 def _hotkey(app_ctx: AppContext, *, or_else: str = ""):
     """The wallet's hotkey, loaded before the request is sent, so a missing or bad key
-    file is reported as one."""
+    file is reported as one. Ledger, Vault and the extension sign transactions, not
+    requests, so naming one stops the call rather than signing with the wallet."""
+    if app_ctx.uses_external_signer():
+        app_ctx.output.error(
+            f"--signer {app_ctx.signer_backend} cannot sign a service request",
+            help="a hotkey in your wallet signs it: name it with -w and -H, without --signer",
+            data={"code": "wallet"},
+        )
+        raise typer.Exit(1)
     try:
         signer = http_auth.resolve_signer(app_ctx.signer("hotkey"), role="hotkey")
         if not signer.ss58_address:  # reading it reads the key file
@@ -760,9 +774,17 @@ def _hotkey(app_ctx: AppContext, *, or_else: str = ""):
 # Inputs: flags in, typed values out.
 
 
-def _usage(app_ctx, text: str) -> NoReturn:
-    app_ctx.output.error(text, data={"code": "input"})
+def _usage(app_ctx: AppContext, text: str, *, help: Optional[str] = None) -> NoReturn:
+    app_ctx.output.error(text, help=help, data={"code": "input"})
     raise typer.Exit(2)
+
+
+def _address(app_ctx: AppContext, param: str, value: str) -> str:
+    """The address a flag names, one it cannot resolve an input error."""
+    try:
+        return app_ctx.resolve_address_ref(param, value).address
+    except Exception as error:
+        _usage(app_ctx, f"cannot resolve {address_cli_name(param)} {value!r}: {error}")
 
 
 def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
@@ -798,7 +820,7 @@ def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
             if negated:
                 _input_error(app_ctx, service, op, f"{flag} takes no value")
             if not has_value:
-                inline = _next(app_ctx, service, op, rest, flag)
+                inline = _next(app_ctx, service, op, rest, flag, by_option)
             value = _value(app_ctx, service, op, item, schema, inline)
         if types == {"array"} and value is not None and values.get(item.name, []) is not None:
             values.setdefault(item.name, []).extend(value)
@@ -809,10 +831,13 @@ def _inputs(app_ctx, service, op, args, inputs) -> dict[str, Any]:
     return {**_given(app_ctx, service, op, inputs, by_option), **values}
 
 
-def _next(app_ctx, service, op, rest, flag: str) -> str:
+def _next(app_ctx, service, op, rest, flag: str, by_option: dict) -> str:
     value = next(rest, None)
     if value is None:
         _input_error(app_ctx, service, op, f"{flag} needs a value")
+    name = value.partition("=")[0]
+    if name in by_option or (name.startswith("--no-") and "--" + name[5:] in by_option):
+        _input_error(app_ctx, service, op, f"{flag} needs a value ({flag}={value} if it is one)")
     return value
 
 
@@ -829,6 +854,14 @@ def _given(app_ctx, service, op, text: Optional[str], by_option: dict) -> dict[s
         name = item.name if item is not None else key
         if name in values:
             _input_error(app_ctx, service, op, f"{name!r} is given twice")
+        schema = op.resolve(item.schema) if item is not None and not item.binary else None
+        if schema is not None and (value is not None or not _nullable(schema)):
+            if _types(schema) == {"array"} and isinstance(value, list):
+                items = op.resolve(schema.get("items") or {})
+                for each in value:
+                    _typed(app_ctx, service, op, item, items, each)
+            else:
+                _typed(app_ctx, service, op, item, schema, value)
         values[name] = value
     return values
 
@@ -859,8 +892,8 @@ def _file_bytes(app_ctx, service, op, path: str, given: str) -> bytes:
         _input_error(app_ctx, service, op, f"cannot read {given}: {error}")
 
 
-def _files(app_ctx, service, op, given: list[str]) -> list[tuple[str, Any]]:
-    """The file inputs ``--file NAME=PATH`` names, each as its input's name and value:
+def _files(app_ctx, service, op, given: list[str]) -> list[tuple[services.Input, Any]]:
+    """The file inputs ``--file NAME=PATH`` names, each as its input and value:
     a file input takes its filename and bytes, a body that is not JSON its bytes."""
     takers = [i for i in op.inputs if i.binary]
     if op.body_input is not None and op.body_kind == "raw":
@@ -883,14 +916,10 @@ def _files(app_ctx, service, op, given: list[str]) -> list[tuple[str, Any]]:
             )
         data = _file_bytes(app_ctx, service, op, path, text)
         if item is op.body_input:
-            found.append((item.name, data))
+            found.append((item, data))
         else:
-            found.append((item.name, (item.name if path == "-" else Path(path).name, data)))
+            found.append((item, (item.name if path == "-" else Path(path).name, data)))
     return found
-
-
-def _input(op: services.Operation, name: str) -> services.Input:
-    return next(item for item in op.inputs if item.name == name)
 
 
 def _preview(op: services.Operation, data: bytes) -> Any:
@@ -964,10 +993,6 @@ def _loads(text: str) -> Any:
         return _NOT_JSON
 
 
-def _not_json(name: str) -> Any:
-    raise ValueError(f"{name} is not JSON")
-
-
 def _typed(app_ctx, service, op, item: services.Input, schema: Any, value: Any):
     types = _types(schema)
     kind = _json_type(value)
@@ -986,12 +1011,7 @@ def _typed(app_ctx, service, op, item: services.Input, schema: Any, value: Any):
 
 def _input_error(app_ctx, service, op, text: str) -> NoReturn:
     command = _service_command(app_ctx, service, "call", op.command, "--help")
-    app_ctx.output.error(
-        _line(text),
-        help=f"`{command}` lists its inputs",
-        data={"code": "input"},
-    )
-    raise typer.Exit(2)
+    _usage(app_ctx, _line(text), help=f"`{command}` lists its inputs")
 
 
 def _types(schema: Any) -> set[str]:
@@ -1094,24 +1114,9 @@ def _help(app_ctx: AppContext, service: services.Service, op: services.Operation
     if output.json_mode:
         output.value(_definition(op, service.tool(op.id)))
         return
-    output.detail(
-        _line(op.command),
-        _fields(
-            {
-                "summary": op.summary,
-                "description": op.description,
-                "auth": _AUTH[op.auth],
-                "usage": _service_command(app_ctx, service, "call", op.command) + " [INPUTS]",
-                "or": _service_command(app_ctx, service, "call", op.command)
-                + " --inputs '{\"NAME\": VALUE, ...}'",
-            }
-        ),
-    )
-    if not op.inputs:
-        return
-    typer.echo()
     reserved = {flag for param in ctx.command.params for flag in param.opts}
     rows = []
+    needed = []  # the required inputs as flags, for the usage line
     for item in op.inputs:
         schema = op.resolve(item.schema)
         schema = schema if isinstance(schema, dict) else {}
@@ -1124,20 +1129,49 @@ def _help(app_ctx: AppContext, service: services.Service, op: services.Operation
             flag = f"--inputs ({item.name})"
         elif _types(schema) == {"boolean"}:
             flag = f"{_option(item)} / --no-{_option(item)[2:]}"
+        value = (
+            "FILE" if takes_file else "" if _types(schema) == {"boolean"} else _placeholder(schema)
+        )
+        if item.must_supply and not flag.startswith("--inputs"):
+            needed.append(flag if takes_file or not value else f"{flag} {value}")
         rows.append(
             [
                 _line(flag),
-                "FILE"
-                if takes_file
-                else ""
-                if _types(schema) == {"boolean"}
-                else _placeholder(schema),
+                value,
                 "yes" if item.required and default is None else "",
                 "" if default is None else _line(_cell(default)),
                 _short(item.description or _line(_cell(schema.get("example") or ""))),
             ]
         )
-    output.columns("inputs", ["input", "value", "required", "default", "description"], rows)
+    command = _service_command(app_ctx, service, "call", op.command)
+    output.detail(
+        _line(op.command),
+        _fields(
+            {
+                "summary": op.summary,
+                "description": op.description,
+                "auth": _AUTH[op.auth],
+                "usage": " ".join([command, *needed, "[INPUTS]"]),
+                "or": f"{command} --inputs '{_example(op)}'",
+            }
+        ),
+    )
+    if rows:
+        typer.echo()
+        output.columns("inputs", ["input", "value", "required", "default", "description"], rows)
+
+
+def _example(op: services.Operation) -> str:
+    """The required inputs as ``--inputs`` and a tool take them, a body's required
+    fields inside it."""
+    fields = [i.sent_as for i in op.inputs if i.location == "field" and i.required_in_body]
+    parts = []
+    for item in op.tool_inputs:
+        if item.must_supply and item is op.body_input and fields:
+            parts.append(f'"{item.name}": {{' + ", ".join(f'"{f}": …' for f in fields) + "}")
+        elif item.must_supply:
+            parts.append(f'"{item.name}": …')
+    return "{" + ", ".join(parts) + "}" if parts else '{"NAME": VALUE, ...}'
 
 
 @contextlib.contextmanager
@@ -1211,13 +1245,11 @@ def _show_response(
     elif out is None and parsed is _NOT_JSON and response.content and not _is_text(response):
         out = _save_response(response)
     if out is not None:
-        if output.json_mode:
-            output.value({**about, "bytes": size, "out": str(out)})
-        else:
-            kind = escape(_line(response.content_type))
-            output.message(
-                f"wrote {size} bytes{f' of {kind}' if kind else ''} to {escape(str(out))}"
-            )
+        output.detail(
+            "response",
+            {"out": str(out), "bytes": size, "content type": _line(response.content_type)},
+            {**about, "bytes": size, "out": str(out)},
+        )
     elif parsed is not _NOT_JSON:
         if output.json_mode:
             output.value({**about, "body": parsed})
@@ -1231,7 +1263,7 @@ def _show_response(
     elif output.json_mode:
         output.value({**about, "text": response.text})
     else:  # `--out -` writes it as it is
-        typer.echo(_clean(response.text))
+        typer.echo(_plain(response.text))
 
 
 # Responses that are a stream of events, shown as they arrive.
@@ -1262,8 +1294,7 @@ def _suffix(response: services.Response) -> str:
 
 
 class _Sink:
-    """Where a body goes as it arrives, counting what it wrote; a write that fails is
-    btcli's output error, not the service's."""
+    """Where a body goes as it arrives, counting what it wrote."""
 
     def __init__(self, target: IO[bytes], temporary: Optional[Path] = None):
         self.target = target
@@ -1271,12 +1302,7 @@ class _Sink:
         self.written = 0
 
     def write(self, data: bytes) -> int:
-        try:
-            self.target.write(data)
-        except OSError as error:
-            raise services.ServiceError(
-                f"cannot write the response: {error}", code="output"
-            ) from None
+        self.target.write(data)
         self.written += len(data)
         return len(data)
 
@@ -1312,23 +1338,19 @@ class _Echo:
         self._text = codecs.getincrementaldecoder("utf-8")("replace")
 
     def write(self, data: bytes) -> int:
-        sys.stdout.write(_clean(self._text.decode(data)))
+        sys.stdout.write(_plain(self._text.decode(data)))
         return len(data)
 
     def flush(self) -> None:
         sys.stdout.flush()
 
 
-@contextlib.contextmanager
 def _temporary(suffix: str):
-    """A file a response that is not text is kept in, closed when the command ends."""
-    with tempfile.NamedTemporaryFile(prefix="btcli-service-", suffix=suffix, delete=False) as file:
-        yield file
+    return tempfile.NamedTemporaryFile(prefix="btcli-service-", suffix=suffix, delete=False)
 
 
 def _save_response(response: services.Response) -> Path:
-    suffix = _suffix(response)
-    with tempfile.NamedTemporaryFile(prefix="btcli-service-", suffix=suffix, delete=False) as file:
+    with _temporary(_suffix(response)) as file:
         path = Path(file.name)
         try:
             file.write(response.content)
@@ -1361,118 +1383,59 @@ def _is_text(response: services.Response) -> bool:
     return all(ch.isprintable() or ch in "\t\r\n" for ch in text)
 
 
-def _render(output, title: Optional[str], value: Any) -> None:
-    """A JSON response by its shape: an object as its fields, nested ones by dotted name
-    and text of several lines as a block, and a list of records as a table."""
-    if isinstance(value, dict):
-        fields: dict[str, Any] = {}
-        tables: dict[str, list] = {}
-        try:
-            _flatten(value, "", fields, tables)
-        except _Clash:
-            typer.echo(json.dumps(value, indent=2))
-            return
-        texts = {k: v for k, v in fields.items() if isinstance(v, _Lines)}
-        fields = {k: v for k, v in fields.items() if k not in texts}
-        if fields:
-            output.detail(title, fields)
-        for index, (key, text) in enumerate(texts.items()):
-            if fields or index:
-                typer.echo()
-            output.text_block(key, text)
-        for index, (key, rows) in enumerate(tables.items()):
-            if fields or texts or index:
-                typer.echo()
-            _table(output, key, rows)
-        if not fields and not texts and not tables:
-            typer.echo("{}")
-    elif _is_records(value):
-        _table(output, title or "", value)
-    elif isinstance(value, list):
-        for item in value[:MAX_ROWS]:
-            typer.echo(_line(_cell(item)))
-        _more(output, len(value) - MAX_ROWS, "row")
-    else:
-        typer.echo(_clean(value) if isinstance(value, str) else _cell(value))
-
-
-class _Clash(Exception):
-    """Two fields of a response flatten to one name."""
-
-
-def _flatten(value: dict, prefix: str, fields: dict, tables: dict) -> None:
-    """``value``'s scalars and lists of scalars into ``fields`` and its lists of records
-    into ``tables``, by dotted name."""
-    for key, item in value.items():
-        name = f"{prefix}{_line(str(key))}"
-        if name in fields or name in tables or not name:
-            raise _Clash(name)
-        if isinstance(item, dict) and item:
-            _flatten(item, name + ".", fields, tables)
-        elif _is_records(item) and item:
-            tables[name] = item
-        elif isinstance(item, list):
-            fields[name] = ", ".join(_line(_cell(v)) for v in item) or "[]"
-        elif item is None:
-            if not prefix:  # a top-level null is an answer: a JSON-RPC result, say
-                fields[name] = "null"
-        elif isinstance(item, str) and "\n" in item.strip():
-            fields[name] = _Lines(_clean(item).strip())
-        else:
-            fields[name] = _line(_cell(item)) if not isinstance(item, dict) else "{}"
-
-
-class _Lines(str):
-    """A field's text of several lines, as an answer a model wrote, shown as a block."""
-
-
-def _table(output, title: str, rows: list[dict]) -> None:
-    nested = any(isinstance(v, (dict, list)) and v for row in rows for v in row.values())
-    flat = [_flat_record(row, "", {}) for row in rows]
-    keys = list(dict.fromkeys(k for row in flat for k in row))
-    if len(rows) <= MAX_BLOCKS and (len(keys) > MAX_COLUMNS or nested):
-        # A few wide records, as a create or a rent answers: every field of each.
-        for index, row in enumerate(rows):
-            if index:
-                typer.echo()
-            _render(output, None, row)
+def _render(output: Output, title: str, value: Any) -> None:
+    """Show flat records with the standard CLI views and structured values as YAML."""
+    if isinstance(value, dict) and value and _flat_record(value):
+        output.detail(title, {key: _cell(item) for key, item in value.items()})
         return
-    if "id" in keys:  # the field other operations take, so never cut
-        keys.insert(0, keys.pop(keys.index("id")))
-    shown = keys[:MAX_COLUMNS]
-    output.columns(
-        title,
-        shown,
-        [[_short(_cell(row.get(k)), 60) for k in shown] for row in flat[:MAX_ROWS]],
+    if isinstance(value, list):
+        if not value:
+            output.columns(title, [], [])
+            return
+        first = value[0]
+        if (
+            isinstance(first, dict)
+            and 0 < len(first) <= MAX_COLUMNS
+            and all(
+                isinstance(row, dict) and row.keys() == first.keys() and _flat_record(row)
+                for row in value
+            )
+        ):
+            columns = [str(key) for key in first]
+            output.columns(title, columns, [[_cell(row[key]) for key in columns] for row in value])
+            return
+    typer.echo(_plain(value) if isinstance(value, str) else _yaml(value))
+
+
+def _yaml(value: Any) -> str:
+    """Nested data as YAML, which shows text of several lines, as an answer a model
+    wrote, as lines and not escaped."""
+    import yaml
+
+    dumper = type("Dumper", (yaml.SafeDumper,), {})
+    dumper.add_representer(
+        str,
+        lambda dumper, text: dumper.represent_scalar(
+            "tag:yaml.org,2002:str", text, style="|" if "\n" in text else None
+        ),
     )
-    _more(output, len(keys) - len(shown), "field")
-    _more(output, len(rows) - MAX_ROWS, "row")
+    text = yaml.dump(
+        _plain(value), Dumper=dumper, allow_unicode=True, sort_keys=False, width=1 << 30
+    )
+    return text.rstrip("\n")
 
 
-def _flat_record(row: dict, prefix: str, out: dict) -> dict:
-    """A table row's fields by dotted name, its nested objects' too; a list stays one cell."""
-    for key, value in row.items():
-        name = f"{prefix}{_line(str(key))}"
-        if isinstance(value, dict) and value:
-            _flat_record(value, name + ".", out)
-        else:
-            out.setdefault(name, value)
-    return out
-
-
-def _more(output, count: int, what: str) -> None:
-    if count > 0:
-        plural = "" if count == 1 else "s"
-        output.message(f"{count} more {what}{plural}; `--json` or `--out FILE` gets them all")
-
-
-def _is_records(value: Any) -> bool:
-    return isinstance(value, list) and all(isinstance(row, dict) for row in value)
+def _flat_record(record: dict[str, Any]) -> bool:
+    return all(
+        key.strip()
+        and key.isprintable()
+        and not isinstance(value, (dict, list))
+        and (not isinstance(value, str) or value.isprintable())
+        for key, value in record.items()
+    )
 
 
 def _cell(value: Any) -> str:
-    if value is None:
-        return ""
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
@@ -1494,10 +1457,10 @@ def _http_error(
     help = None
     if open_to_all:
         pass
+    elif response.status in (401, 402, 403) and not about["signed"]:
+        help = "sign it with your hotkey: name it with -w and -H, without --unsigned"
     elif response.status == 402:
         help = _pay_help(app_ctx, service)
-    elif response.status in (401, 403) and not about["signed"]:
-        help = "sign it with your hotkey: name it with -w and -H, without --unsigned"
     elif response.status in (401, 403) and service.owner is not None:
         help = f"check your hotkey's balance with `{_service_command(app_ctx, service, 'balance')}`"
     body = _parsed(response)
@@ -1601,18 +1564,4 @@ def _fields(fields: dict[str, Any]) -> dict[str, str]:
 def _line(value: Any) -> str:
     """``value`` as one line of text a terminal shows as it is: the service writes it,
     and a newline would pass for another row, a control character for a command."""
-    return " ".join(_clean(str(value)).split())
-
-
-def _clean(value: Any) -> Any:
-    """``value`` with control and format characters removed from every string:
-    the service writes them, and a terminal would act on them."""
-    if isinstance(value, str):
-        if value.isprintable() or value.replace("\n", "").replace("\t", "").isprintable():
-            return value
-        return "".join(ch for ch in value if ch in "\n\t" or unicodedata.category(ch)[0] != "C")
-    if isinstance(value, dict):
-        return {_clean(k): _clean(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_clean(v) for v in value]
-    return value
+    return " ".join(_plain(str(value)).split())

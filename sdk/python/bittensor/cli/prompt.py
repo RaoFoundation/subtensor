@@ -674,7 +674,7 @@ def _run_app(app: typer.Typer) -> None:
     args = list(sys.argv[1:])
     for _ in range(10):  # one re-parse per prompt round; bounded for safety
         try:
-            result = app(args=args, prog_name="btcli", standalone_mode=False)
+            result = app(args=args, standalone_mode=False)
         except click_exceptions.MissingParameter as error:
             obj = getattr(error.ctx, "obj", None)
             app_ctx = obj if isinstance(obj, AppContext) else None

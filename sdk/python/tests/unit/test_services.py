@@ -12,6 +12,7 @@ import gzip
 import io
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -20,6 +21,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+import yaml
 
 from bittensor import Client, http_auth, services, wallets
 from bittensor.services import Response, ServiceError
@@ -335,16 +337,24 @@ class TestLoad:
         with pytest.raises(ServiceError, match=r"not an OpenAPI 3 spec \(swagger '2.0'\)"):
             load()
 
-    def test_without_a_btauth_scheme_every_operation_not_marked_open_is_signed(self, web):
+    def test_without_a_btauth_scheme_an_operation_is_signed_unless_open_or_otherwise_paid(
+        self, web
+    ):
         undeclared = spec()
         undeclared["components"]["securitySchemes"] = {"key": {"type": "http"}}
         web.pages[SPEC_URL] = undeclared
-        auth = {op.id: op.auth for op in load().operations.values()}
-        assert (auth["listModels"], auth["listJobs"], auth["admin"], auth["maybe"]) == (
+        service = load()
+        auth = {op.id: op.auth for op in service.operations.values()}
+        assert (auth["listModels"], auth["listJobs"], auth["both"], auth["maybe"]) == (
             "open",
             "hotkey",
             "hotkey",
-            "optional",
+            "open",
+        )
+        assert "admin" not in auth
+        assert any(
+            s.id == "admin" and "credentials other than btauth/1" in s.reason
+            for s in service.skipped
         )
         del undeclared["security"]
         auth = {op.id: op.auth for op in load().operations.values()}
@@ -1412,6 +1422,39 @@ class TestParameters:
         op = load().operation("paid")
         assert (op.auth, op.inputs) == ("hotkey", ())
 
+    def test_a_spec_split_over_files_skips_what_it_cannot_read(self, web):
+        split = spec()
+        split["paths"]["/elsewhere"] = {"$ref": "paths.yaml#/elsewhere"}
+        split["paths"]["/jobs"]["post"]["requestBody"] = {"$ref": "bodies.yaml#/Job"}
+        web.pages[SPEC_URL] = split
+        service = load()
+        assert "createJob" not in service.operations
+        reasons = {s.path: s.reason for s in service.skipped}
+        assert "in another file" in reasons["/elsewhere"] and "in another file" in reasons["/jobs"]
+
+    def test_a_tool_takes_what_a_request_sends(self, web):
+        typed = spec(openapi="3.0.3")
+        typed["components"]["schemas"]["Job"]["properties"] |= {
+            "id": {"type": "string", "readOnly": True},
+            "name": {"type": "string", "nullable": True},
+            "size": {"enum": ["s", "m"], "nullable": True},
+        }
+        typed["components"]["schemas"]["Job"]["required"] = ["model", "id"]
+        web.pages[SPEC_URL] = typed
+        tool = load().tool("createJob")
+        job = tool["input_schema"]["properties"]["body"]
+        assert "id" not in job["properties"] and job["required"] == ["model"]
+        assert job["properties"]["name"]["type"] == ["string", "null"]
+        assert job["properties"]["size"] == {
+            "anyOf": [{"enum": ["s", "m", None]}, {"type": "null"}]
+        }
+
+    def test_discover_says_a_service_with_no_operation_cannot_be_used(self, web):
+        web.pages[SPEC_URL] = spec(paths={})
+        client = Client("finney", substrate=every_service({ALICE_HOT: DOC_URL}))
+        found = asyncio.run(services.discover(client))
+        assert found[0].service is not None and found[0].problem.startswith("offers no operation")
+
     def test_a_server_variable_without_a_default_takes_its_first_choice(self, web):
         server = {"url": "https://{region}.svc.example", "variables": {"region": {"enum": ["us"]}}}
         web.pages[SPEC_URL] = spec(servers=[server])
@@ -1435,6 +1478,24 @@ class TestStreaming:
             load().call("listModels", into=lambda head: calls.append(head) or io.BytesIO())
         )
         assert (response.status, response.content, calls) == (500, b"broken", [])
+
+    def test_every_byte_reaches_a_sink_that_takes_some_at_a_time(self):
+        class Partial(io.BytesIO):
+            def write(self, data):
+                return super().write(data[:2])
+
+        sink = Partial()
+        services._stream(io.BytesIO(b"abcdef"), sink, "https://x.example", {"content-length": "6"})
+        assert sink.getvalue() == b"abcdef"
+
+    def test_a_sink_that_cannot_write_is_an_output_error(self):
+        class Full(io.BytesIO):
+            def write(self, data):
+                raise OSError(28, "No space left on device")
+
+        with pytest.raises(ServiceError, match="No space left") as error:
+            services._stream(io.BytesIO(b"abc"), Full(), "https://x.example", {})
+        assert error.value.code == "output"
 
 
 class TestBalance:
@@ -1467,8 +1528,8 @@ class TestBalance:
             ]
         )
         expected = f"{BALANCE_URL}?version=&hotkey={BOB_HOT}"
-        web.pages[expected] = {"hotkey": BOB_HOT}
-        assert asyncio.run(load().balance(BOB_HOT)) == {"hotkey": BOB_HOT}
+        web.pages[expected] = {"hotkey": BOB_HOT, "remaining_usd": "0"}
+        assert asyncio.run(load().balance(BOB_HOT))["hotkey"] == BOB_HOT
         assert web.sent[-1][1] == expected
 
     def test_a_balance_for_another_hotkey_is_refused(self, web):
@@ -1476,6 +1537,13 @@ class TestBalance:
         web.pages[f"{BALANCE_URL}?hotkey={BOB_HOT}"] = {"hotkey": ALICE_HOT, "remaining_usd": "9"}
         with pytest.raises(ServiceError, match=r"is .*'s, not"):
             asyncio.run(service.balance(BOB_HOT))
+
+    def test_a_balance_without_what_remains_is_refused(self, web):
+        service = load()
+        for record in ({}, {"error": "not found"}, {"remaining_usd": 3.75}):
+            web.pages[f"{BALANCE_URL}?hotkey={BOB_HOT}"] = record
+            with pytest.raises(ServiceError, match="has no remaining_usd"):
+                asyncio.run(service.balance(BOB_HOT))
 
 
 class TestTransport:
@@ -1707,6 +1775,11 @@ class TestCli:
         assert result.exit_code == 2 and "btcli service list" in json.loads(result.output)["help"]
         result = invoke("service", "call", "--url", DOC_URL, "create-job", "--model", "m")
         assert result.exit_code == 2 and "read by its url" in result.output
+        args = ["--json", "service", "call", "--url", DOC_URL, "get-job", "--id", "j1"]
+        dry = invoke(*args, "--x-trace", "t", "--dry-run")
+        assert dry.exit_code == 0, dry.output
+        assert json.loads(dry.output)["signs"] is True
+        assert json.loads(dry.output)["headers"] == ["X-Trace"]
         assert not [sent for sent in web.sent if "/api/v1/" in sent[1]]
 
     def test_list_shows_usable_services_and_all_says_why_one_is_not(self, cli, monkeypatch):
@@ -1975,12 +2048,9 @@ class TestCli:
             "id": "j1",
             "status": "done",
             "note": None,
-            "node": {"cpu": {"model": "Xeon"}},
-            "keys": [{"name": "laptop"}],
         }
         fields = invoke("service", "call", "--netuid", "1", "get-job", "--id", "j1")
         assert fields.exit_code == 0 and "done" in fields.output
-        assert "laptop" in fields.output and "node.cpu.model  Xeon" in fields.output
         assert "note null" in " ".join(fields.output.split())
         cli.pages["https://svc.example/api/v1/jobs"] = [{"id": "j1", "gpu": "RTX"}]
         table = invoke("service", "call", "--netuid", "1", "list-jobs")
@@ -1989,13 +2059,10 @@ class TestCli:
         answer = json.loads(raw.output)
         assert answer["body"] == [{"id": "j1", "gpu": "RTX"}]
         assert (answer["status"], answer["signed"]) == (200, wallet_hotkey())
-        wide = {f"f{n}": n for n in range(10)} | {"id": "j9"}
-        cli.pages["https://svc.example/api/v1/jobs"] = [wide]
+        wide = [{f"f{n}": n for n in range(10)} | {"id": "j9"}] * 4
+        cli.pages["https://svc.example/api/v1/jobs"] = wide
         whole = invoke("service", "call", "--netuid", "1", "list-jobs")
-        assert "f9" in whole.output and "more field" not in whole.output
-        cli.pages["https://svc.example/api/v1/jobs"] = [wide] * 4
-        cut = invoke("service", "call", "--netuid", "1", "list-jobs")
-        assert "j9" in cut.output and "3 more fields" in cut.output and "--out" in cut.output
+        assert whole.exit_code == 0 and yaml.safe_load(whole.output) == wide
         cli.pages["https://svc.example/api/v1/jobs"] = []
         empty = invoke("service", "call", "--netuid", "1", "list-jobs")
         assert empty.exit_code == 0 and "none" in empty.output
@@ -2020,7 +2087,7 @@ class TestCli:
 
     def test_balance_does_not_fetch_the_api_spec(self, cli):
         cli.pages[SPEC_URL] = Response(503, {}, b"")
-        cli.pages[BALANCE_URL] = {"hotkey": BOB_HOT, "balance": 0}
+        cli.pages[BALANCE_URL] = {"hotkey": BOB_HOT, "remaining_usd": "0"}
         result = invoke("--json", "service", "balance", "--netuid", "1", "--hotkey", BOB_HOT)
         assert result.exit_code == 0, result.output
         assert fetches(cli, SPEC_URL) == 0
@@ -2046,13 +2113,15 @@ class TestCli:
         )
 
     def test_an_answer_of_several_lines_keeps_them(self, cli):
-        cli.pages["https://svc.example/api/v1/models"] = {
+        answer = {
             "id": "c1",
-            "choices": [{"index": 0, "message": {"content": "one\n- two\n- three"}}],
+            "choices": [{"index": 0, "message": {"content": "one\n- two\n- 안녕하세요"}}],
         }
+        cli.pages["https://svc.example/api/v1/models"] = answer
         result = invoke("service", "call", "--netuid", "1", "list-models")
         assert result.exit_code == 0, result.output
-        assert "  message.content\n    one\n    - two\n    - three\n" in result.output
+        assert "content: |-\n      one\n      - two\n      - 안녕하세요\n" in result.output
+        assert yaml.safe_load(result.output) == answer
 
     def test_an_error_shows_the_message_the_service_sent(self, cli):
         cli.pages["https://svc.example/api/v1/jobs/j2"] = Response(
@@ -2126,10 +2195,11 @@ class TestCli:
         finally:
             path.unlink()
 
-    def test_large_record_preview_preserves_nested_values_and_reports_omitted_rows(self, cli):
-        cli.pages["https://svc.example/api/v1/jobs"] = [{"machine": {"model": "Xeon"}}] * 51
+    def test_large_nested_responses_preserve_every_row(self, cli):
+        rows = [{"machine": {"model": "Xeon"}}] * 51
+        cli.pages["https://svc.example/api/v1/jobs"] = rows
         result = invoke("service", "call", "--netuid", "1", "list-jobs")
-        assert result.exit_code == 0 and "Xeon" in result.output and "1 more row" in result.output
+        assert result.exit_code == 0 and yaml.safe_load(result.output) == rows
 
     def test_balance_is_signed_by_the_wallet_hotkey(self, cli):
         hotkey = wallet_hotkey()
@@ -2266,6 +2336,21 @@ class TestCli:
         result = invoke("service", "balance", "--netuid", "1")
         assert result.exit_code == 1 and "HTTP 402" in result.output
         assert "gamma spend --netuid 1" in " ".join(result.output.split())
+        cli.pages[f"{BALANCE_URL}?hotkey={BOB_HOT}"] = cli.pages[f"{BALANCE_URL}?hotkey={hotkey}"]
+        other = invoke("service", "balance", "--netuid", "1", "--hotkey", BOB_HOT)
+        assert other.exit_code == 1 and "gamma spend" not in other.output
+
+    def test_a_public_balance_is_read_without_preparing_a_signer(self, cli, monkeypatch):
+        hotkey = wallet_hotkey()
+        cli.pages[f"{BALANCE_URL}?hotkey={hotkey}"] = {"hotkey": hotkey, "remaining_usd": "1"}
+
+        async def no_signer(*args, **kwargs):
+            raise AssertionError("a signer was prepared")
+
+        monkeypatch.setattr(http_auth, "prepare_signer", no_signer)
+        result = invoke("--json", "service", "balance", "--netuid", "1")
+        assert result.exit_code == 0, result.output
+        assert http_auth.HEADER_SIGNATURE not in cli.sent[-1][2]
 
     def test_a_text_response_reaches_the_terminal_without_controls(self, cli):
         cli.pages["https://svc.example/api/v1/models"] = Response(
@@ -2282,8 +2367,8 @@ class TestCli:
         result = invoke("service", "call", "--netuid", "1", "list-models")
         assert result.exit_code == 0 and "\x1b" not in result.output
         text = " ".join(result.output.split())
-        assert "wrote 8 bytes of image/png to" in text
-        Path(text.rsplit(" to ", 1)[1].replace(" ", "")).unlink()
+        assert "bytes 8" in text and "content type image/png" in text
+        Path(re.search(r"out(\S+?)bytes", "".join(text.split()))[1]).unlink()
 
     def test_a_file_input_takes_a_file_only_through_file(self, cli, tmp_path):
         upload = {
@@ -2397,18 +2482,19 @@ class TestCli:
         result = invoke("service", "call", "--netuid", "1", "list-models")
         assert result.exit_code == 0, result.output
         text = " ".join(result.output.split())
-        assert "of video/[/x][link=https://evil.example]x[/link] to" in text
-        Path(text.rsplit(" to ", 1)[1].replace(" ", "")).unlink()
+        assert "content type video/[/x][link=https://evil.example]x[/link]" in text
+        Path(re.search(r"out(\S+?)bytes", "".join(text.split()))[1]).unlink()
 
     def test_a_long_tag_description_titles_quickly(self):
         from bittensor.cli.commands import services as commands
 
         assert commands._tag_title("jobs", "[" * 1_000_000) == "jobs: " + "[" * 500
 
-    def test_fields_that_flatten_to_one_name_print_as_json(self, cli):
-        cli.pages["https://svc.example/api/v1/models"] = {"a.b": 1, "a": {"b": 2}}
+    def test_nested_fields_print_whole(self, cli):
+        cli.pages["https://svc.example/api/v1/models"] = {"a.b": 1, "a": {"b": 2, "c": None}}
         result = invoke("service", "call", "--netuid", "1", "list-models")
-        assert result.exit_code == 0 and json.loads(result.output) == {"a.b": 1, "a": {"b": 2}}
+        assert result.exit_code == 0
+        assert yaml.safe_load(result.output) == {"a.b": 1, "a": {"b": 2, "c": None}}
 
     def test_an_optional_operation_is_signed_only_by_a_named_wallet(self, cli, monkeypatch):
         optional = spec()
@@ -2427,10 +2513,68 @@ class TestCli:
         assert missing.exit_code == 1 and "cannot use hotkey 'nosuch'" in missing.output
         always = invoke("service", "call", "--netuid", "1", "--unsigned", "list-jobs")
         assert always.exit_code == 2 and "always signed" in always.output
+        for flags, signs in (([], True), (["--unsigned"], False)):
+            dry = invoke("--json", "service", "call", "--netuid", "1", *flags, "tier", "--dry-run")
+            assert json.loads(dry.output)["signs"] is signs
         monkeypatch.delenv("BT_WALLET")
         default = invoke("service", "call", "--netuid", "1", "tier")
         assert default.exit_code == 0 and "sent unsigned; -w and -H sign it" in default.output
         assert http_auth.HEADER_SIGNATURE not in cli.sent[-1][2]
+
+    def test_an_unsigned_call_the_service_will_not_take_says_to_sign_it(self, cli):
+        optional = spec()
+        optional["paths"]["/tier"] = {
+            "get": {"operationId": "tier", "security": [{"btauth": []}, {}]}
+        }
+        cli.pages[SPEC_URL] = optional
+        cli.pages["https://svc.example/api/v1/tier"] = Response(
+            402, {"content-type": "application/json"}, b'{"error":"insufficient_balance"}'
+        )
+        result = invoke("service", "call", "--netuid", "1", "--unsigned", "tier")
+        text = " ".join(result.output.split())
+        assert result.exit_code == 1 and "sign it with your hotkey" in text
+        assert "gamma spend" not in text
+
+    def test_an_external_signer_never_falls_back_to_the_wallet(self, cli):
+        result = invoke(
+            "--json", "--signer", "ledger", "service", "call", "--netuid", "1", "list-jobs"
+        )
+        assert result.exit_code == 1 and json.loads(result.output)["code"] == "wallet"
+        assert "--signer ledger" in json.loads(result.output)["error"]
+        assert not [sent for sent in cli.sent if "/api/v1/" in sent[1]]
+
+    def test_inputs_as_json_are_checked_as_flags_are(self, cli):
+        call = ["--json", "service", "call", "--netuid", "1", "create-job", "--dry-run"]
+        typed = invoke(*call, "--inputs", '{"model": "m", "limit": "two"}')
+        assert typed.exit_code == 2 and "--limit takes INTEGER" in typed.output
+        whole = invoke(*call, "--inputs", '{"body": {}}')
+        assert whole.exit_code == 2 and "needs 'model'" in whole.output
+        assert invoke(*call, "--inputs", '{"body": {"model": "m"}}').exit_code == 0
+
+    def test_a_flag_is_never_the_value_of_the_one_before_it(self, cli):
+        call = ["service", "call", "--netuid", "1", "create-job"]
+        result = invoke(*call, "--model", "--dry_run", "--dry-run")
+        assert result.exit_code == 2 and "--model needs a value" in result.output
+        literal = invoke("--json", *call, "--model=--dry_run", "--dry-run")
+        assert json.loads(literal.output)["body"] == {"model": "--dry_run"}
+
+    def test_operation_help_shows_its_required_inputs_both_ways(self, cli):
+        result = invoke("service", "call", "--netuid", "1", "create-job", "--help")
+        text = " ".join(result.output.split())
+        assert "create-job --model TEXT [INPUTS]" in text
+        assert """create-job --inputs '{"body": {"model": …}}'""" in text
+
+    def test_a_file_a_response_went_to_is_shown_even_when_quiet(self, cli):
+        cli.pages["https://svc.example/api/v1/models"] = Response(
+            200, {"content-type": "image/png"}, b"\x89PNG"
+        )
+        result = invoke("--quiet", "service", "call", "--netuid", "1", "list-models")
+        assert result.exit_code == 0 and "btcli-service-" in result.output
+        Path(re.search(r"out(\S+?)bytes", "".join(result.output.split()))[1]).unlink()
+
+    def test_a_publisher_that_cannot_be_resolved_is_an_input_error(self, cli):
+        result = invoke("--json", "service", "show", "--netuid", "1", "--service-hotkey", "no/such")
+        assert result.exit_code == 2 and json.loads(result.output)["code"] == "input"
 
     def test_list_keeps_each_service_on_one_line(self, cli, monkeypatch):
         from bittensor.cli import context as cli_context
@@ -2518,8 +2662,8 @@ class TestDocumentCache:
         asyncio.run(services.load(client, 1))
         asyncio.run(services.load(client, 1))
         assert fetches(web, SPEC_URL) == 2
-        listed = services.Listing(1, {ALICE_HOT: DOC_URL}, ALICE_HOT, local=True)
-        asyncio.run(services.load_listed(listed, cache=tmp_path))
+        local = Client("local", substrate=chain({ALICE_HOT: DOC_URL}))
+        assert asyncio.run(services.load(local, 1, cache=tmp_path)).local
         assert not list(tmp_path.iterdir())
 
     def test_a_cache_file_for_another_url_or_too_far_ahead_is_not_used(self, web, tmp_path):

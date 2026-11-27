@@ -114,7 +114,23 @@ names that one:
   },
   "paths": {
     "/chat/completions": {
-      "post": { "operationId": "createChatCompletion", "summary": "Chat with a model", "security": [{ "btauth": [] }] }
+      "post": {
+        "operationId": "createChatCompletion",
+        "summary": "Chat with a model",
+        "security": [{ "btauth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["model", "messages"],
+                "properties": { "model": { "type": "string" }, "messages": { "type": "array" } }
+              }
+            }
+          }
+        }
+      }
     },
     "/models": {
       "get": { "operationId": "listModels", "summary": "List models", "security": [] }
@@ -131,7 +147,8 @@ Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
   also works unsigned. One anyone can call has `security: []`, and needs no
   wallet. Without the scheme, clients sign every operation with a `security`
   requirement or the `X-Bittensor-*` headers as parameters, and one with
-  neither when the caller names a hotkey.
+  neither when the caller names a hotkey; one that only a bearer token, OAuth
+  or another such credential meets is not offered.
 - Give each operation a short, unique `operationId` and a `summary`. Clients
   call it by that name, so `rentBySpec` beats a generated
   `rent_by_spec_executors_rent_by_spec_post`; without one it is named by its
@@ -152,6 +169,8 @@ Clients read any OpenAPI 3 spec, and each of these makes it easier to use:
   takes its `default`, or its first `enum` value.
 - A signed request is answered where it was sent, without a redirect, since its
   signature covers the path.
+- Serve each spec as one file. Clients do not follow a `$ref` to another file,
+  and leave out the operations that need one.
 
 ## Accepting gamma
 
@@ -175,7 +194,8 @@ the hotkey signs:
 ```
 
 The amounts are decimal strings. `remaining_usd` is what the hotkey can spend at
-the service, however it was funded, and an unknown hotkey reads zeros. A request
+the service, however it was funded, and an unknown hotkey reads zeros. Clients
+need `remaining_usd`; the other fields are optional. A request
 the balance cannot cover gets HTTP 402 with `{ "error": "insufficient_balance" }`,
 and the service does no work.
 
@@ -187,7 +207,7 @@ btcli service show --netuid 1                          # the service and its ope
 btcli service call --netuid 1 list-models
 btcli service call --netuid 1 create-chat-completion --help
 btcli gamma spend --netuid 1 --service-hotkey SERVICE --amount-gamma 5 -H HOTKEY
-btcli service call --netuid 1 -H HOTKEY create-chat-completion --model m --inputs @chat.json
+btcli service call --netuid 1 -H HOTKEY create-chat-completion --model m --messages '[{"role": "user", "content": "Hi"}]'
 btcli service balance --netuid 1 -H HOTKEY
 ```
 
@@ -203,17 +223,19 @@ is repeated or takes a JSON array. A file input takes a file with
 with `@FILE`, or stdin with `@-`; a flag never reads a file, so a value starting
 with `@` is taken as it is.
 
-An `optional` operation is signed only when `-w` or `-H` names the hotkey, and
-`--unsigned` sends it unsigned even then. `--dry-run` shows the request without
-signing or sending it. A subnet with several services needs `--service-hotkey`.
-A call that timed out may still have been done, so check before paying for it
-again.
+An `optional` operation is signed only when `-w` or `-H` (or `BT_WALLET`,
+`BT_WALLET_HOTKEY`) names the hotkey, and `--unsigned` sends it unsigned even
+then. `--dry-run` shows the request, the headers it sets and whether it would
+be signed, without signing or sending it. A call that timed out or was cut off
+may still have been done, so check before paying for it again.
 
-An object prints as fields, nested ones by dotted name, and a list as a table. A
-binary response goes to `--out FILE` (`--out -` for stdout, without `--json`),
-or to a temporary file without it, and a stream of events prints as it arrives.
-A body written out as it arrives may take as long as it keeps coming, each wait
-for more at most `--timeout`.
+Flat objects print as fields and simple lists of records print as tables.
+Nested data prints as YAML, so text of several lines reads as written. A binary
+response goes to `--out FILE` (`--out -` for stdout, without `--json`), or to a
+temporary file without it, and a stream of events prints as it arrives. A body
+written out as it arrives may take as long as it keeps coming, each wait for
+more at most `--timeout`. With `--json` a stream is kept until it ends, up to
+64 MiB, so `--out FILE` is the way to take a long stream or a large answer.
 
 With `--json`, for scripts and agents:
 
@@ -223,9 +245,11 @@ With `--json`, for scripts and agents:
   `optional` inputs, and `--schemas` adds the JSON Schema of the inputs.
 - `service call OPERATION --help` gives one operation with its `input_schema`.
 - `service call` prints `{"status", "content_type", "signed", "body"}`: `signed`
-  is the hotkey that signed and so paid, or null, and a body that is not JSON
-  is `text`, or `out` and `bytes` when it went to a file.
-- An error is JSON on stderr with a `code`: `input` when the call does not fit
+  is the hotkey that signed the request, or null, and `service balance` shows
+  what it has left. A body that is not JSON is `text`, or `out` and `bytes`
+  when it went to a file, and a response without a body has none of them.
+- An error is JSON on stderr. One about the service or the call has a `code`
+  (an error reaching the chain may not): `input` when the call does not fit
   the operation (exit code 2), and with exit code 1 `http` (with the `status`
   and the `body` the service sent), `no_service`, `ambiguous`, `unusable` (the
   publisher has to fix the document or spec), `unreachable`, `timeout`,
@@ -237,26 +261,28 @@ published = await bt.services.discover(client)  # every service, or why it is un
 service = await bt.services.load(client, netuid=1)
 models = (await service.call("listModels")).json()
 signer = await bt.http_auth.prepare_signer(wallet, client=client)
+messages = [{"role": "user", "content": "Hi"}]
 response = await service.call(
-    "createChatCompletion", {"model": "m", "messages": [...]}, signer=signer
+    "createChatCompletion", {"model": "m", "messages": messages}, signer=signer
 )
 balance = await service.balance(signer=signer)
 tools = service.tools()  # [{"name", "description", "input_schema"}], for an agent
+auth = {tool["name"]: service.operation(tool["name"]).auth for tool in tools}
 ```
 
-`call` takes a tool's `name` and its inputs back, or `body=` the whole body. A
-file input takes bytes, a `(filename, bytes)` pair, a binary file or base64
-text, which is how a tool's schema describes it, and `into=` writes a successful
-body to a file as it arrives. btcli checks that a call fits the operation, and
+`call` takes a tool's `name` and its inputs back, or `body=` the whole body, and
+`auth` says whether calling a tool is `open`, `optional` or signed by a
+`hotkey`. A file input takes bytes, a `(filename, bytes)` pair, a binary file or
+base64 text, which is how a tool's schema describes it, and `into=` writes a
+successful body to a file as it arrives. btcli checks that a call fits the operation, and
 the service checks the rest. A `ServiceError` has the same `code` as above, and
 `response.raise_for_status()` makes one of an HTTP error.
 
 btcli reads which url each hotkey published, and the subnet's owner, from the
 chain on every run. It keeps a document and its spec as long as their
 `Cache-Control: max-age` allows, ten minutes at most, and `show --url` always
-reads them. In Python, `bt.services.listing(client, netuid)` reads the urls,
-`bt.services.load_listed(listing)` loads a service from them without the chain,
-and `cache=` a directory keeps documents and specs there.
+reads them. In Python, pass a directory as `cache=` to keep documents and
+specs there.
 
 A client trusts only the chain. It uses the document at the url a hotkey
 published only if `publishers` lists that hotkey and a `gamma` payment takes

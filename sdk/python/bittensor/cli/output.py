@@ -811,16 +811,6 @@ class Output:
             for url in docs:
                 self._sub_diag("see", url, console=self._out)
 
-    def text_block(self, label: str, text: str) -> None:
-        """A field whose value is lines of text, as an answer a service wrote: its
-        label, then the text below it, indented and wrapped, its lines kept."""
-        self._out.print(Text("  " + label, style=STYLE_KEY))
-        for line in Text(text).wrap(self._out, max(self._out.width - 4, 20)):
-            line.rstrip()
-            self._out.print(
-                Text.assemble("    ", line) if line.plain else "", no_wrap=True, crop=False
-            )
-
     def kv_sections(
         self,
         title: Optional[str],
@@ -1203,7 +1193,6 @@ class Output:
                 style=STYLE_KEY,
             )
             header.append("  ")
-        header.rstrip()
         self._out.print(header, soft_wrap=True)
         for row in cells:
             line = Text("  ", overflow="ignore", no_wrap=True)
@@ -1225,7 +1214,6 @@ class Output:
                         self._linked_text(padded, style, _address_kind_for_key(columns[i]))
                     )
                 line.append("  ")
-            line.rstrip()
             self._out.print(line, soft_wrap=True)
         if footer:
             self._out.print()
@@ -1441,7 +1429,6 @@ class Output:
         for i, name in enumerate(columns):
             header.append(name.rjust(widths[i]), style=STYLE_KEY)
             header.append("  ")
-        header.rstrip()
         self._out.print(header, soft_wrap=True)
         for index, (row, cell) in enumerate(zip(rows, entities)):
             line = Text("  ", overflow="ignore", no_wrap=True)
@@ -2544,7 +2531,7 @@ class Output:
             payload = error.to_dict()
             if explorer_url:
                 payload["explorer_url"] = explorer_url
-            self._err.print_json(data=payload, ensure_ascii=self._err.is_terminal)
+            self._err.print_json(_json.dumps(payload))
             return
         header = Text()
         header.append("error", style=STYLE_ERROR)

@@ -98,9 +98,8 @@ PANEL_ACCOUNTS = "Accounts"
 PANEL_CHAIN = "Raw chain access & agents"
 PANEL_ADDITIONAL = "Additional"
 
-# Primary commands, most-used first: everyday wallet, staking, gamma deposit
-# operations and the services gamma pays for, then subnet inspection,
-# conviction locking, and hyperparameters.
+# Primary commands, most-used first: everyday wallet, staking, and gamma deposit
+# operations, then subnet inspection, conviction locking, and hyperparameters.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
 app.add_typer(gamma.app, name="gamma")
