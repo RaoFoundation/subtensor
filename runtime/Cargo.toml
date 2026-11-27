@@ -29,6 +29,9 @@ scale-info = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["alloc"] }
 pallet-aura = { workspace = true }
 pallet-alpha-assets = { workspace = true }
+pallet-canonical-pool = { workspace = true }
+pallet-rails = { workspace = true }
+pallet-tusd = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-subtensor = { workspace = true }
 pallet-subtensor-swap = { workspace = true }
@@ -199,6 +202,9 @@ std = [
 	"frame-try-runtime/std",
 	"pallet-subtensor/std",
 	"pallet-alpha-assets/std",
+	"pallet-canonical-pool/std",
+	"pallet-rails/std",
+	"pallet-tusd/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",
 	"pallet-insecure-randomness-collective-flip/std",
@@ -298,6 +304,9 @@ std = [
 ]
 runtime-benchmarks = [
 	"pallet-hashed-accounts/runtime-benchmarks",
+	"pallet-canonical-pool/runtime-benchmarks",
+	"pallet-rails/runtime-benchmarks",
+	"pallet-tusd/runtime-benchmarks",
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
@@ -349,6 +358,9 @@ runtime-benchmarks = [
 ]
 try-runtime = [
 	"pallet-hashed-accounts/try-runtime",
+	"pallet-canonical-pool/try-runtime",
+	"pallet-rails/try-runtime",
+	"pallet-tusd/try-runtime",
 	"frame-try-runtime/try-runtime",
 	"frame-executive/try-runtime",
 	"frame-system/try-runtime",

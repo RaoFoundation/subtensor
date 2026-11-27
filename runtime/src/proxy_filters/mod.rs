@@ -423,6 +423,7 @@ mod tests {
                 ProtectedAccountCreationCalls,
             )>();
         let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
+        let denied = &denied | &group_calls::<(TusdCalls, CanonicalPoolCalls, RailsCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -458,6 +459,7 @@ mod tests {
                 ProtectedAccountCreationCalls,
             )>();
         let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
+        let denied = &denied | &group_calls::<(TusdCalls, CanonicalPoolCalls, RailsCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -761,6 +763,7 @@ mod tests {
                 ProtectedAccountCreationCalls,
             )>();
         let denied = &denied | &group_calls::<TaoUsdPriceFeedCalls>();
+        let denied = &denied | &group_calls::<(TusdCalls, CanonicalPoolCalls, RailsCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
