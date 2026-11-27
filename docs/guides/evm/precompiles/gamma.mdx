@@ -35,17 +35,21 @@ false.
 The two mints return the gamma they credit, and `moveGamma`, `depositGamma` and
 `withdrawGamma` the gamma they move, which can be less than the amount asked.
 
-A mint with no hotkey credits the caller's balance. A transfer to a hotkey with
-no deposit opens one for the receiver, with no daily spend cap. A spend from the EVM costs
+A transfer to a hotkey with no deposit opens one for the receiver, with no
+daily spend cap. A spend from the EVM costs
 gas, while the native `spend_gamma` pays no fee; it emits the same
 `GammaSpent` event, so services credit it like any other spend, to the caller's
 mapped account.
 
 ## Minting for a user
 
-A contract mints into its own deposit, at a hotkey it keeps for this, and sends
-what it got to the user's deposit. If the transfer fails, the revert undoes the
-mint as well.
+A contract mints into its own deposit and sends what it got to the user's
+deposit. If the transfer fails, the revert undoes the mint as well. Use a pool
+hotkey owned on-chain by the contract's mapped account. Transferring the full
+balance closes the deposit, and hotkey ownership keeps the slot reserved for
+the contract when it reopens.
+If the pool hotkey is unowned, fund the deposit first and keep at least 0.1
+gamma in it across calls.
 
 ```solidity
 IGamma gamma = IGamma(IGAMMA_ADDRESS);

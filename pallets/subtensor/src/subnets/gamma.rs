@@ -855,22 +855,41 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
-        let balance = GammaBalances::<T>::take(netuid, old_coldkey);
-        if !balance.is_zero() {
-            Self::credit_gamma_balance(netuid, new_coldkey, balance)?;
+        Self::transfer_coldkey_gamma(
+            netuid,
+            old_coldkey,
+            new_coldkey,
+            ColdkeyGammaHotkeys::<T>::get(netuid, old_coldkey),
+        )
+    }
+
+    fn transfer_coldkey_gamma(
+        netuid: NetUid,
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+        hotkeys: BoundedVec<T::AccountId, ConstU32<MAX_GAMMA_DEPOSITS>>,
+    ) -> DispatchResult {
+        if let Ok(balance) = GammaBalances::<T>::try_get(netuid, old_coldkey) {
+            if !balance.is_zero() {
+                Self::credit_gamma_balance(netuid, new_coldkey, balance)?;
+            }
+            GammaBalances::<T>::remove(netuid, old_coldkey);
         }
-        let hotkeys = ColdkeyGammaHotkeys::<T>::get(netuid, old_coldkey);
         if hotkeys.is_empty() {
             return Ok(());
         }
         ColdkeyGammaHotkeys::<T>::remove(netuid, old_coldkey);
         let mut merged = ColdkeyGammaHotkeys::<T>::get(netuid, new_coldkey);
         for hotkey in hotkeys {
-            GammaDeposits::<T>::mutate(netuid, &hotkey, |deposit| {
-                if let Some(deposit) = deposit {
-                    deposit.coldkey = new_coldkey.clone();
-                }
-            });
+            GammaDeposits::<T>::try_mutate(netuid, &hotkey, |deposit| -> DispatchResult {
+                let deposit = deposit.as_mut().ok_or(Error::<T>::NonAssociatedColdKey)?;
+                ensure!(
+                    deposit.coldkey == *old_coldkey,
+                    Error::<T>::NonAssociatedColdKey
+                );
+                deposit.coldkey = new_coldkey.clone();
+                Ok(())
+            })?;
             merged
                 .try_push(hotkey)
                 .map_err(|_| Error::<T>::TooManyGammaDeposits)?;
@@ -908,20 +927,21 @@ impl<T: Config> Pallet<T> {
             })
     }
 
-    /// Whether `coldkey` holds a gamma deposit on any subnet.
-    pub fn coldkey_has_gamma_deposits(coldkey: &T::AccountId) -> bool {
-        Self::get_all_subnet_netuids()
-            .into_iter()
-            .any(|netuid| ColdkeyGammaHotkeys::<T>::contains_key(netuid, coldkey))
-    }
-
-    /// Moves every gamma balance `from` holds to `to`.
-    pub fn move_gamma_balances(from: &T::AccountId, to: &T::AccountId) -> DispatchResult {
+    /// Moves gamma prefunding from a fresh EVM backing account. Only third parties
+    /// can have opened its deposits. The caller must run inside a storage transaction.
+    pub fn move_alias_gamma(from: &T::AccountId, to: &T::AccountId) -> DispatchResult {
+        if from == to {
+            return Ok(());
+        }
+        let mut deposits = 0;
         for netuid in Self::get_all_subnet_netuids() {
-            let balance = GammaBalances::<T>::take(netuid, from);
-            if !balance.is_zero() {
-                Self::credit_gamma_balance(netuid, to, balance)?;
-            }
+            let hotkeys = ColdkeyGammaHotkeys::<T>::get(netuid, from);
+            deposits += hotkeys.len();
+            ensure!(
+                deposits <= crate::MAX_THIRD_PARTY_GAMMA_DEPOSITS as usize,
+                Error::<T>::TooManyGammaDeposits
+            );
+            Self::transfer_coldkey_gamma(netuid, from, to, hotkeys)?;
         }
         Ok(())
     }

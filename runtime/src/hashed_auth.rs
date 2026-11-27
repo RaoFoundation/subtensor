@@ -889,7 +889,7 @@ impl pallet_hashed_accounts::OnRegister for OnHashedRegistered {
             pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(
                 alias,
             );
-        setup_alias_gamma_benchmark(&backing);
+        setup_alias_gamma_benchmark(&backing, account);
         for index in 0..crate::MaxProxies::get() {
             let delegate = AccountId::new(sp_io::hashing::blake2_256(
                 &(b"hashed-benchmark-proxy", index).encode(),
@@ -1292,20 +1292,54 @@ fn setup_pq_registration_benchmark(account: &AccountId) -> DispatchResult {
     let backing =
         pallet_evm::HashedAddressMapping::<sp_runtime::traits::BlakeTwo256>::into_account_id(alias);
     let _ = crate::Balances::make_free_balance_be(&backing, crate::TaoBalance::new(1_000_000_000));
-    setup_alias_gamma_benchmark(&backing);
+    setup_alias_gamma_benchmark(&backing, account);
     Ok(())
 }
 
-/// Registration moves the old backing account's gamma balance on every subnet.
+/// Registration can move gamma balances on every subnet and up to the global
+/// third-party limit of deposits, each touching a separate pair of indexes.
 #[cfg(feature = "runtime-benchmarks")]
-fn setup_alias_gamma_benchmark(backing: &AccountId) {
-    for netuid in 0..pallet_subtensor::SubnetLimit::<Runtime>::get() {
-        let netuid = subtensor_runtime_common::NetUid::from(netuid);
-        pallet_subtensor::NetworksAdded::<Runtime>::insert(netuid, true);
-        pallet_subtensor::GammaBalances::<Runtime>::insert(
+fn setup_alias_gamma_benchmark(backing: &AccountId, account: &AccountId) {
+    use frame_support::BoundedVec;
+    use pallet_subtensor::{
+        ColdkeyGammaHotkeys, GammaBalances, GammaDeposit, GammaDeposits, MAX_GAMMA_DEPOSITS,
+        MAX_THIRD_PARTY_GAMMA_DEPOSITS, NetworksAdded, SubnetLimit,
+    };
+    use subtensor_runtime_common::{GammaBalance, NetUid};
+
+    let balance = GammaBalance::from(pallet_subtensor::MIN_GAMMA_AMOUNT);
+    for id in 0..SubnetLimit::<Runtime>::get() {
+        let netuid = NetUid::from(id);
+        NetworksAdded::<Runtime>::insert(netuid, true);
+        GammaBalances::<Runtime>::insert(netuid, backing, balance);
+        GammaBalances::<Runtime>::insert(netuid, account, balance);
+        if u32::from(id) >= MAX_THIRD_PARTY_GAMMA_DEPOSITS {
+            continue;
+        }
+        let hotkey = |index| {
+            AccountId::new(sp_io::hashing::blake2_256(
+                &(b"alias-gamma-benchmark", id, index).encode(),
+            ))
+        };
+        let source = hotkey(0u32);
+        ColdkeyGammaHotkeys::<Runtime>::insert(
             netuid,
             backing,
-            subtensor_runtime_common::GammaBalance::from(1),
+            BoundedVec::truncate_from(alloc::vec![source.clone()]),
+        );
+        GammaDeposits::<Runtime>::insert(
+            netuid,
+            source,
+            GammaDeposit {
+                coldkey: backing.clone(),
+                balance,
+                daily_spend_cap: None,
+            },
+        );
+        ColdkeyGammaHotkeys::<Runtime>::insert(
+            netuid,
+            account,
+            BoundedVec::truncate_from((1..MAX_GAMMA_DEPOSITS).map(hotkey).collect()),
         );
     }
 }

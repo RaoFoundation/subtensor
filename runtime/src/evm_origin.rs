@@ -100,7 +100,7 @@ fn legacy_backing_account(address: H160) -> AccountId32 {
 
 /// Check freshness before changing an alias's backing account. The caller must
 /// run this inside the same storage transaction as the permanent alias binding.
-/// Pure TAO and gamma balance donations are swept, so prefunding cannot prevent
+/// TAO and gamma donations are swept, so prefunding cannot prevent
 /// registration.
 /// Previously used addresses must instead use a fresh Hashed key.
 pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
@@ -132,13 +132,12 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
                 .is_none(),
         DispatchError::Other("HashedEvmAliasAlreadyUsed")
     );
-    // Incoming stake, gamma deposits and ownership transfers can create economic
+    // Incoming stake and ownership transfers can create economic
     // state without touching the backing account's System nonce or references.
     // Remapping that account would remove its EVM authorization route without
     // moving its assets. Check index presence rather than decoding or walking the
     // hotkey vectors; root-swap claim-only credits have their own index and need a
-    // separate probe, and gamma deposits are indexed per subnet. Gamma balances
-    // are funds like TAO and move with it.
+    // separate probe. Gamma deposits and balances move with the TAO.
     ensure!(
         !pallet_subtensor::StakingHotkeys::<crate::Runtime>::contains_key(&backing)
             && !pallet_subtensor::OwnedHotkeys::<crate::Runtime>::contains_key(&backing)
@@ -147,11 +146,11 @@ pub fn prepare_hashed_alias(account: &AccountId32) -> DispatchResult {
                 &backing,
             )
             .next()
-            .is_none()
-            && !pallet_subtensor::Pallet::<crate::Runtime>::coldkey_has_gamma_deposits(&backing),
+            .is_none(),
         DispatchError::Other("HashedEvmAliasAlreadyUsed")
     );
-    pallet_subtensor::Pallet::<crate::Runtime>::move_gamma_balances(&backing, account)?;
+    pallet_subtensor::Pallet::<crate::Runtime>::move_alias_gamma(&backing, account)
+        .map_err(|_| DispatchError::Other("HashedEvmAliasAlreadyUsed"))?;
     if !state.data.free.is_zero() {
         <crate::Balances as Currency<AccountId32>>::transfer(
             &backing,
@@ -425,6 +424,50 @@ mod tests {
                 pallet_subtensor::GammaBalances::<Runtime>::get(netuid, &owner),
                 GammaBalance::from(500)
             );
+        });
+    }
+
+    // PROTECTED_REGRESSION: prefunded gamma must stay accessible after alias registration; changes require explicit human approval.
+    #[test]
+    fn registration_preserves_prefunded_gamma_deposits() {
+        use frame_support::assert_ok;
+        use pallet_subtensor::{ColdkeyGammaHotkeys, GammaBalances, GammaDeposits, Pallet};
+        use subtensor_runtime_common::{GammaBalance, NetUid};
+
+        sp_io::TestExternalities::default().execute_with(|| {
+            let owner = AccountId::new([41; 32]);
+            let backing = legacy_backing_account(H160::repeat_byte(41));
+            let sender = AccountId::new([42; 32]);
+            let hotkey = AccountId::new([43; 32]);
+            let netuid = NetUid::from(1);
+            let amount = GammaBalance::from(pallet_subtensor::MIN_GAMMA_AMOUNT);
+            pallet_subtensor::NetworksAdded::<Runtime>::insert(netuid, true);
+            GammaBalances::<Runtime>::insert(netuid, &sender, amount);
+            assert_ok!(Pallet::<Runtime>::transfer_gamma(
+                RuntimeOrigin::signed(sender),
+                backing.clone(),
+                None,
+                Some(hotkey.clone()),
+                netuid,
+                amount,
+            ));
+            assert_ok!(prepare_hashed_alias(&owner));
+            assert!(ColdkeyGammaHotkeys::<Runtime>::get(netuid, &backing).is_empty());
+            assert_eq!(
+                ColdkeyGammaHotkeys::<Runtime>::get(netuid, &owner).as_slice(),
+                &[hotkey.clone()],
+            );
+            assert_eq!(
+                GammaDeposits::<Runtime>::get(netuid, &hotkey).map(|deposit| deposit.coldkey),
+                Some(owner.clone()),
+            );
+            assert_ok!(Pallet::<Runtime>::withdraw_gamma(
+                RuntimeOrigin::signed(owner.clone()),
+                hotkey,
+                netuid,
+                amount,
+            ));
+            assert_eq!(GammaBalances::<Runtime>::get(netuid, &owner), amount);
         });
     }
 

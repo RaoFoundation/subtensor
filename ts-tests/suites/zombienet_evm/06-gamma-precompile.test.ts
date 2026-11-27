@@ -8,6 +8,7 @@ import {
     addNewSubnetwork,
     convertH160ToPublicKey,
     convertH160ToSS58,
+    convertPublicKeyToSs58,
     createEthersWallet,
     disableWhiteListCheck,
     enableGamma,
@@ -343,6 +344,7 @@ describeSuite({
                 await deployed.waitForDeployment();
                 const contractAddress = await deployed.getAddress();
                 const contractSs58 = convertH160ToSS58(contractAddress);
+                const poolHotkey = convertPublicKeyToSs58(ethers.getBytes(ethers.zeroPadValue(contractAddress, 32)));
                 await forceSetBalance(api, contractSs58);
                 const contract = new ethers.Contract(contractAddress, MINT_FOR_USER_CONTRACT_ABI, ethWallet);
 
@@ -361,6 +363,7 @@ describeSuite({
                 const deposit = await getGammaDeposit(api, netuid, userHotkey.address);
                 expect(deposit?.coldkey, "the user owns the deposit").toEqual(user.address);
                 expect(deposit?.balance, "the deposit holds what the mint returned").toEqual(credited);
+                expect(await getGammaDeposit(api, netuid, poolHotkey)).toBeUndefined();
                 expect(await getGammaBalance(api, netuid, contractSs58)).toEqual(BigInt(0));
 
                 // The subnet owner's coldkey owns its hotkey, so the transfer to the user is refused.
@@ -371,6 +374,7 @@ describeSuite({
                 );
 
                 expect(await getBalance(api, contractSs58), "the mint's TAO is back").toEqual(taoBefore);
+                expect(await getGammaDeposit(api, netuid, poolHotkey)).toBeUndefined();
                 expect(await getGammaBalance(api, netuid, contractSs58)).toEqual(BigInt(0));
                 expect(await getGammaDeposit(api, netuid, ownerHotkey.address)).toBeUndefined();
             },
