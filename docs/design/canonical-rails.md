@@ -153,7 +153,9 @@ An order fails as a whole, and stays with the transport for a new attempt, only 
 hub is paused, the portal is unknown, its bridge is disabled, the order is out of
 sequence, or the hub could not queue the order's answer: the queue of the bridge is
 full, or the budget of the bridge does not cover one more message (see "Who pays for a
-message").
+message"). The gateway adds one case: the answers of the bridge cannot be handed to
+the transport in the same transaction. In each case what the payer locked stays on
+the spoke.
 
 **What an order can deliver.**
 

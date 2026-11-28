@@ -145,7 +145,7 @@ owner is a timelock and why the guardian exists.
 | Failure | Worst case | Bound |
 | --- | --- | --- |
 | The security module on Bittensor accepts forged orders from a real portal's address | tUSD minted without backing, then sold in the pool or bridged out | The bridge's mint cap and mint window. The pool's 2% swap limit and 20% flow limit. The guardian can disable the bridge and the pool. |
-| The security module on the spoke accepts forged answers | Stablecoin released from the vault. Canonical tokens minted on the spoke | The vault's release limit per period, then the guardian's pause. Tokens that the hub did not count do not redeem. |
+| The security module on the spoke accepts forged answers | Stablecoin released from the vault. Canonical tokens minted on the spoke. Forged debts on record in the portal | The vault's release limit per period, then the guardian's pause. Tokens that the hub did not count do not redeem. The owner clears forged debts by an upgrade before the vault resumes (risk 10). |
 | The gateway is upgraded with hostile code | As forged orders | As above, after 48 hours of notice |
 | The portal is upgraded with hostile code | As forged answers | As above, after 48 hours of notice |
 | One bridge is compromised in any way | That bridge's cap of tUSD. That bridge's vault | Other bridges: a bridge burns only its own outstanding tUSD, so it cannot release another vault's stablecoin |
@@ -281,115 +281,118 @@ reported, and tells the vault to release only what it burned. Checked end to end
 2. **Liveness depends on keepers.** A relayer must deliver messages. The queue of a
    bridge is sent when an order of that bridge arrives or when anyone calls
    `Gateway.flush`. An exit that starts on Bittensor waits until then. Funds are safe
-   while they wait.
-   An order is taken only if the answers of its bridge can leave in the same
-   transaction. If the transport refuses a message to a spoke, or the budget does not
-   cover its charge, the orders of that spoke wait at the transport until that is
-   mended. Their funds stay locked on the spoke.
-   The answer fees collect on the spoke, in the spoke's coin. The operator has to
-   move their value into the budget of the bridge on the hub. If the operator does
-   not, or if a fee is set below the transport's charge, the budget runs out. Then
-   the bridge takes no order and its queued messages wait, until someone pays in.
-   Orders that wait keep their funds locked on the spoke. A queue is first in, first
-   out: a message that cannot leave holds the ones behind it in the same queue, and
-   no message of another bridge.
-3. **Head-of-line blocking.** The hub takes the orders of a bridge in sequence. An
-   order that the gateway cannot decode blocks the orders behind it until root skips
-   it. The payer's funds of a skipped order stay on the spoke, and the owner has to
-   return them by governance. A portal that follows `Wire.sol` cannot produce such an
-   order.
+   while they wait. An order is taken only if the answers of its bridge can leave in the
+   same transaction. If the transport refuses a message to a spoke, or the budget does
+   not cover its charge, the orders of that spoke wait at the transport until that is
+   mended. Their funds stay locked on the spoke. The answer fees collect on the spoke,
+   in the spoke's coin. The operator has to move their value into the budget of the
+   bridge on the hub. If the operator does not, or if a fee is set below the transport's
+   charge, the budget runs out. Then the bridge takes no order and its queued messages
+   wait, until someone pays in. Orders that wait keep their funds locked on the spoke. A
+   queue is first in, first out: a message that cannot leave holds the ones behind it in
+   the same queue, and no message of another bridge.
+3. **Head-of-line blocking.** The hub takes the orders of a bridge in sequence. An order
+   that the gateway cannot decode blocks the orders behind it until root skips it. The
+   payer's funds of a skipped order stay on the spoke, and the owner has to return them
+   by governance. A portal that follows `Wire.sol` cannot produce such an order.
 4. **A payment of USDC can arrive in parts.** The vault releases a limited amount in a
-   period. A payment above what is left of that amount is paid in part, and the rest
-   is on record in the portal (`owed`). Someone must call `Portal.claim` for the
-   rest, after the allowance refilled: the payee, or anyone else. The swap page and
-   `btcli bridge claim` do this. Set the limit above the largest sale that should
-   pass in one payment.
-5. **Refunds use the release limit too.** Many large refunds can use the allowance
-   that sales need. Then sales are paid in parts. While debts are on record, the
-   allowance goes to the payee whose `claim` comes first: there is no queue. All
-   debts are paid in the end, at the rate of the limit. A release period of zero
-   turns the limit into a cap for each release, with no limit on the rate: do not set
-   it.
-25. **A recipient that cannot receive.** The zero address is refused. Other addresses
-    are not checked. If the stablecoin's issuer blocks the payee, the release reverts
-    each time the transport tries the answer, and `claim` reverts for a debt that is
-    on record. Other payments go on: the portal carries answers out in any order. The
-    hub has settled the order, so the stablecoin stays in the vault until the block
-    ends or the owner acts.
-26. **The message cost is an estimate.** Root sets what the hub counts for one
-    message. The hub takes what the transport really charges. If the charge is above
-    the cost, an exit pays in less than its message costs, and the budget of its
-    bridge pays the difference. Root then has to raise the cost.
-27. **TAO in the gateway that is in no budget stays there.** TAO that someone sends to
-    the gateway contract directly, and what is left of the budget of a bridge that is
-    retired, cannot be taken out in version 1. Pay in only with `Rails.fund_messages`.
-    The gateway account also keeps the chain's existential deposit, 500 rao: that
-    much of the budgets cannot be spent.
-28. **The gateway reports the charge.** The hub takes from a budget the amount that
-    the gateway contract names. The contract reads it from the transport in the same
-    call in which it pays. A gateway that is upgraded with wrong code could name
-    another amount. It holds that TAO in any case.
-29. **A queue can be filled.** The queue of a bridge holds 1,024 messages. A person
-    can fill it with small exits. Each exit pays the message cost, so the budget
-    grows with the queue. While the queue is full, the bridge takes no order and no
-    exit. Anyone empties it with `Gateway.flush`, for gas only. The queues of other
-    bridges are not touched.
-6. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
-   after the payer signed. The order's minimum bounds the loss. btcli defaults to 5%
-   and the swap page to 1%. The pool's swap limits make a large push slow.
-7. **Credits are final.** They cannot be sold, moved or refunded. They belong to one
-   address at one service on one subnet. A subnet that is dissolved clears them.
-8. **Credits can be fewer than the dollars paid.** They count the alpha at the lower
-   of the slow price and the spot price, after two pool fees. The quote shows the
-   number before the payer signs.
-9. **The time-weighted price needs history.** Credits orders are refunded until the
-   pool has 300 blocks of history, and whenever the oracle feed is older than 300
-   blocks.
-10. **The time-weighted price can be moved by a party that holds the pool's price for
-    a long time.** The party pays the pool's fee and the arbitrage against it for the
-    whole period. Only a lower price matters, and a lower price gives fewer credits,
-    not more.
-11. **An index hotkey earns on less than all of its stake if fewer than 4 validators
+   period. A payment above what is left of that amount is paid in part, and the rest is
+   on record in the portal (`owed`). Someone must call `Portal.claim` for the rest,
+   after the allowance refilled: the payee, or anyone else. The swap page and
+   `btcli bridge claim` do this. Set the limit above the largest sale that should pass
+   in one payment.
+5. **Refunds use the release limit too.** Many large refunds can use the allowance that
+   sales need. Then sales are paid in parts. While debts are on record, the allowance
+   goes to the payee whose `claim` comes first: there is no queue. All debts are paid in
+   the end, at the rate of the limit. A release period of zero turns the limit into a
+   cap for each release, with no limit on the rate: do not set it.
+6. **A recipient that cannot receive.** The zero address is refused. Other addresses are
+   not checked. If the stablecoin's issuer blocks the payee, the release reverts each
+   time the transport tries the answer, and `claim` reverts for a debt that is on
+   record. Other payments go on: the portal carries answers out in any order. The hub
+   has settled the order, so the stablecoin stays in the vault until the block ends or
+   the owner acts.
+7. **The message cost is an estimate.** Root sets what the hub counts for one message.
+   The hub takes what the transport really charges. If the charge is above the cost, an
+   exit pays in less than its message costs, and the budget of its bridge pays the
+   difference. Root then has to raise the cost.
+8. **TAO in the gateway that is in no budget stays there.** TAO that someone sends to
+   the gateway contract directly, and what is left of the budget of a bridge that is
+   retired, cannot be taken out in version 1. Pay in only with `Rails.fund_messages`.
+   The gateway account also keeps the chain's existential deposit, 500 rao: that much of
+   the budgets cannot be spent.
+9. **The gateway reports the charge.** The hub takes from a budget the amount that the
+   gateway contract names. The contract reads it from the transport in the same call in
+   which it pays. A gateway that is upgraded with wrong code could name another amount.
+   It holds that TAO in any case.
+10. **A debt on record outlives a pause.** If the security module on a spoke accepts a
+    forged answer, the portal can record a debt to the forger that is larger than the
+    vault's allowance. The vault's limit still bounds what leaves in a period, and the
+    guardian can stop the releases. But the debt stays on record, and `claim` would pay
+    it when the releases resume. The portal has no call that removes a debt. So before
+    the owner resumes the vault after such a fault, the owner must upgrade the portal to
+    clear the forged debts. Both steps go through the 48-hour timelock.
+11. **A queue can be filled.** The queue of a bridge holds 1,024 messages. A person can
+    fill it with small exits. Each exit pays the message cost, so the budget grows with
+    the queue. While the queue is full, the bridge takes no order and no exit. Anyone
+    empties it with `Gateway.flush`, for gas only. The queues of other bridges are not
+    touched.
+12. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
+    after the payer signed. The order's minimum bounds the loss. btcli defaults to 5%
+    and the swap page to 1%. The pool's swap limits make a large push slow.
+13. **Credits are final.** They cannot be sold, moved or refunded. They belong to one
+    address at one service on one subnet. A subnet that is dissolved clears them.
+14. **Credits can be fewer than the dollars paid.** They count the alpha at the lower of
+    the slow price and the spot price, after two pool fees. The quote shows the number
+    before the payer signs.
+15. **The time-weighted price needs history.** Credits orders are refunded until the
+    pool has 300 blocks of history, and whenever the oracle feed is older than 300
+    blocks.
+16. **The time-weighted price can be moved by a party that holds the pool's price for a
+    long time.** The party pays the pool's fee and the arbitrage against it for the
+    whole period. Only a lower price matters, and a lower price gives fewer credits, not
+    more.
+17. **An index hotkey earns on less than all of its stake if fewer than 4 validators
     qualify.** Each child gets at most 25%.
-12. **The index rule can be gamed at its edges.** A validator earns a place among the
-    8 by its dividend of the last epoch. A validator at the edge can change its
-    behaviour around the refresh. The place moves stake weight, never the stake.
-13. **A child keeps its childkey take** of what it earns on the index's stake. The
-    rule skips children whose take is above the highest delegate take.
-14. **A market is for ever.** A netuid has one market. After the subnet is dissolved
-    the token only redeems TAO. If the netuid is registered again, the new subnet
-    cannot have a token in version 1.
-15. **Dissolution pays in TAO at the chain's terms.** Holders of the alpha token share
+18. **The index rule can be gamed at its edges.** A validator earns a place among the 8
+    by its dividend of the last epoch. A validator at the edge can change its behaviour
+    around the refresh. The place moves stake weight, never the stake.
+19. **A child keeps its childkey take** of what it earns on the index's stake. The rule
+    skips children whose take is above the highest delegate take.
+20. **A market is for ever.** A netuid has one market. After the subnet is dissolved the
+    token only redeems TAO. If the netuid is registered again, the new subnet cannot
+    have a token in version 1.
+21. **Dissolution pays in TAO at the chain's terms.** Holders of the alpha token share
     what the vault received. They do not choose the time.
-16. **Virtual shares keep a trace of the earnings.** `V / (shares + V)` of a vault's
-    earnings stay in the vault without an owner. For a vault of 1,000 alpha that is
-    one millionth.
-17. **Dust.** The vault account keeps the existential deposit from its first stake.
-    The stablecoin has 6 decimals and the hub 9: the part of a release below one
-    millionth of a dollar stays in the vault. A sale of canonical TAO that would leave
-    the reserve account between zero and the existential deposit is refunded.
-18. **Gifts.** Anyone can send TAO to the hub account, the reserve account or a vault
+22. **Virtual shares keep a trace of the earnings.** `V / (shares + V)` of a vault's
+    earnings stay in the vault without an owner. For a vault of 1,000 alpha that is one
+    millionth.
+23. **Dust.** The vault account keeps the existential deposit from its first stake. The
+    stablecoin has 6 decimals and the hub 9: the part of a release below one millionth
+    of a dollar stays in the vault. A sale of canonical TAO that would leave the reserve
+    account between zero and the existential deposit is refunded.
+24. **Gifts.** Anyone can send TAO to the hub account, the reserve account or a vault
     account, and can transfer stake to a vault. No order reads those balances, except
-    two: the reserve check (a gift only helps) and the wind-down of a dissolved
-    market (a gift goes to the holders). Stake that is given to a vault raises the
-    rate for all holders and counts toward the market's cap, so a gift can make
-    purchases fail until root raises the cap.
-19. **A wrong address in the registry.** Root passes the token's address when it lists
-    a market. The portal creates the token at its own CREATE2 address in any case and
+    two: the reserve check (a gift only helps) and the wind-down of a dissolved market
+    (a gift goes to the holders). Stake that is given to a vault raises the rate for all
+    holders and counts toward the market's cap, so a gift can make purchases fail until
+    root raises the cap.
+25. **A wrong address in the registry.** Root passes the token's address when it lists a
+    market. The portal creates the token at its own CREATE2 address in any case and
     emits `RegistryMismatch` if the two differ. Root corrects the registry with
     `Rails.register_token`. Until then the registry names a wrong address.
-20. **Token names are fixed at creation.** A subnet that changes its name keeps the
-    old token name and symbol. Two subnets can have the same symbol: the registry and
-    the netuid tell them apart.
-21. **Unpause is slow by design.** Only the owner resumes a contract, through the
+26. **Token names are fixed at creation.** A subnet that changes its name keeps the old
+    token name and symbol. Two subnets can have the same symbol: the registry and the
+    netuid tell them apart.
+27. **Unpause is slow by design.** Only the owner resumes a contract, through the
     48-hour timelock.
-22. **The rig is not a security model.** It uses one validator, a threshold of one, a
+28. **The rig is not a security model.** It uses one validator, a threshold of one, a
     timelock of zero seconds and public development keys.
-23. **The fee baselines of the runtime do not cover the new calls**, and
-    `spec_version` is not raised in this change. Both are release steps.
-24. **MEV shield.** btcli sends `swap_pool` and `bridge_out` through the MEV shield by
-    default. A payment from a spoke cannot be shielded: it is public on the spoke
-    before it arrives.
+29. **The fee baselines of the runtime do not cover the new calls**, and `spec_version`
+    is not raised in this change. Both are release steps.
+30. **MEV shield.** btcli sends `swap_pool` and `bridge_out` through the MEV shield by
+    default. A payment from a spoke cannot be shielded: it is public on the spoke before
+    it arrives.
 
 ## 8. Tests
 
