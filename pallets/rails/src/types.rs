@@ -207,6 +207,8 @@ pub enum Message {
         refund: bool,
         /// For an alpha token: the alpha one share is worth now, times 1e18. Zero otherwise.
         rate: u128,
+        /// The order slots that the hub gives the portal with this payment.
+        slots: u32,
     },
     /// Create the alpha token of `netuid` at address `token`, with the name and symbol the
     /// hub derived from the subnet's identity on chain.
@@ -217,6 +219,9 @@ pub enum Message {
         name: TokenName,
         symbol: TokenSymbol,
     },
+    /// Take `count` more orders: the hub has set aside what it needs to answer them.
+    #[codec(index = 2)]
+    Slots { count: u32 },
 }
 
 /// A message waiting for the gateway to hand it to the transport.

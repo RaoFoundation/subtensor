@@ -12,8 +12,8 @@ use subtensor_runtime_common::{NetUid, TaoBalance, TusdBalance, rails::OriginCha
 
 use crate::{
     AlphaSupply, Deferred, Destination, Error, Event, Gateway, Markets, Message, MessageCeiling,
-    MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outbound, Outbox,
-    Outcome, Paused, RailsStaking, Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply,
+    MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, OrderSlots, Outbound,
+    Outbox, Outcome, Paused, RailsStaking, Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply,
     TokenInfo, Tokens,
     mock::*,
     router::{RATE_SCALE, VIRTUAL, alpha_for_shares, rate, shares_for_alpha},
@@ -92,6 +92,7 @@ fn refunded(source: SpokeAsset, amount: u64, destination: Destination<AccountId>
             order: Some(nonce),
             refund: true,
             rate: 0,
+            slots: 0,
         }
     );
     error
@@ -409,8 +410,8 @@ fn settings_are_admin_only() {
             Error::<Test>::NotGateway
         );
         assert_noop!(
-            Rails::defer_outbound(signed(), BASE, 0),
-            Error::<Test>::NotGateway
+            Rails::set_max_order_slots(signed(), BASE, 1),
+            DispatchError::BadOrigin
         );
     });
 }
@@ -495,6 +496,7 @@ fn stablecoin_buys_canonical_tao_backed_by_the_reserve() {
                     order: Some(0),
                     refund: false,
                     rate: 0,
+                    slots: 0,
                 },
             }]
         );
@@ -590,6 +592,7 @@ fn canonical_tao_sells_for_the_stablecoin() {
                 order: Some(1),
                 refund: false,
                 rate: 0,
+                slots: 0,
             }
         );
         assert_invariants();
@@ -898,6 +901,7 @@ fn the_stablecoin_minimum_counts_what_the_spoke_can_pay() {
                 order: None,
                 refund: false,
                 rate: 0,
+                slots: 0,
             }
         );
         assert_eq!(outstanding(BASE), 500 * UNIT - (2 * UNIT + 999));
@@ -1290,14 +1294,15 @@ fn a_deferred_message_keeps_its_reserve_and_the_ones_behind_it_leave() {
             assert_ok!(execute(to_canonical_tao()));
         }
 
-        // Only the head is deferred, and only by the gateway or the admin.
+        // Only the head is deferred. While it is new at the head, only the gateway or the
+        // admin defers it.
         assert_noop!(
             Rails::defer_outbound(RuntimeOrigin::signed(GATEWAY), BASE, 1),
             Error::<Test>::NotOutboxHead
         );
         assert_noop!(
             Rails::defer_outbound(RuntimeOrigin::signed(ALICE), BASE, 0),
-            Error::<Test>::NotGateway
+            Error::<Test>::NotStale
         );
 
         // The transport charges more for the first message than is paid: the gateway
@@ -1409,80 +1414,333 @@ fn deferred_messages_take_no_place_in_the_queue() {
 }
 
 #[test]
-fn a_congested_bridge_refunds_orders_and_refuses_exits() {
+fn anyone_defers_a_message_that_stays_at_the_head_of_its_queue() {
+    new_test_ext().execute_with(|| {
+        for _ in 0..3 {
+            settled(
+                SpokeAsset::Stable,
+                400 * UNIT,
+                Destination::Tao { to: wallet() },
+            );
+        }
+        let defer = |nonce: u64| Rails::defer_outbound(RuntimeOrigin::signed(ALICE), BASE, nonce);
+        let wait =
+            |blocks: u32| System::set_block_number(System::block_number() + u64::from(blocks));
+
+        // The gateway hands a message over within a few blocks. Until one has been at the
+        // head for longer than that, only the gateway and the admin defer it.
+        assert_noop!(defer(0), Error::<Test>::NotStale);
+        wait(STALE_AFTER - 1);
+        assert_noop!(defer(0), Error::<Test>::NotStale);
+
+        // The gateway could not hand it over in all that time. Anyone defers it, and only
+        // it: the messages behind it have not been at the head.
+        wait(1);
+        assert_noop!(defer(1), Error::<Test>::NotOutboxHead);
+        assert_ok!(defer(0));
+        assert_eq!(Deferred::<Test>::get(BASE), 1);
+        assert_invariants();
+
+        // The next message is the head from this block. It has its own time.
+        assert_noop!(defer(1), Error::<Test>::NotStale);
+        wait(STALE_AFTER);
+        assert_ok!(send_head(BASE, 0));
+        // So has the one after it, when the gateway took the head.
+        assert_noop!(defer(2), Error::<Test>::NotStale);
+
+        // The deferred message is not lost: the gateway sends it when the transport
+        // takes it.
+        assert_ok!(send_message(BASE, 0, 0));
+        assert_ok!(send_head(BASE, 0));
+        assert_eq!(Rails::waiting(BASE), 0);
+        assert_invariants();
+    });
+}
+
+// ---------------------------------------------------------------- order slots
+
+fn slots(bridge: u32) -> u32 {
+    OrderSlots::<Test>::get(bridge)
+}
+
+/// Root lets the portal of `bridge` hold `max` order slots, and the hub sends them in a
+/// message of their own, which leaves at once.
+fn open_slots(bridge: u32, max: u32) {
+    assert_ok!(Rails::set_max_order_slots(
+        RuntimeOrigin::root(),
+        bridge,
+        max
+    ));
+    assert_ok!(Rails::grant_slots(RuntimeOrigin::signed(ALICE), bridge));
+    assert_ok!(send_head(bridge, 0));
+}
+
+fn last_message(bridge: u32) -> Message {
+    let nonce = NextMessage::<Test>::get(bridge) - 1;
+    Outbox::<Test>::get(bridge, nonce).expect("the message waits")
+}
+
+/// The slots that the last payment queued for `bridge` takes along.
+fn slots_with_last_payment(bridge: u32) -> u32 {
+    match last_message(bridge) {
+        Message::Credit { slots, .. } => slots,
+        other => panic!("not a payment: {other:?}"),
+    }
+}
+
+#[test]
+fn the_hub_gives_slots_only_as_far_as_it_has_room_for_their_answers() {
+    new_test_ext().execute_with(|| {
+        open_message_accounts();
+        set_reserve(BASE, RESERVE);
+        assert_ok!(Rails::set_max_order_slots(RuntimeOrigin::root(), BASE, 5));
+        let grant = || Rails::grant_slots(RuntimeOrigin::signed(ALICE), BASE);
+
+        // The account is empty: the hub can promise no answer.
+        assert_noop!(grant(), Error::<Test>::MessagesNotFunded);
+        // It holds the reserve for the message that would carry the slots, and nothing
+        // for a slot.
+        fund(BASE, RESERVE);
+        assert_noop!(grant(), Error::<Test>::NoSlotsToGrant);
+
+        // It holds three more reserves: the hub gives three slots of the five.
+        fund(BASE, 3 * RESERVE);
+        assert_ok!(grant());
+        assert_eq!(last_message(BASE), Message::Slots { count: 3 });
+        assert_eq!(slots(BASE), 3);
+        System::assert_has_event(
+            Event::OrderSlotsGranted {
+                bridge: BASE,
+                nonce: 0,
+                count: 3,
+            }
+            .into(),
+        );
+        assert_invariants();
+
+        // More than half of the slots are out. The rest go with the hub's payments, not
+        // in a message of their own.
+        fund(BASE, 10 * RESERVE);
+        assert_noop!(grant(), Error::<Test>::NoSlotsToGrant);
+
+        // The reserves of the slots are not the hub's to spend: it pays a message from
+        // what the account holds beyond them. And the reserve rises only if the account
+        // covers the slots too.
+        assert_eq!(budget(BASE), 14 * RESERVE);
+        set_terms(BASE, RESERVE, 100 * RESERVE);
+        assert_eq!(limit(BASE), RESERVE + 10 * RESERVE);
+        assert_noop!(
+            Rails::set_message_reserve(
+                RuntimeOrigin::root(),
+                BASE,
+                (4 * RESERVE).into(),
+                (4 * RESERVE).into()
+            ),
+            Error::<Test>::MessagesNotFunded
+        );
+        set_reserve(BASE, 3 * RESERVE);
+
+        // Only the admin says how many slots a portal may have, and only for a bridge.
+        assert_noop!(
+            Rails::set_max_order_slots(RuntimeOrigin::root(), 77, 1),
+            Error::<Test>::BridgeDisabled
+        );
+        // A paused hub gives none.
+        assert_ok!(Rails::set_paused(RuntimeOrigin::root(), true));
+        assert_noop!(grant(), Error::<Test>::Paused);
+    });
+}
+
+#[test]
+fn an_order_that_used_a_slot_always_has_its_answer_paid_for() {
+    new_test_ext().execute_with(|| {
+        open_message_accounts();
+        set_reserve(BASE, RESERVE);
+        // The hub gives two slots. Their message leaves at the whole reserve: the account
+        // then holds the reserves of the two slots, and nothing more.
+        fund(BASE, 3 * RESERVE);
+        assert_ok!(Rails::set_max_order_slots(RuntimeOrigin::root(), BASE, 2));
+        assert_ok!(Rails::grant_slots(RuntimeOrigin::signed(ALICE), BASE));
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_eq!(slots(BASE), 2);
+        assert_eq!(budget(BASE), 2 * RESERVE);
+        let to_spoke = Destination::Tao { to: wallet() };
+
+        // The hub can queue nothing more for this bridge: an order from a portal that
+        // used no slot would find no room. These two used the two slots, and the hub
+        // takes both: one settles, and one is refunded. A quote says the same first.
+        assert_ok!(Rails::quote_order(
+            BASE,
+            SpokeAsset::Stable,
+            400 * UNIT,
+            to_spoke.clone()
+        ));
+        settled(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone());
+        assert_eq!(slots(BASE), 1);
+        let mut refunds = order(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone());
+        refunds.min_out = u64::MAX;
+        assert_ok!(execute(refunds));
+        assert_eq!(slots(BASE), 0);
+
+        // Each answer has the reserve that its slot kept. The account covers no further
+        // slot, so the answers take none back to the portal.
+        assert_eq!(Rails::waiting(BASE), 2);
+        assert_eq!(budget(BASE), 2 * RESERVE);
+        assert_eq!(slots_with_last_payment(BASE), 0);
+        assert_invariants();
+
+        // The portal has no slot left, so it takes no order. One that arrives all the
+        // same waits with the transport, and a quote gives the reason.
+        assert_noop!(
+            execute(order(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone())),
+            Error::<Test>::MessagesNotFunded
+        );
+        assert_eq!(
+            Rails::quote_order(BASE, SpokeAsset::Stable, 400 * UNIT, to_spoke.clone()),
+            Err(Error::<Test>::MessagesNotFunded.into())
+        );
+
+        // The answers leave, each at the whole reserve. Someone pays in, and anyone has
+        // the hub send the portal its slots again.
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_noop!(
+            Rails::grant_slots(RuntimeOrigin::signed(BOB), BASE),
+            Error::<Test>::MessagesNotFunded
+        );
+        fund(BASE, 3 * RESERVE);
+        assert_ok!(Rails::grant_slots(RuntimeOrigin::signed(BOB), BASE));
+        assert_eq!(last_message(BASE), Message::Slots { count: 2 });
+        assert_invariants();
+    });
+}
+
+#[test]
+fn slots_go_back_to_the_portal_with_the_hubs_payments() {
+    new_test_ext().execute_with(|| {
+        open_message_accounts();
+        set_reserve(BASE, RESERVE);
+        fund(BASE, 100 * RESERVE);
+        open_slots(BASE, 3);
+        let to_spoke = Destination::Tao { to: wallet() };
+
+        // Each order uses a slot, and its answer takes one back: the portal keeps three.
+        for _ in 0..5 {
+            settled(SpokeAsset::Stable, 40 * UNIT, to_spoke.clone());
+            assert_eq!(slots_with_last_payment(BASE), 1);
+            assert_eq!(slots(BASE), 3);
+            assert_ok!(send_head(BASE, RESERVE));
+        }
+
+        // An order that is paid out on Bittensor has no answer. The portal is a slot
+        // short, until the next payment takes two back.
+        settled(
+            SpokeAsset::Stable,
+            250 * UNIT,
+            Destination::NativeTusd { to: ALICE },
+        );
+        assert_eq!(slots(BASE), 2);
+        settled(SpokeAsset::Stable, 40 * UNIT, to_spoke.clone());
+        assert_eq!(slots_with_last_payment(BASE), 2);
+        assert_eq!(slots(BASE), 3);
+        assert_ok!(send_head(BASE, RESERVE));
+
+        // A payment that starts on Bittensor takes slots along too.
+        settled(
+            SpokeAsset::Stable,
+            250 * UNIT,
+            Destination::NativeTusd { to: ALICE },
+        );
+        assert_ok!(Rails::bridge_out(
+            RuntimeOrigin::signed(ALICE),
+            BASE,
+            NativeAsset::Tusd,
+            100 * UNIT,
+            Destination::Stable { to: wallet() },
+            0,
+        ));
+        assert_eq!(slots_with_last_payment(BASE), 1);
+        assert_ok!(send_head(BASE, RESERVE));
+
+        // Orders with no payment on the spoke leave the portal with one slot of three.
+        // No payment is on its way, so anyone has the hub send the other two alone.
+        for _ in 0..2 {
+            settled(
+                SpokeAsset::Stable,
+                250 * UNIT,
+                Destination::NativeTusd { to: ALICE },
+            );
+        }
+        assert_eq!(slots(BASE), 1);
+        assert_ok!(Rails::grant_slots(RuntimeOrigin::signed(BOB), BASE));
+        assert_eq!(last_message(BASE), Message::Slots { count: 2 });
+        assert_eq!(slots(BASE), 3);
+
+        // An order that the admin passes over used its slot too.
+        assert_ok!(Rails::skip_order(
+            RuntimeOrigin::root(),
+            BASE,
+            NextOrder::<Test>::get(BASE)
+        ));
+        assert_eq!(slots(BASE), 2);
+        assert_invariants();
+    });
+}
+
+#[test]
+fn slots_keep_places_in_the_queue_for_their_answers() {
     new_test_ext().execute_with(|| {
         settled(
             SpokeAsset::Stable,
-            500 * UNIT,
+            5_000 * UNIT,
             Destination::NativeTusd { to: ALICE },
         );
+        open_message_accounts();
+        set_reserve(BASE, RESERVE);
+        fund(BASE, 100 * RESERVE);
+        fund_tao(ALICE, UNIT);
         let exit = || {
             Rails::bridge_out(
                 RuntimeOrigin::signed(ALICE),
                 BASE,
                 NativeAsset::Tusd,
-                100 * UNIT,
+                10 * UNIT,
                 Destination::Stable { to: wallet() },
                 0,
             )
         };
-        let to_spoke = Destination::Tao { to: wallet() };
+        // The queue has eight places. Five are kept for the answers to the orders that
+        // the portal's slots allow.
+        open_slots(BASE, MAX_OUTBOX - 3);
+        assert_eq!(slots(BASE), MAX_OUTBOX - 3);
 
-        // Orders settle while nobody pays what the transport charges for their answers:
-        // each answer is deferred. One fewer than the limit, and the bridge still pays.
-        for _ in 1..CONGESTED_AT {
-            settled(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone());
-            defer_head(BASE);
+        // Three other messages fit, and no fourth.
+        for _ in 0..3 {
+            assert_ok!(exit());
         }
-        assert!(!Rails::congested(BASE));
-        assert_ok!(exit());
-        defer_head(BASE);
-        assert!(Rails::congested(BASE));
+        assert_noop!(exit(), Error::<Test>::OutboxFull);
 
-        // The hub still takes an order for the spoke, and refunds it: nothing is settled,
-        // and the payer gets back what the portal took.
-        let supply = TaoSupply::<Test>::get(BASE);
-        let minted = outstanding(BASE);
-        assert_eq!(
-            refunded(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone()),
-            Error::<Test>::Congested.into()
-        );
-        assert_eq!(TaoSupply::<Test>::get(BASE), supply);
-        assert_eq!(outstanding(BASE), minted);
-        // A quote says so before anyone pays.
-        assert_eq!(
-            Rails::quote_order(BASE, SpokeAsset::Stable, 400 * UNIT, to_spoke.clone()),
-            Err(Error::<Test>::Congested.into())
-        );
-
-        // An exit fails as a whole: the account keeps its funds.
-        assert_noop!(exit(), Error::<Test>::Congested);
-
-        // An order that is paid out on Bittensor needs no message. It settles.
+        // An order that used a slot has its place all the same. Its answer finds no
+        // place for a slot to take back.
         settled(
             SpokeAsset::Stable,
-            250 * UNIT,
-            Destination::NativeTusd { to: BOB },
+            40 * UNIT,
+            Destination::Tao { to: wallet() },
         );
+        assert_eq!(slots_with_last_payment(BASE), 0);
+        assert_eq!(slots(BASE), MAX_OUTBOX - 4);
+        assert_noop!(exit(), Error::<Test>::OutboxFull);
+        assert_invariants();
 
-        // The refund is deferred too. The hub goes on taking orders and refunding them:
-        // deferred messages take no place in the queue.
-        defer_head(BASE);
-        for _ in 0..2 * MAX_OUTBOX {
-            refunded(SpokeAsset::Stable, 40 * UNIT, to_spoke.clone());
-            defer_head(BASE);
-        }
-
-        // Deferred messages leave until fewer than the limit are left: the bridge makes
-        // payments again.
-        let deferred = u64::from(Deferred::<Test>::get(BASE));
-        for nonce in 0..=deferred - u64::from(CONGESTED_AT) {
-            assert!(Rails::congested(BASE));
-            assert_ok!(send_message(BASE, nonce, 0));
-        }
-        assert!(!Rails::congested(BASE));
-        settled(SpokeAsset::Stable, 400 * UNIT, to_spoke);
+        // When a message leaves, the next payment takes the slot back.
+        assert_ok!(send_head(BASE, RESERVE));
         assert_ok!(exit());
+        assert_eq!(slots_with_last_payment(BASE), 0);
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_ok!(exit());
+        assert_eq!(slots_with_last_payment(BASE), 1);
+        assert_eq!(slots(BASE), MAX_OUTBOX - 3);
         assert_invariants();
     });
 }
@@ -1676,14 +1934,14 @@ fn a_new_gateway_is_paid_from_the_same_accounts() {
     });
 }
 
-/// Random orders, exits, payments into the bridges' accounts and changes of the reserve
-/// and the ceiling on two bridges, and a gateway that pays a transport that charges what
-/// it likes. After every step each account can pay what a separate count says: what was
-/// paid in for that bridge, less what the transport charged for that bridge's messages.
-/// Messages are deferred and leave later. Each account holds the reserve for every message
-/// that has not left, a message leaves exactly when its charge is within what the hub
-/// pays for it, and the gateway holds nothing. Deferred messages take no place in a
-/// queue, and a bridge refunds orders and refuses exits exactly while it is congested.
+/// Random orders, exits, payments into the bridges' accounts and changes of the reserve,
+/// the ceiling and the order slots on two bridges, and a gateway that pays a transport
+/// that charges what it likes. After every step each account can pay what a separate
+/// count says: what was paid in for that bridge, less what the transport charged for that
+/// bridge's messages. Messages are deferred and leave later. Each account holds the
+/// reserve for every message that has not left and for every order slot that is out, a
+/// message leaves exactly when its charge is within what the hub pays for it, the gateway
+/// holds nothing, and an order that used a slot is always taken.
 #[test]
 fn message_accounts_hold_under_random_operations() {
     new_test_ext().execute_with(|| {
@@ -1711,43 +1969,61 @@ fn message_accounts_hold_under_random_operations() {
             state ^= state << 17;
             state % bound.max(1)
         };
+        let places = u64::from(MAX_OUTBOX);
         // What each account must be able to pay.
         let mut expected = [0u64; 2];
         // The deferred messages of each bridge that have not left.
         let mut deferred: [Vec<u64>; 2] = [Vec::new(), Vec::new()];
-        // Messages queued, messages refused for lack of the reserve, messages sent,
-        // messages held because the transport charged more than the hub pays, messages
-        // sent at a charge above the reserve, messages sent after they were deferred,
-        // exits refused because the bridge was congested, and orders refunded for that.
+        // The order slots of each bridge that are out, and the most that may be.
+        let mut slots_out = [0u64; 2];
+        let mut slots_max = [0u64; 2];
+        // Messages queued without a slot, messages refused for lack of room, messages
+        // sent, messages held because the transport charged more than the hub pays,
+        // messages sent at a charge above the reserve, messages sent after they were
+        // deferred, orders taken on a slot, and messages that took slots along.
         let mut seen = [0u32; 8];
 
-        for _ in 0..6_000 {
+        for _ in 0..8_000 {
             let index = next(2) as usize;
             let bridge = SPOKES[index];
             let reserve: u64 = MessageReserve::<Test>::get(bridge).unwrap().into();
             let in_line = NextMessage::<Test>::get(bridge) - NextOutbound::<Test>::get(bridge);
-            // Every message that has not left holds a reserve: in line or deferred.
             let queued = in_line + deferred[index].len() as u64;
             assert_eq!(Rails::waiting(bridge), queued);
-            // What the hub must answer to one more message, given what the account holds.
-            // Deferred messages take no place in the queue, and each holds a reserve.
-            let room = |budget: u64| {
-                if in_line >= u64::from(MAX_OUTBOX) {
+            let (out, max) = (slots_out[index], slots_max[index]);
+            assert_eq!(u64::from(OrderSlots::<Test>::get(bridge)), out);
+            // The reserves in use: one for each message that has not left, in line or
+            // deferred, and one for each order slot that is out.
+            let in_use = queued + out;
+            // What the hub must answer to one more message without a slot, given what the
+            // account holds. A deferred message takes no place in the queue. A slot does.
+            let room = move |budget: u64| {
+                if in_line + out >= places {
                     Err(Error::<Test>::OutboxFull)
-                } else if budget >= reserve * (queued + 1) {
+                } else if budget >= reserve * (in_use + 1) {
                     Ok(())
                 } else {
                     Err(Error::<Test>::MessagesNotFunded)
                 }
             };
+            // The slots that a message takes along when it is queued, given what the
+            // account holds then and the slots that are out then.
+            let grant = move |budget: u64, out: u64| {
+                let affordable = (budget - reserve * (queued + 1 + out))
+                    .checked_div(reserve)
+                    .unwrap_or(u64::MAX);
+                (max.saturating_sub(out))
+                    .min(places - (in_line + 1) - out)
+                    .min(affordable)
+            };
             // What the hub pays for one message now: its reserve, and above it what the
-            // account holds beyond the reserves of the waiting messages, up to the ceiling.
+            // account holds beyond the reserves in use, up to the ceiling.
             let pays = {
                 let ceiling: u64 = MessageCeiling::<Test>::get(bridge).into();
-                (reserve + budget(bridge) - reserve * queued).min(ceiling.max(reserve))
+                (reserve + budget(bridge) - reserve * in_use).min(ceiling.max(reserve))
             };
             assert_eq!(limit(bridge), pays);
-            match next(10) {
+            match next(12) {
                 // Someone pays in.
                 0 => {
                     let amount = next(4 * RESERVE);
@@ -1775,7 +2051,7 @@ fn message_accounts_hold_under_random_operations() {
                     }
                 }
                 // The admin changes the reserve and the ceiling: only to a reserve that the
-                // account covers.
+                // account covers for every reserve in use.
                 1 => {
                     let reserve = next(2 * RESERVE);
                     let ceiling = reserve + next(3) * next(2 * RESERVE);
@@ -1787,7 +2063,7 @@ fn message_accounts_hold_under_random_operations() {
                             ceiling.into(),
                         )
                     };
-                    if budget(bridge) >= reserve * queued {
+                    if budget(bridge) >= reserve * in_use {
                         assert_ok!(change());
                     } else {
                         assert_noop!(change(), Error::<Test>::MessagesNotFunded);
@@ -1806,23 +2082,25 @@ fn message_accounts_hold_under_random_operations() {
                             order.clone(),
                         )
                     };
-                    match room(budget(bridge)) {
-                        Ok(()) => {
-                            assert_ok!(execute());
-                            // The hub took the order. A congested bridge refunds it, and
-                            // only a congested bridge gives that reason.
-                            let congested = deferred[index].len() >= CONGESTED_AT as usize;
-                            let outcome =
-                                Receipts::<Test>::get(bridge, order.nonce).unwrap().outcome;
-                            let refused = Outcome::Refunded {
-                                error: Error::<Test>::Congested.into(),
-                            };
-                            assert_eq!(outcome == refused, congested, "{outcome:?}");
-                            seen[if congested { 7 } else { 0 }] += 1;
-                        }
-                        Err(error) => {
-                            assert_noop!(execute(), error);
-                            seen[1] += 1;
+                    if out > 0 {
+                        // The portal used a slot: the answer has its place and its
+                        // reserve, whatever else waits.
+                        assert_ok!(execute());
+                        let granted = grant(budget(bridge), out - 1);
+                        slots_out[index] = out - 1 + granted;
+                        seen[6] += 1;
+                        seen[7] += u32::from(granted > 0);
+                    } else {
+                        match room(budget(bridge)) {
+                            Ok(()) => {
+                                assert_ok!(execute());
+                                slots_out[index] += grant(budget(bridge), out);
+                                seen[0] += 1;
+                            }
+                            Err(error) => {
+                                assert_noop!(execute(), error);
+                                seen[1] += 1;
+                            }
                         }
                     }
                 }
@@ -1838,23 +2116,16 @@ fn message_accounts_hold_under_random_operations() {
                             0,
                         )
                     };
-                    // A congested bridge takes no exit, whatever its account holds.
-                    let congested = deferred[index].len() >= CONGESTED_AT as usize;
-                    assert_eq!(Rails::congested(bridge), congested);
-                    let admitted = if congested {
-                        Err(Error::<Test>::Congested)
-                    } else {
-                        room(budget(bridge) + reserve)
-                    };
-                    match admitted {
+                    match room(budget(bridge) + reserve) {
                         Ok(()) => {
                             assert_ok!(exit());
                             expected[index] += reserve;
+                            slots_out[index] += grant(budget(bridge), out);
                             seen[0] += 1;
                         }
                         Err(error) => {
                             assert_noop!(exit(), error);
-                            seen[if congested { 6 } else { 1 }] += 1;
+                            seen[1] += 1;
                         }
                     }
                 }
@@ -1870,6 +2141,38 @@ fn message_accounts_hold_under_random_operations() {
                     } else {
                         assert_noop!(send_head(bridge, charge), Error::<Test>::FeeAboveLimit);
                         seen[3] += 1;
+                    }
+                }
+                // The admin says how many slots the portal may hold.
+                10 => {
+                    slots_max[index] = next(2 * places);
+                    assert_ok!(Rails::set_max_order_slots(
+                        RuntimeOrigin::root(),
+                        bridge,
+                        slots_max[index] as u32
+                    ));
+                }
+                // Anyone has the hub send slots alone: if the portal is short of them, and
+                // the message and one slot at least have room.
+                11 => {
+                    let send = || Rails::grant_slots(RuntimeOrigin::signed(BOB), bridge);
+                    let granted = match room(budget(bridge)) {
+                        _ if out * 2 > max => Err(Error::<Test>::NoSlotsToGrant),
+                        Err(error) => Err(error),
+                        Ok(()) => match grant(budget(bridge), out) {
+                            0 => Err(Error::<Test>::NoSlotsToGrant),
+                            granted => Ok(granted),
+                        },
+                    };
+                    match granted {
+                        Ok(granted) => {
+                            assert_ok!(send());
+                            slots_out[index] += granted;
+                            seen[7] += 1;
+                        }
+                        Err(error) => {
+                            assert_noop!(send(), error);
+                        }
                     }
                 }
                 _ => {}
@@ -1982,6 +2285,7 @@ fn stablecoin_buys_alpha_tokens_staked_by_the_vault() {
                 order: Some(0),
                 refund: false,
                 rate: RATE_SCALE,
+                slots: 0,
             }
         );
         assert_invariants();
@@ -2111,6 +2415,7 @@ fn alpha_tokens_sell_for_the_stablecoin_with_their_earnings() {
                 order: Some(1),
                 refund: false,
                 rate: 0,
+                slots: 0,
             }
         );
         // Selling does not move the rate against those who stay.
@@ -2367,6 +2672,7 @@ fn a_failed_order_is_rolled_back_and_refunded() {
                     order: Some(0),
                     refund: true,
                     rate: 0,
+                    slots: 0,
                 },
             }]
         );
@@ -2424,6 +2730,7 @@ fn a_refused_sale_gives_the_tokens_back() {
                 order: Some(1),
                 refund: true,
                 rate: 0,
+                slots: 0,
             }
         );
         assert_invariants();
@@ -2711,6 +3018,7 @@ fn an_account_exits_tusd_to_the_stablecoin() {
                 order: None,
                 refund: false,
                 rate: 0,
+                slots: 0,
             }
         );
         System::assert_has_event(

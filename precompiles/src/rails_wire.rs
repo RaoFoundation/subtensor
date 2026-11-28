@@ -32,13 +32,17 @@
 //!
 //! ```text
 //! abi.encode(uint8 kind = 1, uint64 nonce, uint8 asset, uint16 netuid, address to,
-//!            uint64 amount, bool answersOrder, uint64 order, bool refund, uint128 rate)
+//!            uint64 amount, bool answersOrder, uint64 order, bool refund, uint128 rate,
+//!            uint32 slots)
 //! abi.encode(uint8 kind = 2, uint64 nonce, uint16 netuid, address token,
 //!            string name, string symbol)
+//! abi.encode(uint8 kind = 3, uint64 nonce, uint32 slots)
 //! ```
 //!
 //! `kind` 1 pays `amount` of an asset to `to`; `kind` 2 creates a subnet's alpha token.
 //! `asset` and `netuid` name an asset as `source` and `sourceNetuid` do in an order.
+//! `slots` is how many more orders the portal may take: `kind` 1 brings them with a
+//! payment, and `kind` 3 brings them alone.
 
 use alloc::vec::Vec;
 
@@ -54,6 +58,8 @@ pub const ORDER_LEN: usize = 384;
 pub const KIND_CREDIT: u8 = 1;
 /// The `kind` of a message that creates an alpha token.
 pub const KIND_REGISTER_TOKEN: u8 = 2;
+/// The `kind` of a message that only brings order slots.
+pub const KIND_SLOTS: u8 = 3;
 
 const WORD: usize = 32;
 
@@ -248,6 +254,7 @@ pub fn encode_message(outbound: &Outbound) -> Vec<u8> {
             order,
             refund,
             rate,
+            slots,
         } => {
             let (asset, netuid) = asset_code(*asset);
             Encoder::default()
@@ -261,6 +268,7 @@ pub fn encode_message(outbound: &Outbound) -> Vec<u8> {
                 .uint(order.unwrap_or_default().into())
                 .uint((*refund).into())
                 .uint(*rate)
+                .uint((*slots).into())
                 .0
         }
         Message::RegisterToken {
@@ -281,6 +289,13 @@ pub fn encode_message(outbound: &Outbound) -> Vec<u8> {
                 .uint(symbol_at as u128)
                 .string(name)
                 .string(symbol)
+                .0
+        }
+        Message::Slots { count } => {
+            Encoder::default()
+                .uint(KIND_SLOTS.into())
+                .uint(outbound.nonce.into())
+                .uint((*count).into())
                 .0
         }
     }
@@ -465,6 +480,7 @@ mod tests {
                 order,
                 refund,
                 rate,
+                slots: 5,
             },
         };
         let expected = |asset: u8, netuid: u16, answers: bool, order: u64, refund: bool, rate| {
@@ -479,6 +495,7 @@ mod tests {
                 order,
                 refund,
                 rate,
+                5u32,
             ))
         };
         assert_eq!(
@@ -498,9 +515,10 @@ mod tests {
             )),
             expected(2, 64, true, 0, false, u128::MAX)
         );
+        // Eleven words.
         assert_eq!(
             encode_message(&credit(SpokeAsset::Tao, None, false, 0)).len(),
-            320
+            352
         );
     }
 
@@ -571,6 +589,7 @@ mod tests {
                 order: Some(7),
                 refund: false,
                 rate: 1_100_000_000_000_000_000,
+                slots: 2,
             },
         };
         assert_eq!(
@@ -586,6 +605,7 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000007",
                 "0000000000000000000000000000000000000000000000000000000000000000",
                 "0000000000000000000000000000000000000000000000000f43fc2c04ee0000",
+                "0000000000000000000000000000000000000000000000000000000000000002",
             )
         );
         let register = Outbound {
@@ -612,6 +632,32 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000006",
                 "4348555445530000000000000000000000000000000000000000000000000000",
             )
+        );
+        let slots = Outbound {
+            bridge: 8453,
+            nonce: 11,
+            message: Message::Slots { count: 64 },
+        };
+        assert_eq!(
+            hex::encode(encode_message(&slots)),
+            concat!(
+                "0000000000000000000000000000000000000000000000000000000000000003",
+                "000000000000000000000000000000000000000000000000000000000000000b",
+                "0000000000000000000000000000000000000000000000000000000000000040",
+            )
+        );
+    }
+
+    #[test]
+    fn slots_are_the_abi_encoding_of_their_count() {
+        let slots = Outbound {
+            bridge: 8453,
+            nonce: 12,
+            message: Message::Slots { count: u32::MAX },
+        };
+        assert_eq!(
+            encode_message(&slots),
+            encode_arguments((KIND_SLOTS, 12u64, u32::MAX))
         );
     }
 }

@@ -869,6 +869,8 @@ call_filter_group!(
         RuntimeCall::Rails(RailsCall::set_message_reserve),
         RuntimeCall::Rails(RailsCall::fund_messages),
         RuntimeCall::Rails(RailsCall::defer_outbound),
+        RuntimeCall::Rails(RailsCall::set_max_order_slots),
+        RuntimeCall::Rails(RailsCall::grant_slots),
     ]
 );
 

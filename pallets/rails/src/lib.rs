@@ -53,12 +53,32 @@
 //! its reserve. Anyone can have the gateway send it later, and the messages behind it go
 //! on. The spoke takes the hub's messages in any order.
 //!
-//! Deferred messages take no place in the queue: only the messages in line count against
-//! [`Config::MaxOutbox`]. But a bridge with many deferred messages is congested
-//! ([`Config::CongestedAt`]): the transport charges more than is paid, and nobody pays the
-//! difference. Then the hub makes no new payment to that spoke. It still takes every
-//! order, and refunds the ones that ask for such a payment. So payments that nobody pays
-//! the transport for never keep an order out of the hub, and their number is bounded.
+//! A deferred message takes no place in the queue ([`Config::MaxOutbox`]). It holds its
+//! reserve, as every message does that has not left, and that bounds their number.
+//!
+//! A message that the gateway cannot hand over, because the transport refuses it, stays
+//! at the head of its queue. When it has been there for [`Config::StaleAfter`] blocks,
+//! anyone can defer it, so that the messages behind it do not wait for it for ever.
+//!
+//! ## Order slots: what a spoke may send
+//!
+//! A spoke must not take a payer's funds for an order that the hub cannot answer. So the
+//! hub gives the portal of each bridge order slots. A slot is the hub's promise to answer
+//! one order: the hub has set aside a place in the bridge's queue and a reserve in the
+//! bridge's account for that answer. The portal takes an order only if it holds a slot,
+//! and each order uses one.
+//!
+//! Slots go to the portal with the hub's messages. Each payment that the hub queues for
+//! a portal takes along the slots that the portal is missing ([`MaxOrderSlots`]), as far
+//! as the queue and the account have room for them. When a portal is short of slots and
+//! no payment is on its way, anyone can have the hub send slots alone
+//! ([`Pallet::grant_slots`]). The hub counts the slots that are out ([`OrderSlots`]): at
+//! the portal, on their way to it, or used by an order that the hub has not taken yet.
+//!
+//! So every order that a portal sends has its answer paid for, whether the hub settles
+//! the order or refunds it. If the hub's messages do not leave, or nobody pays into the
+//! bridge's account, the portal runs out of slots and takes no more orders. Its payers
+//! keep their funds.
 //!
 //! The transport charges the gateway for each message. The TAO for that is the hub's, not
 //! the gateway's. Each bridge has an account ([`Pallet::message_account`]) that anyone
@@ -95,11 +115,14 @@
 //!    spoke's supply, and takes a burned token only up to that supply.
 //! 4. An order nonce is settled at most once, and a message nonce is issued at most once.
 //! 5. The account of a bridge holds, on top of the existential deposit, at least the
-//!    bridge's reserve for each message of the bridge that has not left. TAO leaves that
-//!    account only when a message of the bridge leaves the hub: what the gateway says
-//!    the transport charges, at most the bridge's ceiling.
+//!    bridge's reserve for each message of the bridge that has not left and for each of
+//!    its order slots that are out. TAO leaves that account only when a message of the
+//!    bridge leaves the hub: what the gateway says the transport charges, at most the
+//!    bridge's ceiling.
 //! 6. A message leaves the hub only when the gateway takes it to hand it to the
 //!    transport. A deferred message stays in [`Outbox`], and [`Deferred`] counts it.
+//! 7. For each order slot that is out, the bridge's queue keeps a place and the bridge's
+//!    account holds a reserve, on top of those of the messages that have not left.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -196,17 +219,17 @@ pub mod pallet {
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
-        /// The most messages of one bridge that wait in its queue. Deferred messages do
-        /// not count: like every message that has not left, each holds its reserve in the
-        /// bridge's account, and that is their bound.
+        /// The places in the queue of one bridge: for the messages that wait in it, and
+        /// for the answers to the orders that the bridge's order slots allow. Deferred
+        /// messages do not count: like every message that has not left, each holds its
+        /// reserve in the bridge's account, and that is their bound.
         #[pallet::constant]
         type MaxOutbox: Get<u32>;
 
-        /// A bridge is congested from this many deferred messages on. The hub then makes
-        /// no new payment to the bridge's spoke: it refunds an order that asks for one,
-        /// and refuses an exit. It makes payments again when deferred messages have left.
+        /// How many blocks a message stays at the head of a queue before anyone can
+        /// defer it. A message that the gateway can hand over leaves long before that.
         #[pallet::constant]
-        type CongestedAt: Get<u32>;
+        type StaleAfter: Get<u32>;
 
         /// How many receipts the hub keeps for each bridge. Older ones are dropped.
         #[pallet::constant]
@@ -262,18 +285,38 @@ pub mod pallet {
     #[pallet::storage]
     pub type Deferred<T> = StorageMap<_, Twox64Concat, BridgeId, u32, ValueQuery>;
 
+    /// MAP ( bridge ) --> block | The block at which the message at the head of the
+    /// bridge's queue became the head.
+    #[pallet::storage]
+    pub type HeadSince<T> = StorageMap<_, Twox64Concat, BridgeId, u32, ValueQuery>;
+
+    /// MAP ( bridge ) --> count | The order slots of the bridge that are out: the hub gave
+    /// them with a message, and no order that the hub took has used them yet. They are at
+    /// the portal, on their way to it, or used by an order that is on its way to the hub.
+    /// For each, the hub keeps a place in the bridge's queue and a reserve in the bridge's
+    /// account, so an order that used a slot always has its answer paid for.
+    #[pallet::storage]
+    pub type OrderSlots<T> = StorageMap<_, Twox64Concat, BridgeId, u32, ValueQuery>;
+
+    /// MAP ( bridge ) --> count | The most order slots of the bridge that are out at one
+    /// time, as the admin set it. While it is zero the hub gives the bridge's portal no
+    /// slot, and the portal takes no order.
+    #[pallet::storage]
+    pub type MaxOrderSlots<T> = StorageMap<_, Twox64Concat, BridgeId, u32, ValueQuery>;
+
     /// MAP ( bridge ) --> TAO | What the hub sets aside for each message to the bridge's
     /// spoke, as the admin set it. The bridge's account holds this much for each message
-    /// of the bridge that has not left, and an exit pays it in. Set it above what the
-    /// transport charges: what a message does not use stays in the account. While it is
-    /// not set, the hub takes no order from the bridge and no payment to it.
+    /// of the bridge that has not left and for each order slot that is out, and an exit
+    /// pays it in. Set it above what the transport charges: what a message does not use
+    /// stays in the account. While it is not set, the hub takes no order from the bridge
+    /// and no payment to it.
     #[pallet::storage]
     pub type MessageReserve<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, OptionQuery>;
 
     /// MAP ( bridge ) --> TAO | The most the hub pays the transport for one message to the
     /// bridge's spoke, as the admin set it: at least the reserve. What a message costs
     /// above the reserve comes from what the bridge's account holds beyond the reserves
-    /// of the messages that have not left.
+    /// of the messages that have not left and of the order slots that are out.
     #[pallet::storage]
     pub type MessageCeiling<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, ValueQuery>;
 
@@ -365,6 +408,14 @@ pub mod pallet {
         },
         /// Message `nonce` was queued for the gateway in the queue of `bridge`.
         MessageQueued { bridge: BridgeId, nonce: u64 },
+        /// Message `nonce` of `bridge` takes `count` order slots to the bridge's portal.
+        OrderSlotsGranted {
+            bridge: BridgeId,
+            nonce: u64,
+            count: u32,
+        },
+        /// The most order slots of `bridge` that are out at one time was set.
+        MaxOrderSlotsSet { bridge: BridgeId, max: u32 },
         /// Message `nonce` of `bridge` was deferred: it left the line, so that the messages
         /// behind it can leave. It is still in the hub, and anyone can have the gateway
         /// send it.
@@ -453,7 +504,8 @@ pub mod pallet {
         SubnetUnknown,
         /// The pool has no time-weighted price yet to value credits with.
         TwapUnavailable,
-        /// Too many messages wait in the bridge's queue.
+        /// The bridge's queue has no place left: its messages in line and its order slots
+        /// that are out take all of them.
         OutboxFull,
         /// The message is not the head of its bridge's queue, and, where a deferred
         /// message will do, is not one of those either.
@@ -461,7 +513,8 @@ pub mod pallet {
         /// Arithmetic overflowed.
         Overflow,
         /// The bridge's reserve for a message is not set, or the bridge's account does not
-        /// hold the reserve for every message that has not left and one more.
+        /// hold the reserve for every message that has not left, for every order slot
+        /// that is out, and for one more message.
         MessagesNotFunded,
         /// The gateway asked for more than the hub pays for the message: more than the
         /// bridge's ceiling, or more than its reserve while the bridge's account has
@@ -473,9 +526,12 @@ pub mod pallet {
         /// The account does not hold the existential deposit, so it could not hold what
         /// the hub hands the gateway for the transport.
         GatewayNotFunded,
-        /// The bridge is congested: too many of its messages are deferred. The hub makes
-        /// no new payment to the bridge's spoke until some of them have left.
-        Congested,
+        /// The hub can give the bridge's portal no order slot now. The portal is not short
+        /// of them, or the bridge's queue or account has no room for more.
+        NoSlotsToGrant,
+        /// The message has not been at the head of its queue for long enough: only the
+        /// gateway and the admin may defer it now.
+        NotStale,
     }
 
     #[pallet::hooks]
@@ -518,11 +574,12 @@ pub mod pallet {
         /// Only the gateway may call this.
         ///
         /// Fails, and so leaves the order with the transport to deliver again, only if the
-        /// hub is paused, the portal or its bridge is not live, the order is out of
-        /// sequence, or the answer cannot be queued: the bridge's queue is full, or its
-        /// account does not hold the reserve for one more message. An order that cannot be
-        /// settled for any other reason is taken and refunded. That includes an order for
-        /// a payment on the spoke while the bridge is congested ([`Pallet::congested`]).
+        /// hub is paused, the portal or its bridge is not live, or the order is out of
+        /// sequence. An order that cannot be settled for any other reason is taken and
+        /// refunded. The answer always has room: the portal used an order slot for the
+        /// order, and the hub set aside a place in the queue and a reserve when it gave the
+        /// slot ([`OrderSlots`]). An order from a portal that used no slot is taken only
+        /// if its answer has room all the same.
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::execute().saturating_add(T::Staking::weight()))]
         pub fn execute(
@@ -536,13 +593,13 @@ pub mod pallet {
             let bridge = pallet_tusd::Pallet::<T>::bridge_of(domain, sender)
                 .ok_or(Error::<T>::UnknownPortal)?;
             Self::ensure_bridge_enabled(bridge)?;
-            // Every order has an answer, if only its refund: refuse the order now if the
-            // answer could not be queued.
-            Self::ensure_room(bridge)?;
             ensure!(
                 order.nonce == NextOrder::<T>::get(bridge),
                 Error::<T>::OrderOutOfSequence
             );
+            // Every order has an answer, if only its refund. The order's slot kept room
+            // for it.
+            Self::use_slot(bridge)?;
             NextOrder::<T>::insert(bridge, order.nonce.saturating_add(1));
             let outcome = Self::settle(bridge, &order)?;
             Self::record(bridge, order.nonce, outcome);
@@ -587,7 +644,7 @@ pub mod pallet {
             }
             Outbox::<T>::remove(bridge, nonce);
             if nonce == head {
-                NextOutbound::<T>::insert(bridge, head.saturating_add(1));
+                Self::advance_head(bridge, head);
             } else {
                 Deferred::<T>::mutate(bridge, |deferred| *deferred = deferred.saturating_sub(1));
             }
@@ -604,8 +661,10 @@ pub mod pallet {
         /// with its reserve, and the gateway can send it at any time.
         ///
         /// The gateway calls this for a message that is not paid for: the transport
-        /// charges more for it than the hub and the caller pay. The admin may call it for
-        /// a message that the transport does not take.
+        /// charges more for it than the hub and the caller pay. The admin may call it at
+        /// any time. Anyone may call it for a message that has been at the head of its
+        /// queue for [`Config::StaleAfter`] blocks: the gateway could not hand it over in
+        /// that time, because the transport refuses it or because no keeper asked.
         #[pallet::call_index(14)]
         #[pallet::weight(<T as Config>::WeightInfo::defer_outbound())]
         pub fn defer_outbound(
@@ -614,14 +673,19 @@ pub mod pallet {
             nonce: u64,
         ) -> DispatchResult {
             if <T as Config>::AdminOrigin::try_origin(origin.clone()).is_err() {
-                Self::ensure_gateway(origin)?;
+                let who = ensure_signed(origin)?;
+                let waited = Self::now().saturating_sub(HeadSince::<T>::get(bridge));
+                ensure!(
+                    Gateway::<T>::get().as_ref() == Some(&who) || waited >= T::StaleAfter::get(),
+                    Error::<T>::NotStale
+                );
             }
             ensure!(!Paused::<T>::get(), Error::<T>::Paused);
             ensure!(
                 nonce == NextOutbound::<T>::get(bridge) && nonce < NextMessage::<T>::get(bridge),
                 Error::<T>::NotOutboxHead
             );
-            NextOutbound::<T>::insert(bridge, nonce.saturating_add(1));
+            Self::advance_head(bridge, nonce);
             Deferred::<T>::mutate(bridge, |deferred| *deferred = deferred.saturating_add(1));
             Self::deposit_event(Event::MessageDeferred { bridge, nonce });
             Ok(())
@@ -629,9 +693,8 @@ pub mod pallet {
 
         /// Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the
         /// spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a
-        /// whole if it would deliver less than `min_out`, or while the bridge is congested
-        /// ([`Pallet::congested`]). The signer also pays the bridge's [`MessageReserve`]
-        /// in TAO into the bridge's account, for the message.
+        /// whole if it would deliver less than `min_out`. The signer also pays the
+        /// bridge's [`MessageReserve`] in TAO into the bridge's account, for the message.
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::bridge_out().saturating_add(T::Staking::weight()))]
         pub fn bridge_out(
@@ -867,8 +930,8 @@ pub mod pallet {
         ///   from the transport can take for one message.
         ///
         /// A bridge takes no order before this is set. Fails if the bridge's account does
-        /// not hold the new reserve for every message that has not left: pay in first
-        /// ([`Pallet::fund_messages`]).
+        /// not hold the new reserve for every message that has not left and every order
+        /// slot that is out: pay in first ([`Pallet::fund_messages`]).
         #[pallet::call_index(12)]
         #[pallet::weight(<T as Config>::WeightInfo::set_message_reserve())]
         pub fn set_message_reserve(
@@ -881,7 +944,7 @@ pub mod pallet {
             Self::ensure_bridge_known(bridge)?;
             ensure!(ceiling >= reserve, Error::<T>::CeilingBelowReserve);
             ensure!(
-                Self::holds_reserve(bridge, reserve, Self::waiting(bridge)),
+                Self::holds_reserve(bridge, reserve, Self::backed(bridge)),
                 Error::<T>::MessagesNotFunded
             );
             MessageReserve::<T>::insert(bridge, reserve);
@@ -921,9 +984,52 @@ pub mod pallet {
                 nonce == NextOrder::<T>::get(bridge),
                 Error::<T>::OrderOutOfSequence
             );
+            // The portal used an order slot for the order. No answer needs its room.
+            OrderSlots::<T>::mutate(bridge, |slots| *slots = slots.saturating_sub(1));
             NextOrder::<T>::insert(bridge, nonce.saturating_add(1));
             Self::record(bridge, nonce, Outcome::Skipped);
             Ok(())
+        }
+
+        /// Sets the most order slots of `bridge` that are out at one time: the most orders
+        /// that the bridge's portal can have on their way before an answer arrives. The
+        /// hub keeps a place in the bridge's queue and a reserve for each, so set it well
+        /// below the queue's size. Lowering it takes no slot back: the hub gives none
+        /// until fewer are out.
+        #[pallet::call_index(15)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_order_slots())]
+        pub fn set_max_order_slots(
+            origin: OriginFor<T>,
+            bridge: BridgeId,
+            max: u32,
+        ) -> DispatchResult {
+            <T as Config>::AdminOrigin::ensure_origin(origin)?;
+            Self::ensure_bridge_known(bridge)?;
+            MaxOrderSlots::<T>::insert(bridge, max);
+            Self::deposit_event(Event::MaxOrderSlotsSet { bridge, max });
+            Ok(())
+        }
+
+        /// Sends the portal of `bridge` the order slots that it is missing, in a message of
+        /// their own. Anyone may call this.
+        ///
+        /// Slots go to a portal with the hub's payments. This is for a portal that is
+        /// short of slots while no payment is on its way: at the start, after orders that
+        /// needed no payment on the spoke, or after the bridge's account was paid into.
+        /// Fails unless at most half of [`MaxOrderSlots`] are out, and unless the queue
+        /// and the bridge's account have room for the message and for one slot at least.
+        #[pallet::call_index(16)]
+        #[pallet::weight(<T as Config>::WeightInfo::grant_slots())]
+        pub fn grant_slots(origin: OriginFor<T>, bridge: BridgeId) -> DispatchResult {
+            ensure_signed(origin)?;
+            ensure!(!Paused::<T>::get(), Error::<T>::Paused);
+            Self::ensure_bridge_enabled(bridge)?;
+            let out = u64::from(OrderSlots::<T>::get(bridge));
+            ensure!(
+                out.saturating_mul(2) <= u64::from(MaxOrderSlots::<T>::get(bridge)),
+                Error::<T>::NoSlotsToGrant
+            );
+            Self::enqueue(bridge, Message::Slots { count: 0 })
         }
     }
 }
@@ -963,13 +1069,14 @@ impl<T: Config> Pallet<T> {
     }
 
     /// The most the hub pays the transport for one message of `bridge` now: the bridge's
-    /// reserve, and above it what the account holds beyond the reserves of the messages
-    /// that have not left, up to the bridge's ceiling.
+    /// reserve, and above it what the account holds beyond the reserves in use, up to the
+    /// bridge's ceiling. The reserves in use are those of the messages that have not left
+    /// and of the order slots that are out.
     pub fn message_limit(bridge: BridgeId) -> TaoBalance {
         let reserve = MessageReserve::<T>::get(bridge)
             .unwrap_or_default()
             .to_u64();
-        let reserved = u128::from(reserve).saturating_mul(u128::from(Self::waiting(bridge)));
+        let reserved = u128::from(reserve).saturating_mul(u128::from(Self::backed(bridge)));
         let spare = u128::from(Self::message_budget(bridge).to_u64()).saturating_sub(reserved);
         let ceiling = MessageCeiling::<T>::get(bridge).to_u64().max(reserve);
         u64::try_from(u128::from(reserve).saturating_add(spare))
@@ -1005,7 +1112,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// What an order from the spoke of `bridge` would deliver now, or why it would be
-    /// refunded. Runs the order as [`Pallet::execute`] would and undoes it.
+    /// refunded. Runs the order as [`Pallet::execute`] would and undoes it. As there, the
+    /// order uses an order slot. If none is out, the quote fails unless the answer has
+    /// room all the same: the portal holds no slot then, and takes no order.
     pub fn quote_order(
         bridge: BridgeId,
         source: SpokeAsset,
@@ -1024,7 +1133,10 @@ impl<T: Config> Pallet<T> {
         ensure!(!Paused::<T>::get(), Error::<T>::Paused);
         Self::ensure_bridge_enabled(bridge)?;
         Self::ensure_backed(bridge, source, amount)?;
-        Self::undone(|| Self::route_order(bridge, &order))
+        Self::undone(|| {
+            Self::use_slot(bridge)?;
+            Self::route_order(bridge, &order)
+        })
     }
 
     /// What a payment of `amount` of `who`'s `source` would deliver to `destination` on the
@@ -1077,8 +1189,11 @@ impl<T: Config> Pallet<T> {
         }
         for (bridge, tail) in NextMessage::<T>::iter() {
             let head = NextOutbound::<T>::get(bridge);
+            let places = tail
+                .saturating_sub(head)
+                .saturating_add(u64::from(OrderSlots::<T>::get(bridge)));
             ensure!(
-                head <= tail && tail.saturating_sub(head) <= u64::from(T::MaxOutbox::get()),
+                head <= tail && places <= u64::from(T::MaxOutbox::get()),
                 "a bridge's queue is out of bounds"
             );
             // Every message from the head on is there, and the messages below the head
@@ -1102,9 +1217,9 @@ impl<T: Config> Pallet<T> {
                 Self::holds_reserve(
                     bridge,
                     MessageReserve::<T>::get(bridge).unwrap_or_default(),
-                    Self::waiting(bridge)
+                    Self::backed(bridge)
                 ),
-                "a bridge's account holds less than the reserve for each message that waits"
+                "a bridge's account holds less than its reserves in use"
             );
         }
         Ok(())
@@ -1169,6 +1284,7 @@ impl<T: Config> Pallet<T> {
                         order: Some(order.nonce),
                         refund: true,
                         rate: 0,
+                        slots: 0,
                     },
                 )?;
                 Self::deposit_event(Event::OrderRefunded {
@@ -1189,9 +1305,7 @@ impl<T: Config> Pallet<T> {
         if let Outcome::Skipped = outcome {
             Self::deposit_event(Event::OrderSkipped { bridge, nonce });
         }
-        let block = frame_system::Pallet::<T>::block_number()
-            .try_into()
-            .unwrap_or(u32::MAX);
+        let block = Self::now();
         Receipts::<T>::insert(bridge, nonce, Receipt { block, outcome });
         if let Some(expired) = nonce.checked_sub(T::ReceiptsKept::get()) {
             Receipts::<T>::remove(bridge, expired);
@@ -1199,34 +1313,113 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Queues `message` for the portal of `bridge` under the bridge's next nonce, if the
-    /// queue has room for it ([`Pallet::ensure_room`]).
-    pub(crate) fn enqueue(bridge: BridgeId, message: Message) -> DispatchResult {
+    /// queue and the bridge's account have room for it ([`Pallet::ensure_room`]). A
+    /// payment takes along the order slots that the portal is missing, as far as there
+    /// is room for those too ([`Pallet::grantable`]). A message of slots alone is queued
+    /// only if it has one slot to take.
+    pub(crate) fn enqueue(bridge: BridgeId, mut message: Message) -> DispatchResult {
         Self::ensure_room(bridge)?;
         let nonce = NextMessage::<T>::get(bridge);
+        if nonce == NextOutbound::<T>::get(bridge) {
+            // The queue was empty: this message is its head from now.
+            HeadSince::<T>::insert(bridge, Self::now());
+        }
         NextMessage::<T>::insert(bridge, nonce.saturating_add(1));
+        // The message has its place and its reserve. What is left decides the slots.
+        let granted = match &mut message {
+            Message::Credit { slots, .. } => {
+                *slots = Self::grantable(bridge);
+                *slots
+            }
+            Message::Slots { count } => {
+                *count = Self::grantable(bridge);
+                ensure!(*count != 0, Error::<T>::NoSlotsToGrant);
+                *count
+            }
+            Message::RegisterToken { .. } => 0,
+        };
+        if granted != 0 {
+            OrderSlots::<T>::mutate(bridge, |out| *out = out.saturating_add(granted));
+            Self::deposit_event(Event::OrderSlotsGranted {
+                bridge,
+                nonce,
+                count: granted,
+            });
+        }
         Outbox::<T>::insert(bridge, nonce, message);
         Self::deposit_event(Event::MessageQueued { bridge, nonce });
         Ok(())
     }
 
-    /// Passes only if `bridge` can have one more message: fewer than [`Config::MaxOutbox`]
-    /// wait in its queue, and the bridge's account holds the bridge's [`MessageReserve`]
-    /// for every message that has not left and for one more. The hub queues nothing that
-    /// it could not pay the transport for.
+    /// Passes only if `bridge` can have one more message. The queue must have a place
+    /// that neither a message in line nor an order slot takes ([`Config::MaxOutbox`]). And
+    /// the bridge's account must hold the bridge's [`MessageReserve`] for every reserve
+    /// in use and for one more ([`Pallet::backed`]). The hub queues nothing that it could
+    /// not pay the transport for.
     ///
     /// Deferred messages take no place in the queue. So a bridge whose messages are
-    /// deferred, because nobody pays what the transport charges, still takes orders.
+    /// deferred, because nobody pays what the transport charges, still has room.
     pub(crate) fn ensure_room(bridge: BridgeId) -> DispatchResult {
+        let places = Self::in_line(bridge).saturating_add(u64::from(OrderSlots::<T>::get(bridge)));
         ensure!(
-            Self::in_line(bridge) < u64::from(T::MaxOutbox::get()),
+            places < u64::from(T::MaxOutbox::get()),
             Error::<T>::OutboxFull
         );
         let reserve = MessageReserve::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
         ensure!(
-            Self::holds_reserve(bridge, reserve, Self::waiting(bridge).saturating_add(1)),
+            Self::holds_reserve(bridge, reserve, Self::backed(bridge).saturating_add(1)),
             Error::<T>::MessagesNotFunded
         );
         Ok(())
+    }
+
+    /// Uses an order slot of `bridge` for an order that arrived. The place and the reserve
+    /// that the hub kept for the slot are now free for the order's answer. If no slot is
+    /// out, the portal sent the order without one: the hub takes it only if its answer
+    /// has room all the same.
+    fn use_slot(bridge: BridgeId) -> DispatchResult {
+        match OrderSlots::<T>::get(bridge) {
+            0 => Self::ensure_room(bridge),
+            out => {
+                OrderSlots::<T>::insert(bridge, out.saturating_sub(1));
+                Ok(())
+            }
+        }
+    }
+
+    /// How many order slots the hub can give the portal of `bridge` now: what the portal
+    /// is missing of [`MaxOrderSlots`], as far as the bridge's queue has places and the
+    /// bridge's account holds reserves beyond those in use.
+    pub fn grantable(bridge: BridgeId) -> u32 {
+        let Some(reserve) = MessageReserve::<T>::get(bridge) else {
+            return 0;
+        };
+        let out = OrderSlots::<T>::get(bridge);
+        let missing = MaxOrderSlots::<T>::get(bridge).saturating_sub(out);
+        let places = u64::from(T::MaxOutbox::get())
+            .saturating_sub(Self::in_line(bridge))
+            .saturating_sub(u64::from(out));
+        let in_use = u128::from(reserve.to_u64()).saturating_mul(u128::from(Self::backed(bridge)));
+        let free = u128::from(Self::message_budget(bridge).to_u64()).saturating_sub(in_use);
+        let affordable = free
+            .checked_div(u128::from(reserve.to_u64()))
+            .unwrap_or(u128::MAX);
+        let room = u128::from(places).min(affordable);
+        missing.min(u32::try_from(room).unwrap_or(u32::MAX))
+    }
+
+    /// Moves the head of the queue of `bridge` on from message `head`, which leaves the
+    /// line. The next message, if there is one, is the head from this block.
+    fn advance_head(bridge: BridgeId, head: u64) {
+        NextOutbound::<T>::insert(bridge, head.saturating_add(1));
+        HeadSince::<T>::insert(bridge, Self::now());
+    }
+
+    /// The number of this block.
+    fn now() -> u32 {
+        frame_system::Pallet::<T>::block_number()
+            .try_into()
+            .unwrap_or(u32::MAX)
     }
 
     /// How many messages wait in the queue of `bridge`.
@@ -1239,12 +1432,10 @@ impl<T: Config> Pallet<T> {
         Self::in_line(bridge).saturating_add(u64::from(Deferred::<T>::get(bridge)))
     }
 
-    /// Whether `bridge` is congested: at least [`Config::CongestedAt`] of its messages
-    /// are deferred. The transport charges more than is paid, and nobody has paid the
-    /// difference. Until deferred messages leave, the hub makes no new payment to the
-    /// bridge's spoke: it refunds an order that asks for one, and refuses an exit.
-    pub fn congested(bridge: BridgeId) -> bool {
-        Deferred::<T>::get(bridge) >= T::CongestedAt::get()
+    /// How many reserves of `bridge` are in use: one for each message that has not left,
+    /// and one for each order slot that is out.
+    pub fn backed(bridge: BridgeId) -> u64 {
+        Self::waiting(bridge).saturating_add(u64::from(OrderSlots::<T>::get(bridge)))
     }
 
     /// Whether the account of `bridge` can pay `reserve` for each of `messages` messages.

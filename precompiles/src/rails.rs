@@ -947,6 +947,7 @@ mod tests {
                         order: Some(0),
                         refund: false,
                         rate: 0,
+                        slots: 0,
                     },
                 }
             );
@@ -1161,6 +1162,7 @@ mod tests {
                     order: Some(0),
                     refund: true,
                     rate: 0,
+                    slots: 0,
                 }
             );
             // A burn the hub never let the spoke mint is rejected.

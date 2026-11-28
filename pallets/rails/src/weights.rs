@@ -35,6 +35,8 @@ pub trait WeightInfo {
 	fn set_message_reserve() -> Weight;
 	fn fund_messages() -> Weight;
 	fn defer_outbound() -> Weight;
+	fn set_max_order_slots() -> Weight;
+	fn grant_slots() -> Weight;
 }
 
 /// Weights for `pallet_rails` using the Substrate node and recommended hardware.
@@ -44,21 +46,21 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// queued message and a receipt.
 	fn execute() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(T::DbWeight::get().reads(39_u64))
-			.saturating_add(T::DbWeight::get().writes(26_u64))
+			.saturating_add(T::DbWeight::get().reads(43_u64))
+			.saturating_add(T::DbWeight::get().writes(28_u64))
 	}
-	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, Deferred,
-	/// MessageReserve, MessageCeiling, Outbox}`, `System::Account` x2 (r:10 w:4)
+	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, Deferred, OrderSlots,
+	/// MessageReserve, MessageCeiling, Outbox, HeadSince}`, `System::Account` x2 (r:11 w:5)
 	fn ack_outbound() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
-			.saturating_add(T::DbWeight::get().reads(10_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_add(T::DbWeight::get().reads(11_u64))
+			.saturating_add(T::DbWeight::get().writes(5_u64))
 	}
 	/// A payment into the bridge's account, a pool swap, a tUSD burn and a queued message.
 	fn bridge_out() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(T::DbWeight::get().reads(36_u64))
-			.saturating_add(T::DbWeight::get().writes(25_u64))
+			.saturating_add(T::DbWeight::get().reads(40_u64))
+			.saturating_add(T::DbWeight::get().writes(27_u64))
 	}
 	/// Storage: `System::Account` (r:1 w:0), `Rails::Gateway` (r:0 w:1)
 	fn set_gateway() -> Weight {
@@ -94,12 +96,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
-	/// Storage: `Rails::{Markets, Tokens, NextMessage, NextOutbound, MessageReserve, Outbox}`,
-	/// `Tusd::Bridges`, `System::Account` (r:7 w:4)
+	/// Storage: `Rails::{Markets, Tokens, NextMessage, NextOutbound, Deferred, OrderSlots,
+	/// MessageReserve, Outbox, HeadSince}`, `Tusd::Bridges`, `System::Account` (r:11 w:5)
 	fn list_market() -> Weight {
 		Weight::from_parts(80_000_000, 8_000)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_add(T::DbWeight::get().reads(11_u64))
+			.saturating_add(T::DbWeight::get().writes(5_u64))
 	}
 	/// Storage: `Rails::Markets` (r:1 w:1)
 	fn set_market_cap() -> Weight {
@@ -107,17 +109,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
-	/// Storage: `Rails::{NextOrder, Receipts}` (r:1 w:3)
+	/// Storage: `Rails::{NextOrder, OrderSlots, Receipts}` (r:2 w:4)
 	fn skip_order() -> Weight {
 		Weight::from_parts(40_000_000, 4_000)
-			.saturating_add(T::DbWeight::get().reads(1_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
-	/// Storage: `Tusd::Bridges`, `Rails::{NextMessage, NextOutbound, MessageReserve,
-	/// MessageCeiling}`, `System::Account` (r:4 w:2)
+	/// Storage: `Tusd::Bridges`, `Rails::{NextMessage, NextOutbound, Deferred, OrderSlots,
+	/// MessageReserve, MessageCeiling}`, `System::Account` (r:6 w:2)
 	fn set_message_reserve() -> Weight {
 		Weight::from_parts(40_000_000, 6_000)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
+			.saturating_add(T::DbWeight::get().reads(6_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Tusd::Bridges`, `System::Account` x2 (r:3 w:2)
@@ -126,11 +128,26 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
-	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, Deferred}` (r:5 w:2)
+	/// Storage: `Rails::{Gateway, Paused, HeadSince, NextOutbound, NextMessage, Deferred}`
+	/// (r:6 w:3)
 	fn defer_outbound() -> Weight {
 		Weight::from_parts(40_000_000, 6_000)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
+	}
+	/// Storage: `Tusd::Bridges` (r:1 w:0), `Rails::MaxOrderSlots` (r:0 w:1)
+	fn set_max_order_slots() -> Weight {
+		Weight::from_parts(30_000_000, 4_000)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `Rails::{Paused, OrderSlots, MaxOrderSlots, NextMessage, NextOutbound,
+	/// Deferred, MessageReserve, Outbox, HeadSince}`, `Tusd::Bridges`, `System::Account`
+	/// (r:10 w:4)
+	fn grant_slots() -> Weight {
+		Weight::from_parts(60_000_000, 8_000)
+			.saturating_add(T::DbWeight::get().reads(10_u64))
+			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
 }
 
@@ -138,18 +155,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	fn execute() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(RocksDbWeight::get().reads(39_u64))
-			.saturating_add(RocksDbWeight::get().writes(26_u64))
+			.saturating_add(RocksDbWeight::get().reads(43_u64))
+			.saturating_add(RocksDbWeight::get().writes(28_u64))
 	}
 	fn ack_outbound() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
-			.saturating_add(RocksDbWeight::get().reads(10_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(11_u64))
+			.saturating_add(RocksDbWeight::get().writes(5_u64))
 	}
 	fn bridge_out() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(RocksDbWeight::get().reads(36_u64))
-			.saturating_add(RocksDbWeight::get().writes(25_u64))
+			.saturating_add(RocksDbWeight::get().reads(40_u64))
+			.saturating_add(RocksDbWeight::get().writes(27_u64))
 	}
 	fn set_gateway() -> Weight {
 		Weight::from_parts(30_000_000, 4_000)
@@ -181,8 +198,8 @@ impl WeightInfo for () {
 	}
 	fn list_market() -> Weight {
 		Weight::from_parts(80_000_000, 8_000)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(11_u64))
+			.saturating_add(RocksDbWeight::get().writes(5_u64))
 	}
 	fn set_market_cap() -> Weight {
 		Weight::from_parts(30_000_000, 4_000)
@@ -191,12 +208,12 @@ impl WeightInfo for () {
 	}
 	fn skip_order() -> Weight {
 		Weight::from_parts(40_000_000, 4_000)
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
 	fn set_message_reserve() -> Weight {
 		Weight::from_parts(40_000_000, 6_000)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	fn fund_messages() -> Weight {
@@ -206,7 +223,17 @@ impl WeightInfo for () {
 	}
 	fn defer_outbound() -> Weight {
 		Weight::from_parts(40_000_000, 6_000)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
+	fn set_max_order_slots() -> Weight {
+		Weight::from_parts(30_000_000, 4_000)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	fn grant_slots() -> Weight {
+		Weight::from_parts(60_000_000, 8_000)
+			.saturating_add(RocksDbWeight::get().reads(10_u64))
+			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
 }

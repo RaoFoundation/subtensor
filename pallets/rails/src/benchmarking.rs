@@ -19,15 +19,17 @@ use subtensor_runtime_common::{
 };
 
 use crate::{
-    Call, Config, CurrencyOf, Deferred, Destination, Gateway, Guardian, Market, Markets, Message,
-    MessageCeiling, MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order,
-    Outcome, Pallet, Paused, RailsStaking, Receipt, Receipts, SpokeAsset, TaoCap, TaoSupply,
-    Tokens,
+    Call, Config, CurrencyOf, Deferred, Destination, Gateway, Guardian, Market, Markets,
+    MaxOrderSlots, Message, MessageCeiling, MessageReserve, NativeAsset, NextMessage, NextOrder,
+    NextOutbound, Order, OrderSlots, Outcome, Pallet, Paused, RailsStaking, Receipt, Receipts,
+    SpokeAsset, TaoCap, TaoSupply, Tokens,
 };
 
 const UNIT: u64 = 1_000_000_000;
 /// The most the hub pays for one message to the benchmarks' bridge.
 const MESSAGE_RESERVE: u64 = UNIT / 1_000;
+/// The order slots of the benchmarks' bridge.
+const ORDER_SLOTS: u32 = 4;
 /// A bridge that only the benchmarks use.
 const BRIDGE: BridgeId = 4_000_000_000;
 const DOMAIN: u32 = 4_000_000_000;
@@ -78,6 +80,10 @@ fn rails<T: Config>() -> Result<T::AccountId, BenchmarkError> {
         &Pallet::<T>::message_account(BRIDGE),
         TaoBalance::from(UNIT),
     );
+    // The portal holds order slots, so that an order uses one and its answer takes one
+    // back, as in production.
+    MaxOrderSlots::<T>::insert(BRIDGE, ORDER_SLOTS);
+    OrderSlots::<T>::insert(BRIDGE, ORDER_SLOTS);
     Pallet::<T>::register_token(admin::<T>()?, BRIDGE, SpokeAsset::Tao, wallet())?;
     TaoCap::<T>::insert(BRIDGE, TaoBalance::from(u64::MAX / 2));
 
@@ -134,6 +140,7 @@ mod benchmarks {
                 order: Some(0),
                 refund: false,
                 rate: 0,
+                slots: 0,
             },
         )?;
         let head = NextOutbound::<T>::get(BRIDGE);
@@ -162,6 +169,7 @@ mod benchmarks {
                 order: Some(0),
                 refund: false,
                 rate: 0,
+                slots: 0,
             },
         )?;
         let head = NextOutbound::<T>::get(BRIDGE);
@@ -369,6 +377,31 @@ mod benchmarks {
             Pallet::<T>::message_budget(BRIDGE),
             funded + TaoBalance::from(UNIT)
         );
+        Ok(())
+    }
+
+    #[benchmark]
+    fn set_max_order_slots() -> Result<(), BenchmarkError> {
+        rails::<T>()?;
+
+        #[extrinsic_call]
+        _(admin::<T>()? as T::RuntimeOrigin, BRIDGE, 2 * ORDER_SLOTS);
+
+        assert_eq!(MaxOrderSlots::<T>::get(BRIDGE), 2 * ORDER_SLOTS);
+        Ok(())
+    }
+
+    #[benchmark]
+    fn grant_slots() -> Result<(), BenchmarkError> {
+        rails::<T>()?;
+        // The portal has used all its slots for orders that needed no payment.
+        OrderSlots::<T>::insert(BRIDGE, 0);
+        let caller: T::AccountId = account("caller", 0, 0);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), BRIDGE);
+
+        assert_eq!(OrderSlots::<T>::get(BRIDGE), ORDER_SLOTS);
         Ok(())
     }
 

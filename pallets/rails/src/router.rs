@@ -145,11 +145,6 @@ impl<T: Config> Pallet<T> {
         };
         ensure!(!same_asset, Error::<T>::InvalidRoute);
         Self::ensure_payable(&order.destination)?;
-        // A congested bridge makes no new payment on its spoke. The order is refunded.
-        ensure!(
-            !(Self::pays_on_spoke(&order.destination) && Self::congested(bridge)),
-            Error::<T>::Congested
-        );
         let funds = Self::collect(bridge, order.source, order.amount)?;
         Self::deliver(
             bridge,
@@ -175,8 +170,6 @@ impl<T: Config> Pallet<T> {
         // An account on Bittensor swaps in the pool and mints gamma directly.
         ensure!(Self::pays_on_spoke(destination), Error::<T>::InvalidRoute);
         Self::ensure_payable(destination)?;
-        // A congested bridge makes no new payment on its spoke. The account keeps its funds.
-        ensure!(!Self::congested(bridge), Error::<T>::Congested);
         let reserve = MessageReserve::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
         if !reserve.is_zero() {
             Self::pay_for_messages(who, bridge, reserve)?;
@@ -285,6 +278,7 @@ impl<T: Config> Pallet<T> {
             order,
             refund: false,
             rate,
+            slots: 0,
         };
         let amount_out = match destination {
             Destination::Stable { to } => {
