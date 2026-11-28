@@ -642,7 +642,7 @@
   {
     "name": "bridge_out",
     "summary": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.",
-    "description": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.\n\nPays `amount` of `pay_with` (`tusd` or `tao`) and has the bridge\ndeliver `receive` to `to_address` on its chain: `stable` (the\nstablecoin the bridge locked, one for one against tUSD), `tao`\n(canonical TAO, one for one against TAO the hub reserves) or `alpha` (the\nalpha token of `netuid`, a share of the stake the hub holds at the\nsubnet's index hotkey). TAO and tUSD trade through the canonical pool on\nthe way when the route needs it. The payment settles in this extrinsic or\nfails as a whole; the asset arrives on the other chain once the bridge has\nrelayed the hub's message, usually within a minute. A bridge releases only\nthe stablecoin it brought in. Fails rather than delivering less than the\ncurrent quote less `rate_tolerance`. The coldkey also pays, in TAO and on\ntop of the amount, the cost of one message to the bridge's chain: it goes\ninto the bridge's budget, which pays the transport for the message. A\nplan's `preview` holds the quote as `receive` and `minimum`, in units\nof the delivered asset, and that cost as `message_cost_tao`.",
+    "description": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.\n\nPays `amount` of `pay_with` (`tusd` or `tao`) and has the bridge\ndeliver `receive` to `to_address` on its chain: `stable` (the\nstablecoin the bridge locked, one for one against tUSD), `tao`\n(canonical TAO, one for one against TAO the hub reserves) or `alpha` (the\nalpha token of `netuid`, a share of the stake the hub holds at the\nsubnet's index hotkey). TAO and tUSD trade through the canonical pool on\nthe way when the route needs it. The payment settles in this extrinsic or\nfails as a whole; the asset arrives on the other chain once the bridge has\nrelayed the hub's message, usually within a minute. A bridge releases only\nthe stablecoin it brought in. Fails rather than delivering less than the\ncurrent quote less `rate_tolerance`. The coldkey also pays, in TAO and on\ntop of the amount, the bridge's reserve for one message: the most the hub\npays the transport for it. It goes into the bridge's account, and what the\ntransport does not charge stays there. A plan's `preview` holds the quote\nas `receive` and `minimum`, in units of the delivered asset, and the\nreserve as `message_reserve_tao`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -711,9 +711,9 @@
         "pallet": "Rails",
         "call": "bridge_out",
         "path": "pallets/rails/src/lib.rs",
-        "line": 532,
-        "end_line": 556,
-        "url": "/code/pallets/rails/src/lib.rs#L530-L556",
+        "line": 545,
+        "end_line": 569,
+        "url": "/code/pallets/rails/src/lib.rs#L543-L569",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]

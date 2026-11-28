@@ -16,14 +16,15 @@ fails as a whole; the asset arrives on the other chain once the bridge has
 relayed the hub's message, usually within a minute. A bridge releases only
 the stablecoin it brought in. Fails rather than delivering less than the
 current quote less `rate_tolerance`. The coldkey also pays, in TAO and on
-top of the amount, the cost of one message to the bridge's chain: it goes
-into the bridge's budget, which pays the transport for the message. A
-plan's `preview` holds the quote as `receive` and `minimum`, in units
-of the delivered asset, and that cost as `message_cost_tao`.
+top of the amount, the bridge's reserve for one message: the most the hub
+pays the transport for it. It goes into the bridge's account, and what the
+transport does not charge stays there. A plan's `preview` holds the quote
+as `receive` and `minimum`, in units of the delivered asset, and the
+reserve as `message_reserve_tao`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Rails | [`Rails.bridge_out`](/code/pallets/rails/src/lib.rs#L530-L556) |
+| `coldkey` | signed account (pallet role may apply) | Rails | [`Rails.bridge_out`](/code/pallets/rails/src/lib.rs#L543-L569) |
 
 ## Parameters
 
@@ -86,7 +87,7 @@ result = sub.execute_tool("bridge_out", {...}, wallet)
 
 ## On-chain implementation
 
-`Rails.bridge_out` — [`pallets/rails/src/lib.rs#L532`](/code/pallets/rails/src/lib.rs#L530-L556):
+`Rails.bridge_out` — [`pallets/rails/src/lib.rs#L545`](/code/pallets/rails/src/lib.rs#L543-L569):
 
 ```rust
 #[pallet::call_index(2)]
@@ -102,7 +103,7 @@ pub fn bridge_out(
     let who = ensure_signed(origin)?;
     ensure!(!Paused::<T>::get(), Error::<T>::Paused);
     Self::ensure_bridge_enabled(bridge)?;
-    let fee = MessageCost::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
+    let fee = MessageReserve::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
     let amount_out =
         Self::route_native(&who, bridge, source, amount, &destination, min_out)?;
     Self::deposit_event(Event::BridgedOut {
@@ -118,6 +119,6 @@ pub fn bridge_out(
 }
 ```
 
-Delegates to [`route_native`](/code/pallets/rails/src/router.rs#L161).
+Delegates to [`route_native`](/code/pallets/rails/src/router.rs#L162).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

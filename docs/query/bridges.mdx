@@ -9,12 +9,13 @@ description: "Every bridge that may mint tUSD: its chain, portal, caps and what 
 stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
 and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-The last three fields say who pays for the hub's messages to the bridge's
-chain. `message_budget` is the TAO that pays the transport for them.
-`message_cost` is what the hub counts for one message, or None while it is
-not set. `messages_waiting` is how many wait for the gateway. The hub takes
-an order of the bridge only while the budget covers every waiting message
-and one more at that cost. Anyone can pay into the budget
+The last four fields say who pays for the hub's messages to the bridge's
+chain. `message_account` holds the TAO for them, and `message_budget` is
+what it can pay: its balance less the existential deposit. `message_reserve`
+is the most the hub pays for one message, or None while it is not set.
+`messages_waiting` is how many wait for the gateway. The hub takes an order
+of the bridge only while the account holds the reserve for every waiting
+message and one more. Anyone can pay into the account
 (`Rails.fund_messages`).
 
 **Category:** Canonical rails
@@ -52,12 +53,13 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 - Storage [`Tusd.Bridges`](/code/pallets/tusd/src/lib.rs#L139)
 - Storage [`Tusd.BridgeOutstanding`](/code/pallets/tusd/src/lib.rs#L144)
-- Storage [`Rails.TaoSupply`](/code/pallets/rails/src/lib.rs#L255)
-- Storage [`Rails.TaoCap`](/code/pallets/rails/src/lib.rs#L259)
-- Storage [`Rails.NextOrder`](/code/pallets/rails/src/lib.rs#L203)
-- Storage [`Rails.MessageCost`](/code/pallets/rails/src/lib.rs#L232)
-- Storage [`Rails.MessageBudget`](/code/pallets/rails/src/lib.rs#L238)
-- Storage [`Rails.NextMessage`](/code/pallets/rails/src/lib.rs#L213)
-- Storage [`Rails.NextOutbound`](/code/pallets/rails/src/lib.rs#L218)
+- Storage [`Rails.TaoSupply`](/code/pallets/rails/src/lib.rs#L253)
+- Storage [`Rails.TaoCap`](/code/pallets/rails/src/lib.rs#L257)
+- Storage [`Rails.NextOrder`](/code/pallets/rails/src/lib.rs#L207)
+- Storage [`Rails.MessageReserve`](/code/pallets/rails/src/lib.rs#L236)
+- Storage [`Rails.NextMessage`](/code/pallets/rails/src/lib.rs#L217)
+- Storage [`Rails.NextOutbound`](/code/pallets/rails/src/lib.rs#L222)
+- Runtime API [`RailsApi.message_account`](/code/runtime/src/lib.rs#L2998-L3000)
+- Runtime API [`RailsApi.message_budget`](/code/runtime/src/lib.rs#L3002-L3004)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

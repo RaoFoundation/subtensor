@@ -34,19 +34,21 @@ static fields, 384 bytes. Bytes that are not exactly one order are refused with
 amount that the order delivered, and the hub's id of the portal's bridge. The
 precompile emits no logs. The gateway contract emits the logs of an order.
 
-The hub keeps one queue of messages for each bridge, and one budget of TAO for
-each bridge (`Rails.MessageBudget`). `ackOutbound(bridge, nonce, paid)` removes
-the head of a bridge's queue and takes `paid` from that bridge's budget. `paid`
-is what the transport charges the gateway for the message, in wei. The hub
-counts it in rao and rounds up. If the budget holds less, the call fails with
-`MessagesNotFunded` and the message stays in the queue. The gateway makes the
+The hub keeps one queue of messages for each bridge, and one account of TAO for
+each bridge. The account pays to send that bridge's messages. It always holds
+the bridge's reserve (`Rails.MessageReserve`) for each queued message.
+`ackOutbound(bridge, nonce, paid)` removes the head of a bridge's queue and
+moves `paid` from that bridge's account to the caller. `paid` is what the
+gateway pays the transport for the message, in wei. The hub counts it in rao
+and rounds up. If `paid` is more than the reserve, the call fails with
+`FeeAboveReserve` and the message stays in the queue. The gateway makes the
 call in the transaction that pays the transport and hands it the message.
 
 ## Views
 
 | Function | Reads |
 |---|---|
-| `nextOutbound(uint32)` | The head of a bridge's queue in `Rails.Outbox`, with the transport domain and portal of the bridge, encoded for the portal |
+| `nextOutbound(uint32)` | The head of a bridge's queue in `Rails.Outbox`, with the transport domain and portal of the bridge, encoded for the portal, and the bridge's reserve in wei |
 | `quote(uint32,bytes)` | What an order would deliver now, or the name of the error that would refund it |
 | `receipt(uint32,uint64)` | `Rails.Receipts`: status, amount delivered, block |
 | `nextOrder(uint32)` | `Rails.NextOrder` |
