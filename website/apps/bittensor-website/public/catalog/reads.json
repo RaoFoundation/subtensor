@@ -390,8 +390,8 @@
         "container": "Rails",
         "name": "NextOrder",
         "path": "pallets/rails/src/lib.rs",
-        "line": 174,
-        "url": "/code/pallets/rails/src/lib.rs#L174",
+        "line": 203,
+        "url": "/code/pallets/rails/src/lib.rs#L203",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -399,8 +399,8 @@
         "container": "Rails",
         "name": "Receipts",
         "path": "pallets/rails/src/lib.rs",
-        "line": 178,
-        "url": "/code/pallets/rails/src/lib.rs#L178",
+        "line": 207,
+        "url": "/code/pallets/rails/src/lib.rs#L207",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -408,7 +408,7 @@
   {
     "name": "bridges",
     "summary": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.",
-    "description": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.\n\n`outstanding_tusd` is the tUSD the bridge minted and has not burned: the\nstablecoin its vault must hold. `mint_cap_tusd` bounds it. `available_tao`\nand `tao_cap` are the canonical TAO on the bridge's chain and its cap.",
+    "description": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.\n\n`outstanding_tusd` is the tUSD the bridge minted and has not burned: the\nstablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`\nand `tao_cap` are the canonical TAO on the bridge's chain and its cap.\n\nThe last three fields say who pays for the hub's messages to the bridge's\nchain. `message_budget` is the TAO that pays the transport for them.\n`message_cost` is what the hub counts for one message, or None while it is\nnot set. `messages_waiting` is how many wait for the gateway. The hub takes\nan order of the bridge only while the budget covers every waiting message\nand one more at that cost. Anyone can pay into the budget\n(`Rails.fund_messages`).",
     "params": {},
     "param_docs": {},
     "category": "Canonical rails",
@@ -439,14 +439,50 @@
         "container": "Rails",
         "name": "TaoSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 209,
-        "url": "/code/pallets/rails/src/lib.rs#L209",
+        "line": 255,
+        "url": "/code/pallets/rails/src/lib.rs#L255",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
         "kind": "storage",
         "container": "Rails",
         "name": "TaoCap",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 259,
+        "url": "/code/pallets/rails/src/lib.rs#L259",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "NextOrder",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 203,
+        "url": "/code/pallets/rails/src/lib.rs#L203",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "MessageCost",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 232,
+        "url": "/code/pallets/rails/src/lib.rs#L232",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "MessageBudget",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 238,
+        "url": "/code/pallets/rails/src/lib.rs#L238",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "NextMessage",
         "path": "pallets/rails/src/lib.rs",
         "line": 213,
         "url": "/code/pallets/rails/src/lib.rs#L213",
@@ -455,10 +491,10 @@
       {
         "kind": "storage",
         "container": "Rails",
-        "name": "NextOrder",
+        "name": "NextOutbound",
         "path": "pallets/rails/src/lib.rs",
-        "line": 174,
-        "url": "/code/pallets/rails/src/lib.rs#L174",
+        "line": 218,
+        "url": "/code/pallets/rails/src/lib.rs#L218",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -2261,8 +2297,8 @@
         "container": "Rails",
         "name": "Tokens",
         "path": "pallets/rails/src/lib.rs",
-        "line": 197,
-        "url": "/code/pallets/rails/src/lib.rs#L197",
+        "line": 243,
+        "url": "/code/pallets/rails/src/lib.rs#L243",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -2270,8 +2306,8 @@
         "container": "Rails",
         "name": "AlphaSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 229,
-        "url": "/code/pallets/rails/src/lib.rs#L229",
+        "line": 268,
+        "url": "/code/pallets/rails/src/lib.rs#L268",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {

@@ -151,7 +151,9 @@ empty before and after each order.
 
 An order fails as a whole, and stays with the transport for a new attempt, only if the
 hub is paused, the portal is unknown, its bridge is disabled, the order is out of
-sequence, or the outbox is full.
+sequence, or the hub could not queue the order's answer: the queue of the bridge is
+full, or the budget of the bridge does not cover one more message (see "Who pays for a
+message").
 
 **What an order can deliver.**
 
@@ -207,31 +209,52 @@ only be sold: each share gets its part of the TAO in the vault. In version 1 a n
 has one market for ever. If the netuid is registered again for another subnet, the old
 market still only winds down, and the new subnet cannot have a market.
 
-**The outbox.** The hub cannot call a contract. It puts each answer in a queue, the
-outbox. The gateway reads the head of the queue, hands it to the transport, and
-confirms it, in one transaction. If the transport refuses the message, the
-confirmation is undone with it. The gateway does this after each order that it
-passes. Anyone can also ask it to: `Gateway.flush` has no access control. The queue
-holds at most 1,024 messages.
+**The outbox.** The hub cannot call a contract. It puts each message for a spoke in a
+queue. Each bridge has its own queue, first in first out. The gateway reads the head
+of a queue, pays the transport, hands it the message, and confirms it to the hub, in
+one transaction. If the transport refuses the message, the confirmation is undone with
+it. The gateway does this for the queue of a bridge after each order of that bridge.
+Anyone can also ask it to: `Gateway.flush(bridge, limit)` has no access control. A
+queue holds at most 1,024 messages.
+
+A message that cannot leave waits at the head of its queue. It holds only the messages
+to the same spoke. The messages to other spokes are in other queues.
 
 **From Bittensor.** An account on Bittensor pays TAO or tUSD with `Rails.bridge_out`
 and receives the stablecoin, canonical TAO or an alpha token on a spoke. The call
 fails as a whole if it would deliver less than its minimum.
 
-**Each order pays for its answer.** The gateway pays the transport for every answer
-from one balance of TAO. An order that is refunded has an answer too. If answers were
-free, a person could send many orders that must be refunded, use up that balance, and
-make the answers of other payers wait. So each payment pays for its own message where
-it starts:
+**Who pays for a message.** The transport charges the gateway for each message. An
+order that is refunded has an answer too. If answers were free, a person could send
+many orders that must be refunded and use up the TAO that pays for the answers of
+other payers. So each payment pays for its own message where it starts, and each
+bridge pays the transport from its own money:
 
-- an order on a spoke pays the portal's **answer fee**, in the spoke's coin, on top of
-  the transport's fee for the order. The owner sets it. The fees collect in the
-  portal, and anyone can send them on to the fee recipient: the operator that keeps
-  the gateway funded;
-- a payment through `Rails.bridge_out` pays the **exit fee** in TAO, on top of what it
-  sends. Root sets it. It goes to the gateway account directly.
+- **The budget.** The gateway account holds TAO. The hub divides that TAO between the
+  bridges: `Rails.MessageBudget(bridge)` is the part of one bridge. Anyone pays into a
+  budget with `Rails.fund_messages(bridge, amount)`. Nothing takes TAO back out of a
+  budget.
+- **The cost.** Root sets `Rails.MessageCost(bridge)`: what the hub counts for one
+  message to that spoke. Set it to at least what the transport charges. A bridge takes
+  no order before the cost is set.
+- **Before a message is queued**, the budget must cover each message in the queue of
+  the bridge, and the new one, at that cost. If it does not, the hub does not take the
+  next order of the bridge. The order stays with the transport and is delivered again
+  later. Its funds stay locked on the spoke.
+- **When a message leaves**, the gateway tells the hub what the transport charges for
+  it. The hub takes exactly that amount from the budget of the bridge. If the budget
+  holds less, the hub refuses, and the message waits. The gateway cannot spend the
+  budget of one bridge on a message of another.
+- **An order on a spoke** pays the portal's **answer fee**, in the spoke's coin, on top
+  of the transport's fee for the order. The owner sets it. The fees collect in the
+  portal, and anyone can send them on to the fee recipient: the operator that pays
+  them into the budget of the bridge on the hub.
+- **A payment through `Rails.bridge_out`** pays `MessageCost` in TAO into the budget of
+  its bridge, on top of what it sends.
 
-Set each fee to at least what the transport charges the gateway for one message.
+So a shortage of one bridge stops only that bridge. It cannot stop the payments of
+another bridge, and it cannot take the funds of a payer: an order that the hub does
+not take stays whole on the spoke.
 
 **The registry.** `Rails.Tokens` lists, for each bridge and asset, the address, the
 name and the symbol of the canonical token. Wallets and integrators read it to tell
@@ -319,9 +342,9 @@ decide. Only the gateway passes them.
 
 | Function | Use |
 | --- | --- |
-| `execute(origin, sender, order)` | settle an order. Gateway only |
-| `ackOutbound(position)` | confirm that an answer was sent. Gateway only |
-| `nextOutbound()` | the head of the outbox, encoded for the portal |
+| `execute(origin, sender, order)` | settle an order, and learn its bridge. Gateway only |
+| `ackOutbound(bridge, nonce, paid)` | take a message out of the queue of a bridge, and take what the transport charges for it from the budget of that bridge. Gateway only |
+| `nextOutbound(bridge)` | the head of the queue of a bridge, encoded for the portal |
 | `quote(bridge, order)` | what an order would deliver now, or why it would be refunded |
 | `receipt(bridge, nonce)` | what the hub did with an order |
 | `nextOrder(bridge)` | the next nonce the hub takes |
@@ -337,7 +360,8 @@ block.
 
 - `Gateway` (UUPS, upgradeable). It passes what the transport delivers to the hub,
   and the hub's answers to the transport. It decides nothing. It emits
-  `CreditsPurchased`.
+  `CreditsPurchased`. An order and the answers of its bridge go through in one
+  transaction or not at all.
 
 **On each spoke**
 
@@ -348,6 +372,20 @@ block.
   approvals. It numbers the orders, sends them, and carries out the hub's answers.
   Each answer is carried out one time. It holds only the answer fees, in the chain's
   coin, until `sweepFees` sends them to their recipient.
+
+**A payment of USDC can arrive in parts.** The vault releases a limited amount in a
+period of time. This limit bounds what a fault can take. The portal records each
+payment of USDC that the hub orders (`owed`) and releases what the limit allows at
+that moment. The rest stays on record. Anyone can call `Portal.claim(address)` later:
+the vault then releases more to that address, as its allowance refills. The USDC goes
+only to the address that is owed. The same holds while the vault is stopped: the debt
+stays on record.
+
+**No call fails in silence.** The gateway and the portal never catch a failed call.
+If a hand-over or a payment cannot be done, the whole transaction fails, and the
+transport delivers the message again later. A contract that caught such a failure
+would succeed with too little gas. A relayer that estimates gas would then send
+transactions that do only half the work.
 - `CanonicalTao` and `AlphaToken` (not upgradeable). Only the portal mints, when the
   hub says so. Only a holder burns, by calling `sell` on the token. The portal cannot
   take tokens from anyone.
@@ -425,9 +463,18 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 
 ### Leave Bittensor
 
-1. An account calls `Rails.bridge_out` with tUSD or TAO.
+1. An account calls `Rails.bridge_out` with tUSD or TAO. It also pays the cost of one
+   message into the budget of the bridge.
 2. The hub settles the route and queues the answer.
-3. The answer leaves with the next order, or when anyone calls `Gateway.flush`.
+3. The answer leaves with the next order of that bridge, or when anyone calls
+   `Gateway.flush` for the bridge.
+
+### A payment larger than the vault's allowance
+
+1. The hub's answer arrives. The portal records the full amount as owed.
+2. The vault releases what its allowance covers. The payee has that part.
+3. Later, anyone calls `Portal.claim(payee)`. The vault releases more. This repeats
+   until nothing is owed.
 
 ## 5. Limits and switches
 
@@ -441,9 +488,10 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 | Pool swap limit | 2% of the reserve | root |
 | Pool flow limit | 20% of the reserve per 300 blocks | root |
 | Vault release limit (spoke) | set at deployment | the timelock |
-| Answer fee of an order (spoke) | set at deployment | the timelock |
-| Exit fee of `bridge_out` (hub) | 0 until set | root |
-| Outbox length | 1,024 messages | runtime constant |
+| Answer fee of an order (spoke) | set at deployment, no default | the timelock |
+| Message cost of a bridge (hub) | not set: the bridge takes no order | root |
+| Message budget of a bridge (hub) | 0 until someone pays in | anyone pays in |
+| Queue of a bridge | 1,024 messages | runtime constant |
 
 | Switch | Who turns it off | Who turns it on |
 | --- | --- | --- |
@@ -504,13 +552,14 @@ Jacob holds the multisig and the guardian keys at the start.
 11. **Virtual shares** of 0.001 against the first-depositor attack.
 12. **Typed orders, strict order nonces on the hub, once-only answers on the spoke.**
 13. **The outbox is pulled.** The gateway sends the answers. `flush` is open to all.
+    Each bridge has its own queue.
 14. **Refunded, rejected, skipped.** An order that claims to have burned more than
     the hub let the spoke mint is rejected with no refund: it shows a broken spoke.
     Root can skip an order that cannot be decoded, so that later orders can settle.
 15. **The precompile is at `0x815`** and emits no logs. The gateway contract emits
     the events.
-16. **The vault on the spoke is the entry point and cannot change.** A release that
-    is larger than the limit waits until the owner raises the limit.
+16. **The vault on the spoke is the entry point and cannot change.** A payment that
+    is larger than the vault's allowance is paid in parts (decision 26).
 17. **Holders sell at the token.** No approval is given to the upgradeable portal.
 18. **The portal creates the alpha tokens** at its own CREATE2 address. If the hub's
     registry lists another address, the portal reports the mismatch and does not
@@ -521,13 +570,26 @@ Jacob holds the multisig and the guardian keys at the start.
 22. **The swap page** reads its addresses from a config file. It is not in the site's
     header until the rails are live. In local mode it has a faucet and a test
     account.
-23. **Each order pays for its answer**: an answer fee on the spoke, an exit fee on the
-    hub. Without them, refunds would be sent at the cost of the gateway's one
-    balance.
+23. **Each payment pays for its message, and each bridge pays the transport from its
+    own budget.** An order pays an answer fee on the spoke. An exit pays the message
+    cost on the hub. The hub takes what the transport charges from the budget of the
+    message's bridge, and takes no order of a bridge whose budget is short. Without
+    this, refunds could use up the TAO that pays for the answers of other payers and
+    other bridges.
 24. **Nothing is ordered for the zero address.** The portal refuses, and the hub
     refunds.
 25. **The stablecoin minimum counts whole units** of the stablecoin, not the hub's 9
     decimals.
+26. **USDC is paid in parts when the vault's limit is reached.** The portal keeps
+    what it owes each address, and anyone can have it paid as the allowance refills.
+    The other choice was to refuse a deposit that could later exceed the limit. But
+    the hub cannot know at deposit time what a later sale will pay.
+27. **The answer fee has no default at deployment.** The deployer must decide it.
+28. **An order and the answers of its bridge are one transaction.** The first build
+    let an order settle when its answer could not leave. But a transaction with too
+    little gas for the hand-over then succeeds, and a relayer that estimates gas
+    sends such transactions. So a failed hand-over now fails the order's transaction,
+    and the transport delivers the order again.
 
 ## 9. Room for what is not built
 
@@ -561,5 +623,9 @@ just rails-contracts # the contracts' unit, fuzz and invariant tests
 - Deploy the timelocks, the gateway, the vault and the portal, and transfer nothing to
   a plain account.
 - Set the caps low at the start. Enable the bridge, then the pool.
-- Set the answer fee and the exit fee to at least the transport's cost of one message.
-- Run a flusher and the oracle feed. Keep the gateway funded from the answer fees.
+- For each bridge, set the message cost on the hub and the answer fee on the spoke to
+  at least the transport's cost of one message. Pay into the budget of the bridge
+  before the bridge is enabled.
+- Run a flusher and the oracle feed. Pay the answer fees into the budget of their
+  bridge (`Rails.fund_messages`). Do not send TAO to the gateway contract directly:
+  that TAO is in no budget.

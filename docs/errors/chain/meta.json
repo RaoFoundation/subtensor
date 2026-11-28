@@ -263,6 +263,7 @@
     "MaxWeightTooLow",
     "MaximumContributionTooLow",
     "MechanismDoesNotExist",
+    "MessagesNotFunded",
     "MigrationInProgress",
     "MinAllowedUidsGreaterThanCurrentUids",
     "MinAllowedUidsGreaterThanMaxAllowedUids",

@@ -22,7 +22,7 @@ Address `0x…0814` is left to the gamma precompile.
 | Function | Dispatches | Who can call it |
 |---|---|---|
 | `execute(uint32,bytes32,bytes)` | `Rails.execute` | Only the gateway contract |
-| `ackOutbound(uint64)` | `Rails.ack_outbound` | Only the gateway contract |
+| `ackOutbound(uint32,uint64,uint256)` | `Rails.ack_outbound` | Only the gateway contract |
 
 Both functions dispatch the pallet call signed by the caller's mapped account.
 The pallet takes them only from the account in `Rails.Gateway`. Any other
@@ -30,15 +30,23 @@ caller is refused with `NotGateway` and nothing changes.
 
 `execute` takes the order as the portal encoded it: the ABI encoding of twelve
 static fields, 384 bytes. Bytes that are not exactly one order are refused with
-`not an order`. It returns a status (1 settled, 2 refunded, 3 rejected) and the
-amount that the order delivered. The precompile emits no logs. The gateway
-contract emits the logs of an order.
+`not an order`. It returns a status (1 settled, 2 refunded, 3 rejected), the
+amount that the order delivered, and the hub's id of the portal's bridge. The
+precompile emits no logs. The gateway contract emits the logs of an order.
+
+The hub keeps one queue of messages for each bridge, and one budget of TAO for
+each bridge (`Rails.MessageBudget`). `ackOutbound(bridge, nonce, paid)` removes
+the head of a bridge's queue and takes `paid` from that bridge's budget. `paid`
+is what the transport charges the gateway for the message, in wei. The hub
+counts it in rao and rounds up. If the budget holds less, the call fails with
+`MessagesNotFunded` and the message stays in the queue. The gateway makes the
+call in the transaction that pays the transport and hands it the message.
 
 ## Views
 
 | Function | Reads |
 |---|---|
-| `nextOutbound()` | The head of `Rails.Outbox`, with the transport domain and portal of its bridge, encoded for the portal |
+| `nextOutbound(uint32)` | The head of a bridge's queue in `Rails.Outbox`, with the transport domain and portal of the bridge, encoded for the portal |
 | `quote(uint32,bytes)` | What an order would deliver now, or the name of the error that would refund it |
 | `receipt(uint32,uint64)` | `Rails.Receipts`: status, amount delivered, block |
 | `nextOrder(uint32)` | `Rails.NextOrder` |

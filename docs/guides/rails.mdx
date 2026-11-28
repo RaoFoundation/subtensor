@@ -84,6 +84,15 @@ btcli bridge sell --token alpha --netuid 64 --amount 1.5
 btcli bridge sell --token tao --amount 0.25
 ```
 
+The vault releases a limited amount of the stablecoin in a period of time. A large
+payment can arrive in parts: the first part at once, and the rest when you ask again
+later. `btcli bridge status` shows what the vault still owes. Collect it:
+
+```bash
+btcli bridge claim                      # for the address of your EVM key
+btcli bridge claim --to 0xYOUR_ADDRESS  # for another address: it receives, you pay gas
+```
+
 Receive on Bittensor in place of a token:
 
 ```bash
@@ -100,14 +109,15 @@ btcli bridge exit --bridge 8453 --pay-with tao --amount 1 --receive stable --to-
 btcli bridge exit --bridge 8453 --pay-with tusd --amount 100 --receive alpha --netuid 64 --to-address 0xYOUR_ADDRESS
 ```
 
-The coldkey also pays the hub's exit fee in TAO, on top of the amount. The preview
-shows it. It pays for the message to the other chain.
+The coldkey also pays the cost of one message to the other chain, in TAO, on top of
+the amount. The preview shows it.
 
-The hub queues the payment. The queue is sent each time an order arrives from the
-other chain. To send it now, with an EVM key that holds TAO for gas:
+The hub queues the payment. Each bridge has its own queue. The queue is sent each time
+an order arrives from that chain. To send it now, with an EVM key that holds TAO for
+gas:
 
 ```bash
-btcli bridge flush
+btcli bridge flush --bridge 8453
 ```
 
 ## tUSD

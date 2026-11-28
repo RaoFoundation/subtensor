@@ -14,14 +14,14 @@ answer.
 | --- | --- | --- |
 | tUSD | `pallets/tusd/src/lib.rs` | 460 |
 | Canonical pool | `pallets/canonical-pool/src/{lib,math}.rs` | 1,010 |
-| Hub | `pallets/rails/src/{lib,router,types}.rs` | 1,660 |
+| Hub | `pallets/rails/src/{lib,router,types}.rs` | 1,870 |
 | Index hotkey | `pallets/subtensor/src/staking/index_hotkey.rs` | 230 |
 | Staking for the hub | `pallets/subtensor/src/staking/rails.rs` | 120 |
 | Credits for a bridged payer | `do_spend_tao_at_service` in `pallets/subtensor/src/subnets/gamma.rs` | 50 |
-| Shared types | `common/src/rails.rs` | 370 |
-| Precompile and wire format | `precompiles/src/{rails,rails_wire}.rs` | 1,490 |
+| Shared types | `common/src/rails.rs` | 385 |
+| Precompile and wire format | `precompiles/src/{rails,rails_wire}.rs` | 1,580 |
 | Runtime wiring | `runtime/src/lib.rs`, `runtime/src/proxy_filters/` | small |
-| Contracts | `contracts/evm/src/**` | 1,120 |
+| Contracts | `contracts/evm/src/**` | 1,300 |
 
 The counts include comments and, for the wire format, its unit tests.
 
@@ -51,7 +51,7 @@ swap pallet's balancer math, and the gamma pallet code that exists on `main`.
                                                |  subtensor: stake at the index hotkey,
                                                |             or burn alpha for credits
                                                v
- Vault.release  <--+                         outbox (answers)
+ Vault.release  <--+                         one queue of answers for each bridge
  Token.mint  <-----+-- Portal <--[transport]-- Gateway.flush
 ```
 
@@ -83,7 +83,8 @@ much can be lost.
 7. **Bittensor's EVM runs the precompile as written**, and the spoke runs the EVM as
    written. The contracts need the Cancun opcodes.
 8. **Someone keeps the transport running.** A relayer delivers messages. A flusher
-   sends the hub's outbox. Both are needed for liveness only, not for safety.
+   hands the hub's queues to the transport. An operator pays the answer fees into the
+   budgets of the bridges. All three are needed for liveness only, not for safety.
 
 The hub does not trust the spoke's accounting. The hub keeps its own count of every
 canonical token that it let each spoke mint, and takes a burn only up to that count.
@@ -94,11 +95,11 @@ canonical token that it let each spoke mint, and takes a burn only up to that co
 
 | Party | Can | Cannot |
 | --- | --- | --- |
-| Root | Add a bridge and set its portal, mint cap and mint window (`Tusd.set_bridge`). Enable a bridge. Set the gateway account and the guardian. Enable the pool. Set the pool's fee from 0.05% to 1%, and its swap limits. Open and list markets, set the caps. Set the exit fee. Register and correct registry entries. Skip an order. Pause and resume. | Mint tUSD without a bridge. Move user balances by a call of these pallets. |
+| Root | Add a bridge and set its portal, mint cap and mint window (`Tusd.set_bridge`). Enable a bridge. Set the gateway account and the guardian. Enable the pool. Set the pool's fee from 0.05% to 1%, and its swap limits. Open and list markets, set the caps. Set the message cost of a bridge. Register and correct registry entries. Skip an order. Pause and resume. | Mint tUSD without a bridge. Move user balances by a call of these pallets. |
 | Guardian (one account, named by root) | Pause the hub. Disable a bridge. Disable the pool. | Resume anything. Change any setting. Move funds. |
-| Gateway account (the mapped account of the gateway contract) | Call `Rails.execute` and `Rails.ack_outbound`. | Choose the bridge of an order: the hub derives it from the transport's origin and sender. Settle an order out of sequence, or a second time. |
+| Gateway account (the mapped account of the gateway contract) | Call `Rails.execute` and `Rails.ack_outbound`. Hold the TAO of all budgets. Say what the transport charges for a message. | Choose the bridge of an order: the hub derives it from the transport's origin and sender. Settle an order out of sequence, or a second time. Take a message out of a queue for more than the budget of that message's bridge holds. |
 | TAO/USD oracle (one account, named by root) | Feed the TAO price. | Raise the accepted price faster than about 2% per hour. |
-| Anyone | Swap, add and remove liquidity in the pool. Transfer tUSD. Pay through `Rails.bridge_out`. | |
+| Anyone | Swap, add and remove liquidity in the pool. Transfer tUSD. Pay through `Rails.bridge_out`. Pay TAO into the budget of a bridge (`Rails.fund_messages`). | Take TAO out of a budget. |
 
 Root adding a bridge with a hostile portal is the same power as minting tUSD up to
 that bridge's cap. The cap and the window are the bound.
@@ -110,11 +111,12 @@ that bridge's cap. The cap and the window are the bound.
 | Owner (timelock) | Upgrade the contract. Set the security module, the guardian, the flush limit. Resume. | Act in less than 48 hours. |
 | Guardian | Pause. | Resume. Change a setting. |
 | The transport's Mailbox | Deliver a message to `handle`. | |
-| Anyone | Call `flush`: send what the hub queued. Send TAO to the contract. | Change what is sent, or where. |
+| Anyone | Call `flush`: send what the hub queued for one bridge. Send TAO to the contract: that TAO is in no budget. | Change what is sent, or where. |
 
 An upgrade of the gateway can call `Rails.execute` with any order from a registered
 portal's address. This is the largest power in the system on the hub side. Its bounds
-are the hub's caps (section 5).
+are the hub's caps (section 5). An upgrade can also move the TAO that the contract
+holds: the budgets of all bridges. That TAO pays for messages. It is not payers' money.
 
 ### 4.3 On a spoke: `Portal`, `Vault`, tokens
 
@@ -127,6 +129,7 @@ are the hub's caps (section 5).
 | Vault guardian | Stop releases. | Resume. Stop deposits: these follow the portal's pause. |
 | Portal (as a contract) | Release from the vault inside the rate limit. Mint the canonical tokens. Create alpha tokens. | Take tokens from a holder. Move a payer's stablecoin: approvals are to the vault, which pulls only in `deposit`, from the caller. |
 | Token holder | Transfer. Sell own tokens (`sell`). | |
+| Anyone | Call `Portal.claim(address)`: have the vault release, inside its limit, what the portal owes that address. Call `sweepFees`. | Direct a payment to another address. |
 
 The vault and the tokens are not upgradeable and have no owner functions beyond the
 table.
@@ -149,7 +152,9 @@ owner is a timelock and why the guardian exists.
 | The oracle feeds a wrong TAO price | Credits are valued wrong | The lower of the feed and the pool's time-weighted price counts. The feed can rise only about 2% per hour. Too few credits: the buyer's minimum refunds the order |
 | A subnet's pool is pushed up before a credits order | Fewer credits for the buyer | Alpha counts at the lower of the slow price and the spot price. The buyer's minimum refunds the order |
 | The canonical pool is pushed before an order | A worse price for the payer | The order's minimum. The swap limits make a large push take many blocks |
-| A person sends many orders that must be refunded, or many small exits | The gateway's balance of TAO pays the transport for their answers and runs out. Other payers' answers wait | Each order pays the answer fee on the spoke, and each exit the exit fee on the hub. With both at or above the transport's cost, the sender pays for what it causes |
+| A person sends many orders that must be refunded, or many small exits | The budget of that bridge pays the transport for their answers | Each order pays the answer fee on the spoke, and each exit pays the message cost on the hub. The hub takes no order of a bridge whose budget does not cover one more message. Such an order waits at the transport, and its funds stay locked on the spoke. No other bridge is touched |
+| The budget of a bridge is empty, or the transport charges more for a message than the budget holds | That bridge takes no order, and its queued messages wait. The orders wait at the transport with their funds locked on the spoke | Anyone pays in (`Rails.fund_messages`). The hub takes the charge for a message only from the budget of that message's bridge, so the other bridges go on |
+| A sale or a refund pays more USDC than the vault's allowance | The payee gets a part now and waits for the rest | The portal records the debt and pays it in parts (`Portal.claim`). The release limit still bounds what a forged answer can take in a period |
 
 ## 6. Invariants
 
@@ -198,6 +203,18 @@ reported, and tells the vault to release only what it burned. Checked end to end
   it was given, never a balance that it read. Unit tests assert an empty hub account
   after each order. This is not in `try_state`, because anyone can send funds to
   that account.
+- **I29.** The hub queues a message for a bridge only while the budget of that bridge
+  covers every message in its queue, and the new one, at the bridge's message cost
+  (`ensure_room`). The hub checks this before it takes an order, because every order
+  has an answer if it fails. Test `a_bridges_budget_must_cover_its_queue`.
+- **I30.** A budget rises only when as much TAO moves to the gateway account
+  (`pay_into_budget`). A budget falls only when the gateway takes a message of that
+  bridge out of its queue, by what the gateway says the transport charges
+  (`ack_outbound`). The call fails if the budget holds less. So one bridge never
+  spends what was paid in for another. Tests
+  `one_bridge_never_spends_what_was_paid_in_for_another` and
+  `a_message_takes_from_the_budget_what_the_transport_charges`. The e2e checks on
+  real chains that the gateway account moves exactly as the budget does.
 - **I14.** The alpha that a sale takes from a vault is never more than the vault
   holds, and both share formulas round against the trader (`alpha_for_shares`,
   `shares_for_alpha`).
@@ -231,6 +248,18 @@ reported, and tells the vault to release only what it burned. Checked end to end
 - **I24.** The vault releases only on the portal's call, at most its allowance, and
   never while paused. A deposit counts what arrived by the change of the vault's
   balance, and `deposit` and `release` cannot be entered again while one runs.
+- **I31.** The portal owes each address the stablecoin that the hub told it to pay,
+  less what the vault released to that address (`owed`). `totalOwed` is the sum. The
+  portal lowers the debt before it calls the vault, and a release that fails reverts
+  the whole call (`_pay`). The vault holds at least what is owed. Invariant tests
+  `invariant_WhatIsOwedIsOwedToSomeone` and `invariant_TheVaultCoversEveryDollarOwed`.
+- **I32.** For each message, the gateway reads the transport's charge, has the hub take
+  that charge from the budget of the bridge, and pays the transport, in one
+  transaction (`_flush`). An order and the answers of its bridge go through together
+  or not at all.
+- **I33.** No contract catches a failed call. A transaction that has too little gas,
+  or whose payment is refused, fails as a whole. So a caller that estimates gas gets
+  a true estimate, and no order or payment is half done.
 - **I25.** The supply of each canonical token equals what the hub counted, less burns
   that the hub has not read, plus mints that the portal has not carried out.
   Invariant test `invariant_TokensMatchTheHubsSupply`.
@@ -249,31 +278,57 @@ reported, and tells the vault to release only what it burned. Checked end to end
 1. **The weights are not measured.** `weights.rs` of the three pallets holds
    placeholders. They must be measured on reference hardware before a release.
    `Rails.execute` adds the staking weight that `RailsStaking::weight` reports.
-2. **Liveness depends on keepers.** A relayer must deliver messages. The outbox is
-   sent when an order arrives or when anyone calls `Gateway.flush`. An exit that
-   starts on Bittensor waits until then. Funds are safe while they wait.
-   The gateway pays the transport for every answer from one balance of TAO. The
-   answer fees collect on the spoke, in the spoke's coin: the operator has to move
-   their value to the gateway. If the operator does not, or if a fee is set below
-   the transport's cost, the balance runs out and answers wait. The outbox is first
-   in, first out: an answer that the gateway cannot pay for holds the ones behind it.
+2. **Liveness depends on keepers.** A relayer must deliver messages. The queue of a
+   bridge is sent when an order of that bridge arrives or when anyone calls
+   `Gateway.flush`. An exit that starts on Bittensor waits until then. Funds are safe
+   while they wait.
+   An order is taken only if the answers of its bridge can leave in the same
+   transaction. If the transport refuses a message to a spoke, or the budget does not
+   cover its charge, the orders of that spoke wait at the transport until that is
+   mended. Their funds stay locked on the spoke.
+   The answer fees collect on the spoke, in the spoke's coin. The operator has to
+   move their value into the budget of the bridge on the hub. If the operator does
+   not, or if a fee is set below the transport's charge, the budget runs out. Then
+   the bridge takes no order and its queued messages wait, until someone pays in.
+   Orders that wait keep their funds locked on the spoke. A queue is first in, first
+   out: a message that cannot leave holds the ones behind it in the same queue, and
+   no message of another bridge.
 3. **Head-of-line blocking.** The hub takes the orders of a bridge in sequence. An
    order that the gateway cannot decode blocks the orders behind it until root skips
    it. The payer's funds of a skipped order stay on the spoke, and the owner has to
    return them by governance. A portal that follows `Wire.sol` cannot produce such an
    order.
-25. **A recipient that cannot receive.** The zero address is refused. Other addresses
-    are not checked: a release to an address that the stablecoin's issuer blocks
-    reverts each time the transport tries it. The hub has settled such an order, so
-    the stablecoin stays in the vault until the owner acts. It does not hold other
-    answers: the portal carries answers out in any order.
-4. **A release can wait.** If a release is larger than the vault's allowance, the
-   answer reverts on the spoke and the transport tries again later. A release that is
-   larger than the limit itself waits until the owner raises the limit. Set the limit
-   above the largest sale that should pass without the owner.
+4. **A payment of USDC can arrive in parts.** The vault releases a limited amount in a
+   period. A payment above what is left of that amount is paid in part, and the rest
+   is on record in the portal (`owed`). Someone must call `Portal.claim` for the
+   rest, after the allowance refilled: the payee, or anyone else. The swap page and
+   `btcli bridge claim` do this. Set the limit above the largest sale that should
+   pass in one payment.
 5. **Refunds use the release limit too.** Many large refunds can use the allowance
-   that sales need. A release period of zero turns the limit into a cap for each
-   release, with no limit on the rate: do not set it.
+   that sales need. Then sales are paid in parts. While debts are on record, the
+   allowance goes to the payee whose `claim` comes first: there is no queue. All
+   debts are paid in the end, at the rate of the limit. A release period of zero
+   turns the limit into a cap for each release, with no limit on the rate: do not set
+   it.
+25. **A recipient that cannot receive.** The zero address is refused. Other addresses
+    are not checked. If the stablecoin's issuer blocks the payee, the release reverts
+    each time the transport tries the answer, and `claim` reverts for a debt that is
+    on record. Other payments go on: the portal carries answers out in any order. The
+    hub has settled the order, so the stablecoin stays in the vault until the block
+    ends or the owner acts.
+26. **The message cost is an estimate.** Root sets what the hub counts for one
+    message. The hub takes what the transport really charges. If the charge is above
+    the cost, an exit pays in less than its message costs, and the budget of its
+    bridge pays the difference. Root then has to raise the cost.
+27. **TAO in the gateway that is in no budget stays there.** TAO that someone sends to
+    the gateway contract directly, and what is left of the budget of a bridge that is
+    retired, cannot be taken out in version 1. Pay in only with `Rails.fund_messages`.
+    The gateway account also keeps the chain's existential deposit, 500 rao: that
+    much of the budgets cannot be spent.
+28. **The gateway reports the charge.** The hub takes from a budget the amount that
+    the gateway contract names. The contract reads it from the transport in the same
+    call in which it pays. A gateway that is upgraded with wrong code could name
+    another amount. It holds that TAO in any case.
 6. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
    after the payer signed. The order's minimum bounds the loss. btcli defaults to 5%
    and the swap page to 1%. The pool's swap limits make a large push slow.
@@ -337,13 +392,13 @@ reported, and tells the vault to release only what it burned. Checked end to end
 | --- | --- | --- |
 | tUSD: 17 unit tests, benchmarks as tests | `pallets/tusd/src/tests.rs` | `cargo test -p pallet-tusd --all-features` |
 | Pool: 34 unit tests, benchmarks as tests | `pallets/canonical-pool/src/tests.rs` | `cargo test -p pallet-canonical-pool --all-features` |
-| Hub: 46 unit tests, 12 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
+| Hub: 53 unit tests, 14 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
 | Index hotkey: 22 tests on the real pallet | `pallets/subtensor/src/tests/index_hotkey.rs` | `cargo test -p pallet-subtensor --all-features index_hotkey` |
 | Credits for a bridged payer: 7 tests | `pallets/subtensor/src/tests/gamma_credits.rs` | `cargo test -p pallet-subtensor --all-features gamma_credits` |
 | Staking for the hub, with a real dissolution: 8 tests | `pallets/subtensor/src/tests/rails_staking.rs` | `cargo test -p pallet-subtensor --all-features rails_staking` |
 | The production runtime through the precompile: 5 tests | `runtime/tests/rails.rs` | `cargo test -p node-subtensor-runtime --all-features --test rails` |
 | Precompile and wire format, with golden vectors | `precompiles/src/{rails,rails_wire}.rs` | `cargo test -p subtensor-precompiles --all-features rails` |
-| Contracts: unit, fuzz (512 runs) and 4 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
+| Contracts: 85 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
 | Both chains and the transport, end to end | `scripts/rails/e2e.py`, `scripts/rails/e2e_cli.py` | `just rails-up && just rails-e2e` |
 
 The unit tests of the hub call `try_state` of the three pallets after each operation.
@@ -375,3 +430,7 @@ reviewed:
    every byte (I26)?
 6. What can an upgrade of the gateway or the portal do that sections 4 and 5 do not
    list?
+7. Can a message of one bridge be paid for with the budget of another, or can a
+   budget fall in any way other than `ack_outbound` (I29, I30)?
+8. Can what the portal owes differ from what the hub ordered less what the vault
+   released (I31)? Look at `Portal._pay`.
