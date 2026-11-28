@@ -1,0 +1,163 @@
+---
+title: Canonical rails
+description: Move value between Bittensor and other chains. A stablecoin on Base becomes tUSD, TAO, a subnet's alpha token or service credits, and tokens sell back for the stablecoin.
+---
+
+The canonical rails connect a stablecoin on another chain to Bittensor. Every dollar
+takes one route:
+
+```text
+USDC  <->  tUSD  <->  TAO  <->  subnet alpha  ->  service credits
+```
+
+- **tUSD** is the dollar on Bittensor. One tUSD exists for each dollar of stablecoin
+  that a vault on another chain holds.
+- The **canonical pool** is the one place where tUSD and TAO trade. Anyone can add
+  its liquidity and earn its fee.
+- A **bridge** is one approved portal on another chain. Base is bridge `8453`.
+- **Canonical TAO** and each subnet's **alpha token** are tokens on the other chain.
+  An alpha token does not rebase. One token is worth more alpha as its stake earns.
+- **Credits** are [gamma](/docs/guides/gamma), spent at a [service](/docs/guides/services)
+  for an Ethereum address when they are bought.
+
+The [design document](/docs/design/canonical-rails) says how each part works.
+
+<Callout type="warning">
+The rails are not on a public chain yet. Until they are, the commands that act on
+another chain need a manifest: the file that the local rig writes at
+`.rails/manifest.json`. Pass it with `--manifest`, or set `BT_RAILS_MANIFEST`.
+</Callout>
+
+## Try it on your machine
+
+The repository has a rig with two chains and the transport between them. See
+[local development](/docs/guides/local-development) for the tools it needs.
+
+```bash
+just rails-up      # a localnet, anvil as Base, Hyperlane, the contracts, two subnets
+just rails-e2e     # every flow below, checked on both chains
+just rails-page    # the swap page at http://localhost:3000/swap
+just rails-down
+```
+
+## What is listed
+
+```bash
+btcli bridge list      # the bridges, their caps and what they have outstanding
+btcli bridge tokens    # the canonical tokens: chain, asset, symbol, address, rate
+```
+
+`bridge tokens` is the registry. Use it to tell a canonical token from a copy with
+the same name.
+
+## From another chain
+
+These commands sign with the wallet's EVM key (`btcli evm key new`). The key holds
+the stablecoin and pays the gas on the other chain.
+
+Buy a subnet's alpha token, canonical TAO, or credits:
+
+```bash
+btcli bridge deposit --amount 100 --receive alpha --netuid 64
+btcli bridge deposit --amount 100 --receive tao
+btcli bridge deposit --amount 25 --receive credits --netuid 51 --service SERVICE_HOTKEY
+```
+
+Each command shows the hub's quote first. `--rate-tolerance` is how far below the
+quote the result may fall. If the hub cannot meet that minimum, the vault returns
+the stablecoin in full.
+
+Follow the order:
+
+```bash
+btcli bridge status --bridge 8453 --order 12
+```
+
+Sell a token for the stablecoin:
+
+```bash
+btcli bridge sell --token alpha --netuid 64 --amount 1.5
+btcli bridge sell --token tao --amount 0.25
+```
+
+Receive on Bittensor in place of a token:
+
+```bash
+btcli bridge deposit --amount 100 --receive tusd --account MY_COLDKEY
+btcli bridge deposit --amount 100 --receive native-tao --account MY_COLDKEY
+```
+
+## From Bittensor
+
+Pay TAO or tUSD and receive on the other chain:
+
+```bash
+btcli bridge exit --bridge 8453 --pay-with tao --amount 1 --receive stable --to-address 0xYOUR_ADDRESS
+btcli bridge exit --bridge 8453 --pay-with tusd --amount 100 --receive alpha --netuid 64 --to-address 0xYOUR_ADDRESS
+```
+
+The hub queues the payment. The queue is sent each time an order arrives from the
+other chain. To send it now, with an EVM key that holds TAO for gas:
+
+```bash
+btcli bridge flush
+```
+
+## tUSD
+
+```bash
+btcli bridge balance
+btcli bridge transfer --dest OTHER_COLDKEY --amount-tusd 10
+```
+
+## The pool
+
+```bash
+btcli pool show                        # reserves, prices, fee, limits, your shares
+btcli pool quote --sell tusd --amount 1000
+btcli pool swap --sell tao --amount 2
+btcli pool add --amount-tao 1 --amount-tusd 400
+btcli pool remove --shares all
+```
+
+`pool add` takes both assets in the pool's current ratio and uses at most the amounts
+given. The pool limits one swap to a part of its reserve, so a large amount can need
+more than one swap.
+
+## In Python
+
+```python
+import bittensor as bt
+
+async with bt.Client() as client:
+    pool = await client.rails.canonical_pool()
+    tokens = await client.rails.rails_tokens()
+    order = await client.rails.bridge_order(8453, 12)
+
+    await client.execute(bt.intents.SwapPool(sell="tao", amount=2), wallet)
+    await client.execute(
+        bt.intents.BridgeOut(
+            bridge=8453,
+            pay_with="tusd",
+            amount=100,
+            receive="stable",
+            to_address="0xYOUR_ADDRESS",
+        ),
+        wallet,
+    )
+```
+
+## For a service that takes credits
+
+A credits order burns the subnet's alpha and spends its gamma at your service for the
+buyer's Ethereum address. You can read it in three ways:
+
+- the total for an address, which only grows:
+  `btcli query credits-spent --netuid 51 --service-hotkey SERVICE_HOTKEY --payer-address 0xBUYER`;
+- the event `SubtensorModule.GammaSpentV2`, with the payer, the origin chain and the
+  order's number;
+- the event `CreditsPurchased` of the gateway contract on Bittensor's EVM, indexed by
+  the buyer's address, the netuid and your service.
+
+Credit the buyer from finalized blocks. Use the total to check that you missed no
+event.
