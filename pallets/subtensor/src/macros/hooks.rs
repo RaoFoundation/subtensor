@@ -295,6 +295,11 @@ mod hooks {
                 ));
             }
 
+            // Give one index hotkey its turn to take the children its rule picks now.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(Self::process_index_refresh(limit.saturating_sub(weight)));
+            }
+
             // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.
             // Always call it while the cursor exists: its adaptive limits normally respect the
             // remaining weight, but it deliberately performs one overweight item when needed

@@ -19,6 +19,19 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`proxies`](/docs/query/proxies) | Proxy delegations of an account: who may sign on its behalf, and the reserved deposit. |
 | [`proxy-announcements`](/docs/query/proxy-announcements) | Pending delayed-proxy announcements made by a delegate, plus reserved deposit. |
 
+## Canonical rails
+
+| Query | Summary |
+| --- | --- |
+| [`bridge-order`](/docs/query/bridge-order) | What became of an order that a portal sent to the hub. |
+| [`bridges`](/docs/query/bridges) | Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding. |
+| [`canonical-pool`](/docs/query/canonical-pool) | The canonical tUSD/TAO pool: its reserves, prices, fee, caps and whether it is on. |
+| [`credits-spent`](/docs/query/credits-spent) | The gamma that payments through the rails spent at a service for an address. |
+| [`pool-shares`](/docs/query/pool-shares) | An account's shares of the canonical pool and what they redeem now. |
+| [`quote-pool-swap`](/docs/query/quote-pool-swap) | What a swap in the canonical pool would pay now, after its fee. |
+| [`rails-tokens`](/docs/query/rails-tokens) | The registry of canonical tokens: which contract on which chain stands for which asset. |
+| [`tusd-balance`](/docs/query/tusd-balance) | The tUSD an account holds, as an exact decimal string. |
+
 ## Chain
 
 | Query | Summary |

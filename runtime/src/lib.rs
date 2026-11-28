@@ -39,7 +39,9 @@ use frame_support::{
     dispatch::DispatchResult,
     genesis_builder_helper::{build_state, get_preset},
     pallet_prelude::Get,
-    traits::{Contains, InsideBoth, LinearStoragePrice, fungible::HoldConsideration},
+    traits::{
+        Contains, EitherOfDiverse, InsideBoth, LinearStoragePrice, fungible::HoldConsideration,
+    },
 };
 use frame_system::{EnsureRoot, EnsureRootWithSuccess, EnsureSigned};
 use pallet_commitments::{CanCommit, OnMetadataCommitment};
@@ -1624,6 +1626,66 @@ impl pallet_limit_orders::Config for Runtime {
     type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
 
+parameter_types! {
+    /// An account holds no tUSD or at least a cent.
+    pub const TusdMinBalance: TusdBalance = TusdBalance::new(10_000_000);
+    pub const CanonicalPoolPalletId: PalletId = PalletId(*b"bt/cpool");
+    /// The first deposit must price TAO within 2% of the TAO/USD oracle.
+    pub const CanonicalPoolMaxInitialPriceDeviation: Permill = Permill::from_percent(2);
+    /// Neither reserve may fall below a thousandth of a unit.
+    pub const CanonicalPoolMinReserve: u64 = 1_000_000;
+    /// The pool's time-weighted price covers an hour.
+    pub const CanonicalPoolTwapPeriod: u32 = prod_or_fast!(300, 20);
+    pub const RailsPalletId: PalletId = PalletId(*b"bt/rails");
+    pub const RailsMaxOutbox: u32 = 1_024;
+    /// Anyone can defer a message that has been at the head of a queue for an hour.
+    pub const RailsStaleAfter: u32 = prod_or_fast!(300, 40);
+    pub const RailsReceiptsKept: u64 = 100_000;
+}
+
+/// Root, or the guardian account that root named: may pause the rails and nothing else.
+pub type RailsPauseOrigin =
+    EitherOfDiverse<EnsureRoot<AccountId>, pallet_rails::EnsureGuardian<Runtime>>;
+
+impl pallet_tusd::Config for Runtime {
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PauseOrigin = RailsPauseOrigin;
+    type MinBalance = TusdMinBalance;
+    type WeightInfo = pallet_tusd::weights::SubstrateWeight<Runtime>;
+}
+
+/// The root-fed TAO/USD price that gamma mints at, while it is fresh.
+pub struct RootTaoUsdOracle;
+impl pallet_canonical_pool::TaoUsdOracle for RootTaoUsdOracle {
+    fn tao_usd_price() -> Option<u64> {
+        SubtensorModule::mint_tao_usd_price(SubtensorModule::get_current_block_as_u64()).ok()
+    }
+}
+
+impl pallet_canonical_pool::Config for Runtime {
+    type Currency = Balances;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PauseOrigin = RailsPauseOrigin;
+    type PriceOracle = RootTaoUsdOracle;
+    type PalletId = CanonicalPoolPalletId;
+    type MaxInitialPriceDeviation = CanonicalPoolMaxInitialPriceDeviation;
+    type MinReserve = CanonicalPoolMinReserve;
+    type TwapPeriod = CanonicalPoolTwapPeriod;
+    type WeightInfo = pallet_canonical_pool::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_rails::Config for Runtime {
+    type Staking = SubtensorModule;
+    type Time = Timestamp;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PauseOrigin = RailsPauseOrigin;
+    type PalletId = RailsPalletId;
+    type MaxOutbox = RailsMaxOutbox;
+    type StaleAfter = RailsStaleAfter;
+    type ReceiptsKept = RailsReceiptsKept;
+    type WeightInfo = pallet_rails::weights::SubstrateWeight<Runtime>;
+}
+
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {
     pallet_contracts::Schedule {
         limits: pallet_contracts::Limits {
@@ -1758,6 +1820,9 @@ construct_runtime!(
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
         HashedAccounts: pallet_hashed_accounts = 33,
+        Tusd: pallet_tusd = 34,
+        CanonicalPool: pallet_canonical_pool = 35,
+        Rails: pallet_rails = 36,
     }
 );
 
@@ -1919,6 +1984,9 @@ mod benches {
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
         [pallet_hashed_accounts, HashedAccounts]
+        [pallet_tusd, Tusd]
+        [pallet_canonical_pool, CanonicalPool]
+        [pallet_rails, Rails]
     );
 }
 
@@ -2885,6 +2953,57 @@ impl_runtime_apis! {
             _key_owner_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
         ) -> Option<()> {
             None
+        }
+    }
+
+    impl pallet_canonical_pool::runtime_api::CanonicalPoolApi<Block> for Runtime {
+        fn quote_tusd_for_tao(amount: TusdBalance) -> Option<TaoBalance> {
+            CanonicalPool::quote_tusd_for_tao(amount)
+        }
+
+        fn quote_tao_for_tusd(amount: TaoBalance) -> Option<TusdBalance> {
+            CanonicalPool::quote_tao_for_tusd(amount)
+        }
+
+        fn spot_price() -> Option<u64> {
+            CanonicalPool::spot_price()
+        }
+
+        fn twap_price() -> Option<u64> {
+            CanonicalPool::twap_price()
+        }
+    }
+
+    impl pallet_rails::runtime_api::RailsApi<Block, AccountId> for Runtime {
+        fn quote_order(
+            bridge: subtensor_runtime_common::rails::BridgeId,
+            source: pallet_rails::SpokeAsset,
+            amount: u64,
+            destination: pallet_rails::Destination<AccountId>,
+        ) -> Result<u64, sp_runtime::DispatchError> {
+            Rails::quote_order(bridge, source, amount, destination)
+        }
+
+        fn quote_bridge_out(
+            who: AccountId,
+            bridge: subtensor_runtime_common::rails::BridgeId,
+            source: pallet_rails::NativeAsset,
+            amount: u64,
+            destination: pallet_rails::Destination<AccountId>,
+        ) -> Result<u64, sp_runtime::DispatchError> {
+            Rails::quote_bridge_out(&who, bridge, source, amount, destination)
+        }
+
+        fn alpha_rate(netuid: NetUid) -> Option<u128> {
+            Rails::alpha_rate(netuid)
+        }
+
+        fn message_account(bridge: subtensor_runtime_common::rails::BridgeId) -> AccountId {
+            Rails::message_account(bridge)
+        }
+
+        fn message_budget(bridge: subtensor_runtime_common::rails::BridgeId) -> TaoBalance {
+            Rails::message_budget(bridge)
         }
     }
 

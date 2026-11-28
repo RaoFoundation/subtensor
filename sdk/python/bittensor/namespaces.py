@@ -283,6 +283,12 @@ class Prices(_ReadNamespace):
     _category = "Prices & swaps"
 
 
+class Rails(_ReadNamespace):
+    """tUSD, the tUSD/TAO pool, canonical tokens, and bridge orders."""
+
+    _category = "Canonical rails"
+
+
 class Weights(_ReadNamespace):
     """Weights, bonds, and timelocked weight commits."""
 
@@ -305,6 +311,7 @@ NAMESPACES: dict[str, type[_ReadNamespace]] = {
     "locks": Locks,
     "neurons": Neurons,
     "prices": Prices,
+    "rails": Rails,
     "staking": Staking,
     "subnets": Subnets,
     "weights": Weights,

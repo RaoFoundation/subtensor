@@ -1,0 +1,92 @@
+---
+title: Rails
+description: Typed EVM interface to the hub of the canonical rails, for the gateway contract and for clients that quote and follow cross-chain orders.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `RailsPrecompile` |
+| Solidity interface | `IRails` |
+| Address | `0x0000000000000000000000000000000000000815` |
+| Status | Deployed |
+
+The canonical rails let an account on another chain pay a stablecoin for
+canonical TAO, a subnet's alpha token or service credits. Portals on those
+chains send orders to the hub pallet `Rails` on Bittensor. This precompile is
+the hub's interface on Bittensor's EVM. All amounts have 9 decimals.
+
+Address `0x…0814` is left to the gamma precompile.
+
+## State-changing functions
+
+| Function | Dispatches | Who can call it |
+|---|---|---|
+| `execute(uint32,bytes32,bytes)` | `Rails.execute` | Only the gateway contract |
+| `ackOutbound(uint32,uint64,uint256)` | `Rails.ack_outbound` | Only the gateway contract |
+| `deferOutbound(uint32,uint64)` | `Rails.defer_outbound` | Only the gateway contract |
+
+Each function dispatches the pallet call signed by the caller's mapped account.
+The pallet takes them only from the account in `Rails.Gateway`. Any other
+caller is refused with `NotGateway` and nothing changes.
+
+`execute` takes the order as the portal encoded it: the ABI encoding of twelve
+static fields, 384 bytes. Bytes that are not exactly one order are refused with
+`not an order`. It returns a status (1 settled, 2 refunded, 3 rejected), the
+amount that the order delivered, and the hub's id of the portal's bridge. The
+precompile emits no logs. The gateway contract emits the logs of an order.
+
+The hub keeps one queue of messages for each bridge, and one account of TAO for
+each bridge. The account pays to send that bridge's messages. It always holds
+the bridge's reserve (`Rails.MessageReserve`) for each message that has not
+left the hub, and for each order slot that is out (`Rails.OrderSlots`): the
+hub's promise to answer an order that the bridge's portal may still send.
+
+`ackOutbound(bridge, nonce, paid)` takes a message out of the hub and moves
+`paid` from that bridge's account to the caller. The message is the head of
+the bridge's queue, or a deferred message. `paid` is what the gateway pays the
+transport for the message, in wei. The hub counts it in rao and rounds up. The
+hub pays at most a limit: the reserve, and above it what the account holds
+beyond the reserves in use, up to the bridge's ceiling
+(`Rails.MessageCeiling`). `nextOutbound` and `outbound` return that
+limit. If `paid` is more, the call fails with `FeeAboveLimit` and the message
+stays in the hub. The gateway makes the call in the transaction that pays the
+transport and hands it the message.
+
+`deferOutbound(bridge, nonce)` defers the head of a bridge's queue: the message
+leaves the queue, so that the messages behind it can go, and stays in the hub
+with its reserve. The gateway makes this call for a message that is not paid
+for: the transport charges more for it than the hub's limit, and the caller of
+the gateway does not pay the difference. `outbound` returns a deferred message,
+and `ackOutbound` takes it out of the hub later.
+
+## Views
+
+| Function | Reads |
+|---|---|
+| `nextOutbound(uint32)` | The head of a bridge's queue in `Rails.Outbox`, with the transport domain and portal of the bridge, encoded for the portal, and the most the hub pays for it now, in wei |
+| `outbound(uint32,uint64)` | One message that the gateway can take now, by its nonce: the head of a bridge's queue or a deferred message. The same fields as `nextOutbound`, without the nonce |
+| `quote(uint32,bytes)` | What an order would deliver now, or the name of the error that would refund it |
+| `receipt(uint32,uint64)` | `Rails.Receipts`: status, amount delivered, block |
+| `nextOrder(uint32)` | `Rails.NextOrder` |
+| `alphaRate(uint16)` | The alpha that one unit of a subnet's alpha token is worth, times 1e18 |
+| `creditsOf(uint16,bytes32,address)` | `SubtensorModule.GammaSpentByPayer` for an EVM address |
+
+`quote` runs the order as `execute` would and undoes it. It changes no state
+and costs the gas of settling one order.
+
+`alphaRate` returns zero when the subnet has no market, or when its market only
+winds down after the subnet was dissolved.
+
+A service credits an address by the growth of `creditsOf`. The total only
+grows.
+
+## Not exposed
+
+- `Rails.bridge_out` and the calls of `Tusd` and `CanonicalPool` have no typed
+  EVM path in this release. Accounts use the native extrinsics.
+- The admin and guardian calls (`set_gateway`, `set_guardian`, `set_paused`,
+  `register_token`, `set_tao_cap`, `open_market`, `list_market`,
+  `set_market_cap`, `skip_order`) take the admin or pause origin and are not
+  callable from the EVM.
+
+Source: [`rails.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/rails.sol)

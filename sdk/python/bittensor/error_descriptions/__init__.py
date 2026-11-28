@@ -27,6 +27,7 @@ from .mev_shield import DESCRIPTIONS as _MEV_SHIELD
 from .multisig import DESCRIPTIONS as _MULTISIG
 from .preimage import DESCRIPTIONS as _PREIMAGE
 from .proxy import DESCRIPTIONS as _PROXY
+from .rails import DESCRIPTIONS as _RAILS
 from .safe_mode import DESCRIPTIONS as _SAFE_MODE
 from .scheduler import DESCRIPTIONS as _SCHEDULER
 from .subtensor import DESCRIPTIONS as _SUBTENSOR
@@ -52,6 +53,7 @@ for _part in (
     _MULTISIG,
     _PREIMAGE,
     _PROXY,
+    _RAILS,
     _SAFE_MODE,
     _SCHEDULER,
     _SUBTENSOR,

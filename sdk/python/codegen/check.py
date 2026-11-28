@@ -70,9 +70,36 @@ COVERED_PALLETS = (
     "AdminUtils",
     "Contracts",
     "HashedAccounts",
+    "Tusd",
+    "CanonicalPool",
+    "Rails",
 )
 
 RAW_ONLY: dict[str, set[str]] = {
+    # The rails' admin, guardian and gateway calls: root sets bridges, caps and
+    # markets, and only the gateway contract delivers orders and takes messages.
+    "Tusd": {"set_bridge", "set_bridge_enabled"},
+    "CanonicalPool": {"set_enabled", "set_fee", "set_swap_caps"},
+    "Rails": {
+        "execute",
+        "ack_outbound",
+        "set_gateway",
+        "set_guardian",
+        "set_paused",
+        "register_token",
+        "set_tao_cap",
+        "open_market",
+        "list_market",
+        "set_market_cap",
+        "skip_order",
+        "set_message_reserve",
+        "defer_outbound",
+        "set_max_order_slots",
+        # A keeper has the hub send a portal its order slots.
+        "grant_slots",
+        # The operator of a spoke pays in what its portal collected as answer fees.
+        "fund_messages",
+    },
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship
     # through the raw call surface, not a second wallet-creation workflow.

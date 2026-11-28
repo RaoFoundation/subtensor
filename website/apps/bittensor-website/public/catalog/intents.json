@@ -70,6 +70,75 @@
     ]
   },
   {
+    "name": "add_pool_liquidity",
+    "summary": "Add TAO and tUSD to the canonical pool and receive its shares.",
+    "description": "Add TAO and tUSD to the canonical pool and receive its shares.\n\nTakes at most `amount_tao` and `amount_tusd` in the pool's current\nratio, so one of the two is usually not used in full. Shares earn the\npool's swap fees: they redeem a growing part of both reserves. The first\ndeposit sets the price and must be within 2% of the TAO/USD oracle price.\nFails rather than receiving fewer shares than the reserves now give, less\n`rate_tolerance`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "CanonicalPool",
+        "add_liquidity"
+      ]
+    ],
+    "docs_url": "/docs/tx/add-pool-liquidity",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The most TAO to add."
+        },
+        "amount_tusd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "The most tUSD to add."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of what you receive below the current quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "amount_tao",
+        "amount_tusd"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx add-pool-liquidity --amount-tao <amount> --amount-tusd <amount>",
+    "python_class": "AddPoolLiquidity",
+    "markdown_url": "/llms.mdx/docs/tx/add-pool-liquidity/content.md",
+    "sources": [
+      {
+        "pallet": "CanonicalPool",
+        "call": "add_liquidity",
+        "path": "pallets/canonical-pool/src/lib.rs",
+        "line": 335,
+        "end_line": 343,
+        "url": "/code/pallets/canonical-pool/src/lib.rs#L333-L343",
+        "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "add_proxy",
     "summary": "Authorize a delegate key to sign calls on this account's behalf.",
     "description": "Authorize a delegate key to sign calls on this account's behalf.\n\nThe foundation of the keep-the-coldkey-offline setup: sign this once from\nthe coldkey, then let the delegate submit day-to-day calls with\n`proxy_for=<this account>`. The chain reserves a small deposit from the\nsigner per delegation (returned on removal). The delegate can act within\n`proxy_type` immediately (or after announcing, if `delay` > 0) \u2014 grant\nonly to keys you control or fully trust. `Validate` and `Weights` cover\nhotkey-signed calls, so by default the wallet's hotkey signs those grants\nand must hold the deposit and fee. Set `from_hotkey=False` to grant from\nthe coldkey or a proxied account instead (for example, to preserve a pure\naccount's existing grants). `from_hotkey=True` selects the hotkey for\nany proxy type.",
@@ -567,6 +636,85 @@
         "end_line": 399,
         "url": "/code/pallets/utility/src/lib.rs#L345-L399",
         "raw_url": "/code/raw/pallets/utility/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "bridge_out",
+    "summary": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.",
+    "description": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.\n\nPays `amount` of `pay_with` (`tusd` or `tao`) and has the bridge\ndeliver `receive` to `to_address` on its chain: `stable` (the\nstablecoin the bridge locked, one for one against tUSD), `tao`\n(canonical TAO, one for one against TAO the hub reserves) or `alpha` (the\nalpha token of `netuid`, a share of the stake the hub holds at the\nsubnet's index hotkey). TAO and tUSD trade through the canonical pool on\nthe way when the route needs it. The payment settles in this extrinsic or\nfails as a whole; the asset arrives on the other chain once the bridge has\nrelayed the hub's message, usually within a minute. A bridge releases only\nthe stablecoin it brought in. Fails rather than delivering less than the\ncurrent quote less `rate_tolerance`. The coldkey also pays, in TAO and on\ntop of the amount, the bridge's reserve for one message: the most the hub\npays the transport for it. It goes into the bridge's account, and what the\ntransport does not charge stays there. A plan's `preview` holds the quote\nas `receive` and `minimum`, in units of the delivered asset, and the\nreserve as `message_reserve_tao`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Rails",
+        "bridge_out"
+      ]
+    ],
+    "docs_url": "/docs/tx/bridge-out",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bridge": {
+          "type": "integer",
+          "description": "Id of the bridge: 8453 is Base."
+        },
+        "pay_with": {
+          "type": "string",
+          "description": "The asset paid: tusd or tao."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of it."
+        },
+        "receive": {
+          "type": "string",
+          "description": "What is delivered: stable, tao or alpha."
+        },
+        "to_address": {
+          "type": "string",
+          "description": "0x address on the bridge's chain that receives it."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet of the alpha token, with --receive alpha."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of what you receive below the current quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "bridge",
+        "pay_with",
+        "amount",
+        "receive",
+        "to_address"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx bridge-out --bridge <int> --pay-with <value> --amount <amount> --receive <value> --to-address <value>",
+    "python_class": "BridgeOut",
+    "markdown_url": "/llms.mdx/docs/tx/bridge-out/content.md",
+    "sources": [
+      {
+        "pallet": "Rails",
+        "call": "bridge_out",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 700,
+        "end_line": 724,
+        "url": "/code/pallets/rails/src/lib.rs#L698-L724",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
   },
@@ -2898,6 +3046,52 @@
     ]
   },
   {
+    "name": "remove_pool_liquidity",
+    "summary": "Redeem shares of the canonical pool for TAO and tUSD.",
+    "description": "Redeem shares of the canonical pool for TAO and tUSD.\n\nBurns `shares` (`all` for every share you hold) and pays their part of\nboth reserves, which includes the swap fees the pool earned since you\nadded. Open even while the pool is disabled. Fails rather than receiving\nless of either asset than the reserves now give, less `rate_tolerance`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "CanonicalPool",
+        "remove_liquidity"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-pool-liquidity",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "shares": {
+          "type": "string",
+          "description": "Shares to redeem, a whole number, or all."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of what you receive below the current quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "shares"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-pool-liquidity --shares <value>",
+    "python_class": "RemovePoolLiquidity",
+    "markdown_url": "/llms.mdx/docs/tx/remove-pool-liquidity/content.md",
+    "sources": [
+      {
+        "pallet": "CanonicalPool",
+        "call": "remove_liquidity",
+        "path": "pallets/canonical-pool/src/lib.rs",
+        "line": 349,
+        "end_line": 357,
+        "url": "/code/pallets/canonical-pool/src/lib.rs#L347-L357",
+        "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "remove_proxies",
     "summary": "Revoke every proxy delegation for the signing account at once.",
     "description": "Revoke every proxy delegation for the signing account at once.\n\nA cleanup/panic switch: all delegates lose access in one call and all proxy\ndeposits are returned. Careful if this account spawned pure proxies \u2014 they\nare controlled *through* delegations, so removing everything can strand them\npermanently (there is no key to recover a pure proxy with). `Validate` and\n`Weights` grants are keyed by the hotkey, so revoking those needs a second\ncall with `from_hotkey` set.",
@@ -3943,45 +4137,45 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_burn_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3171,
-        "end_line": 3182,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3169-L3182",
+        "line": 3173,
+        "end_line": 3184,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3171-L3184",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_burn_min",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3187,
-        "end_line": 3200,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3185-L3200",
+        "line": 3189,
+        "end_line": 3202,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3187-L3202",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_burn_max",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3205,
-        "end_line": 3218,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3203-L3218",
+        "line": 3207,
+        "end_line": 3220,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3205-L3220",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3223,
-        "end_line": 3238,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3221-L3238",
+        "line": 3225,
+        "end_line": 3240,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3223-L3240",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3243,
-        "end_line": 3255,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3241-L3255",
+        "line": 3245,
+        "end_line": 3257,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3243-L3257",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4282,297 +4476,297 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_epoch_consensus",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1599,
-        "end_line": 1621,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1594-L1621",
+        "line": 1601,
+        "end_line": 1623,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1596-L1623",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_tempo",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1276,
-        "end_line": 1280,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1265-L1280",
+        "line": 1278,
+        "end_line": 1282,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1267-L1282",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_immunity_period",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 642,
-        "end_line": 668,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L640-L668",
+        "line": 644,
+        "end_line": 670,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L642-L670",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_allowed_weights",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 675,
-        "end_line": 701,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L673-L701",
+        "line": 677,
+        "end_line": 703,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L675-L703",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_weights_version_key",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 527,
-        "end_line": 555,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L525-L555",
+        "line": 529,
+        "end_line": 557,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L527-L557",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_activity_cutoff_factor",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 851,
-        "end_line": 865,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L849-L865",
+        "line": 853,
+        "end_line": 867,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L851-L867",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 986,
-        "end_line": 1018,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L984-L1018",
+        "line": 988,
+        "end_line": 1020,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L986-L1020",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1025,
-        "end_line": 1057,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1023-L1057",
+        "line": 1027,
+        "end_line": 1059,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1025-L1059",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_moving_average",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1141,
-        "end_line": 1173,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1139-L1173",
+        "line": 1143,
+        "end_line": 1175,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1141-L1175",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_penalty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1180,
-        "end_line": 1204,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1178-L1204",
+        "line": 1182,
+        "end_line": 1206,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1180-L1206",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_serving_rate_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 426,
-        "end_line": 445,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L424-L445",
+        "line": 428,
+        "end_line": 447,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L426-L447",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_interval",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1673,
-        "end_line": 1700,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1671-L1700",
+        "line": 1675,
+        "end_line": 1702,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1673-L1702",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 708,
-        "end_line": 755,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L706-L755",
+        "line": 710,
+        "end_line": 757,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L708-L757",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2547,
-        "end_line": 2585,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2545-L2585",
+        "line": 2549,
+        "end_line": 2587,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2547-L2587",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2505,
-        "end_line": 2541,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2503-L2541",
+        "line": 2507,
+        "end_line": 2543,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2505-L2543",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_lock_share",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2661,
-        "end_line": 2694,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2659-L2694",
+        "line": 2663,
+        "end_line": 2696,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2661-L2696",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2704,
-        "end_line": 2743,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2702-L2743",
+        "line": 2706,
+        "end_line": 2745,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2704-L2745",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_adjustment_alpha",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 611,
-        "end_line": 635,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L609-L635",
+        "line": 613,
+        "end_line": 637,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L611-L637",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_rho",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 778,
-        "end_line": 798,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L776-L798",
+        "line": 780,
+        "end_line": 800,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L778-L800",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_difficulty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 494,
-        "end_line": 520,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L492-L520",
+        "line": 496,
+        "end_line": 522,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L494-L522",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_sigmoid_steepness",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1927,
-        "end_line": 1959,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1925-L1959",
+        "line": 1929,
+        "end_line": 1961,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1927-L1961",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_childkey_take_per_subnet",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1444,
-        "end_line": 1476,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1442-L1476",
+        "line": 1446,
+        "end_line": 1478,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1444-L1478",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_immune_neuron_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2113,
-        "end_line": 2131,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2111-L2131",
+        "line": 2115,
+        "end_line": 2133,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2113-L2133",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_values",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1545,
-        "end_line": 1568,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1543-L1568",
+        "line": 1547,
+        "end_line": 1570,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1545-L1570",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1483,
-        "end_line": 1508,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1481-L1508",
+        "line": 1485,
+        "end_line": 1510,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1483-L1510",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_liquid_alpha_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1521,
-        "end_line": 1540,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1519-L1540",
+        "line": 1523,
+        "end_line": 1542,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1521-L1542",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 872,
-        "end_line": 914,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L870-L914",
+        "line": 874,
+        "end_line": 916,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L872-L916",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_pow_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 921,
-        "end_line": 952,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L919-L952",
+        "line": 923,
+        "end_line": 954,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L921-L954",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_gamma_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2977,
-        "end_line": 3003,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2975-L3003",
+        "line": 2979,
+        "end_line": 3005,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2977-L3005",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_yuma3_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1972,
-        "end_line": 1993,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1970-L1993",
+        "line": 1974,
+        "end_line": 1995,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1972-L1995",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_reset_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2006,
-        "end_line": 2027,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2004-L2027",
+        "line": 2008,
+        "end_line": 2029,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2006-L2029",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_toggle_transfer",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1765,
-        "end_line": 1785,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1763-L1785",
+        "line": 1767,
+        "end_line": 1787,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1765-L1787",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_auto_lock_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2605,
-        "end_line": 2623,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2603-L2623",
+        "line": 2607,
+        "end_line": 2625,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2605-L2625",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -4733,9 +4927,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_mechanism_count",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2174,
-        "end_line": 2194,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2171-L2194",
+        "line": 2176,
+        "end_line": 2196,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2173-L2196",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5084,9 +5278,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2633,
-        "end_line": 2651,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2631-L2651",
+        "line": 2635,
+        "end_line": 2653,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2633-L2653",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5157,9 +5351,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_weights_v2",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3048,
-        "end_line": 3068,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3042-L3068",
+        "line": 3050,
+        "end_line": 3070,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3044-L3070",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5208,9 +5402,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_gamma_emission_whitelisted",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 3075,
-        "end_line": 3096,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L3072-L3096",
+        "line": 3077,
+        "end_line": 3098,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L3074-L3098",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -5925,6 +6119,79 @@
     ]
   },
   {
+    "name": "swap_pool",
+    "summary": "Swap between tUSD and TAO in the canonical pool.",
+    "description": "Swap between tUSD and TAO in the canonical pool.\n\nSells `amount` of `sell` (`tusd` or `tao`) for the other asset at\nthe pool's price, less its fee, which stays in the pool for its liquidity\nproviders. Fails rather than receiving less than the current quote less\n`rate_tolerance`. The pool caps one swap at a fraction of its depth and\nrate-limits each direction, so a large amount may need several swaps. A\nplan's `preview` holds the quote as `receive` and `minimum`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "CanonicalPool",
+        "swap_tusd_for_tao"
+      ],
+      [
+        "CanonicalPool",
+        "swap_tao_for_tusd"
+      ]
+    ],
+    "docs_url": "/docs/tx/swap-pool",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "sell": {
+          "type": "string",
+          "description": "The asset sold: tusd or tao."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the sold asset."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum fall of what you receive below the current quote, as a fraction (0.05 = 5%)."
+        }
+      },
+      "required": [
+        "sell",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx swap-pool --sell <value> --amount <amount>",
+    "python_class": "SwapPool",
+    "markdown_url": "/llms.mdx/docs/tx/swap-pool/content.md",
+    "sources": [
+      {
+        "pallet": "CanonicalPool",
+        "call": "swap_tusd_for_tao",
+        "path": "pallets/canonical-pool/src/lib.rs",
+        "line": 362,
+        "end_line": 369,
+        "url": "/code/pallets/canonical-pool/src/lib.rs#L360-L369",
+        "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+      },
+      {
+        "pallet": "CanonicalPool",
+        "call": "swap_tao_for_tusd",
+        "path": "pallets/canonical-pool/src/lib.rs",
+        "line": 374,
+        "end_line": 381,
+        "url": "/code/pallets/canonical-pool/src/lib.rs#L372-L381",
+        "raw_url": "/code/raw/pallets/canonical-pool/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "swap_stake",
     "summary": "Swap stake on one hotkey between two subnets.",
     "description": "Swap stake on one hotkey between two subnets.\n\nMoves part of a position from the origin subnet to the destination subnet\nwhile staying on the same hotkey: the alpha is swapped to TAO in the\norigin pool and then to alpha in the destination pool, so both legs can\nincur slippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the origin/destination price\nratio falls more than `rate_tolerance` (5%) below the ratio at submission\n\u2014 raise the tolerance or set `slippage_protection` to False to execute at\nany price. The two netuids must differ (`SameNetuid`). Use\n`move_swap_stake` (or `move_stake`) when the hotkey should change too,\nand `remove_stake` plus `add_stake` only if you want to control each\nleg separately. Pass `all` to swap the entire origin position; on chain\n(spec 469+) `alpha_amount = u64::MAX` means the same, resolved against the\nlive position at execution. A call that fails is charged the work it did,\nnot its declared weight.",
@@ -6264,6 +6531,62 @@
     ]
   },
   {
+    "name": "transfer_tusd",
+    "summary": "Transfer tUSD from the coldkey to a destination address.",
+    "description": "Transfer tUSD from the coldkey to a destination address.\n\ntUSD is the chain's dollar: bridges mint it one for one against a\nstablecoin they lock on another chain. A transfer is irreversible. An\naccount holds no tUSD or at least 0.01, so a transfer that would leave less\nthan that on either side fails: send the whole balance instead.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Tusd",
+        "transfer"
+      ]
+    ],
+    "docs_url": "/docs/tx/transfer-tusd",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "dest_ss58": {
+          "type": "string",
+          "description": "Destination account that receives the tUSD."
+        },
+        "amount_tusd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "tUSD sent."
+        }
+      },
+      "required": [
+        "dest_ss58",
+        "amount_tusd"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx transfer-tusd --dest <ss58|name> --amount-tusd <amount>",
+    "python_class": "TransferTusd",
+    "markdown_url": "/llms.mdx/docs/tx/transfer-tusd/content.md",
+    "sources": [
+      {
+        "pallet": "Tusd",
+        "call": "transfer",
+        "path": "pallets/tusd/src/lib.rs",
+        "line": 215,
+        "end_line": 223,
+        "url": "/code/pallets/tusd/src/lib.rs#L213-L223",
+        "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "trim_null_subnet_batch",
     "summary": "Execute one bounded Null subnet pruning batch toward `target`.",
     "description": "Execute one bounded Null subnet pruning batch toward `target`.\n\nCancels pending weight commits before moving UIDs, then removes at most\nthe runtime's batch size (currently 64). A large legacy commit backlog\ncan produce a cleanup-only batch. Read `NullPruningTarget` and\n`SubnetworkN` after inclusion: a successful transaction does not imply\nthe final target has been reached. Continue with the same target until\nthe pending target is absent. Each batch is owner-authorized and respects\nthe admin freeze window. Only the first batch starts the trimming cooldown;\nchanging the target is a new operation. Survivor UID values can change.",
@@ -6303,9 +6626,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_null_uids_batch",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2259,
-        "end_line": 2283,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2257-L2283",
+        "line": 2261,
+        "end_line": 2285,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2259-L2285",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -6350,9 +6673,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_to_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2232,
-        "end_line": 2252,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2226-L2252",
+        "line": 2234,
+        "end_line": 2254,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2228-L2254",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]

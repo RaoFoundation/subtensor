@@ -948,6 +948,10 @@ DESCRIPTIONS: dict[str, str] = {
         "MAX_TEMPO range (360-50,400 blocks). Check the tempo argument against those chain "
         "constants and pick a value inside the bounds; only root may set a tempo outside them."
     ),
+    "TooManyIndexSubnets": (
+        "No more subnets can have an index hotkey: the list of index subnets is full. An index "
+        "closes when its subnet is dissolved; check `SubtensorModule.IndexSubnets`."
+    ),
     "TooManyChildren": (
         "`set_children` was called with more than 5 child hotkeys for a parent on the subnet. "
         "Trim the children list to at most 5 entries."

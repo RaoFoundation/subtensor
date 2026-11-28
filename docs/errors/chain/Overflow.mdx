@@ -7,9 +7,9 @@ description: "A chain-side invariant failed; nothing to fix client-side \u2014 r
 
 A checked arithmetic operation overflowed, e.g. incrementing `NextSubnetLeaseId` when registering a leased network, or adding to a crowdloan's `raised` amount or contributor count. Internal guard; inspect the amounts involved as this should not occur with realistic values.
 
-Declared by the `SubtensorModule`, `Crowdloan` pallets; it classifies to the semantic code [`internal`](/docs/errors/internal).
+Declared by the `SubtensorModule`, `Crowdloan`, `CanonicalPool`, `Rails` pallets; it classifies to the semantic code [`internal`](/docs/errors/internal).
 
-Declared at [`pallets/subtensor/src/macros/errors.rs#L239`](/code/pallets/subtensor/src/macros/errors.rs#L239), [`pallets/crowdloan/src/lib.rs#L255`](/code/pallets/crowdloan/src/lib.rs#L255).
+Declared at [`pallets/subtensor/src/macros/errors.rs#L239`](/code/pallets/subtensor/src/macros/errors.rs#L239), [`pallets/crowdloan/src/lib.rs#L255`](/code/pallets/crowdloan/src/lib.rs#L255), [`pallets/canonical-pool/src/lib.rs#L312`](/code/pallets/canonical-pool/src/lib.rs#L312), [`pallets/rails/src/lib.rs#L514`](/code/pallets/rails/src/lib.rs#L514).
 
 ## Remediation
 

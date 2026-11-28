@@ -654,7 +654,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         Self::ensure_hotkey_owner_policy(coldkey, new_hotkey)?;
         ensure!(
-            Self::is_subnet_account_id(new_hotkey).is_none(),
+            !Self::is_system_hotkey(new_hotkey),
             Error::<T>::CannotUseSystemAccount
         );
         weight.saturating_accrue(Self::hotkey_owner_policy_weight());
@@ -786,7 +786,7 @@ impl<T: Config> Pallet<T> {
 
         // Check that new hotkey is a non-system hotkey
         ensure!(
-            Self::is_subnet_account_id(new_hotkey).is_none(),
+            !Self::is_system_hotkey(new_hotkey),
             Error::<T>::CannotUseSystemAccount
         );
 

@@ -1,0 +1,18 @@
+# The subtensor localnet's EVM, as the transport knows it.
+name: btlocal
+protocol: ethereum
+chainId: 945
+domainId: 10945
+displayName: Bittensor localnet
+nativeToken:
+  name: TAO
+  symbol: TAO
+  decimals: 18
+rpcUrls:
+  - http: http://127.0.0.1:9944
+blocks:
+  confirmations: 1
+  reorgPeriod: 1
+  estimateBlockTime: 1
+technicalStack: other
+isTestnet: true

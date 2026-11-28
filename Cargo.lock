@@ -8899,6 +8899,7 @@ dependencies = [
  "pallet-bags-list",
  "pallet-balances",
  "pallet-base-fee",
+ "pallet-canonical-pool",
  "pallet-commitments",
  "pallet-contracts",
  "pallet-crowdloan",
@@ -8921,6 +8922,7 @@ dependencies = [
  "pallet-nomination-pools-runtime-api",
  "pallet-offences",
  "pallet-preimage",
+ "pallet-rails",
  "pallet-safe-mode",
  "pallet-scheduler",
  "pallet-session",
@@ -8938,6 +8940,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-tusd",
  "parity-scale-codec",
  "polkadot-runtime-common",
  "precompile-utils",
@@ -9841,6 +9844,28 @@ dependencies = [
  "sp-arithmetic",
  "sp-core",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-canonical-pool"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-subtensor-swap",
+ "pallet-tusd",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "substrate-fixed",
+ "subtensor-macros",
+ "subtensor-runtime-common",
 ]
 
 [[package]]
@@ -10897,6 +10922,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-rails"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-canonical-pool",
+ "pallet-timestamp",
+ "pallet-tusd",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+]
+
+[[package]]
 name = "pallet-ranked-collective"
 version = "41.0.0"
 source = "git+https://github.com/RaoFoundation/polkadot-sdk.git?rev=cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a#cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a"
@@ -11643,6 +11690,22 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-tusd"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "subtensor-macros",
+ "subtensor-runtime-common",
 ]
 
 [[package]]
@@ -19172,6 +19235,7 @@ dependencies = [
  "pallet-admin-utils",
  "pallet-alpha-assets",
  "pallet-balances",
+ "pallet-canonical-pool",
  "pallet-commitments",
  "pallet-crowdloan",
  "pallet-drand",
@@ -19184,12 +19248,14 @@ dependencies = [
  "pallet-evm-precompile-sha3fips",
  "pallet-evm-precompile-simple",
  "pallet-preimage",
+ "pallet-rails",
  "pallet-scheduler",
  "pallet-shield",
  "pallet-subtensor",
  "pallet-subtensor-proxy",
  "pallet-subtensor-swap",
  "pallet-timestamp",
+ "pallet-tusd",
  "parity-scale-codec",
  "precompile-utils",
  "scale-info",

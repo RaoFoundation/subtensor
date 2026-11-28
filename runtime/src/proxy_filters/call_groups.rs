@@ -10,6 +10,7 @@ use frame_system::Call as SystemCall;
 use pallet_admin_utils::Call as AdminUtilsCall;
 use pallet_balances::Call as BalancesCall;
 use pallet_base_fee::Call as BaseFeeCall;
+use pallet_canonical_pool::Call as CanonicalPoolCall;
 use pallet_commitments::Call as CommitmentsCall;
 use pallet_contracts::Call as ContractsCall;
 use pallet_crowdloan::Call as CrowdloanCall;
@@ -21,6 +22,7 @@ use pallet_hashed_accounts::Call as HashedAccountsCall;
 use pallet_limit_orders::Call as LimitOrdersCall;
 use pallet_multisig::Call as MultisigCall;
 use pallet_preimage::Call as PreimageCall;
+use pallet_rails::Call as RailsCall;
 use pallet_safe_mode::Call as SafeModeCall;
 use pallet_scheduler::Call as SchedulerCall;
 use pallet_shield::Call as MevShieldCall;
@@ -30,6 +32,7 @@ use pallet_subtensor_swap::Call as SwapCall;
 use pallet_subtensor_utility::Call as UtilityCall;
 use pallet_sudo::Call as SudoCall;
 use pallet_timestamp::Call as TimestampCall;
+use pallet_tusd::Call as TusdCall;
 use subtensor_macros::call_filter_group;
 use subtensor_runtime_common::{SMALL_ALPHA_TRANSFER_LIMIT, SMALL_TRANSFER_LIMIT};
 
@@ -823,6 +826,54 @@ call_filter_group!(
     ),]
 );
 
+// The canonical rails. Every call here moves value (tUSD, TAO through the pool, payments to
+// other chains) or is reserved to the admin origin, the guardian or the gateway contract.
+// Kept off every restricted proxy grant (inventory-only, `Any` still reaches them).
+call_filter_group!(
+    TusdCalls,
+    [
+        RuntimeCall::Tusd(TusdCall::transfer),
+        RuntimeCall::Tusd(TusdCall::set_bridge),
+        RuntimeCall::Tusd(TusdCall::set_bridge_enabled),
+    ]
+);
+
+call_filter_group!(
+    CanonicalPoolCalls,
+    [
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::add_liquidity),
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::remove_liquidity),
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::swap_tusd_for_tao),
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::swap_tao_for_tusd),
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::set_enabled),
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::set_fee),
+        RuntimeCall::CanonicalPool(CanonicalPoolCall::set_swap_caps),
+    ]
+);
+
+call_filter_group!(
+    RailsCalls,
+    [
+        RuntimeCall::Rails(RailsCall::execute),
+        RuntimeCall::Rails(RailsCall::ack_outbound),
+        RuntimeCall::Rails(RailsCall::bridge_out),
+        RuntimeCall::Rails(RailsCall::set_gateway),
+        RuntimeCall::Rails(RailsCall::set_guardian),
+        RuntimeCall::Rails(RailsCall::set_paused),
+        RuntimeCall::Rails(RailsCall::register_token),
+        RuntimeCall::Rails(RailsCall::set_tao_cap),
+        RuntimeCall::Rails(RailsCall::open_market),
+        RuntimeCall::Rails(RailsCall::list_market),
+        RuntimeCall::Rails(RailsCall::set_market_cap),
+        RuntimeCall::Rails(RailsCall::skip_order),
+        RuntimeCall::Rails(RailsCall::set_message_reserve),
+        RuntimeCall::Rails(RailsCall::fund_messages),
+        RuntimeCall::Rails(RailsCall::defer_outbound),
+        RuntimeCall::Rails(RailsCall::set_max_order_slots),
+        RuntimeCall::Rails(RailsCall::grant_slots),
+    ]
+);
+
 // ============================================================================
 // Conditional, proxy-specific groups
 //
@@ -889,7 +940,12 @@ pub(super) type AllCalls = (
     WholesalePalletCalls,
     SubtensorSplitCalls,
     AdminUtilsSplitCalls,
+    CanonicalRailsCalls,
 );
+
+// The canonical rails: no restricted proxy grants them.
+#[cfg(test)]
+type CanonicalRailsCalls = (TusdCalls, CanonicalPoolCalls, RailsCalls);
 
 // Pallets every granting proxy grants in full.
 #[cfg(test)]

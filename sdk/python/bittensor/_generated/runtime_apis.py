@@ -55,6 +55,12 @@ class BlockBuilder:
     inherent_extrinsics = Method('BlockBuilder', 'inherent_extrinsics')
     check_inherents = Method('BlockBuilder', 'check_inherents')
 
+class CanonicalPoolApi:
+    quote_tusd_for_tao = Method('CanonicalPoolApi', 'quote_tusd_for_tao')
+    quote_tao_for_tusd = Method('CanonicalPoolApi', 'quote_tao_for_tusd')
+    spot_price = Method('CanonicalPoolApi', 'spot_price')
+    twap_price = Method('CanonicalPoolApi', 'twap_price')
+
 class ContractsApi:
     call = Method('ContractsApi', 'call')
     instantiate = Method('ContractsApi', 'instantiate')
@@ -127,6 +133,13 @@ class OffchainWorkerApi:
 class ProxyFilterRuntimeApi:
     get_proxy_types = Method('ProxyFilterRuntimeApi', 'get_proxy_types')
     get_proxy_filters = Method('ProxyFilterRuntimeApi', 'get_proxy_filters')
+
+class RailsApi:
+    quote_order = Method('RailsApi', 'quote_order')
+    quote_bridge_out = Method('RailsApi', 'quote_bridge_out')
+    alpha_rate = Method('RailsApi', 'alpha_rate')
+    message_account = Method('RailsApi', 'message_account')
+    message_budget = Method('RailsApi', 'message_budget')
 
 class SessionKeys:
     generate_session_keys = Method('SessionKeys', 'generate_session_keys')

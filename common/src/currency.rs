@@ -94,6 +94,30 @@ pub struct GammaBalance(u64);
 )]
 pub struct TaoBalance(u64);
 
+/// tUSD: the canonical dollar on Bittensor, minted 1:1 against stablecoins locked by an
+/// approved bridge. 9 decimals, like every other balance on the chain.
+#[freeze_struct("58f05c6711781454")]
+#[repr(transparent)]
+#[derive(
+    Deserialize,
+    Serialize,
+    Clone,
+    Copy,
+    Decode,
+    DecodeWithMemTracking,
+    Default,
+    Encode,
+    Eq,
+    Hash,
+    MaxEncodedLen,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    RuntimeDebug,
+    TypeInfo,
+)]
+pub struct TusdBalance(u64);
+
 // implements traits required by the Currency trait (ToFixed + Into<u64> + From<u64>) and CompactAs
 // and Display. It expects a wrapper structure for u64 (CurrencyT(u64)).
 // TypeInfo is derived on the structs themselves so the type identity (path) is preserved in the
@@ -367,6 +391,10 @@ impl_arithmetic_operators!(TaoBalance);
 impl_approx!(TaoBalance);
 impl_currency_reqs!(TaoBalance);
 
+impl_arithmetic_operators!(TusdBalance);
+impl_approx!(TusdBalance);
+impl_currency_reqs!(TusdBalance);
+
 impl Token for AlphaBalance {
     const MAX: Self = Self(u64::MAX);
     const ZERO: Self = Self(0);
@@ -378,6 +406,11 @@ impl Token for GammaBalance {
 }
 
 impl Token for TaoBalance {
+    const MAX: Self = Self(u64::MAX);
+    const ZERO: Self = Self(0);
+}
+
+impl Token for TusdBalance {
     const MAX: Self = Self(u64::MAX);
     const ZERO: Self = Self(0);
 }

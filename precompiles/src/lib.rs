@@ -38,6 +38,7 @@ use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 use pallet_subtensor_proxy as pallet_proxy;
 pub use proxy::ProxyPrecompile;
+pub use rails::RailsPrecompile;
 pub use registry::PrecompileRegistry;
 pub use runtime_configuration::RuntimeConfigurationPrecompile;
 pub use scheduler::SchedulerPrecompile;
@@ -64,6 +65,8 @@ mod leasing;
 mod metagraph;
 mod neuron;
 mod proxy;
+mod rails;
+pub mod rails_wire;
 mod registry;
 mod runtime_configuration;
 mod scheduler;
@@ -94,6 +97,7 @@ where
         + pallet_proxy::Config<ProxyType = ProxyType>
         + pallet_crowdloan::Config
         + pallet_drand::Config
+        + pallet_rails::Config
         + pallet_evm_chain_id::Config
         + pallet_scheduler::Config
         + pallet_shield::Config
@@ -112,6 +116,7 @@ where
         + From<pallet_balances::Call<R>>
         + From<pallet_admin_utils::Call<R>>
         + From<pallet_crowdloan::Call<R>>
+        + From<pallet_rails::Call<R>>
         + GetDispatchInfo
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<pallet_balances::Call<R>>
@@ -139,6 +144,7 @@ where
         + pallet_proxy::Config<ProxyType = ProxyType>
         + pallet_crowdloan::Config
         + pallet_drand::Config
+        + pallet_rails::Config
         + pallet_evm_chain_id::Config
         + pallet_scheduler::Config
         + pallet_shield::Config
@@ -157,6 +163,7 @@ where
         + From<pallet_balances::Call<R>>
         + From<pallet_admin_utils::Call<R>>
         + From<pallet_crowdloan::Call<R>>
+        + From<pallet_rails::Call<R>>
         + GetDispatchInfo
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<pallet_balances::Call<R>>
@@ -199,7 +206,7 @@ where
             || address == hash(PrecompileRegistry::<R>::INDEX)
     }
 
-    pub fn used_addresses() -> [H160; 40] {
+    pub fn used_addresses() -> [H160; 41] {
         [
             hash(1),
             hash(2),
@@ -241,6 +248,7 @@ where
             hash(TimestampPrecompile::<R>::INDEX),
             hash(RuntimeConfigurationPrecompile::<R>::INDEX),
             hash(PrecompileRegistry::<R>::INDEX),
+            hash(RailsPrecompile::<R>::INDEX),
         ]
     }
 }
@@ -255,6 +263,7 @@ where
         + pallet_proxy::Config<ProxyType = ProxyType>
         + pallet_crowdloan::Config
         + pallet_drand::Config
+        + pallet_rails::Config
         + pallet_evm_chain_id::Config
         + pallet_scheduler::Config
         + pallet_shield::Config
@@ -273,6 +282,7 @@ where
         + From<pallet_balances::Call<R>>
         + From<pallet_admin_utils::Call<R>>
         + From<pallet_crowdloan::Call<R>>
+        + From<pallet_rails::Call<R>>
         + GetDispatchInfo
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<pallet_balances::Call<R>>
@@ -401,6 +411,9 @@ where
                     PrecompileEnum::PrecompileRegistry,
                 )
             }
+            a if a == hash(RailsPrecompile::<R>::INDEX) => {
+                RailsPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Rails)
+            }
             _ => None,
         }
     }
@@ -516,6 +529,7 @@ mod address_and_selector_tests {
                 hash(VotingPowerPrecompile::<Runtime>::INDEX),
                 hash(ProxyPrecompile::<Runtime>::INDEX),
                 hash(BalancePrecompile::<Runtime>::INDEX),
+                hash(RailsPrecompile::<Runtime>::INDEX),
             ] {
                 assert_eq!(
                     execute_with_foreign_frame(address, alloc::vec::Vec::new()),
@@ -618,6 +632,8 @@ mod address_and_selector_tests {
         assert_eq!(TimestampPrecompile::<Runtime>::INDEX, 2065);
         assert_eq!(RuntimeConfigurationPrecompile::<Runtime>::INDEX, 2066);
         assert_eq!(PrecompileRegistry::<Runtime>::INDEX, 2067);
+        // 2068 is left to the gamma precompile.
+        assert_eq!(RailsPrecompile::<Runtime>::INDEX, 2069);
     }
 
     #[test]
@@ -641,6 +657,7 @@ mod address_and_selector_tests {
             (PrecompileEnum::Timestamp, 15),
             (PrecompileEnum::RuntimeConfiguration, 16),
             (PrecompileEnum::PrecompileRegistry, 17),
+            (PrecompileEnum::Rails, 18),
         ];
 
         for (variant, expected_index) in variants {
@@ -726,6 +743,23 @@ mod address_and_selector_tests {
                 "getPrecompileStatus(address,bytes4)"
             ))
         );
+        for signature in [
+            "execute(uint32,bytes32,bytes)",
+            "ackOutbound(uint32,uint64,uint256)",
+            "deferOutbound(uint32,uint64)",
+            "outbound(uint32,uint64)",
+            "nextOutbound(uint32)",
+            "quote(uint32,bytes)",
+            "receipt(uint32,uint64)",
+            "nextOrder(uint32)",
+            "alphaRate(uint16)",
+            "creditsOf(uint16,bytes32,address)",
+        ] {
+            assert!(
+                rails::RailsPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing Rails selector {signature}"
+            );
+        }
     }
 
     #[test]

@@ -14,6 +14,8 @@ ALPHA_SYMBOL = "\u03b1"  # α
 
 RAO_PER_TAO = 10**9
 GAMMA_UNITS = 10**9
+# Units per tUSD, the chain's dollar: 9 decimals, as TAO has.
+TUSD_UNITS = 10**9
 
 # Max value of a u16 weight, used for on-chain weight normalization.
 U16_MAX = 65535

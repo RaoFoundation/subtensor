@@ -23,9 +23,11 @@ BTreeSet = Any
 BasketTradePriceReference = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
+BridgeRoute = Any
 CommitmentInfo = Any
 ConsensusMode = Any
 DerivedDescriptor = Any
+Destination = Any
 Determinism = Any
 EpochConsensus = Any
 EquivocationProof = Any
@@ -36,7 +38,9 @@ H160 = Any
 H256 = Any
 MechId = Any
 MultiAddress = Any
+NativeAsset = Any
 NetUid = Any
+Order = Any
 OriginCaller = Any
 PerU16 = Any
 Percent = Any
@@ -48,10 +52,13 @@ PulsesPayload = Any
 RecycleOrBurnEnum = Any
 RegistrationDescriptor = Any
 RuntimeCall = Any
+SpokeAsset = Any
+SwapCaps = Any
 TaoBalance = Any
 TickIndex = Any
 Timepoint = Any
 TransactionV3 = Any
+TusdBalance = Any
 U256 = Any
 VersionedOrder = Any
 Void = Any
@@ -1978,3 +1985,150 @@ class HashedAccounts:
     def register_derived_sponsored(descriptor: 'DerivedDescriptor', deposit_payer: 'AccountId32') -> Call:
         "Register through the derived account's own authority while an explicitly consenting outer signer pays the permanent deposit."
         return Call('HashedAccounts', 'register_derived_sponsored', {'descriptor': descriptor, 'deposit_payer': deposit_payer})
+
+
+class Tusd:
+    """Call builders for the Tusd pallet."""
+
+    @staticmethod
+    def set_bridge(id: 'u32', route: 'BridgeRoute', mint_cap: 'TusdBalance', window_limit: 'TusdBalance', window_period: 'u32') -> Call:
+        'Registers bridge `id`, or changes its mint cap and mint window. A new bridge starts disabled. A changed bridge keeps what it has outstanding, what its window has consumed and whether it is enabled.  The route of a bridge is set once. What a bridge has outstanding is backed by the stablecoin in the vault of its portal, and what it still has to pay out is paid by that portal: another portal could pay neither. A new portal is a new bridge.'
+        return Call('Tusd', 'set_bridge', {'id': id, 'route': route, 'mint_cap': mint_cap, 'window_limit': window_limit, 'window_period': window_period})
+
+    @staticmethod
+    def set_bridge_enabled(id: 'u32', enabled: 'bool') -> Call:
+        'Enables or disables bridge `id`. The pause origin may only disable.'
+        return Call('Tusd', 'set_bridge_enabled', {'id': id, 'enabled': enabled})
+
+    @staticmethod
+    def transfer(dest: 'MultiAddress', amount: 'TusdBalance') -> Call:
+        "Sends `amount` of the signer's tUSD to `dest`."
+        return Call('Tusd', 'transfer', {'dest': dest, 'amount': amount})
+
+
+class CanonicalPool:
+    """Call builders for the CanonicalPool pallet."""
+
+    @staticmethod
+    def add_liquidity(max_tao: 'TaoBalance', max_tusd: 'TusdBalance', min_shares: 'u128') -> Call:
+        "Adds liquidity: takes at most `max_tao` and `max_tusd` from the signer in the pool's current ratio and mints shares, at least `min_shares` of them.  The first deposit sets the price. It must be within [`Config::MaxInitialPriceDeviation`] of the oracle's price, and it leaves [`math::MINIMUM_LIQUIDITY`] shares locked in the pool."
+        return Call('CanonicalPool', 'add_liquidity', {'max_tao': max_tao, 'max_tusd': max_tusd, 'min_shares': min_shares})
+
+    @staticmethod
+    def remove_liquidity(shares: 'u128', min_tao: 'TaoBalance', min_tusd: 'TusdBalance') -> Call:
+        "Removes liquidity: burns `shares` of the signer's and pays out their part of both reserves, at least `min_tao` and `min_tusd`. Open even while the pool is disabled."
+        return Call('CanonicalPool', 'remove_liquidity', {'shares': shares, 'min_tao': min_tao, 'min_tusd': min_tusd})
+
+    @staticmethod
+    def set_enabled(enabled: 'bool') -> Call:
+        'Enables or disables swaps and deposits. The pause origin may only disable.'
+        return Call('CanonicalPool', 'set_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def set_fee(fee: 'Permill') -> Call:
+        'Sets the swap fee, within [`MIN_FEE`] and [`MAX_FEE`].'
+        return Call('CanonicalPool', 'set_fee', {'fee': fee})
+
+    @staticmethod
+    def set_swap_caps(caps: 'SwapCaps') -> Call:
+        'Sets the swap caps.'
+        return Call('CanonicalPool', 'set_swap_caps', {'caps': caps})
+
+    @staticmethod
+    def swap_tao_for_tusd(amount_in: 'TaoBalance', min_out: 'TusdBalance') -> Call:
+        "Swaps `amount_in` of the signer's TAO for at least `min_out` tUSD."
+        return Call('CanonicalPool', 'swap_tao_for_tusd', {'amount_in': amount_in, 'min_out': min_out})
+
+    @staticmethod
+    def swap_tusd_for_tao(amount_in: 'TusdBalance', min_out: 'TaoBalance') -> Call:
+        "Swaps `amount_in` of the signer's tUSD for at least `min_out` TAO."
+        return Call('CanonicalPool', 'swap_tusd_for_tao', {'amount_in': amount_in, 'min_out': min_out})
+
+
+class Rails:
+    """Call builders for the Rails pallet."""
+
+    @staticmethod
+    def ack_outbound(bridge: 'u32', nonce: 'u64', paid: 'TaoBalance') -> Call:
+        "Takes message `nonce` of `bridge` out of the hub, and moves `paid`, what the transport charges the gateway for the message, from the bridge's account to the gateway. The message is the head of the bridge's queue, or a deferred one. Only the gateway may call this, in the transaction in which it pays the transport and hands it the message: if that fails, this is undone with it.  Fails if `paid` is more than the hub pays for a message of the bridge now ([`Pallet::message_limit`]). The bridge's account holds the reserve for every message that has not left, so a charge up to the reserve can always be paid."
+        return Call('Rails', 'ack_outbound', {'bridge': bridge, 'nonce': nonce, 'paid': paid})
+
+    @staticmethod
+    def bridge_out(bridge: 'u32', source: 'NativeAsset', amount: 'u64', destination: 'Destination', min_out: 'u64') -> Call:
+        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`. The signer also pays the bridge's [`MessageReserve`] in TAO into the bridge's account, for the message."
+        return Call('Rails', 'bridge_out', {'bridge': bridge, 'source': source, 'amount': amount, 'destination': destination, 'min_out': min_out})
+
+    @staticmethod
+    def defer_outbound(bridge: 'u32', nonce: 'u64') -> Call:
+        'Defers message `nonce`, the head of the queue of `bridge`: takes it out of the line, so that the messages behind it can leave. The message stays in the hub with its reserve, and the gateway can send it at any time.  The gateway calls this for a message that is not paid for: the transport charges more for it than the hub and the caller pay. The admin may call it at any time. Anyone may call it for a message that has been at the head of its queue for [`Config::StaleAfter`] blocks: the gateway could not hand it over in that time, because the transport refuses it or because no keeper asked.'
+        return Call('Rails', 'defer_outbound', {'bridge': bridge, 'nonce': nonce})
+
+    @staticmethod
+    def execute(domain: 'u32', sender: 'H256', order: 'Order') -> Call:
+        'Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, or the order is out of sequence. An order that cannot be settled for any other reason is taken and refunded. The answer always has room: the portal used an order slot for the order, and the hub set aside a place in the queue and a reserve when it gave the slot ([`OrderSlots`]). An order from a portal that used no slot is taken only if its answer has room all the same.'
+        return Call('Rails', 'execute', {'domain': domain, 'sender': sender, 'order': order})
+
+    @staticmethod
+    def fund_messages(bridge: 'u32', amount: 'TaoBalance') -> Call:
+        "Pays `amount` of the signer's TAO into the account of `bridge`, for the transport of messages to the bridge's spoke. Anyone may pay. The operator of a spoke pays in what the spoke's portal collected as answer fees. What is paid in is spent on messages and cannot be taken back."
+        return Call('Rails', 'fund_messages', {'bridge': bridge, 'amount': amount})
+
+    @staticmethod
+    def grant_slots(bridge: 'u32') -> Call:
+        "Sends the portal of `bridge` the order slots that it is missing, in a message of their own. Anyone may call this.  Slots go to a portal with the hub's payments. This is for a portal that is short of slots while no payment is on its way: at the start, after orders that needed no payment on the spoke, or after the bridge's account was paid into. Fails unless at most half of [`MaxOrderSlots`] are out, and unless the queue and the bridge's account have room for the message and for one slot at least."
+        return Call('Rails', 'grant_slots', {'bridge': bridge})
+
+    @staticmethod
+    def list_market(netuid: 'NetUid', bridge: 'u32', address: 'H160') -> Call:
+        'Lists the alpha token of `netuid` on the spoke of `bridge`: enters it in the registry at `address`, under the name the subnet published on chain, and tells the spoke to create it. The portal creates the token at its own address for the subnet (`Portal.alphaTokenAddress`). If `address` is another, the portal reports the difference and [`Pallet::register_token`] corrects the registry.'
+        return Call('Rails', 'list_market', {'netuid': netuid, 'bridge': bridge, 'address': address})
+
+    @staticmethod
+    def open_market(netuid: 'NetUid', cap: 'AlphaBalance') -> Call:
+        "Opens a market for the subnet at `netuid`: opens its index hotkey, owned by the market's vault, and lets the vault hold up to `cap` alpha."
+        return Call('Rails', 'open_market', {'netuid': netuid, 'cap': cap})
+
+    @staticmethod
+    def register_token(bridge: 'u32', asset: 'SpokeAsset', address: 'H160') -> Call:
+        'Enters in the registry the contract that stands for the stablecoin or for canonical TAO on the spoke of `bridge`, or corrects the address of an alpha token. An alpha token enters through [`Pallet::list_market`], which also has the spoke create it; this call only changes the address the registry shows for it.'
+        return Call('Rails', 'register_token', {'bridge': bridge, 'asset': asset, 'address': address})
+
+    @staticmethod
+    def set_gateway(gateway: 'Any') -> Call:
+        "Sets the account of the gateway contract, or removes it. The account must hold the existential deposit already: the hub hands it only what it pays on to the transport. The TAO for messages is in the bridges' accounts, so a new gateway starts with all of it."
+        return Call('Rails', 'set_gateway', {'gateway': gateway})
+
+    @staticmethod
+    def set_guardian(guardian: 'Any') -> Call:
+        'Sets the account that may pause the rails, or removes it.'
+        return Call('Rails', 'set_guardian', {'guardian': guardian})
+
+    @staticmethod
+    def set_market_cap(netuid: 'NetUid', cap: 'AlphaBalance') -> Call:
+        'Sets the most alpha the vault of `netuid` may hold after a purchase.'
+        return Call('Rails', 'set_market_cap', {'netuid': netuid, 'cap': cap})
+
+    @staticmethod
+    def set_max_order_slots(bridge: 'u32', max: 'u32') -> Call:
+        "Sets the most order slots of `bridge` that are out at one time: the most orders that the bridge's portal can have on their way before an answer arrives. The hub keeps a place in the bridge's queue and a reserve for each, so set it well below the queue's size. Lowering it takes no slot back: the hub gives none until fewer are out."
+        return Call('Rails', 'set_max_order_slots', {'bridge': bridge, 'max': max})
+
+    @staticmethod
+    def set_message_reserve(bridge: 'u32', reserve: 'TaoBalance', ceiling: 'TaoBalance') -> Call:
+        "Sets what the hub pays the transport for one message to the spoke of `bridge`.  - `reserve`: what the hub sets aside for each message that has not left. Set it above what the transport charges. Zero says that the hub sets nothing aside. - `ceiling`: the most the hub pays for one message, at least `reserve`. What a message costs above the reserve comes from what the bridge's account holds beyond the reserves of those messages. It is the bound on what a wrong price from the transport can take for one message.  A bridge takes no order before this is set. Fails if the bridge's account does not hold the new reserve for every message that has not left and every order slot that is out: pay in first ([`Pallet::fund_messages`])."
+        return Call('Rails', 'set_message_reserve', {'bridge': bridge, 'reserve': reserve, 'ceiling': ceiling})
+
+    @staticmethod
+    def set_paused(paused: 'bool') -> Call:
+        'Pauses or resumes the hub. The pause origin may only pause.'
+        return Call('Rails', 'set_paused', {'paused': paused})
+
+    @staticmethod
+    def set_tao_cap(bridge: 'u32', cap: 'TaoBalance') -> Call:
+        'Sets the most canonical TAO the spoke of `bridge` may have outstanding.'
+        return Call('Rails', 'set_tao_cap', {'bridge': bridge, 'cap': cap})
+
+    @staticmethod
+    def skip_order(bridge: 'u32', nonce: 'u64') -> Call:
+        'Passes over the next order of `bridge` without reading it, so that the orders behind it can settle. For an order that the gateway cannot decode: what its payer locked stays on the spoke and has to be returned by governance.'
+        return Call('Rails', 'skip_order', {'bridge': bridge, 'nonce': nonce})

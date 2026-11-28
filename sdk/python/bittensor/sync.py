@@ -202,6 +202,7 @@ class SyncClient:
     locks: _SyncNamespace
     neurons: _SyncNamespace
     prices: _SyncNamespace
+    rails: _SyncNamespace
     staking: _SyncNamespace
     subnets: _SyncNamespace
     weights: _SyncNamespace
@@ -246,6 +247,7 @@ class SyncClient:
         self.locks = _SyncNamespace(self._client.locks, self._call)
         self.neurons = _SyncNamespace(self._client.neurons, self._call)
         self.prices = _SyncNamespace(self._client.prices, self._call)
+        self.rails = _SyncNamespace(self._client.rails, self._call)
         self.staking = _SyncNamespace(self._client.staking, self._call)
         self.subnets = _SyncNamespace(self._client.subnets, self._call)
         self.weights = _SyncNamespace(self._client.weights, self._call)

@@ -26,6 +26,7 @@ use frame_support::weights::WeightMeter;
 mod currency;
 mod evm_context;
 mod proxy;
+pub mod rails;
 mod transaction_error;
 
 /// Balance of an account.

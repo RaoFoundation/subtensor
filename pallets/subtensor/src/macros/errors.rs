@@ -509,5 +509,7 @@ mod errors {
         NotMechWeightDelegate,
         /// A Null weight row exceeds the total row budget divided by mechanism count.
         TooManyWeightsForNullMechanism,
+        /// No more subnets can have an index hotkey.
+        TooManyIndexSubnets,
     }
 }

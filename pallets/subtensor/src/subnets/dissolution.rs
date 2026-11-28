@@ -192,6 +192,10 @@ impl<T: Config> Pallet<T> {
         SubnetGammaEmissionWhitelisted::<T>::remove(netuid);
         SubnetGammaEmission::<T>::remove(netuid);
         SubnetState::<T>::insert(netuid, SubnetLifecycleState::PendingDissolution);
+        // The subnet's index hotkey closes with it, so that the protocol sets it no children
+        // on a later subnet at this netuid.
+        IndexSubnets::<T>::mutate(|subnets| subnets.retain(|listed| *listed != netuid));
+        IndexRefreshedAt::<T>::remove(netuid);
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
@@ -256,6 +260,8 @@ impl<T: Config> Pallet<T> {
             ColdkeyGammaHotkeys::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             GammaSpent::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            GammaSpentByPayer::<T>::clear_prefix((netuid,), limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             UnconvertedGammaEmission::<T>::clear_prefix(netuid, limit, None)
         });

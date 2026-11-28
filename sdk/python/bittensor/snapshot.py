@@ -42,6 +42,7 @@ class Snapshot:
         self.locks = namespaces.Locks(self)
         self.neurons = namespaces.Neurons(self)
         self.prices = namespaces.Prices(self)
+        self.rails = namespaces.Rails(self)
         self.staking = namespaces.Staking(self)
         self.subnets = namespaces.Subnets(self)
         self.weights = namespaces.Weights(self)

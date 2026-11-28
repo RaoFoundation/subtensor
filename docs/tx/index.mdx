@@ -28,6 +28,14 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`transfer`](/docs/tx/transfer) | coldkey | signed account (pallet role may apply) | Transfer TAO from the coldkey to a destination address. |
 | [`transfer-all`](/docs/tx/transfer-all) | coldkey | signed account (pallet role may apply) | Transfer the entire transferable balance to a destination address. |
 
+## CanonicalPool
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`add-pool-liquidity`](/docs/tx/add-pool-liquidity) | coldkey | signed account (pallet role may apply) | Add TAO and tUSD to the canonical pool and receive its shares. |
+| [`remove-pool-liquidity`](/docs/tx/remove-pool-liquidity) | coldkey | signed account (pallet role may apply) | Redeem shares of the canonical pool for TAO and tUSD. |
+| [`swap-pool`](/docs/tx/swap-pool) | coldkey | signed account (pallet role may apply) | Swap between tUSD and TAO in the canonical pool. |
+
 ## Commitments
 
 | Operation | Signer | Origin | Summary |
@@ -86,6 +94,12 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`remove-proxies`](/docs/tx/remove-proxies) | coldkey | signed account (pallet role may apply) | Revoke every proxy delegation for the signing account at once. |
 | [`remove-proxy`](/docs/tx/remove-proxy) | coldkey | signed account (pallet role may apply) | Revoke one proxy delegation. |
 | [`remove-proxy-announcement`](/docs/tx/remove-proxy-announcement) | coldkey | signed account (pallet role may apply) | Cancel one of your own pending proxy announcements (delegate path). |
+
+## Rails
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`bridge-out`](/docs/tx/bridge-out) | coldkey | signed account (pallet role may apply) | Pay TAO or tUSD on Bittensor for an asset delivered on another chain. |
 
 ## SubtensorModule
 
@@ -155,6 +169,12 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`unstake-all`](/docs/tx/unstake-all) | coldkey | signed account (pallet role may apply) | Unstake everything from a hotkey across all subnets. |
 | [`unstake-all-alpha`](/docs/tx/unstake-all-alpha) | coldkey | signed account (pallet role may apply) | Unstake all alpha from a hotkey across subnets (moves it to root). |
 | [`update-symbol`](/docs/tx/update-symbol) | coldkey | subnet owner | Update a subnet's symbol (from the chain's fixed catalog). |
+
+## Tusd
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`transfer-tusd`](/docs/tx/transfer-tusd) | coldkey | signed account (pallet role may apply) | Transfer tUSD from the coldkey to a destination address. |
 
 ## Utility
 

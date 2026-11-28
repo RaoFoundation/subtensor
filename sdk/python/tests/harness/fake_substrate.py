@@ -59,6 +59,22 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("SubtensorModule", "SubnetGammaEmissionWhitelisted"): False,
     ("SubtensorModule", "GammaSpent"): 0,
+    ("SubtensorModule", "GammaSpentByPayer"): 0,
+    # The canonical pool: 1,000 TAO and 400,000 tUSD, enabled, with the default terms.
+    ("Tusd", "Balances"): 1_000 * 10**9,
+    ("Tusd", "BridgeOutstanding"): 500_000 * 10**9,
+    ("CanonicalPool", "Enabled"): True,
+    ("CanonicalPool", "ReserveTao"): 1_000 * 10**9,
+    ("CanonicalPool", "ReserveTusd"): 400_000 * 10**9,
+    ("CanonicalPool", "TotalShares"): 20_000 * 10**9,
+    ("CanonicalPool", "Shares"): 10_000 * 10**9,
+    ("CanonicalPool", "Fee"): 3_000,
+    ("CanonicalPool", "Caps"): {"per_swap": 20_000, "per_window": 200_000, "window": 300},
+    ("Rails", "NextOrder"): 1,
+    ("Rails", "TaoSupply"): 0,
+    ("Rails", "TaoCap"): 0,
+    ("Rails", "MessageReserve"): 0,
+    ("Rails", "AlphaSupply"): 0,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
 }
@@ -81,6 +97,14 @@ DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     # 1 TAO buys 1 alpha worth 1 TAO, minting 400 gamma.
     ("GammaRuntimeApi", "sim_mint_gamma"): {"Ok": (10**9, 10**9, 400 * 10**9)},
     ("GammaRuntimeApi", "sim_mint_gamma_with_stake"): {"Ok": (10**9, 10**9, 400 * 10**9)},
+    # The canonical pool at 400 dollars a TAO, and a hub that settles at the same price.
+    ("CanonicalPoolApi", "quote_tusd_for_tao"): 10**9,
+    ("CanonicalPoolApi", "quote_tao_for_tusd"): 400 * 10**9,
+    ("CanonicalPoolApi", "spot_price"): 400 * 10**9,
+    ("CanonicalPoolApi", "twap_price"): 400 * 10**9,
+    ("RailsApi", "quote_order"): {"Ok": 10**9},
+    ("RailsApi", "quote_bridge_out"): {"Ok": 100 * 10**9},
+    ("RailsApi", "alpha_rate"): 10**18,
     # 1 alpha staked, for the mint_gamma_with_stake sample.
     ("StakeInfoRuntimeApi", "get_stake_info_for_hotkey_coldkey_netuid"): {"stake": 10**9},
 }

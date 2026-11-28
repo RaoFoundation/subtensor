@@ -948,7 +948,7 @@ impl<T: Config> Pallet<T> {
     pub fn set_subnet_owner_hotkey(netuid: NetUid, hotkey: &T::AccountId) -> DispatchResult {
         // Ensure that hotkey is not a special account
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            !Self::is_system_hotkey(hotkey),
             Error::<T>::CannotUseSystemAccount
         );
 

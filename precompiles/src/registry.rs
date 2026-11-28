@@ -142,6 +142,8 @@ where
         Some(PrecompileEnum::RuntimeConfiguration)
     } else if at(2067) {
         Some(PrecompileEnum::PrecompileRegistry)
+    } else if at(2069) {
+        Some(PrecompileEnum::Rails)
     } else {
         None
     }

@@ -8,7 +8,7 @@ use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use fp_evm::{Context, PrecompileResult};
 use frame_support::{
     PalletId, derive_impl, parameter_types,
-    traits::{Everything, PrivilegeCmp, VariantCount, VariantCountOf},
+    traits::{EitherOfDiverse, Everything, PrivilegeCmp, VariantCount, VariantCountOf},
     weights::Weight,
 };
 use frame_system::{EnsureRoot, limits};
@@ -25,7 +25,7 @@ use sp_runtime::{
     traits::{BlakeTwo256, ConstU32, IdentityLookup},
 };
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AuthorshipInfo, NetUid, ProxyType, TaoBalance};
+use subtensor_runtime_common::{AuthorshipInfo, NetUid, ProxyType, TaoBalance, TusdBalance};
 
 use crate::PrecompileExt;
 
@@ -73,6 +73,9 @@ frame_support::construct_runtime!(
         AdminUtils: pallet_admin_utils = 13,
         EVMChainId: pallet_evm_chain_id = 14,
         CommitmentsPallet: pallet_commitments = 16,
+        Tusd: pallet_tusd = 17,
+        CanonicalPool: pallet_canonical_pool = 18,
+        Rails: pallet_rails = 19,
     }
 );
 
@@ -410,6 +413,54 @@ impl pallet_admin_utils::Config for Runtime {
     type Balance = TaoBalance;
     type WeightInfo = ();
     type RegistrationDeposit = MockRegistrationDeposit;
+}
+
+parameter_types! {
+    pub const TusdMinBalance: TusdBalance = TusdBalance::new(10_000_000);
+    pub const CanonicalPoolPalletId: PalletId = PalletId(*b"bt/cpool");
+    pub const MaxInitialPriceDeviation: sp_runtime::Permill = sp_runtime::Permill::from_percent(2);
+    pub const RailsPalletId: PalletId = PalletId(*b"bt/rails");
+}
+
+pub(crate) type RailsPauseOrigin =
+    EitherOfDiverse<EnsureRoot<AccountId>, pallet_rails::EnsureGuardian<Runtime>>;
+
+impl pallet_tusd::Config for Runtime {
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PauseOrigin = RailsPauseOrigin;
+    type MinBalance = TusdMinBalance;
+    type WeightInfo = ();
+}
+
+pub struct RootTaoUsdOracle;
+impl pallet_canonical_pool::TaoUsdOracle for RootTaoUsdOracle {
+    fn tao_usd_price() -> Option<u64> {
+        SubtensorModule::mint_tao_usd_price(SubtensorModule::get_current_block_as_u64()).ok()
+    }
+}
+
+impl pallet_canonical_pool::Config for Runtime {
+    type Currency = Balances;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PauseOrigin = RailsPauseOrigin;
+    type PriceOracle = RootTaoUsdOracle;
+    type PalletId = CanonicalPoolPalletId;
+    type MaxInitialPriceDeviation = MaxInitialPriceDeviation;
+    type MinReserve = ConstU64<1_000_000>;
+    type TwapPeriod = ConstU32<10>;
+    type WeightInfo = ();
+}
+
+impl pallet_rails::Config for Runtime {
+    type Staking = SubtensorModule;
+    type Time = Timestamp;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PauseOrigin = RailsPauseOrigin;
+    type PalletId = RailsPalletId;
+    type MaxOutbox = ConstU32<16>;
+    type StaleAfter = ConstU32<10>;
+    type ReceiptsKept = ConstU64<8>;
+    type WeightInfo = ();
 }
 
 impl pallet_drand::Config for Runtime {
