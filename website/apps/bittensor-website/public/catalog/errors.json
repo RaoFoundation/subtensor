@@ -445,8 +445,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 433,
-          "url": "/code/pallets/rails/src/lib.rs#L433",
+          "line": 484,
+          "url": "/code/pallets/rails/src/lib.rs#L484",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -903,8 +903,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 422,
-          "url": "/code/pallets/rails/src/lib.rs#L422",
+          "line": 473,
+          "url": "/code/pallets/rails/src/lib.rs#L473",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -1200,8 +1200,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 472,
-          "url": "/code/pallets/rails/src/lib.rs#L472",
+          "line": 525,
+          "url": "/code/pallets/rails/src/lib.rs#L525",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -1671,24 +1671,6 @@
           "line": 188,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L188",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "Congested": {
-      "code": "too_early",
-      "description": "The bridge is congested: `Rails.CongestedAt` or more of its messages are deferred, because the transport charges more for them than the hub pays and nobody paid the difference. Until some of them have left, the hub makes no new payment on that chain: it refunds an order, and refuses an exit. Anyone can send a deferred message and pay the difference (`btcli bridge flush --message`), or pay into the bridge's account (`Rails.fund_messages`). `btcli bridge list` shows the deferred messages.",
-      "docs_url": "/docs/errors/chain/Congested",
-      "markdown_url": "/llms.mdx/docs/errors/chain/Congested/content.md",
-      "pallets": [
-        "Rails"
-      ],
-      "sources": [
-        {
-          "pallet": "Rails",
-          "path": "pallets/rails/src/lib.rs",
-          "line": 478,
-          "url": "/code/pallets/rails/src/lib.rs#L478",
-          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -2395,8 +2377,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 429,
-          "url": "/code/pallets/rails/src/lib.rs#L429",
+          "line": 480,
+          "url": "/code/pallets/rails/src/lib.rs#L480",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -2467,8 +2449,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 469,
-          "url": "/code/pallets/rails/src/lib.rs#L469",
+          "line": 522,
+          "url": "/code/pallets/rails/src/lib.rs#L522",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -2773,8 +2755,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 475,
-          "url": "/code/pallets/rails/src/lib.rs#L475",
+          "line": 528,
+          "url": "/code/pallets/rails/src/lib.rs#L528",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -3725,8 +3707,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 427,
-          "url": "/code/pallets/rails/src/lib.rs#L427",
+          "line": 478,
+          "url": "/code/pallets/rails/src/lib.rs#L478",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4202,8 +4184,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 451,
-          "url": "/code/pallets/rails/src/lib.rs#L451",
+          "line": 502,
+          "url": "/code/pallets/rails/src/lib.rs#L502",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4220,8 +4202,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 447,
-          "url": "/code/pallets/rails/src/lib.rs#L447",
+          "line": 498,
+          "url": "/code/pallets/rails/src/lib.rs#L498",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4238,8 +4220,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 445,
-          "url": "/code/pallets/rails/src/lib.rs#L445",
+          "line": 496,
+          "url": "/code/pallets/rails/src/lib.rs#L496",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4256,8 +4238,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 449,
-          "url": "/code/pallets/rails/src/lib.rs#L449",
+          "line": 500,
+          "url": "/code/pallets/rails/src/lib.rs#L500",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4274,8 +4256,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 443,
-          "url": "/code/pallets/rails/src/lib.rs#L443",
+          "line": 494,
+          "url": "/code/pallets/rails/src/lib.rs#L494",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4487,7 +4469,7 @@
     },
     "MessagesNotFunded": {
       "code": "too_early",
-      "description": "The hub's messages to this bridge are not paid for. Either the admin has not set the most the hub pays for one (`Rails.MessageReserve`), or the bridge's account does not hold that reserve for every message that has not left and one more. Anyone can pay into the account with `Rails.fund_messages`; orders wait with the transport until then.",
+      "description": "The hub's messages to this bridge are not paid for. Either the admin has not set what the hub sets aside for one (`Rails.MessageReserve`), or the bridge's account does not hold that reserve for every message that has not left, for every order slot that is out, and for one more message. Anyone can pay into the account with `Rails.fund_messages`.",
       "docs_url": "/docs/errors/chain/MessagesNotFunded",
       "markdown_url": "/llms.mdx/docs/errors/chain/MessagesNotFunded/content.md",
       "pallets": [
@@ -4497,8 +4479,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 465,
-          "url": "/code/pallets/rails/src/lib.rs#L465",
+          "line": 518,
+          "url": "/code/pallets/rails/src/lib.rs#L518",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -4971,6 +4953,24 @@
         }
       ]
     },
+    "NoSlotsToGrant": {
+      "code": "too_early",
+      "description": "The hub can give this bridge's portal no order slot in a message of its own now. More than half of the bridge's slots are out (`Rails.OrderSlots`, `Rails.MaxOrderSlots`): the rest go with the hub's payments. Or the bridge's queue or account has no room for one more slot: pay into the account (`Rails.fund_messages`), or have the gateway send what waits.",
+      "docs_url": "/docs/errors/chain/NoSlotsToGrant",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoSlotsToGrant/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 531,
+          "url": "/code/pallets/rails/src/lib.rs#L531",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+        }
+      ]
+    },
     "NoTimepoint": {
       "code": "invalid_argument",
       "description": "No timepoint was supplied but this multisig operation is already underway, so the approval cannot be matched to it. Read the operation's `when` field from the `Multisigs` entry for the call hash and pass that height and index as `maybe_timepoint`.",
@@ -5273,8 +5273,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 416,
-          "url": "/code/pallets/rails/src/lib.rs#L416",
+          "line": 467,
+          "url": "/code/pallets/rails/src/lib.rs#L467",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -5318,8 +5318,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 460,
-          "url": "/code/pallets/rails/src/lib.rs#L460",
+          "line": 512,
+          "url": "/code/pallets/rails/src/lib.rs#L512",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -5429,6 +5429,24 @@
           "line": 116,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L116",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NotStale": {
+      "code": "too_early",
+      "description": "The message has not been at the head of its bridge's queue for `Rails.StaleAfter` blocks. Until then only the gateway and the admin defer it. Retry when it has waited that long.",
+      "docs_url": "/docs/errors/chain/NotStale",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotStale/content.md",
+      "pallets": [
+        "Rails"
+      ],
+      "sources": [
+        {
+          "pallet": "Rails",
+          "path": "pallets/rails/src/lib.rs",
+          "line": 534,
+          "url": "/code/pallets/rails/src/lib.rs#L534",
+          "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
     },
@@ -5633,8 +5651,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 425,
-          "url": "/code/pallets/rails/src/lib.rs#L425",
+          "line": 476,
+          "url": "/code/pallets/rails/src/lib.rs#L476",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -5686,7 +5704,7 @@
     },
     "OutboxFull": {
       "code": "limit_exceeded",
-      "description": "Too many of the hub's messages wait in this bridge's queue (`Rails.MaxOutbox`). Anyone can call the gateway's `flush` for the bridge: each message then leaves, or is deferred if nobody pays what the transport charges for it. Deferred messages take no place in the queue.",
+      "description": "This bridge's queue has no place left (`Rails.MaxOutbox`): its messages in line and its order slots that are out take all of them. Anyone can call the gateway's `flush` for the bridge: each message then leaves, or is deferred if nobody pays what the transport charges for it. Deferred messages take no place in the queue.",
       "docs_url": "/docs/errors/chain/OutboxFull",
       "markdown_url": "/llms.mdx/docs/errors/chain/OutboxFull/content.md",
       "pallets": [
@@ -5696,8 +5714,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 457,
-          "url": "/code/pallets/rails/src/lib.rs#L457",
+          "line": 509,
+          "url": "/code/pallets/rails/src/lib.rs#L509",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -5747,8 +5765,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 462,
-          "url": "/code/pallets/rails/src/lib.rs#L462",
+          "line": 514,
+          "url": "/code/pallets/rails/src/lib.rs#L514",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -5882,8 +5900,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 418,
-          "url": "/code/pallets/rails/src/lib.rs#L418",
+          "line": 469,
+          "url": "/code/pallets/rails/src/lib.rs#L469",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -6206,8 +6224,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 441,
-          "url": "/code/pallets/rails/src/lib.rs#L441",
+          "line": 492,
+          "url": "/code/pallets/rails/src/lib.rs#L492",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -6610,8 +6628,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 431,
-          "url": "/code/pallets/rails/src/lib.rs#L431",
+          "line": 482,
+          "url": "/code/pallets/rails/src/lib.rs#L482",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -6880,8 +6898,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 453,
-          "url": "/code/pallets/rails/src/lib.rs#L453",
+          "line": 504,
+          "url": "/code/pallets/rails/src/lib.rs#L504",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -7032,8 +7050,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 439,
-          "url": "/code/pallets/rails/src/lib.rs#L439",
+          "line": 490,
+          "url": "/code/pallets/rails/src/lib.rs#L490",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -7140,8 +7158,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 437,
-          "url": "/code/pallets/rails/src/lib.rs#L437",
+          "line": 488,
+          "url": "/code/pallets/rails/src/lib.rs#L488",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -7582,8 +7600,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 455,
-          "url": "/code/pallets/rails/src/lib.rs#L455",
+          "line": 506,
+          "url": "/code/pallets/rails/src/lib.rs#L506",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -7745,8 +7763,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 435,
-          "url": "/code/pallets/rails/src/lib.rs#L435",
+          "line": 486,
+          "url": "/code/pallets/rails/src/lib.rs#L486",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]
@@ -7817,8 +7835,8 @@
         {
           "pallet": "Rails",
           "path": "pallets/rails/src/lib.rs",
-          "line": 420,
-          "url": "/code/pallets/rails/src/lib.rs#L420",
+          "line": 471,
+          "url": "/code/pallets/rails/src/lib.rs#L471",
           "raw_url": "/code/raw/pallets/rails/src/lib.rs"
         }
       ]

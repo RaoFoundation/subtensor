@@ -140,14 +140,20 @@ number:
 btcli bridge flush --bridge 8453 --message 12 --pay-up-to 0.01
 ```
 
-If many messages of a bridge are deferred, the bridge is congested. Bittensor then
-makes no new payment on that chain. An order from that chain is refunded, and
-`btcli bridge exit` fails and takes nothing. The bridge pays again when deferred
-messages have left.
-
 `btcli bridge list` shows the status of each bridge, its reserve and its ceiling, what
-its account can pay, how many messages have not left, and the numbers of the deferred
-ones.
+its account can pay, its order slots, how many messages have not left, and the numbers
+of the deferred ones.
+
+## Order slots
+
+The contract on the other chain takes an order only if it holds an order slot. A slot
+is Bittensor's promise to answer one order: Bittensor has set aside what it needs to
+send that answer. Each order uses a slot, and the answer brings it back.
+
+If the answers do not arrive, or nobody pays for them on Bittensor, the slots run out.
+Then a deposit or a sale fails at once, and nothing is taken from the payer.
+`btcli bridge deposit` and `btcli bridge sell` say so before they send anything. Try
+again a little later.
 
 ## tUSD
 

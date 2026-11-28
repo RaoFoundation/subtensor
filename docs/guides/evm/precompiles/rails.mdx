@@ -38,15 +38,16 @@ precompile emits no logs. The gateway contract emits the logs of an order.
 The hub keeps one queue of messages for each bridge, and one account of TAO for
 each bridge. The account pays to send that bridge's messages. It always holds
 the bridge's reserve (`Rails.MessageReserve`) for each message that has not
-left the hub.
+left the hub, and for each order slot that is out (`Rails.OrderSlots`): the
+hub's promise to answer an order that the bridge's portal may still send.
 
 `ackOutbound(bridge, nonce, paid)` takes a message out of the hub and moves
 `paid` from that bridge's account to the caller. The message is the head of
 the bridge's queue, or a deferred message. `paid` is what the gateway pays the
 transport for the message, in wei. The hub counts it in rao and rounds up. The
 hub pays at most a limit: the reserve, and above it what the account holds
-beyond the reserves of the messages that have not left, up to the bridge's
-ceiling (`Rails.MessageCeiling`). `nextOutbound` and `outbound` return that
+beyond the reserves in use, up to the bridge's ceiling
+(`Rails.MessageCeiling`). `nextOutbound` and `outbound` return that
 limit. If `paid` is more, the call fails with `FeeAboveLimit` and the message
 stays in the hub. The gateway makes the call in the transaction that pays the
 transport and hands it the message.

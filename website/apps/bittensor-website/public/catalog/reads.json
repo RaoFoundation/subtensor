@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 3018,
-        "end_line": 3028,
-        "url": "/code/runtime/src/lib.rs#L3018-L3028",
+        "line": 3017,
+        "end_line": 3027,
+        "url": "/code/runtime/src/lib.rs#L3017-L3027",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -390,8 +390,8 @@
         "container": "Rails",
         "name": "NextOrder",
         "path": "pallets/rails/src/lib.rs",
-        "line": 235,
-        "url": "/code/pallets/rails/src/lib.rs#L235",
+        "line": 258,
+        "url": "/code/pallets/rails/src/lib.rs#L258",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -399,8 +399,8 @@
         "container": "Rails",
         "name": "Receipts",
         "path": "pallets/rails/src/lib.rs",
-        "line": 239,
-        "url": "/code/pallets/rails/src/lib.rs#L239",
+        "line": 262,
+        "url": "/code/pallets/rails/src/lib.rs#L262",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -408,7 +408,7 @@
   {
     "name": "bridges",
     "summary": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.",
-    "description": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.\n\n`outstanding_tusd` is the tUSD the bridge minted and has not burned: the\nstablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`\nand `tao_cap` are the canonical TAO on the bridge's chain and its cap.\n\nThe last seven fields say who pays for the hub's messages to the bridge's\nchain. `message_account` holds the TAO for them, and `message_budget` is\nwhat it can pay: its balance less the existential deposit. `message_reserve`\nis what the hub sets aside for each message, or None while it is not set,\nand `message_ceiling` is the most the hub pays for one: above the reserve\nit pays from what the account can spare. `messages_waiting` is how many\nhave not left the hub. `messages_deferred` lists the numbers of those\namong them that are deferred: they left the line because the transport\ncharged more for them than was paid, and the gateway sends each one when\nsomebody asks it to (`btcli bridge flush --message`). `congested` says\nthat so many are deferred that the hub makes no new payment on the\nbridge's chain: it refunds orders and refuses exits until some of them\nhave left. The hub takes an order of the bridge only while the account\nholds the reserve for every waiting message and one more. Anyone can pay\ninto the account (`Rails.fund_messages`).",
+    "description": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.\n\n`outstanding_tusd` is the tUSD the bridge minted and has not burned: the\nstablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`\nand `tao_cap` are the canonical TAO on the bridge's chain and its cap.\n\nThe last eight fields say who pays for the hub's messages to the bridge's\nchain. `message_account` holds the TAO for them, and `message_budget` is\nwhat it can pay: its balance less the existential deposit. `message_reserve`\nis what the hub sets aside for each message, or None while it is not set,\nand `message_ceiling` is the most the hub pays for one: above the reserve\nit pays from what the account can spare. `messages_waiting` is how many\nhave not left the hub. `messages_deferred` lists the numbers of those\namong them that are deferred: they left the line because the transport\ncharged more for them than was paid, or the gateway could not hand them\nover, and the gateway sends each one when somebody asks it to (`btcli\nbridge flush --message`).\n\n`order_slots` and `max_order_slots` say how many orders the bridge's chain\nmay send. A slot is the hub's promise to answer one order: the hub keeps a\nplace in the bridge's queue and a reserve in the account for that answer.\nThe portal on the other chain takes an order only if it holds a slot.\n`order_slots` counts the slots that are out: at the portal, on their way\nto it, or used by an order that the hub has not taken yet. The hub gives\nslots back with its payments, up to `max_order_slots`, as far as the\naccount covers them. Anyone can pay into the account\n(`Rails.fund_messages`).",
     "params": {},
     "param_docs": {},
     "category": "Canonical rails",
@@ -439,14 +439,50 @@
         "container": "Rails",
         "name": "TaoSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 295,
-        "url": "/code/pallets/rails/src/lib.rs#L295",
+        "line": 338,
+        "url": "/code/pallets/rails/src/lib.rs#L338",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
         "kind": "storage",
         "container": "Rails",
         "name": "TaoCap",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 342,
+        "url": "/code/pallets/rails/src/lib.rs#L342",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "NextOrder",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 258,
+        "url": "/code/pallets/rails/src/lib.rs#L258",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "MessageReserve",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 314,
+        "url": "/code/pallets/rails/src/lib.rs#L314",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "MessageCeiling",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 321,
+        "url": "/code/pallets/rails/src/lib.rs#L321",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "OrderSlots",
         "path": "pallets/rails/src/lib.rs",
         "line": 299,
         "url": "/code/pallets/rails/src/lib.rs#L299",
@@ -455,28 +491,10 @@
       {
         "kind": "storage",
         "container": "Rails",
-        "name": "NextOrder",
+        "name": "MaxOrderSlots",
         "path": "pallets/rails/src/lib.rs",
-        "line": 235,
-        "url": "/code/pallets/rails/src/lib.rs#L235",
-        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
-      },
-      {
-        "kind": "storage",
-        "container": "Rails",
-        "name": "MessageReserve",
-        "path": "pallets/rails/src/lib.rs",
-        "line": 271,
-        "url": "/code/pallets/rails/src/lib.rs#L271",
-        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
-      },
-      {
-        "kind": "storage",
-        "container": "Rails",
-        "name": "MessageCeiling",
-        "path": "pallets/rails/src/lib.rs",
-        "line": 278,
-        "url": "/code/pallets/rails/src/lib.rs#L278",
+        "line": 305,
+        "url": "/code/pallets/rails/src/lib.rs#L305",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -484,8 +502,8 @@
         "container": "Rails",
         "name": "NextMessage",
         "path": "pallets/rails/src/lib.rs",
-        "line": 245,
-        "url": "/code/pallets/rails/src/lib.rs#L245",
+        "line": 268,
+        "url": "/code/pallets/rails/src/lib.rs#L268",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -493,8 +511,8 @@
         "container": "Rails",
         "name": "NextOutbound",
         "path": "pallets/rails/src/lib.rs",
-        "line": 251,
-        "url": "/code/pallets/rails/src/lib.rs#L251",
+        "line": 274,
+        "url": "/code/pallets/rails/src/lib.rs#L274",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -502,8 +520,8 @@
         "container": "Rails",
         "name": "Outbox",
         "path": "pallets/rails/src/lib.rs",
-        "line": 256,
-        "url": "/code/pallets/rails/src/lib.rs#L256",
+        "line": 279,
+        "url": "/code/pallets/rails/src/lib.rs#L279",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -511,9 +529,9 @@
         "container": "RailsApi",
         "name": "message_account",
         "path": "runtime/src/lib.rs",
-        "line": 3002,
-        "end_line": 3004,
-        "url": "/code/runtime/src/lib.rs#L3002-L3004",
+        "line": 3001,
+        "end_line": 3003,
+        "url": "/code/runtime/src/lib.rs#L3001-L3003",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       },
       {
@@ -521,15 +539,10 @@
         "container": "RailsApi",
         "name": "message_budget",
         "path": "runtime/src/lib.rs",
-        "line": 3006,
-        "end_line": 3008,
-        "url": "/code/runtime/src/lib.rs#L3006-L3008",
+        "line": 3005,
+        "end_line": 3007,
+        "url": "/code/runtime/src/lib.rs#L3005-L3007",
         "raw_url": "/code/raw/runtime/src/lib.rs"
-      },
-      {
-        "kind": "constant",
-        "container": "Rails",
-        "name": "CongestedAt"
       }
     ]
   },
@@ -629,9 +642,9 @@
         "container": "CanonicalPoolApi",
         "name": "spot_price",
         "path": "runtime/src/lib.rs",
-        "line": 2969,
-        "end_line": 2971,
-        "url": "/code/runtime/src/lib.rs#L2969-L2971",
+        "line": 2968,
+        "end_line": 2970,
+        "url": "/code/runtime/src/lib.rs#L2968-L2970",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       },
       {
@@ -639,9 +652,9 @@
         "container": "CanonicalPoolApi",
         "name": "twap_price",
         "path": "runtime/src/lib.rs",
-        "line": 2973,
-        "end_line": 2975,
-        "url": "/code/runtime/src/lib.rs#L2973-L2975",
+        "line": 2972,
+        "end_line": 2974,
+        "url": "/code/runtime/src/lib.rs#L2972-L2974",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1369,9 +1382,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2796,
-        "end_line": 2798,
-        "url": "/code/runtime/src/lib.rs#L2796-L2798",
+        "line": 2795,
+        "end_line": 2797,
+        "url": "/code/runtime/src/lib.rs#L2795-L2797",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1850,9 +1863,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2800,
-        "end_line": 2802,
-        "url": "/code/runtime/src/lib.rs#L2800-L2802",
+        "line": 2799,
+        "end_line": 2801,
+        "url": "/code/runtime/src/lib.rs#L2799-L2801",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2240,9 +2253,9 @@
         "container": "CanonicalPoolApi",
         "name": "quote_tao_for_tusd",
         "path": "runtime/src/lib.rs",
-        "line": 2965,
-        "end_line": 2967,
-        "url": "/code/runtime/src/lib.rs#L2965-L2967",
+        "line": 2964,
+        "end_line": 2966,
+        "url": "/code/runtime/src/lib.rs#L2964-L2966",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       },
       {
@@ -2250,9 +2263,9 @@
         "container": "CanonicalPoolApi",
         "name": "quote_tusd_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2961,
-        "end_line": 2963,
-        "url": "/code/runtime/src/lib.rs#L2961-L2963",
+        "line": 2960,
+        "end_line": 2962,
+        "url": "/code/runtime/src/lib.rs#L2960-L2962",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2279,9 +2292,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 3030,
-        "end_line": 3058,
-        "url": "/code/runtime/src/lib.rs#L3030-L3058",
+        "line": 3029,
+        "end_line": 3057,
+        "url": "/code/runtime/src/lib.rs#L3029-L3057",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2308,9 +2321,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 3060,
-        "end_line": 3088,
-        "url": "/code/runtime/src/lib.rs#L3060-L3088",
+        "line": 3059,
+        "end_line": 3087,
+        "url": "/code/runtime/src/lib.rs#L3059-L3087",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2331,8 +2344,8 @@
         "container": "Rails",
         "name": "Tokens",
         "path": "pallets/rails/src/lib.rs",
-        "line": 283,
-        "url": "/code/pallets/rails/src/lib.rs#L283",
+        "line": 326,
+        "url": "/code/pallets/rails/src/lib.rs#L326",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -2340,8 +2353,8 @@
         "container": "Rails",
         "name": "AlphaSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 308,
-        "url": "/code/pallets/rails/src/lib.rs#L308",
+        "line": 351,
+        "url": "/code/pallets/rails/src/lib.rs#L351",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -2349,9 +2362,9 @@
         "container": "RailsApi",
         "name": "alpha_rate",
         "path": "runtime/src/lib.rs",
-        "line": 2998,
-        "end_line": 3000,
-        "url": "/code/runtime/src/lib.rs#L2998-L3000",
+        "line": 2997,
+        "end_line": 2999,
+        "url": "/code/runtime/src/lib.rs#L2997-L2999",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2430,9 +2443,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2824,
-        "end_line": 2826,
-        "url": "/code/runtime/src/lib.rs#L2824-L2826",
+        "line": 2823,
+        "end_line": 2825,
+        "url": "/code/runtime/src/lib.rs#L2823-L2825",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2495,9 +2508,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2836,
-        "end_line": 2838,
-        "url": "/code/runtime/src/lib.rs#L2836-L2838",
+        "line": 2835,
+        "end_line": 2837,
+        "url": "/code/runtime/src/lib.rs#L2835-L2837",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3182,9 +3195,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2807,
-        "end_line": 2809,
-        "url": "/code/runtime/src/lib.rs#L2807-L2809",
+        "line": 2806,
+        "end_line": 2808,
+        "url": "/code/runtime/src/lib.rs#L2806-L2808",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3611,9 +3624,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2830,
-        "end_line": 2832,
-        "url": "/code/runtime/src/lib.rs#L2830-L2832",
+        "line": 2829,
+        "end_line": 2831,
+        "url": "/code/runtime/src/lib.rs#L2829-L2831",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
