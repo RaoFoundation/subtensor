@@ -71,12 +71,15 @@ USER_ADDRESS="0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
 # - ANSWER_FEE: what each order pays on the spoke for the hub's answer, in wei.
 # - TRANSPORT_FEE: what the rig's transport charges for one message, in rao. It is the
 #   protocol fee in hyperlane/core-config.yaml: keep the two the same.
-# - MESSAGE_RESERVE: the most the hub pays for one message to the spoke, in rao. The
+# - MESSAGE_RESERVE: what the hub sets aside for one message to the spoke, in rao. The
 #   spoke's account on the hub holds this for each queued message, and an exit pays it in.
+# - MESSAGE_CEILING: the most the hub pays for one message to the spoke, in rao. Above the
+#   reserve it pays from what the spoke's account can spare.
 # - MESSAGE_BUDGET: what the rig pays into the spoke's account at the start, in rao.
 ANSWER_FEE=100000000000000
 TRANSPORT_FEE=1000
 MESSAGE_RESERVE=1000000
+MESSAGE_CEILING=2000000
 MESSAGE_BUDGET=1000000000
 
 # Pinned versions of the transport's tooling.
@@ -94,7 +97,7 @@ export RAILS_STATE RAILS_MANIFEST HUB_WS HUB_RPC HUB_CHAIN_ID HUB_DOMAIN \
     SPOKE_NAME SPOKE_RPC SPOKE_BRIDGE SPOKE_DOMAIN SPOKE_CHAIN_ID \
     DEPLOYER_KEY DEPLOYER VALIDATOR RELAYER MULTISIG_KEY MULTISIG GUARDIAN_KEY GUARDIAN \
     KEEPER_KEY KEEPER USER_KEY USER_ADDRESS ANSWER_FEE TRANSPORT_FEE MESSAGE_RESERVE \
-    MESSAGE_BUDGET
+    MESSAGE_CEILING MESSAGE_BUDGET
 
 # Runs one of the rig's Python scripts in the SDK's environment.
 rails_python() { # script [arguments]

@@ -12,8 +12,9 @@ person does and checks what the two chains say after each step:
 6. a holder of TAO on Bittensor leaves through the bridge;
 7. who paid for the messages: each order on the spoke, each exit on the hub, and the
    spoke's account on the hub for exactly what the transport charged;
-8. the transport charges more than the hub pays for a message: the message waits, an
-   order still settles, and anyone sends the message on by paying the difference.
+8. the transport charges more than the hub sets aside for a message: an order still
+   settles and its answer waits. It leaves when a caller pays the difference, or by
+   itself when the hub may pay the difference from what the spoke's account can spare.
 
 It ends with the invariants that hold between the chains at any time.
 """
@@ -32,6 +33,7 @@ from rig import (
     HUB_RPC,
     KEEPER,
     KEEPER_KEY,
+    MESSAGE_CEILING,
     MESSAGE_RESERVE,
     MULTISIG,
     RESERVE_ACCOUNT,
@@ -385,28 +387,36 @@ async def who_paid(rig: Rig, first_order: int, fees_before: int, start: Transpor
 
 
 async def charge_above_the_reserve(rig: Rig) -> None:
-    """The transport charges more than the hub pays for a message. The message waits, the
-    order that caused it still settles, and anyone sends it on by paying the difference."""
+    """The transport charges more than the hub sets aside for a message. An order still
+    settles, and its answer waits. It leaves when a caller pays the difference, or by
+    itself when the hub may pay the difference from what the spoke's account can spare."""
     alice = dev_wallet()
     chain, spoke, hub = rig.chain, rig.spoke, rig.hub_evm
     reserve = TRANSPORT_FEE // 2
 
-    async def set_reserve(value: int) -> None:
-        call = bt.calls.Rails.set_message_reserve(bridge=SPOKE_BRIDGE, reserve=value)
+    async def set_terms(reserve: int, ceiling: int) -> None:
+        call = bt.calls.Rails.set_message_reserve(
+            bridge=SPOKE_BRIDGE, reserve=reserve, ceiling=ceiling
+        )
         await submit(chain, call, alice, root=True)
 
-    await set_reserve(reserve)
-    try:
+    async def held_order() -> tuple[int, Transport]:
+        """An order that settles on the hub while its answer waits."""
         before = await rig.transport()
-        held = spoke.balance(spoke.tao, USER)
         order = spoke.deposit(USER_KEY, 10 * USDC, rails.to_tao(USER))
         receipt = await rig.receipt(order)
         assert receipt["status"] == "settled", receipt
-        # The relayer and the keeper have had their turn: nobody paid the difference.
+        # The relayer and the keeper have had their turn: the answer has not left.
         await asyncio.sleep(HELD_FOR)
         waiting = await rig.transport()
         assert waiting == before and not spoke.answers(order), (before, waiting)
+        return order, before
 
+    # The hub sets half the charge aside for a message, and pays no more than that.
+    await set_terms(reserve, reserve)
+    try:
+        tokens = spoke.balance(spoke.tao, USER)
+        order, before = await held_order()
         # Anyone asks the gateway to send the message and pays what the hub does not.
         # What was sent along and not needed comes back.
         payer_before = int(hub.call("eth_getBalance", [KEEPER, "latest"]), 16)
@@ -415,19 +425,31 @@ async def charge_above_the_reserve(rig: Rig) -> None:
         gas = int(sent["gasUsed"], 16) * int(sent["effectiveGasPrice"], 16)
         paid = payer_before - int(hub.call("eth_getBalance", [KEEPER, "latest"]), 16) - gas
         assert paid == (TRANSPORT_FEE - reserve) * WEI_PER_RAO, paid
-
-        answer = await rig.answer(order)
-        assert spoke.balance(spoke.tao, USER) - held == answer["amount"] > 0
+        first = await rig.answer(order)
         after = await rig.transport()
         # The hub paid the reserve and no more, and the gateway kept nothing.
         assert after == Transport(before.budget - reserve, before.gateway, before.sent + 1), after
+
+        # A second order: its answer waits as the first did.
+        order, before = await held_order()
+        # The admin lets the hub pay up to twice the charge for a message. The spoke's
+        # account has TAO to spare, so the queue drains by itself: nobody pays the gateway.
+        await set_terms(reserve, 2 * TRANSPORT_FEE)
+        second = await rig.answer(order)
+        after = await rig.transport()
+        # The account paid the whole charge: the message's reserve, and the rest from what
+        # it could spare.
+        expected = Transport(before.budget - TRANSPORT_FEE, before.gateway, before.sent + 1)
+        assert after == expected, (after, expected)
+        assert spoke.balance(spoke.tao, USER) - tokens == first["amount"] + second["amount"]
     finally:
-        await set_reserve(MESSAGE_RESERVE)
+        await set_terms(MESSAGE_RESERVE, MESSAGE_CEILING)
     show(
         "a charge above the reserve",
-        f"the transport charged {TRANSPORT_FEE} rao and the hub pays {reserve}: the order "
-        f"settled, its answer waited, and left when a caller paid the other "
-        f"{paid // WEI_PER_RAO} rao",
+        f"the transport charged {TRANSPORT_FEE} rao and the hub set {reserve} aside: two "
+        f"orders settled and their answers waited. One left when a caller paid the other "
+        f"{paid // WEI_PER_RAO} rao. One left by itself when the hub could pay the rest "
+        f"from what the spoke's account can spare",
     )
 
 

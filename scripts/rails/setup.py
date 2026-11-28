@@ -25,6 +25,7 @@ from rig import (
     KEEPER,
     MANIFEST,
     MESSAGE_BUDGET,
+    MESSAGE_CEILING,
     MESSAGE_RESERVE,
     RELAYER,
     SPOKE_BRIDGE,
@@ -416,7 +417,9 @@ async def configure() -> None:
         # collects.
         await submit(
             chain,
-            bt.calls.Rails.set_message_reserve(bridge=SPOKE_BRIDGE, reserve=MESSAGE_RESERVE),
+            bt.calls.Rails.set_message_reserve(
+                bridge=SPOKE_BRIDGE, reserve=MESSAGE_RESERVE, ceiling=MESSAGE_CEILING
+            ),
             alice,
             root=True,
         )

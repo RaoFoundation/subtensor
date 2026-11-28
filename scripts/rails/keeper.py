@@ -72,8 +72,9 @@ def outbox_waits(hub: EvmRpc) -> bool:
 
 def would_send(hub: EvmRpc, gateway: str) -> int:
     """How many messages a hand-over would send now. None leave while the transport
-    charges more than the hub pays for one: then somebody has to pay the difference, and
-    this keeper does not."""
+    charges more than the hub pays for one. Then somebody has to pay into the spoke's
+    account on the hub, or pay the difference with the hand-over. This keeper does
+    neither: it says so."""
     result = hub.eth_call({"from": KEEPER, "to": gateway, "data": FLUSH})
     return abi_decode(["uint256"], bytes.fromhex(result[2:]))[0]
 
@@ -81,15 +82,26 @@ def would_send(hub: EvmRpc, gateway: str) -> int:
 async def flush() -> None:
     hub = EvmRpc(HUB_RPC)
     deployment = DEPLOYMENTS / "hub.local.json"
+    held = False
     while True:
         await asyncio.sleep(FLUSH_EVERY)
         try:
             # The gateway is deployed after this keeper starts.
             if not deployment.exists() or not outbox_waits(hub):
+                held = False
                 continue
             gateway = json.loads(deployment.read_text())["gateway"]
             if would_send(hub, gateway) == 0:
+                if not held:
+                    print(
+                        "[keeper] the spoke's messages wait: the transport charges more than "
+                        "the hub pays for one. Pay into the spoke's account on the hub "
+                        "(Rails.fund_messages), or pay the difference (Gateway.flush).",
+                        flush=True,
+                    )
+                held = True
                 continue
+            held = False
             await asyncio.to_thread(send, hub, KEEPER_KEY, gateway, FLUSH)
             print("[keeper] flushed the outbox", flush=True)
         except Exception as error:

@@ -66,11 +66,12 @@ USER_KEY = setting("USER_KEY")
 USER = setting("USER_ADDRESS")
 MULTISIG = setting("MULTISIG")
 # What an order pays on the spoke for its answer (wei). What the transport charges for a
-# message, the most the hub pays for one, and what the rig pays into the spoke's account
-# on the hub (rao).
+# message, what the hub sets aside for one, the most it pays for one, and what the rig
+# pays into the spoke's account on the hub (rao).
 ANSWER_FEE = int(setting("ANSWER_FEE"))
 TRANSPORT_FEE = int(setting("TRANSPORT_FEE"))
 MESSAGE_RESERVE = int(setting("MESSAGE_RESERVE"))
+MESSAGE_CEILING = int(setting("MESSAGE_CEILING"))
 MESSAGE_BUDGET = int(setting("MESSAGE_BUDGET"))
 
 UNIT = 10**9
