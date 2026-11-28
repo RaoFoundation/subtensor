@@ -2055,23 +2055,28 @@ class Rails:
 
     @staticmethod
     def bridge_out(bridge: 'u32', source: 'NativeAsset', amount: 'u64', destination: 'Destination', min_out: 'u64') -> Call:
-        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`, or while the bridge is congested ([`Pallet::congested`]). The signer also pays the bridge's [`MessageReserve`] in TAO into the bridge's account, for the message."
+        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`. The signer also pays the bridge's [`MessageReserve`] in TAO into the bridge's account, for the message."
         return Call('Rails', 'bridge_out', {'bridge': bridge, 'source': source, 'amount': amount, 'destination': destination, 'min_out': min_out})
 
     @staticmethod
     def defer_outbound(bridge: 'u32', nonce: 'u64') -> Call:
-        'Defers message `nonce`, the head of the queue of `bridge`: takes it out of the line, so that the messages behind it can leave. The message stays in the hub with its reserve, and the gateway can send it at any time.  The gateway calls this for a message that is not paid for: the transport charges more for it than the hub and the caller pay. The admin may call it for a message that the transport does not take.'
+        'Defers message `nonce`, the head of the queue of `bridge`: takes it out of the line, so that the messages behind it can leave. The message stays in the hub with its reserve, and the gateway can send it at any time.  The gateway calls this for a message that is not paid for: the transport charges more for it than the hub and the caller pay. The admin may call it at any time. Anyone may call it for a message that has been at the head of its queue for [`Config::StaleAfter`] blocks: the gateway could not hand it over in that time, because the transport refuses it or because no keeper asked.'
         return Call('Rails', 'defer_outbound', {'bridge': bridge, 'nonce': nonce})
 
     @staticmethod
     def execute(domain: 'u32', sender: 'H256', order: 'Order') -> Call:
-        "Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, the order is out of sequence, or the answer cannot be queued: the bridge's queue is full, or its account does not hold the reserve for one more message. An order that cannot be settled for any other reason is taken and refunded. That includes an order for a payment on the spoke while the bridge is congested ([`Pallet::congested`])."
+        'Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, or the order is out of sequence. An order that cannot be settled for any other reason is taken and refunded. The answer always has room: the portal used an order slot for the order, and the hub set aside a place in the queue and a reserve when it gave the slot ([`OrderSlots`]). An order from a portal that used no slot is taken only if its answer has room all the same.'
         return Call('Rails', 'execute', {'domain': domain, 'sender': sender, 'order': order})
 
     @staticmethod
     def fund_messages(bridge: 'u32', amount: 'TaoBalance') -> Call:
         "Pays `amount` of the signer's TAO into the account of `bridge`, for the transport of messages to the bridge's spoke. Anyone may pay. The operator of a spoke pays in what the spoke's portal collected as answer fees. What is paid in is spent on messages and cannot be taken back."
         return Call('Rails', 'fund_messages', {'bridge': bridge, 'amount': amount})
+
+    @staticmethod
+    def grant_slots(bridge: 'u32') -> Call:
+        "Sends the portal of `bridge` the order slots that it is missing, in a message of their own. Anyone may call this.  Slots go to a portal with the hub's payments. This is for a portal that is short of slots while no payment is on its way: at the start, after orders that needed no payment on the spoke, or after the bridge's account was paid into. Fails unless at most half of [`MaxOrderSlots`] are out, and unless the queue and the bridge's account have room for the message and for one slot at least."
+        return Call('Rails', 'grant_slots', {'bridge': bridge})
 
     @staticmethod
     def list_market(netuid: 'NetUid', bridge: 'u32', address: 'H160') -> Call:
@@ -2104,8 +2109,13 @@ class Rails:
         return Call('Rails', 'set_market_cap', {'netuid': netuid, 'cap': cap})
 
     @staticmethod
+    def set_max_order_slots(bridge: 'u32', max: 'u32') -> Call:
+        "Sets the most order slots of `bridge` that are out at one time: the most orders that the bridge's portal can have on their way before an answer arrives. The hub keeps a place in the bridge's queue and a reserve for each, so set it well below the queue's size. Lowering it takes no slot back: the hub gives none until fewer are out."
+        return Call('Rails', 'set_max_order_slots', {'bridge': bridge, 'max': max})
+
+    @staticmethod
     def set_message_reserve(bridge: 'u32', reserve: 'TaoBalance', ceiling: 'TaoBalance') -> Call:
-        "Sets what the hub pays the transport for one message to the spoke of `bridge`.  - `reserve`: what the hub sets aside for each message that has not left. Set it above what the transport charges. Zero says that the hub sets nothing aside. - `ceiling`: the most the hub pays for one message, at least `reserve`. What a message costs above the reserve comes from what the bridge's account holds beyond the reserves of those messages. It is the bound on what a wrong price from the transport can take for one message.  A bridge takes no order before this is set. Fails if the bridge's account does not hold the new reserve for every message that has not left: pay in first ([`Pallet::fund_messages`])."
+        "Sets what the hub pays the transport for one message to the spoke of `bridge`.  - `reserve`: what the hub sets aside for each message that has not left. Set it above what the transport charges. Zero says that the hub sets nothing aside. - `ceiling`: the most the hub pays for one message, at least `reserve`. What a message costs above the reserve comes from what the bridge's account holds beyond the reserves of those messages. It is the bound on what a wrong price from the transport can take for one message.  A bridge takes no order before this is set. Fails if the bridge's account does not hold the new reserve for every message that has not left and every order slot that is out: pay in first ([`Pallet::fund_messages`])."
         return Call('Rails', 'set_message_reserve', {'bridge': bridge, 'reserve': reserve, 'ceiling': ceiling})
 
     @staticmethod

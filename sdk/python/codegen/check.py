@@ -94,6 +94,9 @@ RAW_ONLY: dict[str, set[str]] = {
         "skip_order",
         "set_message_reserve",
         "defer_outbound",
+        "set_max_order_slots",
+        # A keeper has the hub send a portal its order slots.
+        "grant_slots",
         # The operator of a spoke pays in what its portal collected as answer fees.
         "fund_messages",
     },

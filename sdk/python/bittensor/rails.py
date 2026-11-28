@@ -273,6 +273,12 @@ def encode_order_fee() -> str:
     return _call("orderFee()", [], [])
 
 
+def encode_order_slots() -> str:
+    """``Portal.orderSlots``: how many more orders the portal can take now. The hub gives
+    a slot for each order that it has set aside the means to answer."""
+    return _call("orderSlots()", [], [])
+
+
 def encode_tao_token() -> str:
     return _call("tao()", [], [])
 

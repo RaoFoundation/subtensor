@@ -55,6 +55,33 @@ TOLERANCE_HELP = (
 )
 
 
+def _order_fee(app_ctx: AppContext, rpc: evm_rpc.EvmRpc, spoke: rails.Spoke) -> int:
+    """What an order costs on the spoke now, on top of what it pays with.
+
+    Stops if the portal can take no order. The portal takes one only while it holds an
+    order slot: Bittensor's promise to answer it.
+    """
+    slots = _run_evm(
+        app_ctx,
+        lambda: rails.decode_uint(
+            rpc.eth_call({"to": spoke.portal, "data": rails.encode_order_slots()})
+        ),
+    )
+    if slots == 0:
+        app_ctx.output.error(
+            f"{spoke.name} takes no order now: Bittensor has not set aside what it needs to "
+            "answer one more. Nothing was taken. Try again in a moment; `btcli bridge list` "
+            "shows the bridge's order slots."
+        )
+        raise typer.Exit(1)
+    return _run_evm(
+        app_ctx,
+        lambda: rails.decode_uint(
+            rpc.eth_call({"to": spoke.portal, "data": rails.encode_order_fee()})
+        ),
+    )
+
+
 def _spoke(app_ctx: AppContext, name: Optional[str], manifest: Optional[str]) -> rails.Spoke:
     try:
         return rails.load_spoke(name, manifest)
@@ -224,12 +251,7 @@ def deposit(
             summary=f"approve the vault to take {amount} {spoke.stable_symbol}",
             rpc_url=spoke.rpc_url,
         )
-    fee = _run_evm(
-        app_ctx,
-        lambda: rails.decode_uint(
-            rpc.eth_call({"to": spoke.portal, "data": rails.encode_order_fee()})
-        ),
-    )
+    fee = _order_fee(app_ctx, rpc, spoke)
     result = _submit_evm_tx(
         app_ctx,
         key,
@@ -320,12 +342,7 @@ def sell(
     )
     quote = _quote(app_ctx, spoke.bridge, source, units, destination)
     min_out = int(quote * (1 - rate_tolerance))
-    fee = _run_evm(
-        app_ctx,
-        lambda: rails.decode_uint(
-            rpc.eth_call({"to": spoke.portal, "data": rails.encode_order_fee()})
-        ),
-    )
+    fee = _order_fee(app_ctx, rpc, spoke)
     result = _submit_evm_tx(
         app_ctx,
         key,
@@ -462,7 +479,7 @@ def list_bridges(ctx: typer.Context):
     rows = [
         [
             r["bridge"],
-            ("congested" if r["congested"] else "on") if r["enabled"] else "off",
+            "on" if r["enabled"] else "off",
             r["stablecoin"],
             r["outstanding_tusd"],
             r["mint_cap_tusd"],
@@ -472,6 +489,7 @@ def list_bridges(ctx: typer.Context):
             if r["message_reserve"] is None
             else f"{r['message_reserve']} / {r['message_ceiling']}",
             str(r["message_budget"]),
+            f"{r['order_slots']} / {r['max_order_slots']}",
             r["messages_waiting"],
             ", ".join(str(nonce) for nonce in r["messages_deferred"]) or "-",
             r["portal"],
@@ -490,13 +508,14 @@ def list_bridges(ctx: typer.Context):
             "orders",
             "message reserve / ceiling",
             "message budget",
+            "order slots",
             "waiting",
             "deferred",
             "portal",
         ],
         rows,
         records,
-        right_align={0, 3, 4, 5, 6, 7, 8, 9},
+        right_align={0, 3, 4, 5, 6, 7, 8, 9, 10},
     )
 
 

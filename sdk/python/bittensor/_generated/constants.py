@@ -208,5 +208,5 @@ class CanonicalPool:
 class Rails:
     PalletId = Item('Rails', 'PalletId')
     MaxOutbox = Item('Rails', 'MaxOutbox')
-    CongestedAt = Item('Rails', 'CongestedAt')
+    StaleAfter = Item('Rails', 'StaleAfter')
     ReceiptsKept = Item('Rails', 'ReceiptsKept')

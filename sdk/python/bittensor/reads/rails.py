@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .._generated import constants
 from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..balance import Balance
@@ -152,7 +151,7 @@ async def bridges(view) -> list[dict]:
     stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
     and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-    The last seven fields say who pays for the hub's messages to the bridge's
+    The last eight fields say who pays for the hub's messages to the bridge's
     chain. `message_account` holds the TAO for them, and `message_budget` is
     what it can pay: its balance less the existential deposit. `message_reserve`
     is what the hub sets aside for each message, or None while it is not set,
@@ -160,16 +159,21 @@ async def bridges(view) -> list[dict]:
     it pays from what the account can spare. `messages_waiting` is how many
     have not left the hub. `messages_deferred` lists the numbers of those
     among them that are deferred: they left the line because the transport
-    charged more for them than was paid, and the gateway sends each one when
-    somebody asks it to (`btcli bridge flush --message`). `congested` says
-    that so many are deferred that the hub makes no new payment on the
-    bridge's chain: it refunds orders and refuses exits until some of them
-    have left. The hub takes an order of the bridge only while the account
-    holds the reserve for every waiting message and one more. Anyone can pay
-    into the account (`Rails.fund_messages`).
+    charged more for them than was paid, or the gateway could not hand them
+    over, and the gateway sends each one when somebody asks it to (`btcli
+    bridge flush --message`).
+
+    `order_slots` and `max_order_slots` say how many orders the bridge's chain
+    may send. A slot is the hub's promise to answer one order: the hub keeps a
+    place in the bridge's queue and a reserve in the account for that answer.
+    The portal on the other chain takes an order only if it holds a slot.
+    `order_slots` counts the slots that are out: at the portal, on their way
+    to it, or used by an order that the hub has not taken yet. The hub gives
+    slots back with its payments, up to `max_order_slots`, as far as the
+    account covers them. Anyone can pay into the account
+    (`Rails.fund_messages`).
     """
     view = await view.at()
-    congested_at = int(await view.constant(constants.Rails.CongestedAt))
     rows = await view.query_map(st.Tusd.Bridges)
     records = []
     for key, bridge in rows:
@@ -183,6 +187,8 @@ async def bridges(view) -> list[dict]:
         ceiling = await view.query(st.Rails.MessageCeiling, [bridge_id])
         account = await view.runtime(api.RailsApi.message_account, [bridge_id])
         budget = await view.runtime(api.RailsApi.message_budget, [bridge_id])
+        order_slots = await view.query(st.Rails.OrderSlots, [bridge_id])
+        max_order_slots = await view.query(st.Rails.MaxOrderSlots, [bridge_id])
         tail = int(await view.query(st.Rails.NextMessage, [bridge_id]) or 0)
         head = int(await view.query(st.Rails.NextOutbound, [bridge_id]) or 0)
         # The hub keeps every message that has not left. Those below the head of the
@@ -207,9 +213,10 @@ async def bridges(view) -> list[dict]:
                 "message_ceiling": view.balance(int(ceiling or 0), 0),
                 "message_account": str(account),
                 "message_budget": view.balance(int(budget or 0), 0),
+                "order_slots": int(order_slots or 0),
+                "max_order_slots": int(max_order_slots or 0),
                 "messages_waiting": tail - head + len(deferred),
                 "messages_deferred": deferred,
-                "congested": len(deferred) >= congested_at,
             }
         )
     return sorted(records, key=lambda record: record["bridge"])

@@ -155,10 +155,10 @@ DESCRIPTIONS: dict[str, str] = {
         "full period of price history yet. Retry after `CanonicalPool.TwapPeriod` blocks."
     ),
     "OutboxFull": (
-        "Too many of the hub's messages wait in this bridge's queue (`Rails.MaxOutbox`). "
-        "Anyone can call the gateway's `flush` for the bridge: each message then leaves, or "
-        "is deferred if nobody pays what the transport charges for it. Deferred messages "
-        "take no place in the queue."
+        "This bridge's queue has no place left (`Rails.MaxOutbox`): its messages in line "
+        "and its order slots that are out take all of them. Anyone can call the gateway's "
+        "`flush` for the bridge: each message then leaves, or is deferred if nobody pays "
+        "what the transport charges for it. Deferred messages take no place in the queue."
     ),
     "NotOutboxHead": (
         "The message is not the head of its bridge's queue (`Rails.NextOutbound`). The "
@@ -167,10 +167,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "MessagesNotFunded": (
         "The hub's messages to this bridge are not paid for. Either the admin has not set "
-        "the most the hub pays for one (`Rails.MessageReserve`), or the bridge's account "
-        "does not hold that reserve for every message that has not left and one more. "
-        "Anyone can pay into the account with `Rails.fund_messages`; orders wait with the "
-        "transport until then."
+        "what the hub sets aside for one (`Rails.MessageReserve`), or the bridge's account "
+        "does not hold that reserve for every message that has not left, for every order "
+        "slot that is out, and for one more message. Anyone can pay into the account with "
+        "`Rails.fund_messages`."
     ),
     "FeeAboveLimit": (
         "The gateway asked the hub for more than the hub pays for the message: more than the "
@@ -188,12 +188,16 @@ DESCRIPTIONS: dict[str, str] = {
         "The account named as the gateway does not hold the existential deposit. Send it "
         "that much first: the hub hands the gateway only what it pays on to the transport."
     ),
-    "Congested": (
-        "The bridge is congested: `Rails.CongestedAt` or more of its messages are deferred, "
-        "because the transport charges more for them than the hub pays and nobody paid the "
-        "difference. Until some of them have left, the hub makes no new payment on that "
-        "chain: it refunds an order, and refuses an exit. Anyone can send a deferred message "
-        "and pay the difference (`btcli bridge flush --message`), or pay into the bridge's "
-        "account (`Rails.fund_messages`). `btcli bridge list` shows the deferred messages."
+    "NoSlotsToGrant": (
+        "The hub can give this bridge's portal no order slot in a message of its own now. "
+        "More than half of the bridge's slots are out (`Rails.OrderSlots`, "
+        "`Rails.MaxOrderSlots`): the rest go with the hub's payments. Or the bridge's queue "
+        "or account has no room for one more slot: pay into the account "
+        "(`Rails.fund_messages`), or have the gateway send what waits."
+    ),
+    "NotStale": (
+        "The message has not been at the head of its bridge's queue for `Rails.StaleAfter` "
+        "blocks. Until then only the gateway and the admin defer it. Retry when it has "
+        "waited that long."
     ),
 }
