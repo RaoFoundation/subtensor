@@ -15,7 +15,10 @@ person does and checks what the two chains say after each step:
 8. the transport charges more than the hub pays for a message: orders still settle, and
    their answers are deferred. A newer one leaves first, when its receiver pays the
    difference. The older one leaves by itself when the hub may pay the difference from
-   what the spoke's account can spare.
+   what the spoke's account can spare;
+9. so many answers are deferred that the bridge is congested: the hub takes the next
+   order and refunds it, and refuses an exit. When the deferred answers have left, the
+   bridge settles orders again.
 
 It ends with the invariants that hold between the chains at any time.
 """
@@ -389,46 +392,48 @@ async def who_paid(rig: Rig, first_order: int, fees_before: int, start: Transpor
     )
 
 
+async def set_message_terms(rig: Rig, reserve: int, ceiling: int) -> None:
+    """Root sets what the hub pays the transport for one message to the spoke."""
+    call = bt.calls.Rails.set_message_reserve(bridge=SPOKE_BRIDGE, reserve=reserve, ceiling=ceiling)
+    await submit(rig.chain, call, dev_wallet(), root=True)
+
+
+async def deferred_order(rig: Rig) -> tuple[int, int]:
+    """An order that settles on the hub while its answer is deferred: the transport
+    charges more for the answer than the hub pays, and the keeper adds nothing. Returns
+    the order, and the number of the hub's message that answers it."""
+    spoke = rig.spoke
+    before = await rig.transport()
+    order = spoke.deposit(USER_KEY, 10 * USDC, rails.to_tao(USER))
+    receipt = await rig.receipt(order)
+    assert receipt["status"] == "settled", receipt
+
+    async def deferred():
+        now = await rig.transport()
+        return now if len(now.deferred) > len(before.deferred) else None
+
+    after = await wait_for(f"the keeper to defer the answer to order {order}", deferred)
+    (message,) = set(after.deferred) - set(before.deferred)
+    # The answer left the line and not the hub: nothing was paid, and nothing arrived.
+    assert after == replace(before, deferred=after.deferred), (before, after)
+    assert not spoke.answers(order)
+    return order, message
+
+
 async def a_charge_that_is_not_paid_for(rig: Rig) -> None:
     """The transport charges more than the hub pays for a message. Orders still settle,
     and their answers are deferred: they leave the line and stay in the hub. The newer
     answer leaves first, when its receiver pays the difference. The older one leaves by
     itself when the hub may pay the difference from what the spoke's account can spare."""
-    alice = dev_wallet()
-    chain, spoke, hub = rig.chain, rig.spoke, rig.hub_evm
+    spoke, hub = rig.spoke, rig.hub_evm
     reserve = TRANSPORT_FEE // 2
 
-    async def set_terms(reserve: int, ceiling: int) -> None:
-        call = bt.calls.Rails.set_message_reserve(
-            bridge=SPOKE_BRIDGE, reserve=reserve, ceiling=ceiling
-        )
-        await submit(chain, call, alice, root=True)
-
-    async def deferred_order() -> tuple[int, int]:
-        """An order that settles on the hub while its answer is deferred. Returns the
-        order, and the number of the hub's message that answers it."""
-        before = await rig.transport()
-        order = spoke.deposit(USER_KEY, 10 * USDC, rails.to_tao(USER))
-        receipt = await rig.receipt(order)
-        assert receipt["status"] == "settled", receipt
-
-        async def deferred():
-            now = await rig.transport()
-            return now if len(now.deferred) > len(before.deferred) else None
-
-        after = await wait_for(f"the keeper to defer the answer to order {order}", deferred)
-        (message,) = set(after.deferred) - set(before.deferred)
-        # The answer left the line and not the hub: nothing was paid, and nothing arrived.
-        assert after == replace(before, deferred=after.deferred), (before, after)
-        assert not spoke.answers(order)
-        return order, message
-
     # The hub pays half the charge for a message, and no more.
-    await set_terms(reserve, reserve)
+    await set_message_terms(rig, reserve, reserve)
     try:
         tokens = spoke.balance(spoke.tao, USER)
-        older, older_message = await deferred_order()
-        newer, newer_message = await deferred_order()
+        older, older_message = await deferred_order(rig)
+        newer, newer_message = await deferred_order(rig)
         assert newer_message > older_message, (older_message, newer_message)
 
         # The receiver has the gateway send the newer answer, and pays what the hub does
@@ -458,7 +463,7 @@ async def a_charge_that_is_not_paid_for(rig: Rig) -> None:
         # The admin lets the hub pay up to twice the charge for a message. The spoke's
         # account has TAO to spare, so the keeper sends the older answer: nobody pays the
         # gateway.
-        await set_terms(reserve, 2 * TRANSPORT_FEE)
+        await set_message_terms(rig, reserve, 2 * TRANSPORT_FEE)
         first = await rig.answer(older)
         before, after = after, await rig.transport()
         # The account paid the whole charge: the message's reserve, and the rest from what
@@ -467,13 +472,82 @@ async def a_charge_that_is_not_paid_for(rig: Rig) -> None:
         assert after == expected, (after, expected)
         assert spoke.balance(spoke.tao, USER) - tokens == first["amount"] + second["amount"]
     finally:
-        await set_terms(MESSAGE_RESERVE, MESSAGE_CEILING)
+        await set_message_terms(rig, MESSAGE_RESERVE, MESSAGE_CEILING)
     show(
         "a charge that is not paid for",
         f"the transport charged {TRANSPORT_FEE} rao and the hub paid at most {reserve}: two "
         f"orders settled and their answers were deferred. The newer one left first, when "
         f"its receiver paid the other {paid // WEI_PER_RAO} rao. The older one left by "
         f"itself when the hub could pay the rest from what the spoke's account can spare",
+    )
+
+
+async def a_congested_bridge(rig: Rig) -> None:
+    """So many answers are deferred that the bridge is congested. The hub then makes no
+    new payment on the spoke: it takes the next order and refunds it, and it refuses an
+    exit. When the hub pays for the deferred answers and they leave, the bridge settles
+    orders again."""
+    chain, spoke = rig.chain, rig.spoke
+    reserve = TRANSPORT_FEE // 2
+    limit = int(await chain.constant(bt.constants.Rails.CongestedAt))
+    paid = 10 * USDC
+
+    async def congested() -> bool:
+        (bridge,) = [b for b in await chain.rails.bridges() if b["bridge"] == SPOKE_BRIDGE]
+        return bridge["congested"]
+
+    # The hub pays half the charge for a message, and nobody pays the rest.
+    await set_message_terms(rig, reserve, reserve)
+    try:
+        tokens = spoke.balance(spoke.tao, USER)
+        stable = spoke.balance(spoke.stable, USER)
+        orders = [(await deferred_order(rig))[0] for _ in range(limit)]
+        assert await congested()
+
+        # The hub takes the next order and refunds it: it settles nothing new for the
+        # spoke. The refund is a message too, and is deferred as the answers are.
+        refused = spoke.deposit(USER_KEY, paid, rails.to_tao(USER))
+        receipt = await rig.receipt(refused)
+        assert receipt["status"] == "refunded", receipt
+        assert "congested" in receipt["error"].lower(), receipt
+        # An exit fails as a whole: the account on Bittensor keeps its funds.
+        exit_ = bt.intents.BridgeOut(
+            bridge=SPOKE_BRIDGE, pay_with="tao", amount=0.01, receive="tao", to_address=USER
+        )
+        try:
+            result = await chain.execute(exit_, dev_wallet())
+            refusal = "" if result.success else str(result.message)
+        except bt.BittensorError as error:
+            refusal = str(error)
+        assert "congested" in refusal.lower(), refusal
+
+        # Root lets the hub pay up to twice the charge for a message. The keeper sends
+        # every deferred message: the answers and the refund.
+        await set_message_terms(rig, reserve, 2 * TRANSPORT_FEE)
+        answers = [await rig.answer(order) for order in orders]
+        refund = await rig.answer(refused)
+        assert refund["refund"] and refund["asset"] == "stable", refund
+
+        async def drained():
+            return not (await rig.transport()).deferred
+
+        await wait_for("the deferred messages to leave", drained)
+        assert not await congested()
+        assert spoke.balance(spoke.tao, USER) - tokens == sum(a["amount"] for a in answers)
+        # The refund is whole: only the settled orders cost the payer anything.
+        assert stable - spoke.balance(spoke.stable, USER) == limit * paid
+    finally:
+        await set_message_terms(rig, MESSAGE_RESERVE, MESSAGE_CEILING)
+
+    # The bridge settles orders again.
+    order = spoke.deposit(USER_KEY, paid, rails.to_tao(USER))
+    answer = await rig.answer(order)
+    assert not answer["refund"] and answer["asset"] == "tao", answer
+    show(
+        "a congested bridge",
+        f"the answers to {limit} orders were deferred. The hub took the next order and "
+        f"refunded its {units(paid, 6)} USDC in full, and refused an exit. When the hub "
+        f"paid for the deferred messages they all left, and the next order settled",
     )
 
 
@@ -523,6 +597,7 @@ async def main() -> None:
         await leave_from_bittensor(rig)
         await who_paid(rig, first_order, fees_before, start)
         await a_charge_that_is_not_paid_for(rig)
+        await a_congested_bridge(rig)
         await invariants(rig)
     show("passed")
 

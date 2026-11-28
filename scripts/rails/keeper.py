@@ -7,7 +7,8 @@
    the gateway to hand them to the transport (`Gateway.flush`): this keeper does. A
    message that is not paid for is deferred, so that the ones behind it leave. The keeper
    sends a deferred message as soon as the hub pays all that the transport charges for it
-   (`Gateway.send`).
+   (`Gateway.send`). It raises an alert when the gateway cannot hand over the message at
+   the head of the queue: then the messages behind it wait, and root must act.
 3. The validators. The rig's validators score their miner again every half minute, as
    real validators do, so that they stay active and the index hotkeys keep earning.
 
@@ -65,11 +66,23 @@ async def feed() -> None:
             await asyncio.sleep(FEED_EVERY)
 
 
-def in_line(hub: EvmRpc) -> bool:
-    """Whether a message for the spoke waits at the head of the hub's line."""
+def head(hub: EvmRpc) -> int | None:
+    """The number of the message at the head of the spoke's queue, if one waits there."""
     data = calldata("nextOutbound(uint32)", ["uint32"], [SPOKE_BRIDGE])
-    result = hub.eth_call({"to": RAILS_PRECOMPILE, "data": data})
-    return abi_decode(["bool"], bytes.fromhex(result[2:66]))[0]
+    result = bytes.fromhex(hub.eth_call({"to": RAILS_PRECOMPILE, "data": data})[2:])
+    pending, nonce = abi_decode(["bool", "uint64"], result[:64])
+    return nonce if pending else None
+
+
+def refusal(hub: EvmRpc, gateway: str) -> str | None:
+    """Why the gateway cannot take the spoke's queue now, or None if it can. A message
+    that is not paid for is no reason: the gateway defers it. What stops a queue is a
+    transport that refuses the message at its head, or a paused gateway."""
+    try:
+        hub.eth_call({"from": KEEPER, "to": gateway, "data": FLUSH})
+    except EvmRpcError as error:
+        return str(error)
+    return None
 
 
 async def deferred(chain: bt.Client) -> list[int]:
@@ -98,6 +111,8 @@ async def flush() -> None:
     deployment = DEPLOYMENTS / "hub.local.json"
     # The deferred messages this keeper has already said are not paid for.
     reported: set[int] = set()
+    # The message at the head of the queue that the gateway could not hand over.
+    stuck: int | None = None
     async with client() as chain:
         while True:
             await asyncio.sleep(FLUSH_EVERY)
@@ -106,10 +121,24 @@ async def flush() -> None:
                 if not deployment.exists():
                     continue
                 gateway = json.loads(deployment.read_text())["gateway"]
-                if in_line(hub):
-                    # Each message in line leaves, or is deferred if it is not paid for.
+                nonce = head(hub)
+                reason = None if nonce is None else refusal(hub, gateway)
+                if reason is not None:
+                    if stuck != nonce:
+                        print(
+                            f"[keeper] ALERT: the gateway cannot hand message {nonce} of the "
+                            f"spoke to the transport: {reason}. The messages behind it "
+                            "wait. Repair the transport. If only this message is refused, "
+                            "root defers it so that the others leave: "
+                            f"Rails.defer_outbound({SPOKE_BRIDGE}, {nonce}).",
+                            flush=True,
+                        )
+                    stuck = nonce
+                elif nonce is not None:
+                    # Each message in the queue leaves, or is deferred if it is not paid for.
                     await asyncio.to_thread(send, hub, KEEPER_KEY, gateway, FLUSH)
-                    print("[keeper] flushed the spoke's line", flush=True)
+                    print("[keeper] flushed the spoke's queue", flush=True)
+                    stuck = None
                 waiting = await deferred(chain)
                 reported &= set(waiting)
                 for nonce in waiting:
