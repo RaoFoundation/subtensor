@@ -386,6 +386,42 @@ contract PortalTest is Fixture {
         assertEq(stable.balanceOf(address(vault)), 500_000 * USDC);
     }
 
+    /// Whatever the hub tells the portal to pay, and whenever somebody asks again, the
+    /// payee has received exactly what the vault could release, what is paid and what is
+    /// owed add up to the payment, and in the end the payee has all of it.
+    function testFuzz_APaymentInPartsAddsUpToThePayment(uint256 amount, uint32[6] calldata waits)
+        public
+    {
+        amount = bound(amount, 1, 5_000_000 * USDC);
+        deposit(alice, 5_000_000 * USDC, toTao(alice));
+        credit(Wire.ASSET_STABLE, 0, bob, SafeCast.toUint64(amount * 1000), 0);
+        uint256 paid = stable.balanceOf(bob);
+        assertEq(paid, amount < 1_000_000 * USDC ? amount : 1_000_000 * USDC);
+        assertEq(paid + portal.owed(bob), amount);
+
+        for (uint256 i = 0; i < waits.length; ++i) {
+            skip(bound(waits[i], 0, 2 days));
+            uint256 owed = portal.owed(bob);
+            uint256 available = vault.releasable();
+            vm.prank(stranger);
+            uint256 part = portal.claim(bob);
+            assertEq(part, owed < available ? owed : available);
+            paid += part;
+            assertEq(stable.balanceOf(bob), paid);
+            assertEq(paid + portal.owed(bob), amount);
+            assertEq(portal.totalOwed(), portal.owed(bob));
+        }
+
+        // The allowance refills in full in a day: five days pay the largest payment.
+        for (uint256 i = 0; i < 5; ++i) {
+            skip(1 days);
+            portal.claim(bob);
+        }
+        assertEq(portal.owed(bob), 0);
+        assertEq(stable.balanceOf(bob), amount);
+        assertEq(stable.balanceOf(address(vault)), 5_000_000 * USDC - amount);
+    }
+
     function test_AStoppedVaultOwesWhatTheHubToldItToPay() public {
         deposit(alice, 250 * USDC, toTao(alice));
         vm.prank(guardian);
@@ -469,6 +505,21 @@ contract PortalTest is Fixture {
         timelocked(address(portal), abi.encodeCall(portal.unpause, ()));
         mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
         assertEq(tao.balanceOf(bob), UNIT);
+    }
+
+    function test_APausedPortalPaysNoDebt() public {
+        deposit(alice, 3_000_000 * USDC, toTao(alice));
+        credit(Wire.ASSET_STABLE, 0, bob, 1_500_000 * UNIT, 0);
+        skip(1 days);
+        vm.prank(guardian);
+        portal.pause();
+
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        portal.claim(bob);
+        assertEq(portal.owed(bob), 500_000 * USDC);
+
+        timelocked(address(portal), abi.encodeCall(portal.unpause, ()));
+        assertEq(portal.claim(bob), 500_000 * USDC);
     }
 
     /// Whatever a payer deposits, the order carries that amount in 9 decimals, the vault

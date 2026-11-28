@@ -212,9 +212,11 @@ reported, and tells the vault to release only what it burned. Checked end to end
   bridge out of its queue, by what the gateway says the transport charges
   (`ack_outbound`). The call fails if the budget holds less. So one bridge never
   spends what was paid in for another. Tests
-  `one_bridge_never_spends_what_was_paid_in_for_another` and
-  `a_message_takes_from_the_budget_what_the_transport_charges`. The e2e checks on
-  real chains that the gateway account moves exactly as the budget does.
+  `one_bridge_never_spends_what_was_paid_in_for_another`,
+  `a_message_takes_from_the_budget_what_the_transport_charges` and
+  `budgets_hold_under_random_operations`: 4,000 random steps on two bridges against
+  a separate count of each budget. The e2e checks on real chains that the gateway
+  account moves exactly as the budget does.
 - **I14.** The alpha that a sale takes from a vault is never more than the vault
   holds, and both share formulas round against the trader (`alpha_for_shares`,
   `shares_for_alpha`).
@@ -252,7 +254,8 @@ reported, and tells the vault to release only what it burned. Checked end to end
   less what the vault released to that address (`owed`). `totalOwed` is the sum. The
   portal lowers the debt before it calls the vault, and a release that fails reverts
   the whole call (`_pay`). The vault holds at least what is owed. Invariant tests
-  `invariant_WhatIsOwedIsOwedToSomeone` and `invariant_TheVaultCoversEveryDollarOwed`.
+  `invariant_WhatIsOwedIsOwedToSomeone` and `invariant_TheVaultCoversEveryDollarOwed`,
+  and the fuzz test `testFuzz_APaymentInPartsAddsUpToThePayment`.
 - **I32.** For each message, the gateway reads the transport's charge, has the hub take
   that charge from the budget of the bridge, and pays the transport, in one
   transaction (`_flush`). An order and the answers of its bridge go through together
@@ -400,13 +403,13 @@ reported, and tells the vault to release only what it burned. Checked end to end
 | --- | --- | --- |
 | tUSD: 17 unit tests, benchmarks as tests | `pallets/tusd/src/tests.rs` | `cargo test -p pallet-tusd --all-features` |
 | Pool: 34 unit tests, benchmarks as tests | `pallets/canonical-pool/src/tests.rs` | `cargo test -p pallet-canonical-pool --all-features` |
-| Hub: 53 unit tests, 14 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
+| Hub: 54 unit tests, 14 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
 | Index hotkey: 22 tests on the real pallet | `pallets/subtensor/src/tests/index_hotkey.rs` | `cargo test -p pallet-subtensor --all-features index_hotkey` |
 | Credits for a bridged payer: 7 tests | `pallets/subtensor/src/tests/gamma_credits.rs` | `cargo test -p pallet-subtensor --all-features gamma_credits` |
 | Staking for the hub, with a real dissolution: 8 tests | `pallets/subtensor/src/tests/rails_staking.rs` | `cargo test -p pallet-subtensor --all-features rails_staking` |
 | The production runtime through the precompile: 5 tests | `runtime/tests/rails.rs` | `cargo test -p node-subtensor-runtime --all-features --test rails` |
 | Precompile and wire format, with golden vectors | `precompiles/src/{rails,rails_wire}.rs` | `cargo test -p subtensor-precompiles --all-features rails` |
-| Contracts: 85 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
+| Contracts: 87 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
 | Both chains and the transport, end to end | `scripts/rails/e2e.py`, `scripts/rails/e2e_cli.py` | `just rails-up && just rails-e2e` |
 
 The unit tests of the hub call `try_state` of the three pallets after each operation.

@@ -1252,6 +1252,143 @@ fn an_exit_pays_for_its_message() {
     });
 }
 
+/// Random orders, exits, payments into the budgets and changes of the cost on two
+/// bridges, and a gateway that pays a transport that charges what it likes. After every
+/// step each budget is what a separate count says: what was paid in for that bridge, less
+/// what the transport charged for that bridge's messages. The gateway account holds
+/// exactly the budgets, and a bridge queues a message only while its budget covers its
+/// queue.
+#[test]
+fn budgets_hold_under_random_operations() {
+    new_test_ext().execute_with(|| {
+        fund_tao(ALICE, 1_000 * UNIT);
+        // TAO that is in no budget: it pays for no message.
+        fund_tao(GATEWAY, UNIT);
+        let gateway_before = gateway_tao();
+        // Each bridge brings in the stablecoin that the exits below take out.
+        for bridge in SPOKES {
+            let mut deposit = order(
+                SpokeAsset::Stable,
+                50_000 * UNIT,
+                Destination::NativeTusd { to: ALICE },
+            );
+            deposit.nonce = NextOrder::<Test>::get(bridge);
+            assert_ok!(Rails::execute(
+                RuntimeOrigin::signed(GATEWAY),
+                bridge,
+                portal(bridge),
+                deposit
+            ));
+        }
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound.max(1)
+        };
+        // What each budget must be.
+        let mut expected = [0u64; 2];
+        // Messages queued, messages refused for the budget, messages sent, and messages
+        // that the budget could not pay the transport for.
+        let mut seen = [0u32; 4];
+
+        for _ in 0..4_000 {
+            let index = next(2) as usize;
+            let bridge = SPOKES[index];
+            let cost: Option<u64> = MessageCost::<Test>::get(bridge).map(Into::into);
+            let queued = NextMessage::<Test>::get(bridge) - NextOutbound::<Test>::get(bridge);
+            // What the hub must answer to one more message, given what its budget holds.
+            let room = |budget: u64| match cost {
+                _ if queued >= u64::from(MAX_OUTBOX) => Err(Error::<Test>::OutboxFull),
+                Some(cost) if budget >= cost * (queued + 1) => Ok(()),
+                _ => Err(Error::<Test>::MessagesNotFunded),
+            };
+            match next(8) {
+                // Someone pays in.
+                0 => {
+                    let amount = next(4 * COST);
+                    fund(bridge, amount);
+                    expected[index] += amount;
+                }
+                // The admin changes the cost, or has not decided it.
+                1 => match next(8) {
+                    0 => MessageCost::<Test>::remove(bridge),
+                    _ => set_cost(bridge, next(2 * COST)),
+                },
+                // An order. It is settled or refunded, and has one answer either way.
+                2..=4 => {
+                    let mut order = to_canonical_tao();
+                    order.nonce = NextOrder::<Test>::get(bridge);
+                    order.min_out = next(2) * u64::MAX;
+                    let execute = || {
+                        Rails::execute(
+                            RuntimeOrigin::signed(GATEWAY),
+                            bridge,
+                            portal(bridge),
+                            order.clone(),
+                        )
+                    };
+                    match room(budget(bridge)) {
+                        Ok(()) => {
+                            assert_ok!(execute());
+                            seen[0] += 1;
+                        }
+                        Err(error) => {
+                            assert_noop!(execute(), error);
+                            seen[1] += 1;
+                        }
+                    }
+                }
+                // An exit. It pays the cost of its message into the budget first.
+                5 => {
+                    let exit = || {
+                        Rails::bridge_out(
+                            RuntimeOrigin::signed(ALICE),
+                            bridge,
+                            NativeAsset::Tusd,
+                            10 * UNIT,
+                            Destination::Stable { to: wallet() },
+                            0,
+                        )
+                    };
+                    match cost.map_or(Err(Error::<Test>::MessagesNotFunded), |cost| {
+                        room(budget(bridge) + cost)
+                    }) {
+                        Ok(()) => {
+                            assert_ok!(exit());
+                            expected[index] += cost.unwrap_or_default();
+                            seen[0] += 1;
+                        }
+                        Err(error) => {
+                            assert_noop!(exit(), error);
+                            seen[1] += 1;
+                        }
+                    }
+                }
+                // The gateway takes the head of the queue and pays the transport, which now
+                // and then charges far more than the hub counted.
+                _ if queued > 0 => {
+                    let charge = next(2 * COST) * (1 + next(4) / 3 * 20);
+                    if charge <= budget(bridge) {
+                        assert_ok!(send_head(bridge, charge));
+                        expected[index] -= charge;
+                        seen[2] += 1;
+                    } else {
+                        assert_noop!(send_head(bridge, charge), Error::<Test>::MessagesNotFunded);
+                        seen[3] += 1;
+                    }
+                }
+                _ => {}
+            }
+            assert_eq!([budget(BASE), budget(ETHEREUM)], expected);
+            assert_eq!(gateway_tao(), gateway_before + expected[0] + expected[1]);
+            assert_invariants();
+        }
+        assert!(seen.iter().all(|count| *count > 100), "{seen:?}");
+    });
+}
+
 #[test]
 fn the_registry_address_of_a_listed_alpha_token_can_be_corrected() {
     new_test_ext().execute_with(|| {
