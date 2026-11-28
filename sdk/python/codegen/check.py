@@ -92,6 +92,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "list_market",
         "set_market_cap",
         "skip_order",
+        "set_exit_fee",
     },
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship

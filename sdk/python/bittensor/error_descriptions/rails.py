@@ -79,7 +79,8 @@ DESCRIPTIONS: dict[str, str] = {
     # ── Rails ───────────────────────────────────────────────────────────
     "NotGateway": (
         "Only the gateway contract's account (`Rails.Gateway`) delivers orders and takes "
-        "messages from the outbox. This call is not for accounts."
+        "messages from the outbox. This call is not for accounts. An exit also fails with "
+        "this while an exit fee is set and no gateway account is: there is nobody to pay."
     ),
     "Paused": (
         "The hub of the rails is paused: it takes no order and no exit until the admin origin "
@@ -94,9 +95,9 @@ DESCRIPTIONS: dict[str, str] = {
         "has not arrived. Check `Rails.NextOrder` for the bridge."
     ),
     "InvalidRoute": (
-        "The destination is the asset the payment is made with, or one that cannot be paid for "
-        "this way. An exit from Bittensor delivers the stablecoin, canonical TAO or an alpha "
-        "token on the spoke."
+        "The destination is the asset the payment is made with, the zero address, or one that "
+        "cannot be paid for this way. An exit from Bittensor delivers the stablecoin, "
+        "canonical TAO or an alpha token on the spoke."
     ),
     "Expired": (
         "The order's deadline passed before the hub could settle it, so it was refunded. "

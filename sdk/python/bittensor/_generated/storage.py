@@ -580,5 +580,6 @@ class Rails:
     Tokens = Item('Rails', 'Tokens', 'TokenInfo')
     TaoSupply = Item('Rails', 'TaoSupply', 'TaoBalance')
     TaoCap = Item('Rails', 'TaoCap', 'TaoBalance')
+    ExitFee = Item('Rails', 'ExitFee', 'TaoBalance')
     Markets = Item('Rails', 'Markets', 'Market')
     AlphaSupply = Item('Rails', 'AlphaSupply', 'u64')

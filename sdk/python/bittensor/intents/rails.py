@@ -350,8 +350,11 @@ class BridgeOut(Intent):
     fails as a whole; the asset arrives on the other chain once the bridge has
     relayed the hub's message, usually within a minute. A bridge releases only
     the stablecoin it brought in. Fails rather than delivering less than the
-    current quote less ``rate_tolerance``. A plan's ``preview`` holds the quote
-    as ``receive`` and ``minimum``, in units of the delivered asset.
+    current quote less ``rate_tolerance``. The coldkey also pays the hub's exit
+    fee in TAO, on top of the amount: it goes to the gateway, which pays the
+    bridge for the message. A plan's ``preview`` holds the quote as ``receive``
+    and ``minimum``, in units of the delivered asset, and the fee as
+    ``exit_fee_tao``.
     """
 
     op = "bridge_out"
@@ -386,9 +389,11 @@ class BridgeOut(Intent):
         if not (address.startswith("0x") and len(address) == 42):
             raise BittensorError(f"to_address is a 0x address of 20 bytes; got {address!r}.")
         try:
-            int(address, 16)
+            value = int(address, 16)
         except ValueError:
             raise BittensorError(f"to_address is not hex: {address!r}.") from None
+        if value == 0:
+            raise BittensorError("to_address is the zero address: nothing can be paid to it.")
         self.to_address = address.lower()
         _check_rate_tolerance(self.rate_tolerance, can_disable=False)
 
@@ -443,17 +448,23 @@ class BridgeOut(Intent):
             preview.blocks.append(f"the hub would refuse this payment: {error}")
             return preview
         minimum = _less(quote, self.rate_tolerance)
+        exit_fee = Balance.from_rao(int(await substrate.query(*st.Rails.ExitFee) or 0))
         preview.facts = [
             ("receive", f"~{self._out_text(quote)}"),
             ("minimum", self._out_text(minimum)),
             ("to", self.to_address),
+            ("exit fee", f"{exit_fee}, to the gateway for the message"),
             *preview.facts,
         ]
         preview.facts_title = "Quote"
         preview.preview = {
             "receive": tusd_from_units(quote),
             "minimum": tusd_from_units(minimum),
+            "exit_fee_tao": exit_fee.tao,
         }
+        if exit_fee.rao:
+            # The fee is TAO on top of what is paid: the account must hold both.
+            preview.required_free = exit_fee + self.amount if self.pay_with == TAO else exit_fee
         return preview
 
     def summary(self) -> str:

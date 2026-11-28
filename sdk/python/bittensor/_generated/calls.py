@@ -2055,7 +2055,7 @@ class Rails:
 
     @staticmethod
     def bridge_out(bridge: 'u32', source: 'NativeAsset', amount: 'u64', destination: 'Destination', min_out: 'u64') -> Call:
-        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`."
+        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`. The signer also pays [`ExitFee`] in TAO to the gateway, which sends the message."
         return Call('Rails', 'bridge_out', {'bridge': bridge, 'source': source, 'amount': amount, 'destination': destination, 'min_out': min_out})
 
     @staticmethod
@@ -2077,6 +2077,11 @@ class Rails:
     def register_token(bridge: 'u32', asset: 'SpokeAsset', address: 'H160') -> Call:
         'Enters in the registry the contract that stands for the stablecoin or for canonical TAO on the spoke of `bridge`, or corrects the address of an alpha token. An alpha token enters through [`Pallet::list_market`], which also has the spoke create it; this call only changes the address the registry shows for it.'
         return Call('Rails', 'register_token', {'bridge': bridge, 'asset': asset, 'address': address})
+
+    @staticmethod
+    def set_exit_fee(fee: 'TaoBalance') -> Call:
+        'Sets what a payment through [`Pallet::bridge_out`] pays the gateway for its message. Set it to at least what the transport charges the gateway for one.'
+        return Call('Rails', 'set_exit_fee', {'fee': fee})
 
     @staticmethod
     def set_gateway(gateway: 'Any') -> Call:

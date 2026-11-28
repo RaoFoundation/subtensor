@@ -124,10 +124,18 @@ def load_spoke(name: Optional[str] = None, manifest: Optional[str] = None) -> Sp
 # ---------------------------------------------------------------- destinations
 
 
-def _padded(address: str) -> bytes:
+def _recipient(address: str) -> str:
+    """A 0x address that can be paid. The portal refuses an order for the zero address:
+    the hub would settle it, and a token cannot be minted there."""
     if not is_h160(address):
         raise ValueError(f"not a 0x address of 20 bytes: {address!r}")
-    return bytes(12) + bytes.fromhex(address[2:])
+    if int(address, 16) == 0:
+        raise ValueError("the zero address cannot receive")
+    return address
+
+
+def _padded(address: str) -> bytes:
+    return bytes(12) + bytes.fromhex(_recipient(address)[2:])
 
 
 def _account(ss58: str) -> bytes:
@@ -165,13 +173,11 @@ def to_alpha(netuid: int, to: str) -> Destination:
 
 
 def to_credits(netuid: int, service_ss58: str, beneficiary: str) -> Destination:
-    if not is_h160(beneficiary):
-        raise ValueError(f"not a 0x address of 20 bytes: {beneficiary!r}")
     return Destination(
         TO_CREDITS,
         netuid,
         _account(service_ss58),
-        beneficiary,
+        _recipient(beneficiary),
         {"Credits": {"netuid": netuid, "service": service_ss58, "beneficiary": beneficiary}},
     )
 
