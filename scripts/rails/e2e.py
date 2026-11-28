@@ -210,13 +210,15 @@ async def buy_and_sell_tao(rig: Rig) -> None:
     assert held == answer["amount"] > 0
     show("bought TAO", f"{units(paid, 6)} USDC -> {units(held)} TAO")
 
-    order = spoke.sell(USER_KEY, spoke.tao, held, rails.to_stable(USER))
+    # Sell half. The other half stays on the spoke, backed by the hub's reserve.
+    sold = held // 2
+    order = spoke.sell(USER_KEY, spoke.tao, sold, rails.to_stable(USER))
     answer = await rig.answer(order)
     assert not answer["refund"] and answer["asset"] == "stable"
     returned = spoke.balance(spoke.stable, USER) - (stable_before - paid)
-    assert returned > paid * 99 // 100, f"only {units(returned, 6)} USDC came back"
-    assert spoke.balance(spoke.tao, USER) == held_before
-    show("sold TAO", f"{units(held)} TAO -> {units(returned, 6)} USDC back")
+    assert returned > paid * 99 // 200, f"only {units(returned, 6)} USDC came back"
+    assert spoke.balance(spoke.tao, USER) == held_before + held - sold
+    show("sold TAO", f"{units(sold)} TAO -> {units(returned, 6)} USDC back")
 
 
 async def buy_credits(rig: Rig, market: dict) -> None:
@@ -271,9 +273,10 @@ async def leave_from_bittensor(rig: Rig) -> None:
     chain, spoke = rig.chain, rig.spoke
     address = alice.coldkey.ss58_address
 
+    before = int(await chain.query(bt.storage.Tusd.Balances, [address]) or 0)
     result = await chain.execute(bt.intents.SwapPool(sell="tao", amount=1.0), alice)
     assert result.success, result.message
-    held = int(await chain.query(bt.storage.Tusd.Balances, [address]) or 0)
+    held = int(await chain.query(bt.storage.Tusd.Balances, [address]) or 0) - before
     assert held > 0
     stable_before = spoke.balance(spoke.stable, USER)
     result = await chain.execute(
