@@ -351,10 +351,11 @@ class BridgeOut(Intent):
     relayed the hub's message, usually within a minute. A bridge releases only
     the stablecoin it brought in. Fails rather than delivering less than the
     current quote less ``rate_tolerance``. The coldkey also pays, in TAO and on
-    top of the amount, the cost of one message to the bridge's chain: it goes
-    into the bridge's budget, which pays the transport for the message. A
-    plan's ``preview`` holds the quote as ``receive`` and ``minimum``, in units
-    of the delivered asset, and that cost as ``message_cost_tao``.
+    top of the amount, the bridge's reserve for one message: the most the hub
+    pays the transport for it. It goes into the bridge's account, and what the
+    transport does not charge stays there. A plan's ``preview`` holds the quote
+    as ``receive`` and ``minimum``, in units of the delivered asset, and the
+    reserve as ``message_reserve_tao``.
     """
 
     op = "bridge_out"
@@ -448,25 +449,25 @@ class BridgeOut(Intent):
             preview.blocks.append(f"the hub would refuse this payment: {error}")
             return preview
         minimum = _less(quote, self.rate_tolerance)
-        cost = Balance.from_rao(
-            int(await substrate.query(*st.Rails.MessageCost, [self.bridge]) or 0)
+        reserve = Balance.from_rao(
+            int(await substrate.query(*st.Rails.MessageReserve, [self.bridge]) or 0)
         )
         preview.facts = [
             ("receive", f"~{self._out_text(quote)}"),
             ("minimum", self._out_text(minimum)),
             ("to", self.to_address),
-            ("message cost", f"{cost}, into the bridge's budget for the message"),
+            ("message reserve", f"{reserve}, into the bridge's account for the message"),
             *preview.facts,
         ]
         preview.facts_title = "Quote"
         preview.preview = {
             "receive": tusd_from_units(quote),
             "minimum": tusd_from_units(minimum),
-            "message_cost_tao": cost.tao,
+            "message_reserve_tao": reserve.tao,
         }
-        if cost.rao:
-            # The cost is TAO on top of what is paid: the account must hold both.
-            preview.required_free = cost + self.amount if self.pay_with == TAO else cost
+        if reserve.rao:
+            # The reserve is TAO on top of what is paid: the account must hold both.
+            preview.required_free = reserve + self.amount if self.pay_with == TAO else reserve
         return preview
 
     def summary(self) -> str:

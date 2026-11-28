@@ -529,5 +529,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (36, 20): ErrorInfo('Rails', 'OutboxFull', "Too many messages wait for the gateway in the bridge's queue."),
     (36, 21): ErrorInfo('Rails', 'NotOutboxHead', "The message is not the head of its bridge's queue."),
     (36, 22): ErrorInfo('Rails', 'Overflow', 'Arithmetic overflowed.'),
-    (36, 23): ErrorInfo('Rails', 'MessagesNotFunded', "The cost of a message to the bridge's spoke is not set, or the bridge's budget does not cover its queue and one more message, or does not cover what the transport charges for the message at the head of its queue."),
+    (36, 23): ErrorInfo('Rails', 'MessagesNotFunded', "The bridge's reserve for a message is not set, or the bridge's account does not hold the reserve for every message in its queue and one more."),
+    (36, 24): ErrorInfo('Rails', 'FeeAboveReserve', "The gateway asked for more than the bridge's reserve for one message."),
+    (36, 25): ErrorInfo('Rails', 'GatewayNotFunded', 'The account does not hold the existential deposit, so it could not hold what the hub hands the gateway for the transport.'),
 }

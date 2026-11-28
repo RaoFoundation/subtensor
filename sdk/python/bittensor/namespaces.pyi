@@ -506,8 +506,17 @@ class Rails(_ReadNamespace):
         """Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.
 
         `outstanding_tusd` is the tUSD the bridge minted and has not burned: the
-        stablecoin its vault must hold. `mint_cap_tusd` bounds it. `available_tao`
+        stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
         and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
+
+        The last four fields say who pays for the hub's messages to the bridge's
+        chain. `message_account` holds the TAO for them, and `message_budget` is
+        what it can pay: its balance less the existential deposit. `message_reserve`
+        is the most the hub pays for one message, or None while it is not set.
+        `messages_waiting` is how many wait for the gateway. The hub takes an order
+        of the bridge only while the account holds the reserve for every waiting
+        message and one more. Anyone can pay into the account
+        (`Rails.fund_messages`).
         """
 
     async def canonical_pool(self, *, block: Optional[int] = None) -> dict:

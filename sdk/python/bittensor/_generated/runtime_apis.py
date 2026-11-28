@@ -138,6 +138,8 @@ class RailsApi:
     quote_order = Method('RailsApi', 'quote_order')
     quote_bridge_out = Method('RailsApi', 'quote_bridge_out')
     alpha_rate = Method('RailsApi', 'alpha_rate')
+    message_account = Method('RailsApi', 'message_account')
+    message_budget = Method('RailsApi', 'message_budget')
 
 class SessionKeys:
     generate_session_keys = Method('SessionKeys', 'generate_session_keys')

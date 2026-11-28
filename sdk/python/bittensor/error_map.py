@@ -581,6 +581,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OutboxFull": _C.LIMIT_EXCEEDED,
     "NotOutboxHead": _C.INVALID_ARGUMENT,
     "MessagesNotFunded": _C.TOO_EARLY,
+    "FeeAboveReserve": _C.LIMIT_EXCEEDED,
+    "GatewayNotFunded": _C.INSUFFICIENT_BALANCE,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

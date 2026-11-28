@@ -17,7 +17,14 @@ from ...settings import guide_docs_url, query_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import evm_key_signed, with_globals, with_tx_globals
 from ..tx import intent_command
-from .evm._shared import EVM_KEY_HELP, RPC_URL_OPTION, _key_info, _run_evm, _submit_evm_tx
+from .evm._shared import (
+    EVM_KEY_HELP,
+    RPC_URL_OPTION,
+    _key_info,
+    _run_evm,
+    _submit_evm_tx,
+    _tao_to_wei,
+)
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -461,7 +468,7 @@ def list_bridges(ctx: typer.Context):
             r["mint_cap_tusd"],
             str(r["tao_supply"]),
             r["next_order"],
-            "not set" if r["message_cost"] is None else str(r["message_cost"]),
+            "not set" if r["message_reserve"] is None else str(r["message_reserve"]),
             str(r["message_budget"]),
             r["messages_waiting"],
             r["portal"],
@@ -478,7 +485,7 @@ def list_bridges(ctx: typer.Context):
             "cap",
             "canonical TAO",
             "orders",
-            "message cost",
+            "message reserve",
             "message budget",
             "waiting",
             "portal",
@@ -521,6 +528,12 @@ def flush(
     ctx: typer.Context,
     bridge: int = typer.Option(..., "--bridge", help="Id of the bridge: 8453 is Base."),
     limit: int = typer.Option(8, "--limit", min=1, help="The most messages to hand over."),
+    pay_up_to: Optional[str] = typer.Option(
+        None,
+        "--pay-up-to",
+        help="The most TAO to pay towards what the transport charges above the bridge's "
+        "reserve. What is not needed comes back.",
+    ),
     key: Optional[str] = typer.Option(None, "--evm-key", help=EVM_KEY_HELP),
     rpc_url: Optional[str] = RPC_URL_OPTION,
     manifest: Optional[str] = MANIFEST_OPTION,
@@ -533,6 +546,10 @@ def flush(
     (`btcli bridge exit`) can wait for the next order: this sends the queue
     now. Anyone may call it, and it can only send what the hub already decided.
     The EVM key pays the gas in TAO.
+
+    The hub pays the transport for each message, up to the bridge's reserve
+    (`btcli bridge list`). If the transport charges more, the messages wait
+    until somebody pays the difference: `--pay-up-to` does, from the EVM key.
     """
     app_ctx = ctx_of(ctx)
     try:
@@ -544,6 +561,7 @@ def flush(
         app_ctx,
         key,
         gateway,
+        value_wei=_tao_to_wei(app_ctx, pay_up_to) if pay_up_to else 0,
         data=rails.encode_flush(bridge, limit),
         summary=f"hand up to {limit} of the hub's messages for bridge {bridge} to the transport",
         rpc_url=rpc_url,

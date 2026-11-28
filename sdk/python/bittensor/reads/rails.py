@@ -151,12 +151,13 @@ async def bridges(view) -> list[dict]:
     stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
     and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-    The last three fields say who pays for the hub's messages to the bridge's
-    chain. `message_budget` is the TAO that pays the transport for them.
-    `message_cost` is what the hub counts for one message, or None while it is
-    not set. `messages_waiting` is how many wait for the gateway. The hub takes
-    an order of the bridge only while the budget covers every waiting message
-    and one more at that cost. Anyone can pay into the budget
+    The last four fields say who pays for the hub's messages to the bridge's
+    chain. `message_account` holds the TAO for them, and `message_budget` is
+    what it can pay: its balance less the existential deposit. `message_reserve`
+    is the most the hub pays for one message, or None while it is not set.
+    `messages_waiting` is how many wait for the gateway. The hub takes an order
+    of the bridge only while the account holds the reserve for every waiting
+    message and one more. Anyone can pay into the account
     (`Rails.fund_messages`).
     """
     view = await view.at()
@@ -169,8 +170,9 @@ async def bridges(view) -> list[dict]:
         tao_supply = await view.query(st.Rails.TaoSupply, [bridge_id])
         tao_cap = await view.query(st.Rails.TaoCap, [bridge_id])
         next_order = await view.query(st.Rails.NextOrder, [bridge_id])
-        cost = await view.query(st.Rails.MessageCost, [bridge_id])
-        budget = await view.query(st.Rails.MessageBudget, [bridge_id])
+        reserve = await view.query(st.Rails.MessageReserve, [bridge_id])
+        account = await view.runtime(api.RailsApi.message_account, [bridge_id])
+        budget = await view.runtime(api.RailsApi.message_budget, [bridge_id])
         queued = await view.query(st.Rails.NextMessage, [bridge_id])
         taken = await view.query(st.Rails.NextOutbound, [bridge_id])
         records.append(
@@ -186,7 +188,8 @@ async def bridges(view) -> list[dict]:
                 "tao_supply": view.balance(int(tao_supply or 0), 0),
                 "tao_cap": view.balance(int(tao_cap or 0), 0),
                 "next_order": int(next_order or 0),
-                "message_cost": None if cost is None else view.balance(int(cost), 0),
+                "message_reserve": None if reserve is None else view.balance(int(reserve), 0),
+                "message_account": str(account),
                 "message_budget": view.balance(int(budget or 0), 0),
                 "messages_waiting": int(queued or 0) - int(taken or 0),
             }

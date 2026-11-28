@@ -159,8 +159,18 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "MessagesNotFunded": (
         "The hub's messages to this bridge are not paid for. Either the admin has not set "
-        "what one costs (`Rails.MessageCost`), or the bridge's budget (`Rails.MessageBudget`) "
-        "does not cover one more answer. Anyone can pay into the budget with "
-        "`Rails.fund_messages`; orders wait with the transport until then."
+        "the most the hub pays for one (`Rails.MessageReserve`), or the bridge's account "
+        "does not hold that reserve for every message in its queue and one more. Anyone can "
+        "pay into the account with `Rails.fund_messages`; orders wait with the transport "
+        "until then."
+    ),
+    "FeeAboveReserve": (
+        "The gateway asked the hub for more than the bridge's reserve for one message "
+        "(`Rails.MessageReserve`). The hub pays no more: who calls the gateway's `flush` "
+        "pays the difference, or the admin raises the reserve. This call is not for accounts."
+    ),
+    "GatewayNotFunded": (
+        "The account named as the gateway does not hold the existential deposit. Send it "
+        "that much first: the hub hands the gateway only what it pays on to the transport."
     ),
 }

@@ -73,7 +73,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("Rails", "NextOrder"): 1,
     ("Rails", "TaoSupply"): 0,
     ("Rails", "TaoCap"): 0,
-    ("Rails", "MessageCost"): 0,
+    ("Rails", "MessageReserve"): 0,
     ("Rails", "AlphaSupply"): 0,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
