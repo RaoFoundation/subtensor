@@ -119,6 +119,7 @@ export function explainRefusal(reason: string): string {
     NoLiquidity: 'The pool has no liquidity yet.',
     Unbacked: 'There is not that much of this token on this chain.',
     BridgeDisabled: 'The bridge is paused.',
+    Congested: 'Payments to this chain are waiting to be sent. Try again later.',
     MintCapExceeded: 'The bridge is at its cap for now.',
     MintRateLimited: 'The bridge has reached its rate limit. Try again in a few minutes.',
     ServiceDoesNotExist: 'This service does not take credits.',
