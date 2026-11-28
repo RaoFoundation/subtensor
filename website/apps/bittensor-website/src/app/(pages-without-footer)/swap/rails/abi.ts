@@ -32,6 +32,7 @@ export const PORTAL_ABI = [
   'function tao() view returns (address)',
   'function alphaTokens(uint16 netuid) view returns (address)',
   'function orderFee() view returns (uint256)',
+  'function orderSlots() view returns (uint64)',
   'function paused() view returns (bool)',
   'function owed(address) view returns (uint256)',
   'function claim(address to) returns (uint256)',

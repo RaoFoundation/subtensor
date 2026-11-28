@@ -98,7 +98,10 @@ export function encodeOrder(source: Source, amount: bigint, target: Target): str
   );
 }
 
-/** Why the hub would refund an order, in words. */
+/** The hub has not set aside what it needs to answer one more order from this chain. */
+const BUSY = 'The bridge is busy: Bittensor cannot answer another order yet. Try again soon.';
+
+/** Why the hub would refund an order, or why the portal would not take it, in words. */
 export function explainRefusal(reason: string): string {
   const reasons: Record<string, string> = {
     AmountTooLow: 'The amount is too small to settle.',
@@ -119,7 +122,9 @@ export function explainRefusal(reason: string): string {
     NoLiquidity: 'The pool has no liquidity yet.',
     Unbacked: 'There is not that much of this token on this chain.',
     BridgeDisabled: 'The bridge is paused.',
-    Congested: 'Payments to this chain are waiting to be sent. Try again later.',
+    NoOrderSlot: BUSY,
+    MessagesNotFunded: BUSY,
+    OutboxFull: BUSY,
     MintCapExceeded: 'The bridge is at its cap for now.',
     MintRateLimited: 'The bridge has reached its rate limit. Try again in a few minutes.',
     ServiceDoesNotExist: 'This service does not take credits.',

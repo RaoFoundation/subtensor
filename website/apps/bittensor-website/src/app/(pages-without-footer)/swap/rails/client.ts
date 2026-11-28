@@ -123,17 +123,23 @@ export async function creditsOf(
   return rails.hubRails.creditsOf(netuid, service, account);
 }
 
-/** What the hub would deliver for an order of `amount` (9 decimals) now. */
+/**
+ * What the hub would deliver for an order of `amount` (9 decimals) now.
+ *
+ * The portal takes an order only while it holds an order slot: the hub's promise to answer
+ * one order. Without a slot the portal would refuse the order, so the quote says that.
+ */
 export async function quote(
   rails: Rails,
   source: Source,
   amount: bigint,
   target: Target,
 ): Promise<Quote> {
-  const [ok, amountOut, reason] = await rails.hubRails.quote(
-    rails.config.hub.bridge,
-    encodeOrder(source, amount, target),
-  );
+  const [slots, [ok, amountOut, reason]] = await Promise.all([
+    rails.portal.orderSlots() as Promise<bigint>,
+    rails.hubRails.quote(rails.config.hub.bridge, encodeOrder(source, amount, target)),
+  ]);
+  if (slots === ZERO) return {ok: false, reason: 'NoOrderSlot'};
   return ok ? {ok: true, amountOut} : {ok: false, reason};
 }
 
