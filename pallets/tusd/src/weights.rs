@@ -30,12 +30,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
-	/// Storage: `Tusd::BridgeByPortal` (r:1 w:2)
+	/// Storage: `Tusd::BridgeByPortal` (r:1 w:1)
 	/// Storage: `Tusd::Bridges` (r:1 w:1)
 	fn set_bridge() -> Weight {
 		Weight::from_parts(50_000_000, 4_000)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Tusd::Bridges` (r:1 w:1)
 	fn set_bridge_enabled() -> Weight {
@@ -55,7 +55,7 @@ impl WeightInfo for () {
 	fn set_bridge() -> Weight {
 		Weight::from_parts(50_000_000, 4_000)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	fn set_bridge_enabled() -> Weight {
 		Weight::from_parts(30_000_000, 4_000)

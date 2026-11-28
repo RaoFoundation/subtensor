@@ -68,24 +68,28 @@ mod benchmarks {
     fn set_bridge() -> Result<(), BenchmarkError> {
         let origin =
             T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-        // Changing an existing bridge moves its portal index: the costlier path.
+        // Changing the limits of an existing bridge re-targets its window: the costlier
+        // path.
         open_bridge::<T>();
 
         #[extrinsic_call]
         _(
             origin as T::RuntimeOrigin,
             BRIDGE,
-            route(1),
-            TusdBalance::MAX,
-            TusdBalance::MAX,
+            route(BRIDGE),
+            TusdBalance::from(1_000_000_000u64),
+            TusdBalance::from(1_000_000u64),
             300,
         );
 
         assert_eq!(
-            Pallet::<T>::bridge_of(1, H256::repeat_byte(7)),
+            Bridges::<T>::get(BRIDGE).map(|bridge| bridge.mint_cap),
+            Some(TusdBalance::from(1_000_000_000u64))
+        );
+        assert_eq!(
+            Pallet::<T>::bridge_of(BRIDGE, H256::repeat_byte(7)),
             Some(BRIDGE)
         );
-        assert_eq!(Pallet::<T>::bridge_of(BRIDGE, H256::repeat_byte(7)), None);
         Ok(())
     }
 

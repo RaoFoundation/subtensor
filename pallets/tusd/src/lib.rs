@@ -193,6 +193,8 @@ pub mod pallet {
         RedeemExceedsOutstanding,
         /// Another bridge already uses this portal.
         PortalAlreadyRegistered,
+        /// The bridge exists, and its route cannot change.
+        RouteIsFixed,
     }
 
     #[pallet::hooks]
@@ -220,9 +222,14 @@ pub mod pallet {
             Self::do_transfer(&from, &to, amount)
         }
 
-        /// Registers bridge `id`, or changes its terms. A new bridge starts disabled. A
-        /// changed bridge keeps what it has outstanding, what its window has consumed and
-        /// whether it is enabled.
+        /// Registers bridge `id`, or changes its mint cap and mint window. A new bridge
+        /// starts disabled. A changed bridge keeps what it has outstanding, what its
+        /// window has consumed and whether it is enabled.
+        ///
+        /// The route of a bridge is set once. What a bridge has outstanding is backed by
+        /// the stablecoin in the vault of its portal, and what it still has to pay out
+        /// is paid by that portal: another portal could pay neither. A new portal is a
+        /// new bridge.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::set_bridge())]
         pub fn set_bridge(
@@ -240,6 +247,10 @@ pub mod pallet {
                 Error::<T>::PortalAlreadyRegistered
             );
             let previous = Bridges::<T>::get(id);
+            ensure!(
+                previous.is_none_or(|previous| previous.route == route),
+                Error::<T>::RouteIsFixed
+            );
             let bridge = Bridge {
                 route,
                 mint_cap,
@@ -255,9 +266,6 @@ pub mod pallet {
                 ),
                 enabled: previous.is_some_and(|previous| previous.enabled),
             };
-            if let Some(previous) = previous {
-                BridgeByPortal::<T>::remove(previous.route.domain, previous.route.portal);
-            }
             BridgeByPortal::<T>::insert(route.domain, route.portal, id);
             Bridges::<T>::insert(id, bridge);
             Self::deposit_event(Event::BridgeSet { id, bridge });

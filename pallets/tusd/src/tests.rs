@@ -262,20 +262,16 @@ fn guardian_disables_but_never_enables() {
 }
 
 #[test]
-fn changing_a_bridge_keeps_its_accounting() {
+fn changing_a_bridges_limits_keeps_its_accounting() {
     new_test_ext().execute_with(|| {
         open_bridge(BASE, 1_000 * USD, 300 * USD);
         assert_ok!(Tusd::mint(BASE, &ALICE, tusd(300 * USD)));
 
-        // New portal, larger cap, smaller window.
-        let moved = BridgeRoute {
-            portal: H256::repeat_byte(0xAB),
-            ..route(BASE)
-        };
+        // A larger cap and a smaller window.
         assert_ok!(Tusd::set_bridge(
             RuntimeOrigin::root(),
             BASE,
-            moved,
+            route(BASE),
             tusd(2_000 * USD),
             tusd(150 * USD),
             300
@@ -283,7 +279,7 @@ fn changing_a_bridge_keeps_its_accounting() {
 
         let changed = bridge(BASE);
         assert!(changed.enabled, "a change must not disable the bridge");
-        assert_eq!(changed.route, moved);
+        assert_eq!(changed.mint_cap, tusd(2_000 * USD));
         assert_eq!(BridgeOutstanding::<Test>::get(BASE), tusd(300 * USD));
         assert_eq!(
             changed.mint_window.used,
@@ -294,9 +290,67 @@ fn changing_a_bridge_keeps_its_accounting() {
             Tusd::mint(BASE, &ALICE, tusd(USD)),
             Error::<Test>::MintRateLimited
         );
-        // The old portal no longer resolves; the new one does.
-        assert_eq!(Tusd::bridge_of(BASE, route(BASE).portal), None);
-        assert_eq!(Tusd::bridge_of(BASE, moved.portal), Some(BASE));
+        assert_invariants();
+    });
+}
+
+#[test]
+fn the_route_of_a_bridge_is_set_once() {
+    new_test_ext().execute_with(|| {
+        open_bridge(BASE, 1_000 * USD, 300 * USD);
+        assert_ok!(Tusd::mint(BASE, &ALICE, tusd(300 * USD)));
+
+        // What the bridge has outstanding is in the vault of its portal. No other portal,
+        // domain, chain or stablecoin can stand for it.
+        for moved in [
+            BridgeRoute {
+                portal: H256::repeat_byte(0xAB),
+                ..route(BASE)
+            },
+            BridgeRoute {
+                domain: 7,
+                ..route(BASE)
+            },
+            BridgeRoute {
+                origin: OriginChain::Evm(7),
+                ..route(BASE)
+            },
+            BridgeRoute {
+                asset: StableAsset::Usdt,
+                ..route(BASE)
+            },
+        ] {
+            assert_noop!(
+                Tusd::set_bridge(
+                    RuntimeOrigin::root(),
+                    BASE,
+                    moved,
+                    tusd(1_000 * USD),
+                    tusd(300 * USD),
+                    300
+                ),
+                Error::<Test>::RouteIsFixed
+            );
+        }
+        // Not when it has nothing outstanding either, and not when it is disabled.
+        assert_ok!(Tusd::burn(BASE, &ALICE, tusd(300 * USD)));
+        assert_ok!(Tusd::set_bridge_enabled(RuntimeOrigin::root(), BASE, false));
+        assert_noop!(
+            Tusd::set_bridge(
+                RuntimeOrigin::root(),
+                BASE,
+                BridgeRoute {
+                    portal: H256::repeat_byte(0xAB),
+                    ..route(BASE)
+                },
+                tusd(1_000 * USD),
+                tusd(300 * USD),
+                300
+            ),
+            Error::<Test>::RouteIsFixed
+        );
+        assert_eq!(Tusd::bridge_of(BASE, route(BASE).portal), Some(BASE));
+        assert_eq!(bridge(BASE).route, route(BASE));
         assert_invariants();
     });
 }
