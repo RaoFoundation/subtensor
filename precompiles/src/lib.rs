@@ -745,8 +745,8 @@ mod address_and_selector_tests {
         );
         for signature in [
             "execute(uint32,bytes32,bytes)",
-            "ackOutbound(uint64)",
-            "nextOutbound()",
+            "ackOutbound(uint32,uint64,uint256)",
+            "nextOutbound(uint32)",
             "quote(uint32,bytes)",
             "receipt(uint32,uint64)",
             "nextOrder(uint32)",
