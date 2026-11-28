@@ -19,6 +19,7 @@ from rig import (
     DEPLOYER,
     DEPLOYER_KEY,
     DEPLOYMENTS,
+    EXIT_FEE,
     HUB_CHAIN_ID,
     HUB_RPC,
     HUB_WS,
@@ -403,6 +404,8 @@ async def configure() -> None:
         await submit(
             chain, bt.calls.Rails.set_gateway(gateway=mirror(hub["gateway"])), alice, root=True
         )
+        # An exit from Bittensor pays the gateway for its message.
+        await submit(chain, bt.calls.Rails.set_exit_fee(fee=EXIT_FEE), alice, root=True)
 
         async def priced():
             return await chain.query(bt.storage.SubtensorModule.TaoUsdPrice)

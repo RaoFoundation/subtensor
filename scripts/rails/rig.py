@@ -64,6 +64,10 @@ GUARDIAN_KEY = setting("GUARDIAN_KEY")
 MULTISIG_KEY = setting("MULTISIG_KEY")
 USER_KEY = setting("USER_KEY")
 USER = setting("USER_ADDRESS")
+MULTISIG = setting("MULTISIG")
+# What an order pays on the spoke for its answer (wei), and an exit on the hub (rao).
+ANSWER_FEE = int(setting("ANSWER_FEE"))
+EXIT_FEE = int(setting("EXIT_FEE"))
 
 UNIT = 10**9
 USDC = 10**6
@@ -218,6 +222,19 @@ class Spoke:
     def send(self, key: str, to: str, data: str, value: int = 0) -> dict:
         return send(self.rpc, key, to, data, value)
 
+    def next_order(self) -> int:
+        """The number the portal gives its next order."""
+        return rails.decode_uint(self.call(self.portal, "nextOrder()", [], []))
+
+    def order_fee(self) -> int:
+        """What an order costs now on top of what it pays with, in wei."""
+        return rails.decode_uint(
+            self.rpc.eth_call({"to": self.portal, "data": rails.encode_order_fee()})
+        )
+
+    def native_balance(self, holder: str) -> int:
+        return int(self.rpc.call("eth_getBalance", [holder, "latest"]), 16)
+
     def balance(self, token: str, holder: str) -> int:
         return rails.decode_uint(
             self.rpc.eth_call({"to": token, "data": rails.encode_balance_of(holder)})
@@ -278,6 +295,7 @@ class Spoke:
             rails.encode_deposit(
                 amount, destination, min_out, deadline or int(time.time()) + 3_600
             ),
+            value=self.order_fee(),
         )
         nonce = rails.order_nonce(receipt, self.portal)
         assert nonce is not None, "the deposit sent no order"
@@ -297,6 +315,7 @@ class Spoke:
             key,
             token,
             rails.encode_sell(amount, destination, min_out, int(time.time()) + 3_600),
+            value=self.order_fee(),
         )
         nonce = rails.order_nonce(receipt, self.portal)
         assert nonce is not None, "the sale sent no order"

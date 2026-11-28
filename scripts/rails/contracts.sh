@@ -48,7 +48,8 @@ else
     # The vault releases at most 1,000,000 of the stablecoin in an hour.
     (cd "$RAILS_CONTRACTS" && MAILBOX="$SPOKE_MAILBOX" HUB_DOMAIN="$HUB_DOMAIN" GATEWAY="$GATEWAY" \
         MULTISIG="$MULTISIG" GUARDIAN="$GUARDIAN" TIMELOCK_DELAY=0 \
-        RELEASE_LIMIT=1000000000000 RELEASE_PERIOD=3600 OUTPUT=spoke.local.json \
+        RELEASE_LIMIT=1000000000000 RELEASE_PERIOD=3600 \
+        ANSWER_FEE="$ANSWER_FEE" FEE_RECIPIENT="$MULTISIG" OUTPUT=spoke.local.json \
         forge script script/DeploySpoke.s.sol:DeploySpoke \
         --rpc-url "$SPOKE_RPC" --private-key "$DEPLOYER_KEY" \
         --broadcast --slow >"$RAILS_LOGS/deploy-spoke.log" 2>&1) ||

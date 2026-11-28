@@ -23,7 +23,10 @@ from eth_abi import decode as abi_decode
 from eth_abi import encode as abi_encode
 from eth_utils import keccak
 from rig import (
+    ANSWER_FEE,
+    EXIT_FEE,
     HUB_RPC,
+    MULTISIG,
     RESERVE_ACCOUNT,
     SPOKE_BRIDGE,
     SPOKE_DOMAIN,
@@ -33,10 +36,12 @@ from rig import (
     USER_KEY,
     VALIDATORS,
     Spoke,
+    calldata,
     client,
     dev_wallet,
     index_hotkey,
     manifest,
+    mirror,
     vault_account,
     wait_for,
 )
@@ -279,6 +284,8 @@ async def leave_from_bittensor(rig: Rig) -> None:
     held = int(await chain.query(bt.storage.Tusd.Balances, [address]) or 0) - before
     assert held > 0
     stable_before = spoke.balance(spoke.stable, USER)
+    gateway = mirror(rig.gateway)
+    gateway_before = (await chain.balances.balance(gateway)).rao
     result = await chain.execute(
         bt.intents.BridgeOut(
             bridge=SPOKE_BRIDGE,
@@ -296,7 +303,33 @@ async def leave_from_bittensor(rig: Rig) -> None:
 
     arrived = await wait_for("the stablecoin of the exit", released)
     assert arrived == held // STABLE_SCALE
-    show("left Bittensor", f"1 TAO -> {units(held)} tUSD -> {units(arrived, 6)} USDC on the spoke")
+    # The exit paid the gateway for its message, on top of what it sent.
+    assert (await chain.balances.balance(gateway)).rao == gateway_before + EXIT_FEE
+    show(
+        "left Bittensor",
+        f"1 TAO -> {units(held)} tUSD -> {units(arrived, 6)} USDC on the spoke, "
+        f"and {units(EXIT_FEE)} TAO to the gateway",
+    )
+
+
+def answer_fees(rig: Rig, first_order: int, fees_before: int) -> None:
+    """Each order paid for its answer. The fees wait in the portal for their recipient."""
+    spoke = rig.spoke
+    orders = spoke.next_order() - first_order
+    collected = spoke.native_balance(spoke.portal) - fees_before
+    assert orders > 0 and collected == orders * ANSWER_FEE, (orders, collected)
+
+    recipient_before = spoke.native_balance(MULTISIG)
+    waiting = spoke.native_balance(spoke.portal)
+    # Anyone may send them on. They can only go to the recipient.
+    spoke.send(USER_KEY, spoke.portal, calldata("sweepFees()", [], []))
+    assert spoke.native_balance(spoke.portal) == 0
+    assert spoke.native_balance(MULTISIG) == recipient_before + waiting
+    show(
+        "answer fees",
+        f"{orders} orders paid {units(collected, 18)} ETH for their answers, "
+        "swept to the fee recipient",
+    )
 
 
 async def invariants(rig: Rig) -> None:
@@ -332,6 +365,8 @@ async def main() -> None:
     async with client() as chain:
         rig = Rig(chain)
         chutes, lium = rig.markets
+        first_order = rig.spoke.next_order()
+        fees_before = rig.spoke.native_balance(rig.spoke.portal)
         rig.spoke.mint_stable(USER_KEY, USER, 1_000 * USDC)
         show("faucet", f"1,000 USDC for {USER}")
 
@@ -340,6 +375,7 @@ async def main() -> None:
         await buy_credits(rig, lium)
         await refund(rig, chutes)
         await leave_from_bittensor(rig)
+        answer_fees(rig, first_order, fees_before)
         await invariants(rig)
     show("passed")
 
