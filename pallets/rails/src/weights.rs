@@ -92,7 +92,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
-	/// Storage: `Rails::{Markets, Tokens, OutboxBounds, NextMessage, Outbox}`, `Tusd::Bridges` (r:5 w:4)
+	/// Storage: `Rails::{Markets, Tokens, NextMessage, NextOutbound, MessageCost, MessageBudget,
+	/// Outbox}`, `Tusd::Bridges` (r:6 w:4)
 	fn list_market() -> Weight {
 		Weight::from_parts(80_000_000, 8_000)
 			.saturating_add(T::DbWeight::get().reads(6_u64))

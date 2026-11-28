@@ -351,10 +351,10 @@ class BridgeOut(Intent):
     relayed the hub's message, usually within a minute. A bridge releases only
     the stablecoin it brought in. Fails rather than delivering less than the
     current quote less ``rate_tolerance``. The coldkey also pays, in TAO and on
-    top of the amount, what one message to the bridge's chain costs: it goes to
-    the gateway, which pays the bridge for the message. A plan's ``preview``
-    holds the quote as ``receive`` and ``minimum``, in units of the delivered
-    asset, and that cost as ``exit_fee_tao``.
+    top of the amount, the cost of one message to the bridge's chain: it goes
+    into the bridge's budget, which pays the transport for the message. A
+    plan's ``preview`` holds the quote as ``receive`` and ``minimum``, in units
+    of the delivered asset, and that cost as ``message_cost_tao``.
     """
 
     op = "bridge_out"
@@ -448,24 +448,25 @@ class BridgeOut(Intent):
             preview.blocks.append(f"the hub would refuse this payment: {error}")
             return preview
         minimum = _less(quote, self.rate_tolerance)
-        cost = await substrate.query(*st.Rails.MessageCost, [self.bridge])
-        exit_fee = Balance.from_rao(int(cost or 0))
+        cost = Balance.from_rao(
+            int(await substrate.query(*st.Rails.MessageCost, [self.bridge]) or 0)
+        )
         preview.facts = [
             ("receive", f"~{self._out_text(quote)}"),
             ("minimum", self._out_text(minimum)),
             ("to", self.to_address),
-            ("exit fee", f"{exit_fee}, to the gateway for the message"),
+            ("message cost", f"{cost}, into the bridge's budget for the message"),
             *preview.facts,
         ]
         preview.facts_title = "Quote"
         preview.preview = {
             "receive": tusd_from_units(quote),
             "minimum": tusd_from_units(minimum),
-            "exit_fee_tao": exit_fee.tao,
+            "message_cost_tao": cost.tao,
         }
-        if exit_fee.rao:
-            # The fee is TAO on top of what is paid: the account must hold both.
-            preview.required_free = exit_fee + self.amount if self.pay_with == TAO else exit_fee
+        if cost.rao:
+            # The cost is TAO on top of what is paid: the account must hold both.
+            preview.required_free = cost + self.amount if self.pay_with == TAO else cost
         return preview
 
     def summary(self) -> str:
