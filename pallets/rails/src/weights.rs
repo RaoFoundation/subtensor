@@ -44,7 +44,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// queued message and a receipt.
 	fn execute() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(T::DbWeight::get().reads(38_u64))
+			.saturating_add(T::DbWeight::get().reads(39_u64))
 			.saturating_add(T::DbWeight::get().writes(26_u64))
 	}
 	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, Deferred,
@@ -57,7 +57,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// A payment into the bridge's account, a pool swap, a tUSD burn and a queued message.
 	fn bridge_out() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(T::DbWeight::get().reads(35_u64))
+			.saturating_add(T::DbWeight::get().reads(36_u64))
 			.saturating_add(T::DbWeight::get().writes(25_u64))
 	}
 	/// Storage: `System::Account` (r:1 w:0), `Rails::Gateway` (r:0 w:1)
@@ -138,7 +138,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	fn execute() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(RocksDbWeight::get().reads(38_u64))
+			.saturating_add(RocksDbWeight::get().reads(39_u64))
 			.saturating_add(RocksDbWeight::get().writes(26_u64))
 	}
 	fn ack_outbound() -> Weight {
@@ -148,7 +148,7 @@ impl WeightInfo for () {
 	}
 	fn bridge_out() -> Weight {
 		Weight::from_parts(500_000_000, 30_000)
-			.saturating_add(RocksDbWeight::get().reads(35_u64))
+			.saturating_add(RocksDbWeight::get().reads(36_u64))
 			.saturating_add(RocksDbWeight::get().writes(25_u64))
 	}
 	fn set_gateway() -> Weight {

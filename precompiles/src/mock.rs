@@ -458,6 +458,7 @@ impl pallet_rails::Config for Runtime {
     type PauseOrigin = RailsPauseOrigin;
     type PalletId = RailsPalletId;
     type MaxOutbox = ConstU32<16>;
+    type CongestedAt = ConstU32<8>;
     type ReceiptsKept = ConstU64<8>;
     type WeightInfo = ();
 }

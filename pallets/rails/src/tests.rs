@@ -1375,35 +1375,114 @@ fn the_admin_defers_a_message_that_the_transport_does_not_take() {
 }
 
 #[test]
-fn deferred_messages_count_as_waiting() {
+fn deferred_messages_take_no_place_in_the_queue() {
     new_test_ext().execute_with(|| {
-        // As many messages as a bridge may have, all deferred: the line is empty.
-        for _ in 0..MAX_OUTBOX {
-            settled(
+        let to_spoke = || {
+            order(
                 SpokeAsset::Stable,
                 40 * UNIT,
                 Destination::Tao { to: wallet() },
-            );
+            )
+        };
+        // Twice as many messages as the queue holds, each deferred as it comes: the
+        // queue is empty, and the hub still takes orders.
+        for _ in 0..2 * MAX_OUTBOX {
+            assert_ok!(execute(to_spoke()));
             defer_head(BASE);
         }
         assert_eq!(Rails::next_outbound(BASE), None);
-        assert_eq!(Rails::waiting(BASE), u64::from(MAX_OUTBOX));
+        assert_eq!(Rails::waiting(BASE), u64::from(2 * MAX_OUTBOX));
+        assert_invariants();
 
-        // The bridge takes no order until one of them has left.
-        assert_noop!(
-            execute(order(
-                SpokeAsset::Stable,
-                40 * UNIT,
-                Destination::Tao { to: wallet() },
-            )),
-            Error::<Test>::OutboxFull
-        );
-        assert_ok!(send_message(BASE, 3, 0));
+        // The queue holds its own number of messages on top of them, and no more.
+        for _ in 0..MAX_OUTBOX {
+            assert_ok!(execute(to_spoke()));
+        }
+        assert_noop!(execute(to_spoke()), Error::<Test>::OutboxFull);
+        // One message of the queue leaves, or is deferred: the hub takes the next order.
+        assert_ok!(send_head(BASE, 0));
+        assert_ok!(execute(to_spoke()));
+        defer_head(BASE);
+        assert_ok!(execute(to_spoke()));
+        assert_invariants();
+    });
+}
+
+#[test]
+fn a_congested_bridge_refunds_orders_and_refuses_exits() {
+    new_test_ext().execute_with(|| {
         settled(
             SpokeAsset::Stable,
-            40 * UNIT,
-            Destination::Tao { to: wallet() },
+            500 * UNIT,
+            Destination::NativeTusd { to: ALICE },
         );
+        let exit = || {
+            Rails::bridge_out(
+                RuntimeOrigin::signed(ALICE),
+                BASE,
+                NativeAsset::Tusd,
+                100 * UNIT,
+                Destination::Stable { to: wallet() },
+                0,
+            )
+        };
+        let to_spoke = Destination::Tao { to: wallet() };
+
+        // Orders settle while nobody pays what the transport charges for their answers:
+        // each answer is deferred. One fewer than the limit, and the bridge still pays.
+        for _ in 1..CONGESTED_AT {
+            settled(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone());
+            defer_head(BASE);
+        }
+        assert!(!Rails::congested(BASE));
+        assert_ok!(exit());
+        defer_head(BASE);
+        assert!(Rails::congested(BASE));
+
+        // The hub still takes an order for the spoke, and refunds it: nothing is settled,
+        // and the payer gets back what the portal took.
+        let supply = TaoSupply::<Test>::get(BASE);
+        let minted = outstanding(BASE);
+        assert_eq!(
+            refunded(SpokeAsset::Stable, 400 * UNIT, to_spoke.clone()),
+            Error::<Test>::Congested.into()
+        );
+        assert_eq!(TaoSupply::<Test>::get(BASE), supply);
+        assert_eq!(outstanding(BASE), minted);
+        // A quote says so before anyone pays.
+        assert_eq!(
+            Rails::quote_order(BASE, SpokeAsset::Stable, 400 * UNIT, to_spoke.clone()),
+            Err(Error::<Test>::Congested.into())
+        );
+
+        // An exit fails as a whole: the account keeps its funds.
+        assert_noop!(exit(), Error::<Test>::Congested);
+
+        // An order that is paid out on Bittensor needs no message. It settles.
+        settled(
+            SpokeAsset::Stable,
+            250 * UNIT,
+            Destination::NativeTusd { to: BOB },
+        );
+
+        // The refund is deferred too. The hub goes on taking orders and refunding them:
+        // deferred messages take no place in the queue.
+        defer_head(BASE);
+        for _ in 0..2 * MAX_OUTBOX {
+            refunded(SpokeAsset::Stable, 40 * UNIT, to_spoke.clone());
+            defer_head(BASE);
+        }
+
+        // Deferred messages leave until fewer than the limit are left: the bridge makes
+        // payments again.
+        let deferred = u64::from(Deferred::<Test>::get(BASE));
+        for nonce in 0..=deferred - u64::from(CONGESTED_AT) {
+            assert!(Rails::congested(BASE));
+            assert_ok!(send_message(BASE, nonce, 0));
+        }
+        assert!(!Rails::congested(BASE));
+        settled(SpokeAsset::Stable, 400 * UNIT, to_spoke);
+        assert_ok!(exit());
         assert_invariants();
     });
 }
@@ -1603,7 +1682,8 @@ fn a_new_gateway_is_paid_from_the_same_accounts() {
 /// paid in for that bridge, less what the transport charged for that bridge's messages.
 /// Messages are deferred and leave later. Each account holds the reserve for every message
 /// that has not left, a message leaves exactly when its charge is within what the hub
-/// pays for it, and the gateway holds nothing.
+/// pays for it, and the gateway holds nothing. Deferred messages take no place in a
+/// queue, and a bridge refunds orders and refuses exits exactly while it is congested.
 #[test]
 fn message_accounts_hold_under_random_operations() {
     new_test_ext().execute_with(|| {
@@ -1637,8 +1717,9 @@ fn message_accounts_hold_under_random_operations() {
         let mut deferred: [Vec<u64>; 2] = [Vec::new(), Vec::new()];
         // Messages queued, messages refused for lack of the reserve, messages sent,
         // messages held because the transport charged more than the hub pays, messages
-        // sent at a charge above the reserve, and messages sent after they were deferred.
-        let mut seen = [0u32; 6];
+        // sent at a charge above the reserve, messages sent after they were deferred,
+        // exits refused because the bridge was congested, and orders refunded for that.
+        let mut seen = [0u32; 8];
 
         for _ in 0..6_000 {
             let index = next(2) as usize;
@@ -1649,8 +1730,9 @@ fn message_accounts_hold_under_random_operations() {
             let queued = in_line + deferred[index].len() as u64;
             assert_eq!(Rails::waiting(bridge), queued);
             // What the hub must answer to one more message, given what the account holds.
+            // Deferred messages take no place in the queue, and each holds a reserve.
             let room = |budget: u64| {
-                if queued >= u64::from(MAX_OUTBOX) {
+                if in_line >= u64::from(MAX_OUTBOX) {
                     Err(Error::<Test>::OutboxFull)
                 } else if budget >= reserve * (queued + 1) {
                     Ok(())
@@ -1727,7 +1809,16 @@ fn message_accounts_hold_under_random_operations() {
                     match room(budget(bridge)) {
                         Ok(()) => {
                             assert_ok!(execute());
-                            seen[0] += 1;
+                            // The hub took the order. A congested bridge refunds it, and
+                            // only a congested bridge gives that reason.
+                            let congested = deferred[index].len() >= CONGESTED_AT as usize;
+                            let outcome =
+                                Receipts::<Test>::get(bridge, order.nonce).unwrap().outcome;
+                            let refused = Outcome::Refunded {
+                                error: Error::<Test>::Congested.into(),
+                            };
+                            assert_eq!(outcome == refused, congested, "{outcome:?}");
+                            seen[if congested { 7 } else { 0 }] += 1;
                         }
                         Err(error) => {
                             assert_noop!(execute(), error);
@@ -1747,7 +1838,15 @@ fn message_accounts_hold_under_random_operations() {
                             0,
                         )
                     };
-                    match room(budget(bridge) + reserve) {
+                    // A congested bridge takes no exit, whatever its account holds.
+                    let congested = deferred[index].len() >= CONGESTED_AT as usize;
+                    assert_eq!(Rails::congested(bridge), congested);
+                    let admitted = if congested {
+                        Err(Error::<Test>::Congested)
+                    } else {
+                        room(budget(bridge) + reserve)
+                    };
+                    match admitted {
                         Ok(()) => {
                             assert_ok!(exit());
                             expected[index] += reserve;
@@ -1755,7 +1854,7 @@ fn message_accounts_hold_under_random_operations() {
                         }
                         Err(error) => {
                             assert_noop!(exit(), error);
-                            seen[1] += 1;
+                            seen[if congested { 6 } else { 1 }] += 1;
                         }
                     }
                 }

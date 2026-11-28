@@ -1638,6 +1638,9 @@ parameter_types! {
     pub const CanonicalPoolTwapPeriod: u32 = prod_or_fast!(300, 20);
     pub const RailsPalletId: PalletId = PalletId(*b"bt/rails");
     pub const RailsMaxOutbox: u32 = 1_024;
+    /// A bridge with this many deferred messages is congested: the hub refunds orders
+    /// for its spoke until some of them have left.
+    pub const RailsCongestedAt: u32 = prod_or_fast!(256, 4);
     pub const RailsReceiptsKept: u64 = 100_000;
 }
 
@@ -1679,6 +1682,7 @@ impl pallet_rails::Config for Runtime {
     type PauseOrigin = RailsPauseOrigin;
     type PalletId = RailsPalletId;
     type MaxOutbox = RailsMaxOutbox;
+    type CongestedAt = RailsCongestedAt;
     type ReceiptsKept = RailsReceiptsKept;
     type WeightInfo = pallet_rails::weights::SubstrateWeight<Runtime>;
 }

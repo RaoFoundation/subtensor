@@ -53,6 +53,13 @@
 //! its reserve. Anyone can have the gateway send it later, and the messages behind it go
 //! on. The spoke takes the hub's messages in any order.
 //!
+//! Deferred messages take no place in the queue: only the messages in line count against
+//! [`Config::MaxOutbox`]. But a bridge with many deferred messages is congested
+//! ([`Config::CongestedAt`]): the transport charges more than is paid, and nobody pays the
+//! difference. Then the hub makes no new payment to that spoke. It still takes every
+//! order, and refunds the ones that ask for such a payment. So payments that nobody pays
+//! the transport for never keep an order out of the hub, and their number is bounded.
+//!
 //! The transport charges the gateway for each message. The TAO for that is the hub's, not
 //! the gateway's. Each bridge has an account ([`Pallet::message_account`]) that anyone
 //! fills ([`Pallet::fund_messages`]), and the messages to a bridge's spoke are paid for
@@ -189,9 +196,17 @@ pub mod pallet {
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
-        /// The most messages of one bridge that have not left: in its queue, or deferred.
+        /// The most messages of one bridge that wait in its queue. Deferred messages do
+        /// not count: like every message that has not left, each holds its reserve in the
+        /// bridge's account, and that is their bound.
         #[pallet::constant]
         type MaxOutbox: Get<u32>;
+
+        /// A bridge is congested from this many deferred messages on. The hub then makes
+        /// no new payment to the bridge's spoke: it refunds an order that asks for one,
+        /// and refuses an exit. It makes payments again when deferred messages have left.
+        #[pallet::constant]
+        type CongestedAt: Get<u32>;
 
         /// How many receipts the hub keeps for each bridge. Older ones are dropped.
         #[pallet::constant]
@@ -438,7 +453,7 @@ pub mod pallet {
         SubnetUnknown,
         /// The pool has no time-weighted price yet to value credits with.
         TwapUnavailable,
-        /// Too many messages of the bridge have not left: in its queue, or deferred.
+        /// Too many messages wait in the bridge's queue.
         OutboxFull,
         /// The message is not the head of its bridge's queue, and, where a deferred
         /// message will do, is not one of those either.
@@ -458,6 +473,9 @@ pub mod pallet {
         /// The account does not hold the existential deposit, so it could not hold what
         /// the hub hands the gateway for the transport.
         GatewayNotFunded,
+        /// The bridge is congested: too many of its messages are deferred. The hub makes
+        /// no new payment to the bridge's spoke until some of them have left.
+        Congested,
     }
 
     #[pallet::hooks]
@@ -501,9 +519,10 @@ pub mod pallet {
         ///
         /// Fails, and so leaves the order with the transport to deliver again, only if the
         /// hub is paused, the portal or its bridge is not live, the order is out of
-        /// sequence, or the answer cannot be queued: too many messages of the bridge have
-        /// not left, or its account does not hold the reserve for one more message. An
-        /// order that cannot be settled for any other reason is taken and refunded.
+        /// sequence, or the answer cannot be queued: the bridge's queue is full, or its
+        /// account does not hold the reserve for one more message. An order that cannot be
+        /// settled for any other reason is taken and refunded. That includes an order for
+        /// a payment on the spoke while the bridge is congested ([`Pallet::congested`]).
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::execute().saturating_add(T::Staking::weight()))]
         pub fn execute(
@@ -610,8 +629,9 @@ pub mod pallet {
 
         /// Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the
         /// spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a
-        /// whole if it would deliver less than `min_out`. The signer also pays the
-        /// bridge's [`MessageReserve`] in TAO into the bridge's account, for the message.
+        /// whole if it would deliver less than `min_out`, or while the bridge is congested
+        /// ([`Pallet::congested`]). The signer also pays the bridge's [`MessageReserve`]
+        /// in TAO into the bridge's account, for the message.
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::bridge_out().saturating_add(T::Staking::weight()))]
         pub fn bridge_out(
@@ -1057,9 +1077,8 @@ impl<T: Config> Pallet<T> {
         }
         for (bridge, tail) in NextMessage::<T>::iter() {
             let head = NextOutbound::<T>::get(bridge);
-            let waiting = Self::waiting(bridge);
             ensure!(
-                head <= tail && waiting <= u64::from(T::MaxOutbox::get()),
+                head <= tail && tail.saturating_sub(head) <= u64::from(T::MaxOutbox::get()),
                 "a bridge's queue is out of bounds"
             );
             // Every message from the head on is there, and the messages below the head
@@ -1083,7 +1102,7 @@ impl<T: Config> Pallet<T> {
                 Self::holds_reserve(
                     bridge,
                     MessageReserve::<T>::get(bridge).unwrap_or_default(),
-                    waiting
+                    Self::waiting(bridge)
                 ),
                 "a bridge's account holds less than the reserve for each message that waits"
             );
@@ -1191,28 +1210,41 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Passes only if `bridge` can have one more message: fewer than [`Config::MaxOutbox`]
-    /// of its messages wait, and the bridge's account holds the bridge's
-    /// [`MessageReserve`] for every one of them and for one more. The hub queues nothing
-    /// that it could not pay the transport for.
+    /// wait in its queue, and the bridge's account holds the bridge's [`MessageReserve`]
+    /// for every message that has not left and for one more. The hub queues nothing that
+    /// it could not pay the transport for.
+    ///
+    /// Deferred messages take no place in the queue. So a bridge whose messages are
+    /// deferred, because nobody pays what the transport charges, still takes orders.
     pub(crate) fn ensure_room(bridge: BridgeId) -> DispatchResult {
-        let waiting = Self::waiting(bridge);
         ensure!(
-            waiting < u64::from(T::MaxOutbox::get()),
+            Self::in_line(bridge) < u64::from(T::MaxOutbox::get()),
             Error::<T>::OutboxFull
         );
         let reserve = MessageReserve::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
         ensure!(
-            Self::holds_reserve(bridge, reserve, waiting.saturating_add(1)),
+            Self::holds_reserve(bridge, reserve, Self::waiting(bridge).saturating_add(1)),
             Error::<T>::MessagesNotFunded
         );
         Ok(())
     }
 
+    /// How many messages wait in the queue of `bridge`.
+    fn in_line(bridge: BridgeId) -> u64 {
+        NextMessage::<T>::get(bridge).saturating_sub(NextOutbound::<T>::get(bridge))
+    }
+
     /// How many messages of `bridge` have not left: those in line and those deferred.
     pub fn waiting(bridge: BridgeId) -> u64 {
-        NextMessage::<T>::get(bridge)
-            .saturating_sub(NextOutbound::<T>::get(bridge))
-            .saturating_add(u64::from(Deferred::<T>::get(bridge)))
+        Self::in_line(bridge).saturating_add(u64::from(Deferred::<T>::get(bridge)))
+    }
+
+    /// Whether `bridge` is congested: at least [`Config::CongestedAt`] of its messages
+    /// are deferred. The transport charges more than is paid, and nobody has paid the
+    /// difference. Until deferred messages leave, the hub makes no new payment to the
+    /// bridge's spoke: it refunds an order that asks for one, and refuses an exit.
+    pub fn congested(bridge: BridgeId) -> bool {
+        Deferred::<T>::get(bridge) >= T::CongestedAt::get()
     }
 
     /// Whether the account of `bridge` can pay `reserve` for each of `messages` messages.

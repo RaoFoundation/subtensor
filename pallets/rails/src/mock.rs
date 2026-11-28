@@ -59,6 +59,8 @@ pub const UNIT: u64 = 1_000_000_000;
 pub const EXISTENTIAL_DEPOSIT: u64 = 500;
 pub const TWAP_PERIOD: u32 = 10;
 pub const MAX_OUTBOX: u32 = 8;
+/// A bridge with this many deferred messages is congested.
+pub const CONGESTED_AT: u32 = 3;
 pub const RECEIPTS_KEPT: u64 = 4;
 
 /// The account of the gateway contract.
@@ -100,6 +102,7 @@ parameter_types! {
     pub const MinReserve: u64 = 1_000_000;
     pub const TwapPeriod: u32 = TWAP_PERIOD;
     pub const MaxOutbox: u32 = MAX_OUTBOX;
+    pub const CongestedAt: u32 = CONGESTED_AT;
     pub const ReceiptsKept: u64 = RECEIPTS_KEPT;
 }
 
@@ -305,6 +308,7 @@ impl crate::Config for Test {
     type PauseOrigin = Pauser;
     type PalletId = RailsPalletId;
     type MaxOutbox = MaxOutbox;
+    type CongestedAt = CongestedAt;
     type ReceiptsKept = ReceiptsKept;
     type WeightInfo = ();
 }
