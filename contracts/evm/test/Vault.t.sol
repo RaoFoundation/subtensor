@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {RateLimit} from "../src/RateLimit.sol";
 import {Vault} from "../src/Vault.sol";
@@ -30,6 +31,39 @@ contract FeeStable is ERC20 {
         uint256 fee = value / 100;
         super._update(from, address(0xFEE), fee);
         super._update(from, to, value - fee);
+    }
+}
+
+/// @notice A stablecoin that calls the vault again while a deposit pulls it.
+contract ReentrantStable is ERC20 {
+    Vault public vault;
+    bool private entered;
+
+    constructor() ERC20("Reentrant Dollar", "RE") {}
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function aim(Vault vault_) external {
+        vault = vault_;
+        _approve(address(this), address(vault_), type(uint256).max);
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        super._update(from, to, value);
+        // A second deposit inside the first: without a guard the outer deposit would
+        // count both arrivals, and the inner one its own, for one balance.
+        if (to == address(vault) && !entered) {
+            entered = true;
+            Wire.Destination memory destination =
+                Wire.Destination(Wire.TO_TAO, 0, bytes32(uint256(uint160(from))), address(0));
+            vault.deposit(value, destination, 0, type(uint64).max);
+        }
     }
 }
 
@@ -117,6 +151,23 @@ contract VaultTest is Fixture {
         vm.prank(alice);
         vm.expectRevert(Vault.NothingReceived.selector);
         feeVault.deposit(0, toTao(alice), 0, type(uint64).max);
+    }
+
+    function test_AStablecoinThatCallsBackCannotEnterADepositTwice() public {
+        ReentrantStable reentrant = new ReentrantStable();
+        RecordingPortal recorder = new RecordingPortal();
+        Vault target = new Vault(reentrant, recorder, address(timelock), guardian, 0, 0);
+        reentrant.aim(target);
+        reentrant.mint(alice, 100 * USDC);
+        reentrant.mint(address(reentrant), 100 * USDC);
+        vm.startPrank(alice);
+        reentrant.approve(address(target), 100 * USDC);
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        target.deposit(100 * USDC, toTao(alice), 0, type(uint64).max);
+        vm.stopPrank();
+
+        assertEq(reentrant.balanceOf(address(target)), 0);
+        assertEq(recorder.amount(), 0);
     }
 
     function test_OnlyThePortalReleases() public {

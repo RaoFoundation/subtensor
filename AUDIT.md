@@ -226,7 +226,8 @@ reported, and tells the vault to release only what it burned. Checked end to end
 - **I23.** Canonical tokens are minted only by the portal that created them. A token
   is burned only by its holder, in `sell`.
 - **I24.** The vault releases only on the portal's call, at most its allowance, and
-  never while paused.
+  never while paused. A deposit counts what arrived by the change of the vault's
+  balance, and `deposit` and `release` cannot be entered again while one runs.
 - **I25.** The supply of each canonical token equals what the hub counted, less burns
   that the hub has not read, plus mints that the portal has not carried out.
   Invariant test `invariant_TokensMatchTheHubsSupply`.
@@ -253,7 +254,8 @@ reported, and tells the vault to release only what it burned. Checked end to end
    larger than the limit itself waits until the owner raises the limit. Set the limit
    above the largest sale that should pass without the owner.
 5. **Refunds use the release limit too.** Many large refunds can use the allowance
-   that sales need.
+   that sales need. A release period of zero turns the limit into a cap for each
+   release, with no limit on the rate: do not set it.
 6. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
    after the payer signed. The order's minimum bounds the loss. btcli defaults to 5%
    and the swap page to 1%. The pool's swap limits make a large push slow.

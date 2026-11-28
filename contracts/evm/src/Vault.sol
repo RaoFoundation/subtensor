@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {RateLimit} from "./RateLimit.sol";
 import {Wire} from "./Wire.sol";
@@ -14,7 +15,11 @@ import {IPortal} from "./interfaces/IPortal.sol";
 /// when the approver calls. The portal, which can be upgraded, can do one thing here:
 /// release the stablecoin, within a rate limit that only the owner can change. The limit
 /// bounds what a faulty or forged release can take before the guardian stops releases.
-contract Vault {
+///
+/// A deposit counts what arrived by the change of the vault's balance. `deposit` and
+/// `release` cannot be entered again while one of them runs, so a stablecoin that calls
+/// back during a transfer cannot have one arrival counted twice.
+contract Vault is ReentrancyGuard {
     using SafeERC20 for IERC20;
     using RateLimit for RateLimit.Window;
 
@@ -86,7 +91,7 @@ contract Vault {
         Wire.Destination calldata destination,
         uint64 minOut,
         uint64 deadline
-    ) external payable returns (uint64 nonce) {
+    ) external payable nonReentrant returns (uint64 nonce) {
         // Count what arrived, not what was asked for: some stablecoins can take a fee.
         uint256 held = stable.balanceOf(address(this));
         stable.safeTransferFrom(msg.sender, address(this), amount);
@@ -99,7 +104,7 @@ contract Vault {
 
     /// @notice Pays `amount` of the stablecoin to `to`. Only the portal, on a credit from
     /// the hub, and within the release limit.
-    function release(address to, uint256 amount) external {
+    function release(address to, uint256 amount) external nonReentrant {
         if (msg.sender != address(portal)) revert OnlyPortal();
         if (paused) revert Paused();
         releases.consume(amount);
