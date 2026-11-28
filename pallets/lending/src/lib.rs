@@ -11,6 +11,7 @@ extern crate alloc;
 
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarking;
+pub mod dissolution;
 pub mod hooks;
 pub mod interest;
 pub mod long_weights;
@@ -47,7 +48,9 @@ pub mod pallet {
     use subtensor_runtime_common::NetUid;
 
     use crate::{
-        LendingPoolInterface, WeightInfo, long_weights,
+        LendingPoolInterface, WeightInfo,
+        dissolution::Dissolving,
+        long_weights,
         math::fixed::Price,
         migrations,
         params::{DeregParams, LendingParams, LongParams, ShortParams},
@@ -228,6 +231,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type ResidualAlpha<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
 
+    /// The lending record of each subnet being dissolved, from its flag until the owner refund
+    /// has read it (see [`crate::dissolution`]).
+    #[pallet::storage]
+    pub type DissolvingSubnets<T> = StorageMap<_, Identity, NetUid, Dissolving, OptionQuery>;
+
     /// `LongLockedAlpha`: the alpha held in custody by all longs of the subnet (SPEC I12).
     #[pallet::storage]
     pub type LongLockedAlpha<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
@@ -381,6 +389,15 @@ pub mod pallet {
             netuid: NetUid,
             residual_alpha: u64,
             proceeds_to_pool: u64,
+        },
+        /// A short was settled when its subnet was dissolved (SPEC section 7.4 phase E). It paid
+        /// `paid` (`min(q * price, C + P)`) from its collateral and proceeds into the subnet's pot,
+        /// at the dereg rate `price`; the rest of its custody went back to the holder.
+        ShortSettledOnDissolution {
+            who: T::AccountId,
+            netuid: NetUid,
+            price: Price,
+            paid: u64,
         },
     }
 

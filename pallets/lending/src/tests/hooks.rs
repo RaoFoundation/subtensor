@@ -362,16 +362,17 @@ fn the_largest_rekey_moves_every_position_within_the_bound() {
     });
 }
 
-/// HOLD(2.6), HOLD(2.8/2.9): both hook points do nothing until the spec decides.
+/// The dissolve hook changes nothing on a subnet with no lending on it (it only reads the subnet's
+/// books and charges its reads), and the conviction hook reads no lending state for it. Shorts
+/// of a dissolved subnet are settled by `tests::dissolution`.
 #[test]
-fn the_hold_hooks_do_nothing() {
+fn the_dissolve_hook_changes_nothing_on_a_subnet_without_lending() {
     live().execute_with(|| {
-        open_short(ALICE);
         let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
         let mut meter = WeightMeter::new();
         meter.consume(Weight::from_parts(7, 3));
         <Lending as LendingInterface<AccountId>>::on_dissolve(sn1(), &mut meter);
-        assert_eq!(meter.consumed(), Weight::from_parts(7, 3));
+        assert!(meter.consumed().ref_time() >= 7);
         assert_eq!(
             <Lending as LendingInterface<AccountId>>::conviction_bar_extra(sn1()),
             AlphaBalance::from(0u64)

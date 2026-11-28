@@ -3103,6 +3103,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type CurrentDissolveCleanupStatus<T> = StorageValue<_, DissolveCleanupStatus, OptionQuery>;
 
+    /// Progress of the payout of a dissolving subnet's lending settlement to its stakers, over
+    /// the chunks of `destroy_alpha_in_out_stakes_settle_stakes`: `(paid, walked)`, the TAO paid in
+    /// rao and the staker alpha value walked so far. Cleared by the owner refund, which reads the
+    /// settlement TAO not paid as not the owner's (see `destroy_alpha_in_out_stakes`).
+    #[pallet::storage]
+    pub type DissolutionSettlementProgress<T> =
+        StorageMap<_, Identity, NetUid, (u64, u128), ValueQuery>;
+
     /// ITEM ( network_registration_queue ) Network registrations waiting to be executed.
     #[pallet::storage]
     pub type NetworkRegistrationQueue<T> =

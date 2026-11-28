@@ -94,11 +94,30 @@ impl<T: Config> Pallet<T> {
         amount: u64,
         rate_bps: u32,
     ) -> DispatchResult {
+        Self::pay_interest_via(who, netuid, side, custody, amount, rate_bps, false)
+    }
+
+    /// [`Self::pay_interest`], with `dissolving` set for an interest charge settled at the
+    /// dissolution of the subnet: the credit then goes through the dissolving leg, which does not
+    /// add to `TotalStake` (see `dissolution`).
+    pub(crate) fn pay_interest_via(
+        who: &T::AccountId,
+        netuid: NetUid,
+        side: Side,
+        custody: &T::AccountId,
+        amount: u64,
+        rate_bps: u32,
+        dissolving: bool,
+    ) -> DispatchResult {
         if amount == 0 {
             return Ok(());
         }
         let before = T::Pool::pool_tao(netuid);
-        Self::credit_pool(netuid, custody, amount)?;
+        if dissolving {
+            Self::credit_dissolving(netuid, custody, amount)?;
+        } else {
+            Self::credit_pool(netuid, custody, amount)?;
+        }
         let risen = T::Pool::pool_tao(netuid).saturating_sub(before);
         InterestTotals::<T>::mutate(netuid, |total| {
             total.charged = total.charged.saturating_add(u128::from(amount));

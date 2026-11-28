@@ -229,6 +229,16 @@ impl LendingPoolInterface<AccountId> for FakePool {
         with_pool(netuid, |p| p.tao = p.tao.saturating_add(amount));
         Ok(amount)
     }
+    fn credit_dissolving_tao(
+        netuid: NetUid,
+        from: &AccountId,
+        amount: u64,
+    ) -> Result<u64, DispatchError> {
+        // The mock has no separate total stake, so the dissolving credit is the pool credit.
+        debit(*from, amount)?;
+        with_pool(netuid, |p| p.tao = p.tao.saturating_add(amount));
+        Ok(amount)
+    }
     fn burn_tao(from: &AccountId, amount: u64) -> Result<u64, DispatchError> {
         debit(*from, amount)?;
         BURNED.with_borrow_mut(|burned| *burned = burned.saturating_add(amount));

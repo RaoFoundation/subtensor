@@ -195,6 +195,8 @@ impl<T: Config> Pallet<T> {
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
+        // The lending record of the subnet's shorts, with the pool TAO just taken out of TotalStake.
+        T::Lending::on_dissolve_flag(netuid, SubnetTAO::<T>::get(netuid));
 
         dissolved_networks.push(netuid);
         DissolveCleanupQueue::<T>::set(dissolved_networks);
@@ -823,10 +825,10 @@ impl<T: Config> Pallet<T> {
                     let done = Self::clean_up_root_claimed_for_subnet(netuid, weight_meter);
 
                     if done {
-                        // HOLD(2.8/2.9): payout split pending spec decision. The lending hook
-                        // runs once per dissolved subnet, here, before the first step of the
-                        // pot distribution, and takes its own weight from the meter. The
-                        // pallet's implementation does nothing.
+                        // The lending hook runs once per dissolved subnet, here, before the first
+                        // step of the pot distribution: it settles the subnet's shorts at the
+                        // dereg rate and takes their weight from the meter. The TAO they paid is
+                        // the stakers' (see `destroy_alpha_in_out_stakes_settle_stakes`).
                         T::Lending::on_dissolve(netuid, weight_meter);
                         status.set_phase(DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue);
                         status.last_key = None;

@@ -6,6 +6,7 @@
 )]
 
 mod default;
+mod dissolution;
 mod golden;
 mod hooks;
 mod interest;

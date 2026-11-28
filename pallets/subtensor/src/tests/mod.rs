@@ -29,6 +29,7 @@ mod hotkey_owner_policy;
 mod leasing;
 mod lending_adapter;
 mod lending_curve;
+mod lending_dissolution;
 mod lending_guards;
 mod locks;
 mod math;

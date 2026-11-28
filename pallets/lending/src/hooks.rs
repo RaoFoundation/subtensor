@@ -15,9 +15,8 @@ use sp_runtime::traits::AccountIdConversion;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
 use crate::{
-    Config, Custody, Due, Event, HolderPositions, InterestRetry, LendingPoolInterface,
-    LongLiftedTao, Pallet, Positions, ResidualAlpha, SwappedOutAt, SyntheticOutstanding,
-    WeightInfo,
+    Config, Custody, DissolvingSubnets, Due, Event, HolderPositions, InterestRetry,
+    LendingPoolInterface, LongLiftedTao, Pallet, Positions, SwappedOutAt, WeightInfo,
     types::{PositionId, Side},
 };
 
@@ -66,9 +65,20 @@ pub trait LendingInterface<AccountId> {
     /// The hotkey custody alpha is staked on, or `None` in a runtime without lending. Nobody
     /// else may stake to it, register it or name it as a child.
     fn pallet_hotkey() -> Option<AccountId>;
-    /// Called once per dissolved subnet, before any of its pot is distributed. The hook takes
-    /// the weight it uses from `meter` itself; the caller accounts for none of it.
+    /// Called once when a subnet is flagged for dissolution, with the pool's TAO at that moment
+    /// (`T_flag`). Records the subnet's lending values for the settlement and the refund.
+    fn on_dissolve_flag(netuid: NetUid, pool_tao: TaoBalance);
+    /// Called once per dissolved subnet, before any of its pot is distributed: settles every
+    /// short of the subnet at the dereg rate (`dissolution`). The hook takes the weight it uses
+    /// from `meter` itself; the caller accounts for none of it.
     fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter);
+    /// The TAO the shorts settled into the pot at `on_dissolve`, in rao. The caller pays it to the
+    /// stakers and takes it out of the pool reserve before the owner refund reads the pot.
+    /// Zero for a subnet with no lending.
+    fn dissolution_settled_tao(netuid: NetUid) -> TaoBalance;
+    /// Called once the owner refund of a dissolved subnet has read its pot: drops the subnet's
+    /// lending record. A subnet with no lending has none, so this does nothing.
+    fn on_dissolve_done(netuid: NetUid);
     /// Alpha added to the conviction bar a challenger must clear to take ownership of `netuid`.
     fn conviction_bar_extra(netuid: NetUid) -> AlphaBalance;
     /// Called when `netuid` is registered (or registered again), once its pool has its first
@@ -114,7 +124,15 @@ impl<AccountId> LendingInterface<AccountId> for () {
         None
     }
 
+    fn on_dissolve_flag(_netuid: NetUid, _pool_tao: TaoBalance) {}
+
     fn on_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) {}
+
+    fn dissolution_settled_tao(_netuid: NetUid) -> TaoBalance {
+        TaoBalance::from(0u64)
+    }
+
+    fn on_dissolve_done(_netuid: NetUid) {}
 
     fn conviction_bar_extra(_netuid: NetUid) -> AlphaBalance {
         AlphaBalance::from(0u64)
@@ -258,7 +276,10 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     }
 
     fn lending_alpha(netuid: NetUid) -> u64 {
-        SyntheticOutstanding::<T>::get(netuid).saturating_add(ResidualAlpha::<T>::get(netuid))
+        DissolvingSubnets::<T>::get(netuid).map_or_else(
+            || Self::live_lending_alpha(netuid),
+            |record| record.lending_alpha,
+        )
     }
 
     fn long_credit(netuid: NetUid) -> TaoBalance {
@@ -292,12 +313,26 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
         Some(Self::pallet_hotkey_account())
     }
 
-    // HOLD(2.8/2.9): payout split pending spec decision
-    // TODO(ResidualAlpha dissolution): when a subnet dissolves, its `ResidualAlpha` (the alpha
-    // defaulted shorts left in circulation, SPEC section 1 item 4) must be settled here
-    // together with the rest of the payout split, and its entry removed. Not implemented: the
-    // payout is pending the spec decision above, so a dissolved subnet keeps its entry.
-    fn on_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) {}
+    fn on_dissolve_flag(netuid: NetUid, pool_tao: TaoBalance) {
+        Self::record_dissolve_flag(netuid, pool_tao);
+    }
+
+    /// Settles the shorts (`dissolution::settle_shorts_at_dissolution`) and clears the subnet's
+    /// `ResidualAlpha`, whose alpha stays in the pool's issuance. Longs are not touched.
+    // TODO(longs dissolution): a long of a dissolved subnet keeps its position, its custody and
+    // its `LongLockedAlpha`/`LongLiftedTao` books. Longs were out of scope of the shorts
+    // settlement (Jacob, Nov 27); their dissolution is not implemented.
+    fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter) {
+        Self::settle_shorts_at_dissolution(netuid, meter);
+    }
+
+    fn dissolution_settled_tao(netuid: NetUid) -> TaoBalance {
+        TaoBalance::from(DissolvingSubnets::<T>::get(netuid).map_or(0, |record| record.settled_tao))
+    }
+
+    fn on_dissolve_done(netuid: NetUid) {
+        DissolvingSubnets::<T>::remove(netuid);
+    }
 
     // HOLD(2.6): pending spec decision
     fn conviction_bar_extra(_netuid: NetUid) -> AlphaBalance {

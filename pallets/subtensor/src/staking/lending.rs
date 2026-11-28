@@ -358,6 +358,25 @@ impl<T: Config + pallet_subtensor_swap::Config> LendingPoolInterface<T::AccountI
         Ok(amount)
     }
 
+    /// The dissolution form of `credit_pool_tao`: `SubnetTAO` rises and `TotalStake` does not.
+    /// `do_dissolve_network` already took the subnet's pool TAO out of `TotalStake` when it
+    /// flagged the subnet, so adding the credit back would count it twice.
+    fn credit_dissolving_tao(
+        netuid: NetUid,
+        from: &T::AccountId,
+        amount: u64,
+    ) -> Result<u64, DispatchError> {
+        if amount == 0 {
+            return Ok(0);
+        }
+        let subnet_account =
+            Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+        let tao = TaoBalance::from(amount);
+        Self::transfer_tao(from, &subnet_account, tao)?;
+        Self::increase_provided_tao_reserve(netuid, tao);
+        Ok(amount)
+    }
+
     /// `burn_tao`: the TAO moves to the burn account, as every other burn of this pallet.
     fn burn_tao(from: &T::AccountId, amount: u64) -> Result<u64, DispatchError> {
         Self::burn_tao(from, TaoBalance::from(amount))?;

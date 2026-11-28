@@ -67,6 +67,14 @@ pub trait LendingPoolInterface<AccountId> {
     /// Returns the TAO credited.
     fn credit_pool_tao(netuid: NetUid, from: &AccountId, amount: u64)
     -> Result<u64, DispatchError>;
+    /// [`Self::credit_pool_tao`] for a subnet being dissolved: the TAO moves into its pool
+    /// reserve but is not added to `TotalStake`, which dissolution already took the subnet's
+    /// pool TAO out of (`do_dissolve_network`). Returns the TAO credited.
+    fn credit_dissolving_tao(
+        netuid: NetUid,
+        from: &AccountId,
+        amount: u64,
+    ) -> Result<u64, DispatchError>;
     /// Burns `amount` TAO of `from`, the way the runtime burns TAO elsewhere: the deposit of a
     /// defaulted short (SPEC section 1 item 4). Returns the TAO burned.
     fn burn_tao(from: &AccountId, amount: u64) -> Result<u64, DispatchError>;

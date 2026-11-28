@@ -612,6 +612,15 @@ impl<T: Config> Pallet<T> {
             return false;
         }
         weight_meter.consume(max_weight);
+        // The TAO the lending shorts settled into the pot (SPEC 7.4 phase E). The stakers were
+        // paid their share of it in `destroy_alpha_in_out_stakes_settle_stakes`; the rest of it
+        // is not the owner's. It leaves the reserve here, so the pot and the owner refund below
+        // are those of the pool's own TAO, as for a subnet with no lending.
+        let lending_settled: TaoBalance = T::Lending::dissolution_settled_tao(netuid);
+        let (lending_paid, _) = DissolutionSettlementProgress::<T>::take(netuid);
+        let lending_unpaid: TaoBalance =
+            lending_settled.saturating_sub(TaoBalance::from(lending_paid));
+        Self::decrease_provided_tao_reserve(netuid, lending_settled);
         let owner_coldkey: T::AccountId = SubnetOwner::<T>::get(netuid);
         let lock_cost: TaoBalance = Self::get_subnet_locked_balance(netuid);
 
@@ -678,8 +687,9 @@ impl<T: Config> Pallet<T> {
             && let Some(subnet_account) = Self::get_subnet_account_id(netuid)
         {
             // Transfer maximum transferrable up to refund to owner
-            let transferrable =
-                Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
+            let transferrable = Self::get_coldkey_balance(&subnet_account)
+                .saturating_sub(protocol_tao_share)
+                .saturating_sub(lending_unpaid);
 
             distributed_tao_value_u128 = distributed_tao_value_u128.saturating_add(refund.into());
 
@@ -701,6 +711,9 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // The lending record of the subnet has served the refund; drop it.
+        T::Lending::on_dissolve_done(netuid);
+
         status.subnet_total_alpha_value = None;
         status.subnet_distributed_tao = None;
         SubnetTAO::<T>::remove(netuid);
@@ -720,6 +733,54 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// * `bool`: True if all hotkeys are iterated, otherwise false.
     ///
+    /// The alpha the dissolution total counts for the subnet itself, not for its stakers. Legacy
+    /// subnets keep the old dereg behavior and ignore `SubnetAlphaIn`; new subnets include it.
+    /// The total of [`Self::destroy_alpha_in_out_stakes_get_total_alpha_value`] is this plus the
+    /// stakers' alpha values.
+    pub fn dissolution_protocol_alpha_value(netuid: NetUid) -> u128 {
+        let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
+        let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
+        if reg_at > tao_in_refund_deployment_block {
+            SubnetAlphaIn::<T>::get(netuid)
+                .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
+                .to_u64() as u128
+        } else {
+            SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128
+        }
+    }
+
+    /// Splits the lending settlement `total` over `stakers` (`(hotkey, coldkey, alpha value)`, in
+    /// walk order) out of `denominator`, the stakers' whole alpha value. The walk is cumulative:
+    /// `walked_before` is the value walked by the earlier chunks, and each staker's share is the
+    /// step of `floor(total * walked / denominator)` (capped at `total`) that its value adds. The
+    /// shares of all chunks telescope to exactly `total` once the walk covers `denominator`, and
+    /// never exceed it. Returns the shares per staker and the value walked after this chunk.
+    pub fn lending_settlement_shares(
+        total: u64,
+        denominator: u128,
+        walked_before: u128,
+        stakers: &[(T::AccountId, T::AccountId, u128)],
+    ) -> (Vec<(T::AccountId, u64)>, u128) {
+        let cumulative = |walked: u128| -> u64 {
+            let walked = walked.min(denominator);
+            let owed = u128::from(total)
+                .saturating_mul(walked)
+                .checked_div(denominator)
+                .unwrap_or_default();
+            owed.min(u128::from(total)) as u64
+        };
+        let mut walked = walked_before;
+        let mut paid_upto = cumulative(walked);
+        let mut shares = Vec::with_capacity(stakers.len());
+        for (_, cold, value) in stakers {
+            walked = walked.saturating_add(*value);
+            let next = cumulative(walked);
+            shares.push((cold.clone(), next.saturating_sub(paid_upto)));
+            paid_upto = next;
+        }
+        (shares, walked)
+    }
+
     pub fn destroy_alpha_in_out_stakes_get_total_alpha_value(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
@@ -734,19 +795,7 @@ impl<T: Config> Pallet<T> {
         if let Some(value) = status.subnet_total_alpha_value {
             total_alpha_value_u128 = value;
         } else {
-            let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
-            let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
-
-            // Legacy subnets keep the old dereg behavior: ignore SubnetAlphaIn.
-            // New subnets include SubnetAlphaIn.
-            let protocol_alpha_value_u128: u128 = if reg_at > tao_in_refund_deployment_block {
-                SubnetAlphaIn::<T>::get(netuid)
-                    .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
-                    .to_u64() as u128
-            } else {
-                SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128
-            };
-            total_alpha_value_u128 = protocol_alpha_value_u128;
+            total_alpha_value_u128 = Self::dissolution_protocol_alpha_value(netuid);
         }
 
         // Preserve the inbound cursor so a pass that only skips other-netuid rows (or
@@ -933,8 +982,9 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // total TAO in the subnet pool
-        let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid);
+        // The pool's own TAO: the lending settlement is paid below, from the same reserve.
+        let lending_settled: TaoBalance = T::Lending::dissolution_settled_tao(netuid);
+        let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid).saturating_sub(lending_settled);
         let pot_u64: u64 = pot_tao.into();
 
         struct Portion<A, C> {
@@ -1008,6 +1058,40 @@ impl<T: Config> Pallet<T> {
                     .saturating_add(transfer.1.to_u128().unwrap_or(0_u128));
                 let _ = Self::transfer_tao_from_subnet(netuid, transfer.0, *transfer.1);
             }
+        }
+
+        // The lending settlement goes to the stakers by their alpha value alone, over the
+        // stakers' total, so that all of it is paid and none of it reaches the protocol share or
+        // the owner refund. Only the transfers that succeed count as paid.
+        let lending_total: u64 = lending_settled.into();
+        let staker_alpha_value: u128 =
+            total_alpha_value_u128.saturating_sub(Self::dissolution_protocol_alpha_value(netuid));
+        if lending_total > 0 && staker_alpha_value > 0 && !stakers.is_empty() {
+            let (paid_so_far, walked_so_far) = DissolutionSettlementProgress::<T>::get(netuid);
+            let (shares, walked) = Self::lending_settlement_shares(
+                lending_total,
+                staker_alpha_value,
+                walked_so_far,
+                &stakers,
+            );
+            let mut per_coldkey = BTreeMap::<T::AccountId, u64>::new();
+            for (cold, share) in shares {
+                if share > 0 {
+                    let entry = per_coldkey.entry(cold).or_insert(0);
+                    *entry = entry.saturating_add(share);
+                }
+            }
+            let mut paid_now: u64 = 0;
+            for (cold, share) in per_coldkey {
+                // A failed transfer leaves its share unpaid; it is recycled, not refunded.
+                if Self::transfer_tao_from_subnet(netuid, &cold, share.into()).is_ok() {
+                    paid_now = paid_now.saturating_add(share);
+                }
+            }
+            DissolutionSettlementProgress::<T>::insert(
+                netuid,
+                (paid_so_far.saturating_add(paid_now), walked),
+            );
         }
 
         // ignore the weight for handling the final operation, we must set the correct status for the next run

@@ -739,21 +739,12 @@ fn conviction_bar_is_unchanged_with_lending_state() {
     }
 }
 
-/// HOLD(2.8/2.9): the dissolve hook is called and does nothing. A subnet with an open short
-/// dissolves to completion and lending's books are as they were.
+/// The cleanup of a subnet with an open short settles the short: the short, its custody and its
+/// books are gone when the subnet is.
 #[test]
-fn dissolution_runs_to_completion_with_lending_state() {
+fn dissolution_settles_the_short_and_runs_to_completion() {
     new_test_ext(1).execute_with(|| {
         let (netuid, custody_account, _) = with_short();
-        let pos = short(alice(), netuid);
-        let held = SubtensorModule::get_coldkey_balance(&custody_account);
-        let outstanding = SyntheticOutstanding::<Test>::get(netuid);
-
-        let mut meter = WeightMeter::new();
-        meter.consume(Weight::from_parts(7, 3));
-        <Test as Config>::Lending::on_dissolve(netuid, &mut meter);
-        assert_eq!(meter.consumed(), Weight::from_parts(7, 3));
-
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         let mut guard = 0u32;
         while CurrentDissolveCleanupStatus::<Test>::get().is_some()
@@ -764,18 +755,26 @@ fn dissolution_runs_to_completion_with_lending_state() {
             run_block_idle();
         }
         assert!(!SubtensorModule::if_subnet_exist(netuid));
-        assert_eq!(short(alice(), netuid), pos);
-        assert_eq!(SubtensorModule::get_coldkey_balance(&custody_account), held);
-        assert_eq!(SyntheticOutstanding::<Test>::get(netuid), outstanding);
+        assert!(short(alice(), netuid).is_none());
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&custody_account),
+            TaoBalance::ZERO
+        );
+        assert_eq!(SyntheticOutstanding::<Test>::get(netuid), 0);
+        assert_eq!(PositionCount::<Test>::get(netuid), 0);
     });
 }
 
-/// For a dissolved subnet with an open short: the weight of the root-claimed step metered
-/// alone (zero when the driver runs that step itself), and the weight the dissolution driver
-/// meters from `phase` to the end of the cleanup.
-fn metered_dissolution_from(phase: DissolveCleanupPhase) -> (Weight, Weight) {
+/// For a dissolved subnet, with an open short or without lending: the weight of the
+/// root-claimed step metered alone (zero when the driver runs that step itself), and the weight
+/// the dissolution driver meters from `phase` to the end of the cleanup.
+fn metered_dissolution_from(phase: DissolveCleanupPhase, open_short: bool) -> (Weight, Weight) {
     new_test_ext(1).execute_with(|| {
-        let (netuid, _, _) = with_short();
+        let netuid = if open_short {
+            with_short().0
+        } else {
+            add_dynamic_network(&U256::from(1), &U256::from(2))
+        };
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         // The phase's own step, metered alone when the driver starts after it.
         let mut step = WeightMeter::new();
@@ -794,16 +793,38 @@ fn metered_dissolution_from(phase: DissolveCleanupPhase) -> (Weight, Weight) {
     })
 }
 
-/// HOLD(2.8/2.9): the dissolve hook has one weight contract, it takes its weight from the
-/// meter itself, and the no-op takes none. The phase that calls it meters exactly the weight
-/// of its own step: the driver started at that phase uses what the step uses alone plus what
-/// the driver uses when started at the next phase.
+/// The dissolve hook meters its own work and nothing else. The phase that calls it meters its
+/// step, then the hook, then the rest of the cleanup: the driver started at the calling phase
+/// uses what the step uses alone, plus what the driver uses from the next phase, plus the hook.
+/// With no lending the hook is its scan of the subnet's books (one read); with a short it also
+/// meters the short's settlement.
 #[test]
-fn dissolve_hook_adds_no_metered_weight() {
-    let (_, with_hook_phase) =
-        metered_dissolution_from(DissolveCleanupPhase::SubnetRootDividendsRootClaimed);
-    let (step, after_hook_phase) =
-        metered_dissolution_from(DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue);
-    assert!(after_hook_phase.ref_time() > 0);
-    assert_eq!(with_hook_phase, step.saturating_add(after_hook_phase));
+fn dissolve_hook_meters_its_own_work_only() {
+    let scan = <Test as frame_system::Config>::DbWeight::get().reads(3);
+
+    let (_, bare_with_hook) =
+        metered_dissolution_from(DissolveCleanupPhase::SubnetRootDividendsRootClaimed, false);
+    let (bare_step, bare_after) = metered_dissolution_from(
+        DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue,
+        false,
+    );
+    assert!(bare_after.ref_time() > 0);
+    assert_eq!(
+        bare_with_hook,
+        bare_step.saturating_add(bare_after).saturating_add(scan)
+    );
+
+    let (_, short_with_hook) =
+        metered_dissolution_from(DissolveCleanupPhase::SubnetRootDividendsRootClaimed, true);
+    let (short_step, short_after) = metered_dissolution_from(
+        DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue,
+        true,
+    );
+    let short_hook = short_with_hook
+        .saturating_sub(short_step)
+        .saturating_sub(short_after);
+    assert!(
+        short_hook.ref_time() > scan.ref_time(),
+        "a short adds its settlement to the hook's weight"
+    );
 }
