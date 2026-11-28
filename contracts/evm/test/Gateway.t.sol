@@ -54,6 +54,7 @@ contract GatewayTest is Test {
         bytes32 recipient,
         bytes32 messageId
     );
+    event MessageHeld(uint32 indexed bridge, uint64 indexed nonce, uint256 fee, uint256 reserve);
 
     function setUp() public {
         vm.warp(1_800_000_000);
@@ -171,7 +172,7 @@ contract GatewayTest is Test {
         assertEq(destination, BASE);
         assertEq(recipient, PORTAL);
         assertEq(body, answer);
-        (bool pending,,,,) = rails.nextOutbound(BASE);
+        (bool pending,,,,,) = rails.nextOutbound(BASE);
         assertFalse(pending);
     }
 
@@ -225,97 +226,172 @@ contract GatewayTest is Test {
         assertEq(gateway.flush(BASE, 1), 1);
     }
 
-    function test_ABridgesMessagesArePaidForFromItsBudgetAlone() public {
-        // On the hub, 1 TAO was paid in for Ethereum's messages and nothing for Base's.
-        // The gateway holds that TAO.
-        rails.fund(ETHEREUM, 1 ether);
-        vm.deal(address(gateway), 1 ether);
+    /// On the hub, the account of `bridge` holds `reserve` for each of `messages` messages.
+    function fundBridge(uint32 bridge, uint256 reserve, uint256 messages) internal {
+        rails.fund{value: reserve * messages}(bridge);
+        rails.setReserve(bridge, reserve);
+    }
+
+    function test_AMessageIsPaidForFromTheAccountOfItsBridge() public {
+        // The hub pays up to 0.5 TAO for a message. Base's account holds that for one
+        // message, Ethereum's for three.
+        fundBridge(BASE, 0.5 ether, 1);
+        fundBridge(ETHEREUM, 0.5 ether, 3);
         mailbox.setFee(0.4 ether);
         rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
         for (uint64 i = 0; i < 3; ++i) {
             rails.enqueue(ETHEREUM, PORTAL, abi.encode(Wire.KIND_CREDIT, i));
         }
+        // The gateway holds nothing.
+        assertEq(address(gateway).balance, 0);
 
-        // Base's message does not leave on Ethereum's TAO, though the gateway holds enough.
-        vm.expectRevert("dispatch execution failed: MessagesNotFunded");
-        gateway.flush(BASE, 1);
-        assertEq(mailbox.sentCount(), 0);
-        assertEq(address(gateway).balance, 1 ether);
+        // Ethereum's messages leave. The hub hands the gateway what the transport charges
+        // for each, from Ethereum's account, and the gateway pays it on.
+        vm.prank(stranger);
+        assertEq(gateway.flush(ETHEREUM, 3), 3);
+        assertEq(address(mailbox).balance, 1.2 ether);
+        assertEq(rails.budget(ETHEREUM), 0.3 ether);
+        assertEq(rails.budget(BASE), 0.5 ether);
+        assertEq(address(gateway).balance, 0);
 
-        // Ethereum's budget pays for two of its three messages. A hand-over of all three
-        // fails as a whole. The two that are paid for leave.
-        vm.expectRevert("dispatch execution failed: MessagesNotFunded");
-        gateway.flush(ETHEREUM, 3);
-        assertEq(rails.head(ETHEREUM), 0);
-        assertEq(gateway.flush(ETHEREUM, 2), 2);
-        assertEq(rails.budget(ETHEREUM), 0.2 ether);
-        assertEq(address(gateway).balance, 0.2 ether);
-        assertEq(address(mailbox).balance, 0.8 ether);
-
-        // Someone pays in for Base on the hub: its message leaves, and Ethereum's budget
-        // is as it was.
-        rails.fund(BASE, 0.4 ether);
-        vm.deal(address(gateway), 0.6 ether);
+        // Base's message leaves on Base's account.
         assertEq(gateway.flush(BASE, 1), 1);
-        assertEq(rails.budget(BASE), 0);
-        assertEq(rails.budget(ETHEREUM), 0.2 ether);
-        assertEq(address(gateway).balance, 0.2 ether);
+        assertEq(rails.budget(BASE), 0.1 ether);
+        assertEq(rails.budget(ETHEREUM), 0.3 ether);
+        assertEq(address(gateway).balance, 0);
     }
 
-    function test_ADearerDestinationSpendsOnlyItsOwnBudget() public {
-        // The transport charges ten times as much for Ethereum as for Base.
-        mailbox.setFee(0.1 ether);
-        mailbox.setExtraFee(ETHEREUM, 0.9 ether);
-        rails.fund(BASE, 0.2 ether);
-        rails.fund(ETHEREUM, 0.5 ether);
-        vm.deal(address(gateway), 0.7 ether);
-        rails.enqueue(ETHEREUM, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+    function test_AChargeAboveTheReserveWaitsForSomeoneWhoPaysTheDifference() public {
+        fundBridge(BASE, 0.2 ether, 3);
         rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
         rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(1)));
+        // The transport charges more than the hub pays for one message.
+        mailbox.setFee(0.5 ether);
 
-        // Ethereum's message costs more than Ethereum's budget: it waits. Base's leave.
-        vm.expectRevert("dispatch execution failed: MessagesNotFunded");
-        gateway.flush(ETHEREUM, 1);
-        assertEq(gateway.flush(BASE, 2), 2);
-        assertEq(address(gateway).balance, 0.5 ether);
-        assertEq(rails.budget(ETHEREUM), 0.5 ether);
+        // Nobody pays the difference: the message waits, and nothing is spent.
+        vm.expectEmit(address(gateway));
+        emit MessageHeld(BASE, 0, 0.5 ether, 0.2 ether);
+        assertEq(gateway.flush(BASE, 2), 0);
+        assertEq(rails.head(BASE), 0);
+        assertEq(rails.budget(BASE), 0.6 ether);
+
+        // An order of the bridge is not held up: the hub settles it, and its answer waits
+        // behind the others.
+        rails.setAnswer(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(2)));
+        vm.expectEmit(address(gateway));
+        emit MessageHeld(BASE, 0, 0.5 ether, 0.2 ether);
+        mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
+        assertEq(rails.executedCount(), 1);
+        assertEq(mailbox.sentCount(), 0);
+
+        // Anyone pays the difference for the first message, 0.3 TAO, and gets the rest of
+        // what was sent back. The second message waits.
+        vm.deal(stranger, 1 ether);
+        vm.prank(stranger);
+        assertEq(gateway.flush{value: 0.4 ether}(BASE, 3), 1);
+        assertEq(stranger.balance, 0.7 ether);
+        assertEq(rails.budget(BASE), 0.4 ether);
+        assertEq(address(mailbox).balance, 0.5 ether);
+        assertEq(address(gateway).balance, 0);
+
+        // The charge falls below the reserve again: the rest leaves, and the hub pays.
+        mailbox.setFee(0.1 ether);
+        assertEq(gateway.flush(BASE, 3), 2);
+        assertEq(rails.budget(BASE), 0.2 ether);
+        assertEq(address(mailbox).balance, 0.7 ether);
+        assertEq(address(gateway).balance, 0);
     }
 
-    function test_AnOrderWaitsWhileItsAnswerCannotLeave() public {
-        // The transport charges, and nothing was paid in for Base.
-        mailbox.setFee(1 ether);
+    function test_ACallerGetsBackWhatWasNotNeeded() public {
+        fundBridge(BASE, 0.2 ether, 1);
+        rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+        mailbox.setFee(0.1 ether);
+
+        // The hub pays the whole charge. What the caller sent comes back.
+        vm.deal(stranger, 1 ether);
+        vm.prank(stranger);
+        assertEq(gateway.flush{value: 1 ether}(BASE, 1), 1);
+        assertEq(stranger.balance, 1 ether);
+        assertEq(address(gateway).balance, 0);
+
+        // A caller that cannot take its change gets nothing done. This test contract
+        // takes no TAO.
+        rails.fund{value: 0.2 ether}(BASE);
+        rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(1)));
+        vm.expectRevert();
+        gateway.flush{value: 1 ether}(BASE, 1);
+        assertEq(rails.head(BASE), 1);
+    }
+
+    function test_AnOrderWaitsUntilItsBridgeHoldsTheReserveForItsAnswer() public {
+        // The hub pays for messages to Base, and nobody paid into Base's account.
+        rails.setReserve(BASE, 1 ether);
+        mailbox.setFee(0.6 ether);
         rails.setAnswer(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
 
-        // The order and its answer go through together or not at all: the hub has not
-        // taken the order, and the transport delivers it again later.
+        // The hub does not take the order: the transport delivers it again later.
         vm.expectRevert("dispatch execution failed: MessagesNotFunded");
         mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
         assertEq(rails.executedCount(), 0);
         assertEq(mailbox.sentCount(), 0);
 
-        // Once Base's budget is paid in, the order settles and its answer leaves with it.
-        rails.fund(BASE, 3 ether);
-        vm.deal(address(gateway), 3 ether);
+        // Once Base's account holds the reserve, the order settles and its answer leaves
+        // with it. What the transport did not charge stays in Base's account.
+        rails.fund{value: 1 ether}(BASE);
         mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
         assertEq(rails.executedCount(), 1);
         assertEq(mailbox.sentCount(), 1);
-        assertEq(address(gateway).balance, 2 ether);
-        assertEq(address(mailbox).balance, 1 ether);
-        assertEq(rails.budget(BASE), 2 ether);
+        assertEq(address(mailbox).balance, 0.6 ether);
+        assertEq(rails.budget(BASE), 0.4 ether);
+        assertEq(address(gateway).balance, 0);
     }
 
-    function test_AMessageIsNotTakenFromTheQueueIfTheTransportIsNotPaid() public {
-        // The hub's budget covers the fee, but the gateway does not hold the TAO. That
-        // cannot happen while the gateway spends only what it tells the hub. If it does,
-        // the message stays in the queue and the budget is not charged.
-        mailbox.setFee(1 ether);
-        rails.fund(BASE, 1 ether);
+    function test_TaoSentToTheGatewayPaysForNoMessage() public {
+        fundBridge(BASE, 0.2 ether, 1);
         rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+        mailbox.setFee(0.5 ether);
+        // Someone sends the gateway TAO. It is not the hub's, and the gateway does not
+        // spend it: the message still waits for the difference.
+        vm.deal(address(gateway), 5 ether);
+        assertEq(gateway.flush(BASE, 1), 0);
+        assertEq(address(gateway).balance, 5 ether);
 
-        vm.expectRevert();
-        gateway.flush(BASE, 1);
-        assertEq(rails.head(BASE), 0);
-        assertEq(rails.budget(BASE), 1 ether);
+        mailbox.setFee(0.2 ether);
+        assertEq(gateway.flush(BASE, 1), 1);
+        assertEq(address(gateway).balance, 5 ether);
+    }
+
+    /// Whatever the transport charges and whatever a caller sends along, the gateway ends
+    /// with what it began with, the hub pays no more than the reserve for a message, and
+    /// the caller pays exactly what the transport charges above the reserve.
+    function testFuzz_TheGatewayPaysOnExactlyWhatItIsHanded(
+        uint64 reserve,
+        uint64 fee,
+        uint64 offered,
+        uint8 messages
+    ) public {
+        messages = uint8(bound(messages, 1, 6));
+        fundBridge(BASE, reserve, messages);
+        for (uint64 i = 0; i < messages; ++i) {
+            rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, i));
+        }
+        mailbox.setFee(fee);
+        uint256 budget = rails.budget(BASE);
+        vm.deal(stranger, offered);
+
+        vm.prank(stranger);
+        uint256 sent = gateway.flush{value: offered}(BASE, messages);
+
+        uint256 fromHub = fee < reserve ? fee : reserve;
+        uint256 difference = fee - fromHub;
+        // As many messages leave as the caller's TAO pays the difference for.
+        uint256 affordable = difference == 0 ? messages : offered / difference;
+        assertEq(sent, affordable < messages ? affordable : messages);
+        assertEq(rails.head(BASE), sent);
+        assertEq(rails.budget(BASE), budget - sent * fromHub);
+        assertEq(stranger.balance, offered - sent * difference);
+        assertEq(address(mailbox).balance, sent * uint256(fee));
+        assertEq(address(gateway).balance, 0);
     }
 
     function test_TheGuardianPausesAndOnlyTheOwnerResumes() public {

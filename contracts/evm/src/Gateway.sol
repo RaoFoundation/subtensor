@@ -9,6 +9,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {
     PausableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 import {IRAILS_ADDRESS, IRails} from "precompiles/rails.sol";
 
@@ -26,14 +27,14 @@ import {
 /// critical is that the hub trusts it to pass on only messages that the transport's
 /// security module verified.
 ///
-/// It holds TAO only to pay the transport for the hub's messages. The hub divides that
-/// TAO between the bridges: each has a budget, paid in on the hub, and the TAO arrives at
-/// this contract's account on Bittensor, which is this contract's balance. For each
-/// message the gateway tells the hub what the transport charges, and the hub takes that
-/// from the budget of the message's bridge or refuses. So the messages to one spoke never
-/// spend what was paid in for another.
-///
-/// An order and the answers of its bridge go through in one transaction or not at all.
+/// It holds no TAO between transactions. The TAO that pays the transport for the hub's
+/// messages is in accounts of the hub, one for each bridge. For each message the gateway
+/// tells the hub what the transport charges. The hub hands the gateway that much from the
+/// account of the message's bridge, up to the bridge's reserve, and the gateway pays it on
+/// in the same transaction. The hub keeps the reserve for every queued message, so a
+/// message can always leave at a charge up to the reserve. If the transport charges more,
+/// the message waits until whoever calls `flush` pays the difference, or until the charge
+/// falls.
 ///
 /// Upgradeable (UUPS). The owner upgrades, configures and resumes. The guardian only
 /// pauses.
@@ -84,6 +85,10 @@ contract Gateway is
         bytes32 recipient,
         bytes32 messageId
     );
+    /// @notice Message `nonce` of the hub's queue for `bridge` waits: the transport
+    /// charges `fee` for it, the hub pays at most `reserve`, and nobody paid the
+    /// difference. The messages behind it wait too.
+    event MessageHeld(uint32 indexed bridge, uint64 indexed nonce, uint256 fee, uint256 reserve);
     event InterchainSecurityModuleSet(address module);
     event GuardianSet(address guardian);
     event FlushLimitSet(uint256 limit);
@@ -113,20 +118,22 @@ contract Gateway is
     }
 
     /// @notice Accepts TAO, so that a refund from the transport cannot fail. TAO sent here
-    /// is in no bridge's budget and pays for no message: pay in on the hub instead
+    /// pays for no message: pay into a bridge's account on the hub instead
     /// (`Rails.fund_messages`).
     receive() external payable {}
 
     /// @inheritdoc IMessageRecipient
-    /// @dev Reverts if the hub does not take the order now (it is paused, the order is out
-    /// of sequence, its bridge is disabled, or the bridge's budget does not cover one
-    /// more message), or if the answers of the order's bridge cannot be handed over. The
-    /// transport then keeps the message and delivers it again, and what the payer locked
-    /// stays on the spoke.
+    /// @dev Reverts if the hub does not take the order now: it is paused, the order is out
+    /// of sequence, its bridge is disabled, or the bridge's account on the hub does not
+    /// hold the reserve for one more message. The transport then keeps the message and
+    /// delivers it again, and what the payer locked stays on the spoke.
     ///
-    /// The hand-over is not a call that may fail in silence. Then a transaction with too
-    /// little gas for it would still succeed, and a relayer that estimates gas would
-    /// send exactly such transactions: the answers would wait for somebody else.
+    /// The answers of the order's bridge leave in the same transaction. A message for
+    /// which the transport charges more than the hub pays is not a failure: it waits, and
+    /// the order is settled. A failure of the transport itself is one: then the order
+    /// waits too. Nothing here catches a failed call. A caught call would let a
+    /// transaction with too little gas settle the order and skip the answers, and a
+    /// relayer that estimates gas would send exactly such transactions.
     function handle(uint32 origin, bytes32 sender, bytes calldata body)
         external
         payable
@@ -150,31 +157,57 @@ contract Gateway is
         }
 
         // The answer to the order waits in the queue of the order's bridge.
-        _flush(bridge, flushLimit);
+        _flush(bridge, flushLimit, 0);
     }
 
     /// @notice Hands up to `limit` of the messages that wait in the hub's queue for
     /// `bridge` to the transport. Anyone may call this: it does what the hub already
-    /// decided. Reverts as a whole if one of them cannot leave, because the bridge's
-    /// budget on the hub does not cover what the transport charges or because the
-    /// transport refuses it: call again with a smaller `limit` to hand over the ones
-    /// before it. Each bridge has its own queue and its own budget, so such a message
-    /// holds only the messages to the same spoke.
+    /// decided.
+    ///
+    /// The hub pays the transport's charge for a message up to the bridge's reserve. If
+    /// the transport charges more, the caller pays the difference with this call. What
+    /// the caller sent and was not needed goes back. Without it the hand-over stops at
+    /// that message. Each bridge has its own queue, so such a message holds only the
+    /// messages to the same spoke.
     /// @return sent How many were handed over.
-    function flush(uint32 bridge, uint256 limit) external whenNotPaused returns (uint256 sent) {
-        return _flush(bridge, limit);
+    function flush(uint32 bridge, uint256 limit)
+        external
+        payable
+        whenNotPaused
+        returns (uint256 sent)
+    {
+        uint256 spent;
+        (sent, spent) = _flush(bridge, limit, msg.value);
+        if (msg.value > spent) Address.sendValue(payable(msg.sender), msg.value - spent);
     }
 
-    function _flush(uint32 bridge, uint256 limit) private returns (uint256 sent) {
+    /// @dev `offered` is what the caller pays towards charges above the reserve. Returns
+    /// how many messages left and how much of `offered` they used.
+    function _flush(uint32 bridge, uint256 limit, uint256 offered)
+        private
+        returns (uint256 sent, uint256 spent)
+    {
         for (; sent < limit; ++sent) {
-            (bool pending, uint64 nonce, uint32 domain, bytes32 recipient, bytes memory body) =
-                RAILS.nextOutbound(bridge);
+            (
+                bool pending,
+                uint64 nonce,
+                uint32 domain,
+                bytes32 recipient,
+                bytes memory body,
+                uint256 reserve
+            ) = RAILS.nextOutbound(bridge);
             if (!pending) break;
             uint256 fee = mailbox.quoteDispatch(domain, recipient, body);
-            // The hub takes the fee from the budget of this bridge, and reverts if the budget
-            // holds less. The message leaves the queue, is paid for and enters the transport
-            // in one transaction.
-            RAILS.ackOutbound(bridge, nonce, fee);
+            uint256 fromHub = fee < reserve ? fee : reserve;
+            if (fee - fromHub > offered - spent) {
+                emit MessageHeld(bridge, nonce, fee, reserve);
+                break;
+            }
+            spent += fee - fromHub;
+            // The hub hands this contract `fromHub` from the account of the bridge. The
+            // message leaves the queue, is paid for and enters the transport in one
+            // transaction.
+            RAILS.ackOutbound(bridge, nonce, fromHub);
             bytes32 messageId = mailbox.dispatch{value: fee}(domain, recipient, body);
             emit MessageSent(bridge, nonce, domain, recipient, messageId);
         }

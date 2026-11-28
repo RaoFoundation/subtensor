@@ -4,7 +4,10 @@ pragma solidity ^0.8.24;
 import {IRails} from "precompiles/rails.sol";
 
 /// @notice The hub's precompile for tests of the gateway: it records what it is asked and
-/// answers what a test set.
+/// answers what a test set. It keeps the hub's rules for who pays the transport: each
+/// bridge has its own TAO and a reserve, a message is queued only if that TAO covers the
+/// reserve for every queued message, and the caller of `ackOutbound` is handed what it
+/// pays the transport, up to the reserve.
 contract MockRails is IRails {
     struct Outbound {
         uint32 domain;
@@ -23,8 +26,11 @@ contract MockRails is IRails {
     /// @notice The queue of each bridge, and how far the gateway has taken it.
     mapping(uint32 bridge => Outbound[]) public outbox;
     mapping(uint32 bridge => uint64) public head;
-    /// @notice What is left of what was paid in for each bridge's messages, in wei.
+    /// @notice What the account of each bridge holds for its messages, in wei. This
+    /// contract holds it, as the hub's accounts do.
     mapping(uint32 bridge => uint256) public budget;
+    /// @notice The most the hub pays for one message to each bridge's spoke, in wei.
+    mapping(uint32 bridge => uint256) public reserve;
     uint8 public status = 1;
     uint64 public amountOut;
     bool public refuse;
@@ -46,15 +52,37 @@ contract MockRails is IRails {
         _hasAnswer = true;
     }
 
-    /// @notice Pays `amount` into the budget of `bridge`, as `Rails.fund_messages` does.
-    /// The test gives the gateway the TAO.
-    function fund(uint32 bridge, uint256 amount) external {
-        budget[bridge] += amount;
+    /// @notice Pays into the account of `bridge`, as `Rails.fund_messages` does.
+    function fund(uint32 bridge) external payable {
+        budget[bridge] += msg.value;
+    }
+
+    /// @notice Sets the reserve of `bridge`, as `Rails.set_message_reserve` does.
+    function setReserve(uint32 bridge, uint256 reserve_) external {
+        require(
+            budget[bridge] >= reserve_ * _queued(bridge),
+            "dispatch execution failed: MessagesNotFunded"
+        );
+        reserve[bridge] = reserve_;
     }
 
     /// @notice Queues a message for `bridge`. In these tests a bridge's id is its domain.
     function enqueue(uint32 bridge, bytes32 recipient, bytes calldata body) external {
-        outbox[bridge].push(Outbound(bridge, recipient, body));
+        _enqueue(bridge, Outbound(bridge, recipient, body));
+    }
+
+    function _queued(uint32 bridge) private view returns (uint256) {
+        return outbox[bridge].length - head[bridge];
+    }
+
+    /// The hub queues a message only if the bridge's account holds the reserve for every
+    /// message in its queue and for this one.
+    function _enqueue(uint32 bridge, Outbound memory message) private {
+        require(
+            budget[bridge] >= reserve[bridge] * (_queued(bridge) + 1),
+            "dispatch execution failed: MessagesNotFunded"
+        );
+        outbox[bridge].push(message);
     }
 
     function executedCount() external view returns (uint256) {
@@ -68,7 +96,7 @@ contract MockRails is IRails {
         require(!refuse, "dispatch execution failed: OrderOutOfSequence");
         executed.push(Executed(msg.sender, domain, sender, order));
         if (_hasAnswer) {
-            outbox[domain].push(_answer);
+            _enqueue(domain, _answer);
             _hasAnswer = false;
         }
         return (status, amountOut, domain);
@@ -79,20 +107,31 @@ contract MockRails is IRails {
             nonce == head[bridge] && nonce < outbox[bridge].length,
             "dispatch execution failed: NotOutboxHead"
         );
-        require(paid <= budget[bridge], "dispatch execution failed: MessagesNotFunded");
+        require(paid <= reserve[bridge], "dispatch execution failed: FeeAboveReserve");
         budget[bridge] -= paid;
         head[bridge]++;
+        // The hub moves what the caller pays the transport from the bridge's account to
+        // the caller.
+        (bool handed,) = msg.sender.call{value: paid}("");
+        require(handed, "MockRails: the caller takes no TAO");
     }
 
     function nextOutbound(uint32 bridge)
         external
         view
-        returns (bool pending, uint64 nonce, uint32 domain, bytes32 recipient, bytes memory body)
+        returns (
+            bool pending,
+            uint64 nonce,
+            uint32 domain,
+            bytes32 recipient,
+            bytes memory body,
+            uint256 reserve_
+        )
     {
         nonce = head[bridge];
-        if (nonce >= outbox[bridge].length) return (false, 0, 0, bytes32(0), "");
+        if (nonce >= outbox[bridge].length) return (false, 0, 0, bytes32(0), "", 0);
         Outbound storage next = outbox[bridge][nonce];
-        return (true, nonce, next.domain, next.recipient, next.body);
+        return (true, nonce, next.domain, next.recipient, next.body, reserve[bridge]);
     }
 
     function quote(uint32, bytes calldata) external pure returns (bool, uint64, string memory) {
