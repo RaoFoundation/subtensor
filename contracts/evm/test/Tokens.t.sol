@@ -40,7 +40,7 @@ contract TokensTest is Fixture {
             vm.expectRevert(RailsToken.OnlyPortal.selector);
             tao.mint(caller, 1);
             vm.expectRevert(RailsToken.OnlyPortal.selector);
-            chutes.mint(caller, 1, 1e18);
+            chutes.mint(caller, 1, 1e18, 0);
             vm.expectRevert(RailsToken.OnlyPortal.selector);
             chutes.initialize(1, "x", "X");
             vm.stopPrank();
@@ -96,6 +96,32 @@ contract TokensTest is Fixture {
         vm.prank(stranger);
         chutes.transfer(alice, 0);
         assertEq(chutes.principalOf(stranger), 0);
+    }
+
+    function test_AnOlderReportThatArrivesLateDoesNotReplaceANewerOne() public {
+        // The hub mints for Alice at 1.2 and later for Bob at 1.5. Alice's message is
+        // deferred on the hub, and arrives after Bob's.
+        uint64 older = hubNonce++;
+        uint64 newer = hubNonce++;
+        bytes memory forAlice = creditBody(
+            older, Wire.ASSET_ALPHA, CHUTES, alice, uint64(100 * UNIT), false, 0, false, 1.2e18
+        );
+        bytes memory forBob = creditBody(
+            newer, Wire.ASSET_ALPHA, CHUTES, bob, uint64(100 * UNIT), false, 0, false, 1.5e18
+        );
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, forBob);
+        uint256 arrived = vm.getBlockTimestamp();
+        skip(3 days);
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, forAlice);
+
+        // The token keeps the newer rate. Alice's tokens are worth what the hub reported
+        // with them: what she paid.
+        assertEq(chutes.rate(), 1.5e18);
+        assertEq(chutes.rateNonce(), newer);
+        assertEq(chutes.rateUpdatedAt(), arrived);
+        assertEq(chutes.principalOf(alice), 120 * UNIT);
+        assertEq(chutes.principalOf(bob), 150 * UNIT);
+        assertEq(chutes.balanceOf(alice), 100 * UNIT);
     }
 
     function test_ARefundMintsAtTheRateOnRecord() public {

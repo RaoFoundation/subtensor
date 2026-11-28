@@ -346,7 +346,7 @@ contract Portal is
             AlphaToken token = alphaTokens[credit.netuid];
             // Reverts until the token's registration arrives; the transport tries again.
             if (address(token) == address(0)) revert NoSuchToken(credit.netuid);
-            token.mint(credit.to, credit.amount, credit.rate);
+            token.mint(credit.to, credit.amount, credit.rate, credit.nonce);
         } else {
             revert UnknownAsset(credit.asset);
         }
