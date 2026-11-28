@@ -8,7 +8,10 @@
    message that is not paid for is deferred, so that the ones behind it leave. The keeper
    sends a deferred message as soon as the hub pays all that the transport charges for it
    (`Gateway.send`). It raises an alert when the gateway cannot hand over the message at
-   the head of the queue: then the messages behind it wait, and root must act.
+   the head of the queue. When that message has been the head for long enough, the keeper
+   defers it on the hub, as anyone can, so that the messages behind it leave
+   (`Rails.defer_outbound`). And it has the hub send the portal its order slots when the
+   portal is short of them (`Rails.grant_slots`).
 3. The validators. The rig's validators score their miner again every half minute, as
    real validators do, so that they stay active and the index hotkeys keep earning.
 
@@ -33,6 +36,7 @@ from rig import (
     VALIDATED,
     calldata,
     client,
+    keeper_wallet,
     oracle_wallet,
     score_miner,
     send,
@@ -85,13 +89,48 @@ def refusal(hub: EvmRpc, gateway: str) -> str | None:
     return None
 
 
-async def deferred(chain: bt.Client) -> list[int]:
-    """The numbers of the spoke's deferred messages: they left the line, and not the hub.
+async def spoke_bridge(chain: bt.Client) -> dict | None:
+    """What the hub holds for the spoke: its messages, its account and its order slots.
     None before the hub knows the spoke's bridge."""
     for bridge in await chain.rails.bridges():
         if bridge["bridge"] == SPOKE_BRIDGE:
-            return bridge["messages_deferred"]
-    return []
+            return bridge
+    return None
+
+
+async def grant_slots(chain: bt.Client, bridge: dict) -> None:
+    """Has the hub send the portal its order slots, when at most half of them are out and
+    the spoke's account covers the message and one slot at least. Slots go with the hub's
+    payments otherwise."""
+    reserve = bridge["message_reserve"]
+    if reserve is None or bridge["order_slots"] * 2 > bridge["max_order_slots"]:
+        return
+    in_use = bridge["messages_waiting"] + bridge["order_slots"]
+    if bridge["message_budget"].rao < reserve.rao * (in_use + 2):
+        return
+    result = await chain.submit_call(
+        bt.calls.Rails.grant_slots(bridge=SPOKE_BRIDGE), keeper_wallet()
+    )
+    if result.success:
+        print("[keeper] the hub sends the spoke its order slots", flush=True)
+
+
+async def defer_if_stale(chain: bt.Client, nonce: int) -> None:
+    """Defers message `nonce`, which the gateway cannot hand over, once it has been at the
+    head of the spoke's queue for long enough. Anyone can: the hub asks for no key."""
+    since = int(await chain.query(bt.storage.Rails.HeadSince, [SPOKE_BRIDGE]) or 0)
+    waited = await chain.block() - since
+    if waited < int(await chain.constant(bt.constants.Rails.StaleAfter)):
+        return
+    call = bt.calls.Rails.defer_outbound(bridge=SPOKE_BRIDGE, nonce=nonce)
+    result = await chain.submit_call(call, keeper_wallet())
+    if result.success:
+        print(
+            f"[keeper] deferred message {nonce}: the gateway could not hand it over for "
+            f"{waited} blocks. The messages behind it go on, and it leaves when the gateway "
+            "can send it.",
+            flush=True,
+        )
 
 
 def paid_for(hub: EvmRpc, gateway: str, nonce: int) -> bool:
@@ -128,18 +167,23 @@ async def flush() -> None:
                         print(
                             f"[keeper] ALERT: the gateway cannot hand message {nonce} of the "
                             f"spoke to the transport: {reason}. The messages behind it "
-                            "wait. Repair the transport. If only this message is refused, "
-                            "root defers it so that the others leave: "
+                            "wait. Repair the transport. If the message stays at the head, "
+                            "this keeper defers it so that the others leave, as anyone can: "
                             f"Rails.defer_outbound({SPOKE_BRIDGE}, {nonce}).",
                             flush=True,
                         )
                     stuck = nonce
+                    await defer_if_stale(chain, nonce)
                 elif nonce is not None:
                     # Each message in the queue leaves, or is deferred if it is not paid for.
                     await asyncio.to_thread(send, hub, KEEPER_KEY, gateway, FLUSH)
                     print("[keeper] flushed the spoke's queue", flush=True)
                     stuck = None
-                waiting = await deferred(chain)
+                bridge = await spoke_bridge(chain)
+                if bridge is None:
+                    continue
+                await grant_slots(chain, bridge)
+                waiting = bridge["messages_deferred"]
                 reported &= set(waiting)
                 for nonce in waiting:
                     if paid_for(hub, gateway, nonce):
@@ -149,10 +193,10 @@ async def flush() -> None:
                     elif nonce not in reported:
                         reported.add(nonce)
                         print(
-                            f"[keeper] message {nonce} is deferred: the transport charges "
-                            "more for it than the hub pays. Pay into the spoke's account on "
-                            "the hub (Rails.fund_messages), raise the ceiling, or pay the "
-                            "difference (Gateway.send).",
+                            f"[keeper] message {nonce} is deferred: the gateway cannot send "
+                            "it now. If the transport charges more for it than the hub pays: "
+                            "pay into the spoke's account on the hub (Rails.fund_messages), "
+                            "raise the ceiling, or pay the difference (Gateway.send).",
                             flush=True,
                         )
             except Exception as error:

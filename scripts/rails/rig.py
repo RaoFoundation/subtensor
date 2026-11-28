@@ -61,6 +61,7 @@ RELAYER = setting("RELAYER")
 KEEPER_KEY = setting("KEEPER_KEY")
 KEEPER = setting("KEEPER")
 GUARDIAN_KEY = setting("GUARDIAN_KEY")
+GUARDIAN = setting("GUARDIAN")
 MULTISIG_KEY = setting("MULTISIG_KEY")
 USER_KEY = setting("USER_KEY")
 USER = setting("USER_ADDRESS")
@@ -73,6 +74,7 @@ TRANSPORT_FEE = int(setting("TRANSPORT_FEE"))
 MESSAGE_RESERVE = int(setting("MESSAGE_RESERVE"))
 MESSAGE_CEILING = int(setting("MESSAGE_CEILING"))
 MESSAGE_BUDGET = int(setting("MESSAGE_BUDGET"))
+ORDER_SLOTS = int(setting("ORDER_SLOTS"))
 
 UNIT = 10**9
 USDC = 10**6
@@ -124,6 +126,12 @@ async def score_miner(chain: bt.Client, index: int, netuid: int, miner_uid: int)
 def oracle_wallet() -> SimpleNamespace:
     """The account that feeds the rig's TAO price."""
     return dev_wallet("//Rails//Oracle", "//Rails//Oracle//hot")
+
+
+def keeper_wallet() -> SimpleNamespace:
+    """The account that signs the keeper's calls of the hub. It holds TAO for fees, and
+    has no power that another account lacks."""
+    return dev_wallet("//Rails//Keeper", "//Rails//Keeper//hot")
 
 
 def client() -> bt.Client:
@@ -230,6 +238,12 @@ class Spoke:
     def next_order(self) -> int:
         """The number the portal gives its next order."""
         return rails.decode_uint(self.call(self.portal, "nextOrder()", [], []))
+
+    def order_slots(self) -> int:
+        """How many more orders the portal can take now."""
+        return rails.decode_uint(
+            self.rpc.eth_call({"to": self.portal, "data": rails.encode_order_slots()})
+        )
 
     def order_fee(self) -> int:
         """What an order costs now on top of what it pays with, in wei."""

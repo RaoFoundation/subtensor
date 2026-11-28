@@ -76,11 +76,15 @@ USER_ADDRESS="0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
 # - MESSAGE_CEILING: the most the hub pays for one message to the spoke, in rao. Above the
 #   reserve it pays from what the spoke's account can spare.
 # - MESSAGE_BUDGET: what the rig pays into the spoke's account at the start, in rao.
+# - ORDER_SLOTS: the most orders that the spoke's portal can have on their way before an
+#   answer arrives. The hub keeps a place in its queue and a reserve for each. Few here,
+#   so that the e2e can use them all up.
 ANSWER_FEE=100000000000000
 TRANSPORT_FEE=1000
 MESSAGE_RESERVE=1000000
 MESSAGE_CEILING=2000000
 MESSAGE_BUDGET=1000000000
+ORDER_SLOTS=4
 
 # Pinned versions of the transport's tooling.
 HYPERLANE_CLI="@hyperlane-xyz/cli@45.2.0"
@@ -97,7 +101,7 @@ export RAILS_STATE RAILS_MANIFEST HUB_WS HUB_RPC HUB_CHAIN_ID HUB_DOMAIN \
     SPOKE_NAME SPOKE_RPC SPOKE_BRIDGE SPOKE_DOMAIN SPOKE_CHAIN_ID \
     DEPLOYER_KEY DEPLOYER VALIDATOR RELAYER MULTISIG_KEY MULTISIG GUARDIAN_KEY GUARDIAN \
     KEEPER_KEY KEEPER USER_KEY USER_ADDRESS ANSWER_FEE TRANSPORT_FEE MESSAGE_RESERVE \
-    MESSAGE_CEILING MESSAGE_BUDGET
+    MESSAGE_CEILING MESSAGE_BUDGET ORDER_SLOTS
 
 # Runs one of the rig's Python scripts in the SDK's environment.
 rails_python() { # script [arguments]

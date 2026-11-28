@@ -19,6 +19,7 @@ from rig import (
     DEPLOYER,
     DEPLOYER_KEY,
     DEPLOYMENTS,
+    GUARDIAN,
     HUB_CHAIN_ID,
     HUB_RPC,
     HUB_WS,
@@ -27,6 +28,8 @@ from rig import (
     MESSAGE_BUDGET,
     MESSAGE_CEILING,
     MESSAGE_RESERVE,
+    MULTISIG,
+    ORDER_SLOTS,
     RELAYER,
     SPOKE_BRIDGE,
     SPOKE_CHAIN_ID,
@@ -47,6 +50,7 @@ from rig import (
     client,
     dev_wallet,
     index_hotkey,
+    keeper_wallet,
     load_json,
     miner_wallet,
     mirror,
@@ -92,13 +96,22 @@ async def prepare() -> None:
             root=True,
         )
         await submit(chain, bt.calls.EVM.disable_whitelist(disabled=True), alice, root=True)
-        # The accounts that pay gas on the hub's EVM, and the account that feeds the price.
-        for account in map(mirror, (DEPLOYER, VALIDATOR, RELAYER, KEEPER, USER)):
+        # The accounts that pay gas on the hub's EVM, the account that feeds the price, and
+        # the account that signs the keeper's calls of the hub.
+        payers = (DEPLOYER, VALIDATOR, RELAYER, KEEPER, USER, GUARDIAN, MULTISIG)
+        for account in map(mirror, payers):
             await submit(
                 chain,
                 bt.calls.Balances.transfer_keep_alive(dest=account, value=1_000 * UNIT),
                 alice,
             )
+        await submit(
+            chain,
+            bt.calls.Balances.transfer_keep_alive(
+                dest=keeper_wallet().coldkey.ss58_address, value=100 * UNIT
+            ),
+            alice,
+        )
         await submit(
             chain,
             bt.calls.Balances.transfer_keep_alive(
@@ -426,6 +439,20 @@ async def configure() -> None:
         await submit(
             chain, bt.calls.Rails.fund_messages(bridge=SPOKE_BRIDGE, amount=MESSAGE_BUDGET), alice
         )
+        # The portal takes an order only if it holds an order slot: the hub's promise to
+        # answer it. Root says how many the portal may hold. The keeper has the hub send
+        # them, as anyone can (`Rails.grant_slots`), and hands the message to the transport.
+        await submit(
+            chain,
+            bt.calls.Rails.set_max_order_slots(bridge=SPOKE_BRIDGE, max=ORDER_SLOTS),
+            alice,
+            root=True,
+        )
+
+        async def slots():
+            return spoke.order_slots() == ORDER_SLOTS
+
+        await wait_for("the portal's order slots", slots)
 
         async def priced():
             return await chain.query(bt.storage.SubtensorModule.TaoUsdPrice)

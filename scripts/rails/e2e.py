@@ -16,9 +16,12 @@ person does and checks what the two chains say after each step:
    their answers are deferred. A newer one leaves first, when its receiver pays the
    difference. The older one leaves by itself when the hub may pay the difference from
    what the spoke's account can spare;
-9. so many answers are deferred that the bridge is congested: the hub takes the next
-   order and refunds it, and refuses an exit. When the deferred answers have left, the
-   bridge settles orders again.
+9. the hub's answers do not leave, so the order slots that they carry do not come back:
+   when the portal has used its last slot it takes no order, and the payer keeps the
+   funds. The slots come back with the answers;
+10. the gateway cannot hand a message to the transport: the keeper raises an alert, and
+    when the message has been at the head of its queue for long enough the keeper defers
+    it on the hub, as anyone can. The message leaves when the gateway can send it.
 
 It ends with the invariants that hold between the chains at any time.
 """
@@ -34,10 +37,14 @@ from eth_abi import encode as abi_encode
 from eth_utils import keccak
 from rig import (
     ANSWER_FEE,
+    DEPLOYMENTS,
+    GUARDIAN_KEY,
     HUB_RPC,
     MESSAGE_CEILING,
     MESSAGE_RESERVE,
     MULTISIG,
+    MULTISIG_KEY,
+    ORDER_SLOTS,
     RESERVE_ACCOUNT,
     SPOKE_BRIDGE,
     SPOKE_DOMAIN,
@@ -52,6 +59,7 @@ from rig import (
     client,
     dev_wallet,
     index_hotkey,
+    load_json,
     manifest,
     mirror,
     send,
@@ -63,7 +71,7 @@ from rig import (
 import bittensor as bt
 from bittensor import rails
 from bittensor.evm.addresses import ss58_to_pubkey
-from bittensor.evm.rpc import EvmRpc
+from bittensor.evm.rpc import EvmRpc, EvmRpcError
 
 CREDITS_PURCHASED = keccak(text="CreditsPurchased(address,uint16,bytes32,uint32,uint64,uint64)")
 # The Rails precompile on Bittensor's EVM.
@@ -482,72 +490,115 @@ async def a_charge_that_is_not_paid_for(rig: Rig) -> None:
     )
 
 
-async def a_congested_bridge(rig: Rig) -> None:
-    """So many answers are deferred that the bridge is congested. The hub then makes no
-    new payment on the spoke: it takes the next order and refunds it, and it refuses an
-    exit. When the hub pays for the deferred answers and they leave, the bridge settles
-    orders again."""
-    chain, spoke = rig.chain, rig.spoke
+async def no_order_without_a_slot(rig: Rig) -> None:
+    """The hub's answers do not leave, so the order slots that they carry do not come
+    back. When the portal has used its last slot it takes no order, and the payer keeps
+    the funds. When the answers leave, the slots come back, and the portal takes orders
+    again."""
+    spoke = rig.spoke
     reserve = TRANSPORT_FEE // 2
-    limit = int(await chain.constant(bt.constants.Rails.CongestedAt))
     paid = 10 * USDC
 
-    async def congested() -> bool:
-        (bridge,) = [b for b in await chain.rails.bridges() if b["bridge"] == SPOKE_BRIDGE]
-        return bridge["congested"]
+    async def slots_are_back():
+        return spoke.order_slots() == ORDER_SLOTS
 
     # The hub pays half the charge for a message, and nobody pays the rest.
     await set_message_terms(rig, reserve, reserve)
     try:
         tokens = spoke.balance(spoke.tao, USER)
+        assert spoke.order_slots() == ORDER_SLOTS, spoke.order_slots()
+        # Each order uses a slot. Its answer would bring the slot back, and is deferred.
+        orders = [(await deferred_order(rig))[0] for _ in range(ORDER_SLOTS)]
+        assert spoke.order_slots() == 0
+
+        # The hub has not promised to answer one more order. The portal refuses it, and
+        # nothing leaves the payer's wallet.
         stable = spoke.balance(spoke.stable, USER)
-        orders = [(await deferred_order(rig))[0] for _ in range(limit)]
-        assert await congested()
-
-        # The hub takes the next order and refunds it: it settles nothing new for the
-        # spoke. The refund is a message too, and is deferred as the answers are.
-        refused = spoke.deposit(USER_KEY, paid, rails.to_tao(USER))
-        receipt = await rig.receipt(refused)
-        assert receipt["status"] == "refunded", receipt
-        assert "congested" in receipt["error"].lower(), receipt
-        # An exit fails as a whole: the account on Bittensor keeps its funds.
-        exit_ = bt.intents.BridgeOut(
-            bridge=SPOKE_BRIDGE, pay_with="tao", amount=0.01, receive="tao", to_address=USER
-        )
+        sent = spoke.next_order()
         try:
-            result = await chain.execute(exit_, dev_wallet())
-            refusal = "" if result.success else str(result.message)
-        except bt.BittensorError as error:
-            refusal = str(error)
-        assert "congested" in refusal.lower(), refusal
+            spoke.deposit(USER_KEY, paid, rails.to_tao(USER))
+            refused = False
+        except EvmRpcError:
+            refused = True
+        assert refused, "the portal took an order without a slot"
+        assert spoke.balance(spoke.stable, USER) == stable
+        assert spoke.next_order() == sent
 
-        # Root lets the hub pay up to twice the charge for a message. The keeper sends
-        # every deferred message: the answers and the refund.
+        # Root lets the hub pay up to twice the charge for a message. The keeper sends the
+        # deferred answers, and they bring the slots back.
         await set_message_terms(rig, reserve, 2 * TRANSPORT_FEE)
         answers = [await rig.answer(order) for order in orders]
-        refund = await rig.answer(refused)
-        assert refund["refund"] and refund["asset"] == "stable", refund
-
-        async def drained():
-            return not (await rig.transport()).deferred
-
-        await wait_for("the deferred messages to leave", drained)
-        assert not await congested()
+        await wait_for("the portal's order slots", slots_are_back)
         assert spoke.balance(spoke.tao, USER) - tokens == sum(a["amount"] for a in answers)
-        # The refund is whole: only the settled orders cost the payer anything.
-        assert stable - spoke.balance(spoke.stable, USER) == limit * paid
     finally:
         await set_message_terms(rig, MESSAGE_RESERVE, MESSAGE_CEILING)
 
-    # The bridge settles orders again.
+    # The portal takes orders again.
     order = spoke.deposit(USER_KEY, paid, rails.to_tao(USER))
     answer = await rig.answer(order)
     assert not answer["refund"] and answer["asset"] == "tao", answer
+    await wait_for("the portal's order slots", slots_are_back)
     show(
-        "a congested bridge",
-        f"the answers to {limit} orders were deferred. The hub took the next order and "
-        f"refunded its {units(paid, 6)} USDC in full, and refused an exit. When the hub "
-        f"paid for the deferred messages they all left, and the next order settled",
+        "no order without a slot",
+        f"the answers to {ORDER_SLOTS} orders were deferred, and with them the portal's "
+        f"{ORDER_SLOTS} order slots. The portal refused the next order, and the payer kept "
+        f"the {units(paid, 6)} USDC. When the hub paid for the answers they left, the slots "
+        f"came back, and the next order settled",
+    )
+
+
+async def a_message_that_the_gateway_cannot_hand_over(rig: Rig) -> None:
+    """The gateway cannot hand a message to the transport: here, because its guardian
+    paused it. The message stays at the head of its queue. When it has been there for long
+    enough, the keeper defers it on the hub, with a key that has no power. The message
+    leaves when the gateway can send it."""
+    chain, spoke, hub = rig.chain, rig.spoke, rig.hub_evm
+    timelock = load_json(DEPLOYMENTS / "hub.local.json")["timelock"]
+    stale_after = int(await chain.constant(bt.constants.Rails.StaleAfter))
+    before = await rig.transport()
+    tokens = spoke.balance(spoke.tao, USER)
+
+    send(hub, GUARDIAN_KEY, rig.gateway, calldata("pause()", [], []))
+    try:
+        # A payment that starts on Bittensor queues a message. The gateway cannot take it.
+        exit_ = bt.intents.BridgeOut(
+            bridge=SPOKE_BRIDGE, pay_with="tao", amount=0.01, receive="tao", to_address=USER
+        )
+        result = await chain.execute(exit_, dev_wallet())
+        assert result.success, result.message
+
+        async def deferred():
+            now = await rig.transport()
+            return now.deferred if len(now.deferred) > len(before.deferred) else None
+
+        # The keeper is not the gateway and not root. It defers the message when the
+        # message has been at the head of the queue for long enough, and not before.
+        (message,) = await wait_for("the keeper to defer the stale message", deferred)
+        assert spoke.balance(spoke.tao, USER) == tokens
+    finally:
+        # The owner resumes the gateway: on the rig, a multisig through a timelock with
+        # no delay.
+        resume = bytes.fromhex(calldata("unpause()", [], [])[2:])
+        types = ["address", "uint256", "bytes", "bytes32", "bytes32"]
+        values = [rig.gateway, 0, resume, bytes(32), bytes(32)]
+        schedule = "schedule(address,uint256,bytes,bytes32,bytes32,uint256)"
+        send(hub, MULTISIG_KEY, timelock, calldata(schedule, [*types, "uint256"], [*values, 0]))
+        execute = "execute(address,uint256,bytes,bytes32,bytes32)"
+        send(hub, MULTISIG_KEY, timelock, calldata(execute, types, values))
+
+    async def arrived():
+        return spoke.balance(spoke.tao, USER) - tokens
+
+    # The keeper sends the deferred message, and the payment arrives.
+    amount = await wait_for("the deferred payment", arrived)
+    after = await rig.transport()
+    assert after.sent == before.sent + 1 and not after.deferred, (before, after)
+    show(
+        "a message that the gateway cannot hand over",
+        f"the gateway was paused, and message {message} stayed at the head of the queue. "
+        f"After {stale_after} blocks there, the keeper deferred it on the hub, as anyone "
+        f"can. When the gateway resumed, the keeper sent the message: {units(amount)} TAO "
+        f"arrived",
     )
 
 
@@ -597,7 +648,8 @@ async def main() -> None:
         await leave_from_bittensor(rig)
         await who_paid(rig, first_order, fees_before, start)
         await a_charge_that_is_not_paid_for(rig)
-        await a_congested_bridge(rig)
+        await no_order_without_a_slot(rig)
+        await a_message_that_the_gateway_cannot_hand_over(rig)
         await invariants(rig)
     show("passed")
 
