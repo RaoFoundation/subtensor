@@ -60,6 +60,25 @@ class Spoke:
 # are deployed and the hub has enabled its bridge.
 SPOKES: dict[str, Spoke] = {}
 
+# The gateway contract on Bittensor's EVM, once it is deployed on mainnet.
+GATEWAY: Optional[str] = None
+
+
+def load_gateway(manifest: Optional[str] = None) -> str:
+    """The gateway contract on Bittensor's EVM, which passes messages for the hub.
+
+    From a manifest (see :func:`load_spoke`) if one is given or named by
+    ``BT_RAILS_MANIFEST``, else :data:`GATEWAY`.
+    """
+    path = manifest or os.getenv("BT_RAILS_MANIFEST")
+    gateway = json.loads(Path(path).expanduser().read_text())["hub"]["gateway"] if path else GATEWAY
+    if not gateway or not is_h160(gateway):
+        raise ValueError(
+            "the rails are not live on a public chain yet; point --manifest (or "
+            "BT_RAILS_MANIFEST) at a rig's manifest.json"
+        )
+    return to_checksum_address(gateway)
+
 
 def load_spoke(name: Optional[str] = None, manifest: Optional[str] = None) -> Spoke:
     """The spoke called ``name``.
@@ -218,6 +237,11 @@ def encode_sell(amount: int, destination: Destination, min_out: int, deadline: i
         ["uint64", _DESTINATION, "uint64", "uint64"],
         [amount, destination.evm, min_out, deadline],
     )
+
+
+def encode_flush(limit: int) -> str:
+    """``Gateway.flush``: hand up to ``limit`` of the hub's waiting answers to the transport."""
+    return _call("flush(uint256)", ["uint256"], [limit])
 
 
 def encode_order_fee() -> str:

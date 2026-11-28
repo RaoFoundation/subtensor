@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from rig import (
+    HUB_RPC,
     HUB_WS,
     MANIFEST,
     SPOKE_BRIDGE,
@@ -169,13 +170,19 @@ def exit_and_transfer(spoke: Spoke) -> None:
         "--amount", "100", "--receive", "stable", "--to-address", USER, "--yes", *CLEAR,
     )  # fmt: skip
     assert result["success"], result
+    # The exit waits in the hub's outbox. Anyone may send the outbox: here, the wallet's
+    # EVM key. (The rig's keeper does the same, so this may find the outbox empty.)
+    btcli("bridge", "flush", "--rpc-url", HUB_RPC, "--yes")
     deadline = time.monotonic() + 180
     while spoke.balance(spoke.stable, USER) == stable:
         assert time.monotonic() < deadline, "the exit did not arrive on the spoke"
         time.sleep(1)
     arrived = spoke.balance(spoke.stable, USER) - stable
     assert arrived == 100 * USDC
-    show("bridge transfer, bridge exit", f"100 tUSD -> {arrived / USDC:.2f} USDC on the spoke")
+    show(
+        "bridge transfer, bridge exit, bridge flush",
+        f"100 tUSD -> {arrived / USDC:.2f} USDC on the spoke",
+    )
 
 
 def main() -> None:

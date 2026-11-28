@@ -17,7 +17,7 @@ from ...settings import guide_docs_url, query_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import evm_key_signed, with_globals, with_tx_globals
 from ..tx import intent_command
-from .evm._shared import EVM_KEY_HELP, _key_info, _run_evm, _submit_evm_tx
+from .evm._shared import EVM_KEY_HELP, RPC_URL_OPTION, _key_info, _run_evm, _submit_evm_tx
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -491,6 +491,40 @@ def balance(
     held = app_ctx.run(_op)
     app_ctx.output.detail(
         None, {"account": coldkey, "tUSD": held}, {"account": coldkey, "tusd": held}
+    )
+
+
+@app.command("flush")
+@with_tx_globals
+@evm_key_signed
+def flush(
+    ctx: typer.Context,
+    limit: int = typer.Option(8, "--limit", min=1, help="The most messages to hand over."),
+    key: Optional[str] = typer.Option(None, "--evm-key", help=EVM_KEY_HELP),
+    rpc_url: Optional[str] = RPC_URL_OPTION,
+    manifest: Optional[str] = MANIFEST_OPTION,
+):
+    """Hand the hub's waiting messages to the transport.
+
+    The hub queues what it tells other chains to pay out. The gateway contract
+    on Bittensor's EVM sends that queue each time an order arrives. A payment
+    that starts on Bittensor (`btcli bridge exit`) can wait for the next order:
+    this sends the queue now. Anyone may call it, and it can only send what the
+    hub already decided. The EVM key pays the gas in TAO.
+    """
+    app_ctx = ctx_of(ctx)
+    try:
+        gateway = rails.load_gateway(manifest)
+    except (ValueError, OSError, KeyError) as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
+    _submit_evm_tx(
+        app_ctx,
+        key,
+        gateway,
+        data=rails.encode_flush(limit),
+        summary=f"hand up to {limit} of the hub's messages to the transport",
+        rpc_url=rpc_url,
     )
 
 

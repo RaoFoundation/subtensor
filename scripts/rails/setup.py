@@ -35,6 +35,7 @@ from rig import (
     TAO_PRICE,
     UNIT,
     USDC,
+    USER,
     USER_KEY,
     VALIDATED,
     VALIDATOR,
@@ -89,7 +90,7 @@ async def prepare() -> None:
         )
         await submit(chain, bt.calls.EVM.disable_whitelist(disabled=True), alice, root=True)
         # The accounts that pay gas on the hub's EVM, and the account that feeds the price.
-        for account in map(mirror, (DEPLOYER, VALIDATOR, RELAYER, KEEPER)):
+        for account in map(mirror, (DEPLOYER, VALIDATOR, RELAYER, KEEPER, USER)):
             await submit(
                 chain,
                 bt.calls.Balances.transfer_keep_alive(dest=account, value=1_000 * UNIT),
