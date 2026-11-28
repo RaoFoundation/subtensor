@@ -2065,7 +2065,7 @@ class Rails:
 
     @staticmethod
     def list_market(netuid: 'NetUid', bridge: 'u32', address: 'H160') -> Call:
-        'Lists the alpha token of `netuid` on the spoke of `bridge`: enters it in the registry at `address`, under the name the subnet published on chain, and tells the spoke to create it there. The spoke refuses if it would create the token at another address.'
+        'Lists the alpha token of `netuid` on the spoke of `bridge`: enters it in the registry at `address`, under the name the subnet published on chain, and tells the spoke to create it. The portal creates the token at its own address for the subnet (`Portal.alphaTokenAddress`). If `address` is another, the portal reports the difference and [`Pallet::register_token`] corrects the registry.'
         return Call('Rails', 'list_market', {'netuid': netuid, 'bridge': bridge, 'address': address})
 
     @staticmethod
@@ -2075,7 +2075,7 @@ class Rails:
 
     @staticmethod
     def register_token(bridge: 'u32', asset: 'SpokeAsset', address: 'H160') -> Call:
-        'Enters in the registry the contract that stands for the stablecoin or for canonical TAO on the spoke of `bridge`. Alpha tokens enter through [`Pallet::list_market`].'
+        'Enters in the registry the contract that stands for the stablecoin or for canonical TAO on the spoke of `bridge`, or corrects the address of an alpha token. An alpha token enters through [`Pallet::list_market`], which also has the spoke create it; this call only changes the address the registry shows for it.'
         return Call('Rails', 'register_token', {'bridge': bridge, 'asset': asset, 'address': address})
 
     @staticmethod

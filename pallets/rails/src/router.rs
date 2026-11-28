@@ -7,8 +7,10 @@
 //! ```
 //!
 //! [`Pallet::collect`] brings what the spoke took onto that line as tUSD or TAO in the hub
-//! account, and [`Pallet::deliver`] walks it to what the order asked for. The hub account
-//! is empty before and after.
+//! account, and [`Pallet::deliver`] walks it to what the order asked for. An order leaves
+//! nothing in the hub account. Every step moves an amount that it was given, never a
+//! balance that it read, so funds that someone sends to the hub account from outside
+//! change no order: they rest there.
 //!
 //! ## Alpha tokens
 //!

@@ -496,8 +496,9 @@ pub mod pallet {
         }
 
         /// Enters in the registry the contract that stands for the stablecoin or for
-        /// canonical TAO on the spoke of `bridge`. Alpha tokens enter through
-        /// [`Pallet::list_market`].
+        /// canonical TAO on the spoke of `bridge`, or corrects the address of an alpha
+        /// token. An alpha token enters through [`Pallet::list_market`], which also has the
+        /// spoke create it; this call only changes the address the registry shows for it.
         #[pallet::call_index(6)]
         #[pallet::weight(<T as Config>::WeightInfo::register_token())]
         pub fn register_token(
@@ -511,16 +512,21 @@ pub mod pallet {
                 .ok_or(Error::<T>::BridgeDisabled)?
                 .route
                 .asset;
-            let (name, symbol): (&[u8], &[u8]) = match (asset, stable) {
-                (SpokeAsset::Tao, _) => (b"Bittensor", b"TAO"),
-                (SpokeAsset::Stable, StableAsset::Usdc) => (b"USD Coin", b"USDC"),
-                (SpokeAsset::Stable, StableAsset::Usdt) => (b"Tether USD", b"USDT"),
-                _ => return Err(Error::<T>::InvalidRoute.into()),
-            };
-            let token = TokenInfo {
+            let named = |name: &[u8], symbol: &[u8]| TokenInfo {
                 address,
                 name: TokenName::truncate_from(name.to_vec()),
                 symbol: TokenSymbol::truncate_from(symbol.to_vec()),
+            };
+            let token = match (asset, stable) {
+                (SpokeAsset::Tao, _) => named(b"Bittensor", b"TAO"),
+                (SpokeAsset::Stable, StableAsset::Usdc) => named(b"USD Coin", b"USDC"),
+                (SpokeAsset::Stable, StableAsset::Usdt) => named(b"Tether USD", b"USDT"),
+                // A stablecoin this runtime does not know yet.
+                (SpokeAsset::Stable, _) => return Err(Error::<T>::InvalidRoute.into()),
+                (SpokeAsset::Alpha(_), _) => TokenInfo {
+                    address,
+                    ..Tokens::<T>::get(bridge, asset).ok_or(Error::<T>::TokenNotRegistered)?
+                },
             };
             Tokens::<T>::insert(bridge, asset, token.clone());
             Self::deposit_event(Event::TokenRegistered {
@@ -577,8 +583,9 @@ pub mod pallet {
 
         /// Lists the alpha token of `netuid` on the spoke of `bridge`: enters it in the
         /// registry at `address`, under the name the subnet published on chain, and tells
-        /// the spoke to create it there. The spoke refuses if it would create the token at
-        /// another address.
+        /// the spoke to create it. The portal creates the token at its own address for the
+        /// subnet (`Portal.alphaTokenAddress`). If `address` is another, the portal reports
+        /// the difference and [`Pallet::register_token`] corrects the registry.
         #[pallet::call_index(9)]
         #[pallet::weight(<T as Config>::WeightInfo::list_market())]
         pub fn list_market(
@@ -737,13 +744,11 @@ impl<T: Config> Pallet<T> {
 
     /// Checks the invariants in the module documentation that hold between extrinsics.
     /// Runs in `try_state`; tests call it after every operation.
+    ///
+    /// Only what a transfer from outside cannot falsify is checked here. That an order
+    /// leaves nothing in the hub account is true of orders, and tests assert it, but
+    /// anyone can send TAO or tUSD to that account.
     pub fn do_try_state() -> Result<(), sp_runtime::TryRuntimeError> {
-        let hub = Self::hub_account();
-        ensure!(
-            CurrencyOf::<T>::total_balance(&hub).is_zero()
-                && pallet_tusd::Pallet::<T>::balance(&hub).is_zero(),
-            "funds were left in the hub account"
-        );
         let canonical_tao = TaoSupply::<T>::iter_values().fold(0u128, |sum, supply| {
             sum.saturating_add(u128::from(supply.to_u64()))
         });

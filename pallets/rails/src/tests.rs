@@ -775,6 +775,40 @@ fn listing_names_the_token_from_the_subnet_identity() {
 }
 
 #[test]
+fn the_registry_address_of_a_listed_alpha_token_can_be_corrected() {
+    new_test_ext().execute_with(|| {
+        add_subnet(CHUTES, "Chutes");
+        let asset = SpokeAsset::Alpha(netuid(CHUTES));
+        let correct = H160::repeat_byte(0xcc);
+        // Only a token that was listed: listing is what has the spoke create it.
+        assert_noop!(
+            Rails::register_token(RuntimeOrigin::root(), BASE, asset, correct),
+            Error::<Test>::TokenNotRegistered
+        );
+        open_market(CHUTES, "Chutes");
+        let listed = Tokens::<Test>::get(BASE, asset).unwrap();
+        assert_ne!(listed.address, correct);
+
+        assert_ok!(Rails::register_token(
+            RuntimeOrigin::root(),
+            BASE,
+            asset,
+            correct
+        ));
+
+        // The address changes. The name stays, and the spoke is told nothing.
+        assert_eq!(
+            Tokens::<Test>::get(BASE, asset),
+            Some(TokenInfo {
+                address: correct,
+                ..listed
+            })
+        );
+        assert!(outbox().is_empty());
+    });
+}
+
+#[test]
 fn token_names_come_from_what_the_subnet_published() {
     new_test_ext().execute_with(|| {
         let identity = |raw: u16, name: &str| {
