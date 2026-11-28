@@ -58,6 +58,9 @@ pub const VIRTUAL: u128 = 1_000_000;
 /// The scale of a rate: a rate of `RATE_SCALE` is one alpha per share.
 pub const RATE_SCALE: u128 = 1_000_000_000_000_000_000;
 
+/// The decimals of every amount on the hub.
+pub const HUB_DECIMALS: u32 = 9;
+
 /// What the hub account holds for an order while it settles.
 #[derive(Clone, Copy)]
 enum Funds {
@@ -141,6 +144,7 @@ impl<T: Config> Pallet<T> {
             _ => false,
         };
         ensure!(!same_asset, Error::<T>::InvalidRoute);
+        Self::ensure_payable(&order.destination)?;
         let funds = Self::collect(bridge, order.source, order.amount)?;
         Self::deliver(
             bridge,
@@ -169,6 +173,7 @@ impl<T: Config> Pallet<T> {
             ),
             Error::<T>::InvalidRoute
         );
+        Self::ensure_payable(destination)?;
         let hub = Self::hub_account();
         let funds = match source {
             NativeAsset::Tusd => {
@@ -181,6 +186,36 @@ impl<T: Config> Pallet<T> {
             }
         };
         Self::deliver(bridge, funds, destination, min_out, None)
+    }
+
+    /// Refuses a destination that the spoke could never pay: the zero address. A token
+    /// cannot be minted to it, so the hub would settle the order and the payout would
+    /// fail for ever. The portal refuses such an order too; an order refused here is
+    /// refunded to its payer.
+    fn ensure_payable(destination: &Destination<T::AccountId>) -> Result<(), DispatchError> {
+        let recipient = match destination {
+            Destination::Stable { to }
+            | Destination::Tao { to }
+            | Destination::Alpha { to, .. } => to,
+            Destination::Credits { beneficiary, .. } => beneficiary,
+            Destination::NativeTusd { .. } | Destination::NativeTao { .. } => return Ok(()),
+        };
+        ensure!(!recipient.is_zero(), Error::<T>::InvalidRoute);
+        Ok(())
+    }
+
+    /// What the spoke of `bridge` can pay of `tusd`: the stablecoin has fewer decimals
+    /// than the hub, and the spoke pays whole units of it.
+    fn payable_stable(bridge: BridgeId, tusd: u64) -> Result<u64, DispatchError> {
+        let decimals = pallet_tusd::Bridges::<T>::get(bridge)
+            .ok_or(Error::<T>::BridgeDisabled)?
+            .route
+            .asset
+            .decimals();
+        let unit = 10u64
+            .checked_pow(HUB_DECIMALS.saturating_sub(decimals))
+            .ok_or(Error::<T>::Overflow)?;
+        Ok(tusd.saturating_sub(tusd.checked_rem(unit).unwrap_or_default()))
     }
 
     /// Brings what the spoke took for an order into the hub account, as tUSD or TAO.
@@ -239,10 +274,15 @@ impl<T: Config> Pallet<T> {
         let amount_out = match destination {
             Destination::Stable { to } => {
                 let tusd = Self::as_tusd(funds)?;
-                ensure!(tusd.to_u64() >= min_out, Error::<T>::SlippageExceeded);
+                // The minimum is for what the recipient gets: whole units of the
+                // stablecoin. The part of the tUSD below one unit is burned with the
+                // rest, and its stablecoin stays in the vault.
+                let payout = Self::payable_stable(bridge, tusd.to_u64())?;
+                ensure!(payout != 0, Error::<T>::AmountTooLow);
+                ensure!(payout >= min_out, Error::<T>::SlippageExceeded);
                 pallet_tusd::Pallet::<T>::burn(bridge, &hub, tusd)?;
-                Self::enqueue(bridge, credit(SpokeAsset::Stable, *to, tusd.to_u64(), 0))?;
-                tusd.to_u64()
+                Self::enqueue(bridge, credit(SpokeAsset::Stable, *to, payout, 0))?;
+                payout
             }
             Destination::NativeTusd { to } => {
                 let tusd = Self::as_tusd(funds)?;

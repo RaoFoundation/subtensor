@@ -19,7 +19,7 @@ use subtensor_runtime_common::{
 };
 
 use crate::{
-    Call, Config, CurrencyOf, Destination, Gateway, Guardian, Market, Markets, Message,
+    Call, Config, CurrencyOf, Destination, ExitFee, Gateway, Guardian, Market, Markets, Message,
     NativeAsset, NextOrder, Order, OutboxBounds, Outcome, Pallet, Paused, RailsStaking, Receipt,
     Receipts, SpokeAsset, TaoCap, TaoSupply, Tokens,
 };
@@ -287,6 +287,15 @@ mod benchmarks {
         _(admin::<T>()? as T::RuntimeOrigin, BRIDGE, nonce);
 
         assert_eq!(NextOrder::<T>::get(BRIDGE), nonce + 1);
+        Ok(())
+    }
+
+    #[benchmark]
+    fn set_exit_fee() -> Result<(), BenchmarkError> {
+        #[extrinsic_call]
+        _(admin::<T>()? as T::RuntimeOrigin, TaoBalance::from(UNIT));
+
+        assert_eq!(ExitFee::<T>::get(), TaoBalance::from(UNIT));
         Ok(())
     }
 

@@ -195,6 +195,19 @@ pub enum StableAsset {
     Usdt,
 }
 
+impl StableAsset {
+    /// The decimals the stablecoin has on its origin chain. The hub counts in 9, so a
+    /// bridge pays out in units of `10^(9 - decimals)` of the hub's.
+    ///
+    /// Both have 6 on Ethereum and on Base. A chain where the stablecoin has other
+    /// decimals needs an asset of its own here.
+    pub const fn decimals(self) -> u32 {
+        match self {
+            Self::Usdc | Self::Usdt => 6,
+        }
+    }
+}
+
 /// A linearly refilling allowance.
 ///
 /// At most `limit` can be consumed at once, and what was consumed is given back evenly over

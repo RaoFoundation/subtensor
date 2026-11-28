@@ -866,6 +866,7 @@ call_filter_group!(
         RuntimeCall::Rails(RailsCall::list_market),
         RuntimeCall::Rails(RailsCall::set_market_cap),
         RuntimeCall::Rails(RailsCall::skip_order),
+        RuntimeCall::Rails(RailsCall::set_exit_fee),
     ]
 );
 

@@ -68,7 +68,11 @@ use frame_support::{
     PalletId,
     pallet_prelude::*,
     storage::with_storage_layer,
-    traits::{EnsureOrigin, UnixTime, fungible::Inspect},
+    traits::{
+        EnsureOrigin, UnixTime,
+        fungible::{Inspect, Mutate},
+        tokens::Preservation,
+    },
 };
 use frame_system::pallet_prelude::*;
 use sp_core::{H160, H256};
@@ -208,6 +212,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type TaoCap<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, ValueQuery>;
 
+    /// ITEM --> TAO | What an account pays the gateway for each payment through
+    /// [`Pallet::bridge_out`], on top of what it sends. The gateway pays the transport for
+    /// the message from it, so that exits are not sent at the cost of what the gateway
+    /// holds for the answers of other payers.
+    #[pallet::storage]
+    pub type ExitFee<T> = StorageValue<_, TaoBalance, ValueQuery>;
+
     /// MAP ( netuid ) --> Market | The subnets with an alpha token.
     #[pallet::storage]
     pub type Markets<T> = StorageMap<_, Twox64Concat, NetUid, Market, OptionQuery>;
@@ -262,7 +273,8 @@ pub mod pallet {
             alpha_burned: AlphaBalance,
             gamma: GammaBalance,
         },
-        /// An account on Bittensor paid for something delivered on a spoke.
+        /// An account on Bittensor paid for something delivered on a spoke, and paid `fee`
+        /// to the gateway for the message.
         BridgedOut {
             who: T::AccountId,
             bridge: BridgeId,
@@ -270,6 +282,7 @@ pub mod pallet {
             amount: u64,
             destination: Destination<T::AccountId>,
             amount_out: u64,
+            fee: TaoBalance,
         },
         /// A message was queued for the gateway at `position`.
         MessageQueued {
@@ -293,6 +306,8 @@ pub mod pallet {
         },
         /// The cap on canonical TAO on a spoke was set.
         TaoCapSet { bridge: BridgeId, cap: TaoBalance },
+        /// The fee of a payment through `bridge_out` was set.
+        ExitFeeSet { fee: TaoBalance },
         /// A subnet's market was opened.
         MarketOpened { netuid: NetUid, generation: u64 },
         /// The cap on a market's vault was set.
@@ -431,7 +446,8 @@ pub mod pallet {
 
         /// Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the
         /// spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a
-        /// whole if it would deliver less than `min_out`.
+        /// whole if it would deliver less than `min_out`. The signer also pays
+        /// [`ExitFee`] in TAO to the gateway, which sends the message.
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::bridge_out().saturating_add(T::Staking::weight()))]
         pub fn bridge_out(
@@ -447,6 +463,7 @@ pub mod pallet {
             Self::ensure_bridge_enabled(bridge)?;
             let amount_out =
                 Self::route_native(&who, bridge, source, amount, &destination, min_out)?;
+            let fee = Self::charge_exit_fee(&who)?;
             Self::deposit_event(Event::BridgedOut {
                 who,
                 bridge,
@@ -454,6 +471,7 @@ pub mod pallet {
                 amount,
                 destination,
                 amount_out,
+                fee,
             });
             Ok(())
         }
@@ -646,6 +664,17 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets what a payment through [`Pallet::bridge_out`] pays the gateway for its
+        /// message. Set it to at least what the transport charges the gateway for one.
+        #[pallet::call_index(12)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_exit_fee())]
+        pub fn set_exit_fee(origin: OriginFor<T>, fee: TaoBalance) -> DispatchResult {
+            <T as Config>::AdminOrigin::ensure_origin(origin)?;
+            ExitFee::<T>::put(fee);
+            Self::deposit_event(Event::ExitFeeSet { fee });
+            Ok(())
+        }
+
         /// Passes over the next order of `bridge` without reading it, so that the orders
         /// behind it can settle. For an order that the gateway cannot decode: what its
         /// payer locked stays on the spoke and has to be returned by governance.
@@ -771,6 +800,16 @@ impl<T: Config> Pallet<T> {
             "the outbox is out of bounds"
         );
         Ok(())
+    }
+
+    /// Takes [`ExitFee`] from `who` for the gateway account, and returns it.
+    fn charge_exit_fee(who: &T::AccountId) -> Result<TaoBalance, DispatchError> {
+        let fee = ExitFee::<T>::get();
+        if !fee.is_zero() {
+            let gateway = Gateway::<T>::get().ok_or(Error::<T>::NotGateway)?;
+            CurrencyOf::<T>::transfer(who, &gateway, fee, Preservation::Expendable)?;
+        }
+        Ok(fee)
     }
 
     fn ensure_gateway(origin: OriginFor<T>) -> DispatchResult {

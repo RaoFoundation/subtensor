@@ -32,6 +32,7 @@ pub trait WeightInfo {
 	fn list_market() -> Weight;
 	fn set_market_cap() -> Weight;
 	fn skip_order() -> Weight;
+	fn set_exit_fee() -> Weight;
 }
 
 /// Weights for `pallet_rails` using the Substrate node and recommended hardware.
@@ -106,6 +107,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
+	/// Storage: `Rails::ExitFee` (r:0 w:1)
+	fn set_exit_fee() -> Weight {
+		Weight::from_parts(30_000_000, 2_000)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -166,5 +172,9 @@ impl WeightInfo for () {
 		Weight::from_parts(40_000_000, 4_000)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
+	fn set_exit_fee() -> Weight {
+		Weight::from_parts(30_000_000, 2_000)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 }

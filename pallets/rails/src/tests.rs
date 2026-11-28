@@ -11,9 +11,9 @@ use sp_runtime::DispatchError;
 use subtensor_runtime_common::{NetUid, TaoBalance, TusdBalance, rails::OriginChain};
 
 use crate::{
-    AlphaSupply, Destination, Error, Event, Markets, Message, NativeAsset, NextMessage, NextOrder,
-    Order, Outbound, Outbox, OutboxBounds, Outcome, Paused, RailsStaking, Receipts, SpokeAsset,
-    SubnetStatus, TaoCap, TaoSupply, TokenInfo, Tokens,
+    AlphaSupply, Destination, Error, Event, ExitFee, Gateway, Markets, Message, NativeAsset,
+    NextMessage, NextOrder, Order, Outbound, Outbox, OutboxBounds, Outcome, Paused, RailsStaking,
+    Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, TokenInfo, Tokens,
     mock::*,
     router::{RATE_SCALE, VIRTUAL, alpha_for_shares, rate, shares_for_alpha},
 };
@@ -541,7 +541,8 @@ fn canonical_tao_sells_for_the_stablecoin() {
             Destination::Stable { to: wallet() },
         );
 
-        assert_eq!(paid, quoted);
+        // She is paid whole units of the stablecoin: one is a thousand of the hub's units.
+        assert_eq!(paid, quoted - quoted % 1_000);
         // Two fees of 0.3% and the price moved by her own trades.
         assert!(paid > 3_970 * UNIT && paid < 3_980 * UNIT);
         assert_eq!(TaoSupply::<Test>::get(BASE), TaoBalance::from(0));
@@ -549,8 +550,9 @@ fn canonical_tao_sells_for_the_stablecoin() {
             Balances::free_balance(Rails::reserve_account()),
             TaoBalance::from(0)
         );
-        // The bridge released what it pays out; the rest of her dollars stayed in the pool.
-        assert_eq!(outstanding(BASE), 4_000 * UNIT - paid);
+        // The bridge burned all the tUSD of the sale, the part below one unit too: the
+        // rest of her dollars stayed in the pool.
+        assert_eq!(outstanding(BASE), 4_000 * UNIT - quoted);
         assert_eq!(
             flush()[0].message,
             Message::Credit {
@@ -771,6 +773,188 @@ fn listing_names_the_token_from_the_subnet_identity() {
             wallet()
         ));
         assert_eq!(flush()[0].bridge, ETHEREUM);
+    });
+}
+
+// ---------------------------------------------------------------- what cannot be paid
+
+#[test]
+fn an_order_for_the_zero_address_is_refunded_to_its_payer() {
+    new_test_ext().execute_with(|| {
+        open_market(CHUTES, "Chutes");
+        add_service(CHUTES, SERVICE);
+        let nobody = H160::zero();
+        // A token cannot be minted to the zero address: the hub must not settle these.
+        for destination in [
+            Destination::Tao { to: nobody },
+            Destination::Alpha {
+                netuid: netuid(CHUTES),
+                to: nobody,
+            },
+            Destination::Credits {
+                netuid: netuid(CHUTES),
+                service: SERVICE,
+                beneficiary: nobody,
+            },
+        ] {
+            assert_eq!(
+                refunded(SpokeAsset::Stable, 100 * UNIT, destination),
+                Error::<Test>::InvalidRoute.into()
+            );
+        }
+        // Nothing was minted, staked or reserved for them.
+        assert_eq!(outstanding(BASE), 0);
+        assert_eq!(Markets::<Test>::get(netuid(CHUTES)).unwrap().shares, 0);
+        assert_invariants();
+    });
+}
+
+#[test]
+fn an_exit_to_the_zero_address_fails() {
+    new_test_ext().execute_with(|| {
+        fund_tao(ALICE, 10 * UNIT);
+        assert_noop!(
+            Rails::bridge_out(
+                RuntimeOrigin::signed(ALICE),
+                BASE,
+                NativeAsset::Tao,
+                UNIT,
+                Destination::Stable { to: H160::zero() },
+                0
+            ),
+            Error::<Test>::InvalidRoute
+        );
+    });
+}
+
+#[test]
+fn the_stablecoin_minimum_counts_what_the_spoke_can_pay() {
+    new_test_ext().execute_with(|| {
+        // One unit of USDC is 1,000 of the hub's units.
+        settled(
+            SpokeAsset::Stable,
+            500 * UNIT,
+            Destination::NativeTusd { to: ALICE },
+        );
+        let pay = |amount: u64, min_out: u64| {
+            Rails::bridge_out(
+                RuntimeOrigin::signed(ALICE),
+                BASE,
+                NativeAsset::Tusd,
+                amount,
+                Destination::Stable { to: wallet() },
+                min_out,
+            )
+        };
+
+        // 2.000000999 tUSD pays 2.000000 USDC. A minimum above that is not met, though
+        // the tUSD itself is more.
+        assert_noop!(
+            pay(2 * UNIT + 999, 2 * UNIT + 1),
+            Error::<Test>::SlippageExceeded
+        );
+        // Less than one unit of the stablecoin would pay nothing. tUSD does not move in
+        // amounts that small (its minimum balance is far above one unit), so such a
+        // payment stops before the hub's own check for a payout of nothing.
+        assert_noop!(pay(999, 0), pallet_tusd::Error::<Test>::BelowMinimumBalance);
+
+        assert_ok!(pay(2 * UNIT + 999, 2 * UNIT));
+        // The spoke is told to pay whole units. All of the tUSD is burned: the part
+        // below one unit stays in the vault as the stablecoin.
+        assert_eq!(
+            flush()[0].message,
+            Message::Credit {
+                asset: SpokeAsset::Stable,
+                to: wallet(),
+                amount: 2 * UNIT,
+                order: None,
+                refund: false,
+                rate: 0,
+            }
+        );
+        assert_eq!(outstanding(BASE), 500 * UNIT - (2 * UNIT + 999));
+        assert_invariants();
+    });
+}
+
+#[test]
+fn an_exit_pays_the_gateway_for_its_message() {
+    new_test_ext().execute_with(|| {
+        settled(
+            SpokeAsset::Stable,
+            500 * UNIT,
+            Destination::NativeTusd { to: ALICE },
+        );
+        fund_tao(ALICE, 10 * UNIT);
+        let fee = TaoBalance::from(UNIT / 100);
+        assert_noop!(
+            Rails::set_exit_fee(RuntimeOrigin::signed(ALICE), fee),
+            DispatchError::BadOrigin
+        );
+        assert_ok!(Rails::set_exit_fee(RuntimeOrigin::root(), fee));
+        let gateway_before = Balances::free_balance(GATEWAY);
+
+        assert_ok!(Rails::bridge_out(
+            RuntimeOrigin::signed(ALICE),
+            BASE,
+            NativeAsset::Tusd,
+            100 * UNIT,
+            Destination::Stable { to: wallet() },
+            0
+        ));
+
+        // The fee is on top of what was sent, and it is the gateway's.
+        assert_eq!(Tusd::balance(&ALICE), TusdBalance::from(400 * UNIT));
+        assert_eq!(
+            Balances::free_balance(ALICE),
+            TaoBalance::from(10 * UNIT) - fee
+        );
+        assert_eq!(Balances::free_balance(GATEWAY), gateway_before + fee);
+        System::assert_has_event(
+            Event::BridgedOut {
+                who: ALICE,
+                bridge: BASE,
+                source: NativeAsset::Tusd,
+                amount: 100 * UNIT,
+                destination: Destination::Stable { to: wallet() },
+                amount_out: 100 * UNIT,
+                fee,
+            }
+            .into(),
+        );
+
+        // An account that cannot pay the fee does not exit, and keeps what it has.
+        assert_ok!(Tusd::transfer(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            TusdBalance::from(50 * UNIT)
+        ));
+        assert_noop!(
+            Rails::bridge_out(
+                RuntimeOrigin::signed(BOB),
+                BASE,
+                NativeAsset::Tusd,
+                50 * UNIT,
+                Destination::Stable { to: wallet() },
+                0
+            ),
+            sp_runtime::TokenError::FundsUnavailable
+        );
+
+        // With a fee and no gateway, there is nobody to pay and nobody to send.
+        Gateway::<Test>::kill();
+        assert_noop!(
+            Rails::bridge_out(
+                RuntimeOrigin::signed(ALICE),
+                BASE,
+                NativeAsset::Tusd,
+                50 * UNIT,
+                Destination::Stable { to: wallet() },
+                0
+            ),
+            Error::<Test>::NotGateway
+        );
+        assert_eq!(ExitFee::<Test>::get(), fee);
     });
 }
 
@@ -1578,6 +1762,7 @@ fn an_account_exits_tusd_to_the_stablecoin() {
                 amount: 200 * UNIT,
                 destination: Destination::Stable { to: wallet() },
                 amount_out: 200 * UNIT,
+                fee: TaoBalance::from(0),
             }
             .into(),
         );
