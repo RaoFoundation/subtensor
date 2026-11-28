@@ -25,7 +25,7 @@ from rig import (
     KEEPER,
     MANIFEST,
     MESSAGE_BUDGET,
-    MESSAGE_COST,
+    MESSAGE_RESERVE,
     RELAYER,
     SPOKE_BRIDGE,
     SPOKE_CHAIN_ID,
@@ -402,16 +402,21 @@ async def configure() -> None:
             alice,
             root=True,
         )
+        # The gateway's account must exist before it is the gateway: the hub hands it what
+        # it pays the transport, and nothing more. It holds the existential deposit.
+        gateway = mirror(hub["gateway"])
+        deposit = int(await chain.constant(bt.constants.Balances.ExistentialDeposit))
         await submit(
-            chain, bt.calls.Rails.set_gateway(gateway=mirror(hub["gateway"])), alice, root=True
+            chain, bt.calls.Balances.transfer_keep_alive(dest=gateway, value=deposit), alice
         )
-        # The spoke's budget on the hub pays the transport for every message to the spoke.
-        # The hub takes an order only while the budget covers its queue at the cost set
-        # here. In production the budget is paid from the answer fees that the portal
+        await submit(chain, bt.calls.Rails.set_gateway(gateway=gateway), alice, root=True)
+        # The spoke's account on the hub pays the transport for every message to the spoke.
+        # The hub takes an order only while that account holds the reserve for each queued
+        # message. In production the account is paid from the answer fees that the portal
         # collects.
         await submit(
             chain,
-            bt.calls.Rails.set_message_cost(bridge=SPOKE_BRIDGE, cost=MESSAGE_COST),
+            bt.calls.Rails.set_message_reserve(bridge=SPOKE_BRIDGE, reserve=MESSAGE_RESERVE),
             alice,
             root=True,
         )

@@ -10,8 +10,8 @@ defaultIsm:
 defaultHook:
   type: merkleTreeHook
 # The transport charges for every message, on both chains, so that the rig pays as
-# production does: an order pays on the spoke, and the spoke's budget pays on the hub.
-# 0.000001 of the chain's coin: on Bittensor that is 1,000 rao.
+# production does: an order pays on the spoke, and the spoke's account pays on the hub.
+# 0.000001 of the chain's coin: on Bittensor that is 1,000 rao, TRANSPORT_FEE in env.sh.
 requiredHook:
   type: protocolFee
   owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"

@@ -179,7 +179,12 @@ def exit_and_transfer(spoke: Spoke) -> None:
     assert result["success"], result
     # The exit waits in the queue of its bridge. Anyone may send the queue: here, the
     # wallet's EVM key. (The rig's keeper does the same, so this may find the queue empty.)
-    btcli("bridge", "flush", "--bridge", str(SPOKE_BRIDGE), "--rpc-url", HUB_RPC, "--yes")
+    # What it offers towards a charge above the bridge's reserve is not needed here, and
+    # comes back.
+    btcli(
+        "bridge", "flush", "--bridge", str(SPOKE_BRIDGE), "--pay-up-to", "0.001",
+        "--rpc-url", HUB_RPC, "--yes",
+    )  # fmt: skip
     deadline = time.monotonic() + 180
     while spoke.balance(spoke.stable, USER) == stable:
         assert time.monotonic() < deadline, "the exit did not arrive on the spoke"

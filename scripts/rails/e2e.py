@@ -11,7 +11,9 @@ person does and checks what the two chains say after each step:
 5. an order that cannot meet its minimum returns in full, in the stablecoin;
 6. a holder of TAO on Bittensor leaves through the bridge;
 7. who paid for the messages: each order on the spoke, each exit on the hub, and the
-   spoke's budget on the hub for what the transport charged.
+   spoke's account on the hub for exactly what the transport charged;
+8. the transport charges more than the hub pays for a message: the message waits, an
+   order still settles, and anyone sends the message on by paying the difference.
 
 It ends with the invariants that hold between the chains at any time.
 """
@@ -28,11 +30,14 @@ from eth_utils import keccak
 from rig import (
     ANSWER_FEE,
     HUB_RPC,
-    MESSAGE_COST,
+    KEEPER,
+    KEEPER_KEY,
+    MESSAGE_RESERVE,
     MULTISIG,
     RESERVE_ACCOUNT,
     SPOKE_BRIDGE,
     SPOKE_DOMAIN,
+    TRANSPORT_FEE,
     UNIT,
     USDC,
     USER,
@@ -45,6 +50,8 @@ from rig import (
     index_hotkey,
     manifest,
     mirror,
+    send,
+    submit,
     vault_account,
     wait_for,
 )
@@ -59,6 +66,10 @@ CREDITS_PURCHASED = keccak(text="CreditsPurchased(address,uint16,bytes32,uint32,
 RAILS_PRECOMPILE = "0x0000000000000000000000000000000000000815"
 # One unit of the stablecoin in the hub's 9 decimals.
 STABLE_SCALE = UNIT // USDC
+# The EVM counts TAO with 18 decimals, the hub with 9.
+WEI_PER_RAO = 10**9
+# Seconds in which the rig's relayer and keeper have all had a turn.
+HELD_FOR = 8
 
 
 def show(step: str, detail: str = "") -> None:
@@ -73,9 +84,9 @@ def units(amount: int, decimals: int = 9) -> str:
 class Transport:
     """What pays for the hub's messages to the spoke at one moment, in rao."""
 
-    # The spoke's budget on the hub.
+    # What the spoke's account on the hub can pay the transport.
     budget: int
-    # The TAO of the gateway account, which holds the budgets and pays the transport.
+    # The TAO of the gateway account. The hub hands it what it pays the transport.
     gateway: int
     # How many messages for the spoke the gateway has handed to the transport.
     sent: int
@@ -113,11 +124,12 @@ class Rig:
 
     async def transport(self) -> Transport:
         """What pays for the hub's messages to the spoke, now."""
-        storage = bt.storage.Rails
+        budget = await self.chain.runtime(bt.runtime_api.RailsApi.message_budget, [SPOKE_BRIDGE])
+        sent = await self.chain.query(bt.storage.Rails.NextOutbound, [SPOKE_BRIDGE])
         return Transport(
-            budget=int(await self.chain.query(storage.MessageBudget, [SPOKE_BRIDGE]) or 0),
+            budget=int(budget),
             gateway=(await self.chain.balances.balance(mirror(self.gateway))).rao,
-            sent=int(await self.chain.query(storage.NextOutbound, [SPOKE_BRIDGE]) or 0),
+            sent=int(sent or 0),
         )
 
     async def staked(self, netuid: int) -> int:
@@ -326,23 +338,22 @@ async def leave_from_bittensor(rig: Rig) -> None:
 
     arrived = await wait_for("the stablecoin of the exit", released)
     assert arrived == held // STABLE_SCALE
-    # The exit paid the cost of one message into the spoke's budget, on top of what it
-    # sent. Its message left, and the budget paid what the transport charged for it.
+    # The exit paid the reserve for one message into the spoke's account, on top of what
+    # it sent. Its message left, and the account paid what the transport charged for it.
     after = await rig.transport()
     assert after.sent == before.sent + 1, (before, after)
-    charged = before.budget + MESSAGE_COST - after.budget
-    assert 0 < charged <= MESSAGE_COST, charged
+    assert after.budget == before.budget + MESSAGE_RESERVE - TRANSPORT_FEE, (before, after)
     show(
         "left Bittensor",
         f"1 TAO -> {units(held)} tUSD -> {units(arrived, 6)} USDC on the spoke. The exit "
-        f"paid {units(MESSAGE_COST)} TAO into the spoke's budget; the transport charged "
-        f"{units(charged)} TAO for its message",
+        f"paid {units(MESSAGE_RESERVE)} TAO into the spoke's account on the hub; the "
+        f"transport charged {units(TRANSPORT_FEE)} TAO for its message",
     )
 
 
 async def who_paid(rig: Rig, first_order: int, fees_before: int, start: Transport) -> None:
-    """Each order paid for its answer on the spoke. On the hub, the spoke's budget paid
-    what the transport charged for each message, and nothing else moved the gateway's TAO."""
+    """Each order paid for its answer on the spoke. On the hub, the spoke's account paid
+    exactly what the transport charged for each message, and the gateway kept nothing."""
     spoke = rig.spoke
     orders = spoke.next_order() - first_order
     collected = spoke.native_balance(spoke.portal) - fees_before
@@ -350,14 +361,13 @@ async def who_paid(rig: Rig, first_order: int, fees_before: int, start: Transpor
 
     end = await rig.transport()
     sent = end.sent - start.sent
-    # One exit paid the cost of a message in. The rest of the change is what the budget
-    # paid the transport: something for each message, and never more than the hub counts.
-    charged = start.budget + MESSAGE_COST - end.budget
-    assert sent > 0 and 0 < charged <= sent * MESSAGE_COST, (sent, charged)
-    # The gateway account moved exactly as the budget did: all that was paid in is in the
-    # budget, and all that the gateway paid the transport came out of it.
-    assert end.gateway - start.gateway == end.budget - start.budget, (start, end)
-    assert end.gateway >= end.budget, end
+    # One exit paid the reserve for a message in. The rest of the change is what the
+    # account paid the transport: its charge for each message.
+    charged = start.budget + MESSAGE_RESERVE - end.budget
+    assert sent > 0 and charged == sent * TRANSPORT_FEE, (sent, charged)
+    # The hub handed the gateway that much, and the gateway paid all of it on: it holds
+    # what it held before.
+    assert end.gateway == start.gateway, (start, end)
 
     recipient_before = spoke.native_balance(MULTISIG)
     waiting = spoke.native_balance(spoke.portal)
@@ -368,8 +378,56 @@ async def who_paid(rig: Rig, first_order: int, fees_before: int, start: Transpor
     show(
         "who paid for the messages",
         f"{orders} orders paid {units(collected, 18)} ETH for their answers, swept to the "
-        f"fee recipient; the spoke's budget on the hub paid the transport "
-        f"{units(charged)} TAO for {sent} messages and holds {units(end.budget)} TAO",
+        f"fee recipient; the spoke's account on the hub paid the transport "
+        f"{units(charged)} TAO for {sent} messages and can pay {units(end.budget)} TAO "
+        f"more; the gateway holds {end.gateway} rao, as before",
+    )
+
+
+async def charge_above_the_reserve(rig: Rig) -> None:
+    """The transport charges more than the hub pays for a message. The message waits, the
+    order that caused it still settles, and anyone sends it on by paying the difference."""
+    alice = dev_wallet()
+    chain, spoke, hub = rig.chain, rig.spoke, rig.hub_evm
+    reserve = TRANSPORT_FEE // 2
+
+    async def set_reserve(value: int) -> None:
+        call = bt.calls.Rails.set_message_reserve(bridge=SPOKE_BRIDGE, reserve=value)
+        await submit(chain, call, alice, root=True)
+
+    await set_reserve(reserve)
+    try:
+        before = await rig.transport()
+        held = spoke.balance(spoke.tao, USER)
+        order = spoke.deposit(USER_KEY, 10 * USDC, rails.to_tao(USER))
+        receipt = await rig.receipt(order)
+        assert receipt["status"] == "settled", receipt
+        # The relayer and the keeper have had their turn: nobody paid the difference.
+        await asyncio.sleep(HELD_FOR)
+        waiting = await rig.transport()
+        assert waiting == before and not spoke.answers(order), (before, waiting)
+
+        # Anyone asks the gateway to send the message and pays what the hub does not.
+        # What was sent along and not needed comes back.
+        payer_before = int(hub.call("eth_getBalance", [KEEPER, "latest"]), 16)
+        flush = calldata("flush(uint32,uint256)", ["uint32", "uint256"], [SPOKE_BRIDGE, 8])
+        sent = send(hub, KEEPER_KEY, rig.gateway, flush, value=1_000 * TRANSPORT_FEE * WEI_PER_RAO)
+        gas = int(sent["gasUsed"], 16) * int(sent["effectiveGasPrice"], 16)
+        paid = payer_before - int(hub.call("eth_getBalance", [KEEPER, "latest"]), 16) - gas
+        assert paid == (TRANSPORT_FEE - reserve) * WEI_PER_RAO, paid
+
+        answer = await rig.answer(order)
+        assert spoke.balance(spoke.tao, USER) - held == answer["amount"] > 0
+        after = await rig.transport()
+        # The hub paid the reserve and no more, and the gateway kept nothing.
+        assert after == Transport(before.budget - reserve, before.gateway, before.sent + 1), after
+    finally:
+        await set_reserve(MESSAGE_RESERVE)
+    show(
+        "a charge above the reserve",
+        f"the transport charged {TRANSPORT_FEE} rao and the hub pays {reserve}: the order "
+        f"settled, its answer waited, and left when a caller paid the other "
+        f"{paid // WEI_PER_RAO} rao",
     )
 
 
@@ -418,6 +476,7 @@ async def main() -> None:
         await refund(rig, chutes)
         await leave_from_bittensor(rig)
         await who_paid(rig, first_order, fees_before, start)
+        await charge_above_the_reserve(rig)
         await invariants(rig)
     show("passed")
 

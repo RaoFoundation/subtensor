@@ -23,6 +23,7 @@ from eth_abi import decode as abi_decode
 from rig import (
     DEPLOYMENTS,
     HUB_RPC,
+    KEEPER,
     KEEPER_KEY,
     SPOKE_BRIDGE,
     TAO_PRICE,
@@ -46,6 +47,8 @@ FLUSH_EVERY = 2
 SCORE_EVERY = 30
 # The Rails precompile on Bittensor's EVM.
 RAILS_PRECOMPILE = "0x0000000000000000000000000000000000000815"
+# The gateway's hand-over of up to eight of the spoke's messages.
+FLUSH = calldata("flush(uint32,uint256)", ["uint32", "uint256"], [SPOKE_BRIDGE, 8])
 
 
 async def feed() -> None:
@@ -67,6 +70,14 @@ def outbox_waits(hub: EvmRpc) -> bool:
     return abi_decode(["bool"], bytes.fromhex(result[2:66]))[0]
 
 
+def would_send(hub: EvmRpc, gateway: str) -> int:
+    """How many messages a hand-over would send now. None leave while the transport
+    charges more than the hub pays for one: then somebody has to pay the difference, and
+    this keeper does not."""
+    result = hub.eth_call({"from": KEEPER, "to": gateway, "data": FLUSH})
+    return abi_decode(["uint256"], bytes.fromhex(result[2:]))[0]
+
+
 async def flush() -> None:
     hub = EvmRpc(HUB_RPC)
     deployment = DEPLOYMENTS / "hub.local.json"
@@ -77,8 +88,9 @@ async def flush() -> None:
             if not deployment.exists() or not outbox_waits(hub):
                 continue
             gateway = json.loads(deployment.read_text())["gateway"]
-            data = calldata("flush(uint32,uint256)", ["uint32", "uint256"], [SPOKE_BRIDGE, 8])
-            await asyncio.to_thread(send, hub, KEEPER_KEY, gateway, data)
+            if would_send(hub, gateway) == 0:
+                continue
+            await asyncio.to_thread(send, hub, KEEPER_KEY, gateway, FLUSH)
             print("[keeper] flushed the outbox", flush=True)
         except Exception as error:
             print(f"[keeper] the flush failed: {error!r}", flush=True)
