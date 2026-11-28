@@ -40,6 +40,12 @@ import {CanonicalTao} from "./tokens/CanonicalTao.sol";
 /// it to pay and the vault has not released yet (`owed`), and anyone can have it paid as
 /// the allowance refills (`claim`).
 ///
+/// The portal takes an order only if it holds an order slot. A slot is the hub's promise
+/// to answer one order: the hub has set aside what it needs to send that answer. Slots
+/// arrive with the hub's messages. So this chain never takes a payer's funds for an order
+/// that the hub could not answer: if the hub's answers do not arrive, or the hub is not
+/// paid for them, the slots run out and the next payer keeps the funds.
+///
 /// Upgradeable (UUPS). The owner upgrades, configures and resumes. The guardian only
 /// pauses.
 contract Portal is
@@ -102,6 +108,11 @@ contract Portal is
     /// @notice Who receives the answer fees: the operator that keeps the gateway funded.
     address public feeRecipient;
 
+    /// @notice How many more orders this portal can take now. Each order uses one slot.
+    /// The hub gives slots with its messages: as many as it has set aside a place in its
+    /// queue and the transport's charge for.
+    uint64 public orderSlots;
+
     event OrderSent(
         uint64 indexed nonce,
         address indexed payer,
@@ -137,6 +148,8 @@ contract Portal is
     event StablePaid(address indexed to, uint256 amount, uint256 stillOwed);
     event AnswerFeeSet(uint256 fee, address recipient);
     event FeesSwept(address indexed recipient, uint256 amount);
+    /// @notice The hub's message `nonce` brought `slots` order slots.
+    event OrderSlotsGranted(uint64 indexed nonce, uint32 slots);
 
     error OnlyMailbox();
     error OnlyVault();
@@ -153,6 +166,10 @@ contract Portal is
     error FeeNotPaid(uint256 fee, uint256 paid);
     error UnsupportedDecimals(uint8 decimals);
     error NoFeeRecipient();
+    /// @notice The portal holds no order slot: the hub has not promised an answer to one
+    /// more order. Its answers are on their way, or its account for them is not paid
+    /// into. Nothing was taken from the payer.
+    error NoOrderSlot();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -249,6 +266,10 @@ contract Portal is
             destination.kind == source
                 && (source != Wire.ASSET_ALPHA || destination.netuid == sourceNetuid)
         ) revert SameAsset();
+        // The order uses a slot: the hub has set aside what its answer needs. Without one
+        // the whole call reverts, and the vault or the token takes nothing.
+        if (orderSlots == 0) revert NoOrderSlot();
+        --orderSlots;
         nonce = nextOrder++;
         bytes memory body = Wire.encode(
             Wire.Order({
@@ -301,12 +322,25 @@ contract Portal is
         if (origin != hubDomain || sender != gateway) revert NotTheHub(origin, sender);
         uint8 kind = Wire.kind(body);
         if (kind == Wire.KIND_CREDIT) {
-            _credit(Wire.decodeCredit(body));
+            Wire.Credit memory credit = Wire.decodeCredit(body);
+            _credit(credit);
+            _grantSlots(credit.nonce, credit.slots);
         } else if (kind == Wire.KIND_REGISTER_TOKEN) {
             _registerToken(Wire.decodeRegisterToken(body));
+        } else if (kind == Wire.KIND_SLOTS) {
+            (uint64 nonce, uint32 slots) = Wire.decodeSlots(body);
+            _markProcessed(nonce);
+            _grantSlots(nonce, slots);
         } else {
             revert UnknownMessage(kind);
         }
+    }
+
+    /// @dev The slots of a message count once: the message is carried out once.
+    function _grantSlots(uint64 nonce, uint32 slots) private {
+        if (slots == 0) return;
+        orderSlots += slots;
+        emit OrderSlotsGranted(nonce, slots);
     }
 
     /// @notice Whether the hub's message `nonce` was carried out.

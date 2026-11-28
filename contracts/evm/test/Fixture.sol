@@ -78,6 +78,14 @@ abstract contract Fixture is Test {
         );
         assertEq(address(portal), proxy);
         tao = portal.tao();
+        // The hub gives the portal its order slots. The message has the last nonce, so
+        // that the tests number the hub's messages from zero.
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, slotsBody(type(uint64).max, initialSlots()));
+    }
+
+    /// The order slots the portal starts with: more than a test uses.
+    function initialSlots() internal pure virtual returns (uint32) {
+        return 1_000_000;
     }
 
     // ---------------------------------------------------------------- destinations
@@ -135,8 +143,45 @@ abstract contract Fixture is Test {
         uint128 rate
     ) internal pure returns (bytes memory) {
         return abi.encode(
-            Wire.KIND_CREDIT, nonce, asset, netuid, to, amount, answersOrder, order, refund, rate
+            Wire.KIND_CREDIT,
+            nonce,
+            asset,
+            netuid,
+            to,
+            amount,
+            answersOrder,
+            order,
+            refund,
+            rate,
+            uint32(0)
         );
+    }
+
+    /// A payment of the hub to `to` that is not an answer, and that brings `slots` order
+    /// slots.
+    function creditBody(uint64 nonce, uint8 asset, address to, uint64 amount, uint32 slots)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(
+            Wire.KIND_CREDIT,
+            nonce,
+            asset,
+            uint16(0),
+            to,
+            amount,
+            false,
+            uint64(0),
+            false,
+            uint128(0),
+            slots
+        );
+    }
+
+    /// A message of the hub that only brings `slots` order slots.
+    function slotsBody(uint64 nonce, uint32 slots) internal pure returns (bytes memory) {
+        return abi.encode(Wire.KIND_SLOTS, nonce, slots);
     }
 
     /// The hub pays `amount` of an asset to `to`, not in answer to an order.

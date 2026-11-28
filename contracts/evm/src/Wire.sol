@@ -27,6 +27,7 @@ library Wire {
     /// @notice The kinds of message the hub sends.
     uint8 internal constant KIND_CREDIT = 1;
     uint8 internal constant KIND_REGISTER_TOKEN = 2;
+    uint8 internal constant KIND_SLOTS = 3;
 
     /// @notice What a payer wants for what it pays.
     /// @param kind One of the `TO_` constants.
@@ -63,6 +64,8 @@ library Wire {
     /// @param answersOrder Whether the credit answers the order `order` of this portal.
     /// @param refund Whether it returns what that order took, not what it bought.
     /// @param rate For an alpha token: the alpha one unit is worth now, times 1e18. Else 0.
+    /// @param slots How many more orders the portal may take: the hub has set aside what
+    /// it needs to answer that many.
     struct Credit {
         uint64 nonce;
         uint8 asset;
@@ -73,6 +76,7 @@ library Wire {
         uint64 order;
         bool refund;
         uint128 rate;
+        uint32 slots;
     }
 
     /// @notice The hub tells the portal to create the alpha token of `netuid`.
@@ -124,7 +128,7 @@ library Wire {
     }
 
     /// @dev A struct of static fields is encoded as its fields in a row, so the kind and
-    /// the struct decode what the hub wrote as ten words.
+    /// the struct decode what the hub wrote as eleven words.
     function decodeCredit(bytes calldata body) internal pure returns (Credit memory credit) {
         (, credit) = abi.decode(body, (uint8, Credit));
     }
@@ -136,5 +140,11 @@ library Wire {
     {
         (, register.nonce, register.netuid, register.token, register.name, register.symbol) =
             abi.decode(body, (uint8, uint64, uint16, address, string, string));
+    }
+
+    /// @notice A message that only brings order slots: the hub's sequence number of the
+    /// message, and how many more orders the portal may take.
+    function decodeSlots(bytes calldata body) internal pure returns (uint64 nonce, uint32 slots) {
+        (, nonce, slots) = abi.decode(body, (uint8, uint64, uint32));
     }
 }

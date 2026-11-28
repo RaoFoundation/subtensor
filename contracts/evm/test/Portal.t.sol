@@ -344,8 +344,8 @@ contract PortalTest is Fixture {
     }
 
     function test_AMessageThePortalDoesNotKnowIsRefused() public {
-        vm.expectRevert(abi.encodeWithSelector(Portal.UnknownMessage.selector, 3));
-        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, abi.encode(uint8(3), uint64(0)));
+        vm.expectRevert(abi.encodeWithSelector(Portal.UnknownMessage.selector, 4));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, abi.encode(uint8(4), uint64(0)));
         vm.expectRevert(abi.encodeWithSelector(Portal.UnknownAsset.selector, 3));
         mailbox.deliver(
             portal, HUB_DOMAIN, GATEWAY, creditBody(0, 3, 0, alice, UNIT, false, 0, false, 0)
@@ -543,5 +543,131 @@ contract PortalTest is Fixture {
         assertEq(order.destination, kind);
         assertEq(stable.balanceOf(address(vault)), amount);
         assertEq(stable.balanceOf(address(portal)), 0);
+    }
+}
+
+/// @notice A portal that the hub gave two order slots.
+contract PortalSlotsTest is Fixture {
+    event OrderSlotsGranted(uint64 indexed nonce, uint32 slots);
+
+    function initialSlots() internal pure override returns (uint32) {
+        return 2;
+    }
+
+    function test_EachOrderUsesASlot() public {
+        assertEq(portal.orderSlots(), 2);
+        deposit(alice, 100 * USDC, toTao(alice));
+        assertEq(portal.orderSlots(), 1);
+        deposit(alice, 100 * USDC, toCredits(51, keccak256("service"), alice));
+        assertEq(portal.orderSlots(), 0);
+        assertEq(portal.nextOrder(), 2);
+    }
+
+    function test_WithoutASlotThePortalTakesNoOrderAndThePayerKeepsTheFunds() public {
+        // Alice holds canonical TAO, and the portal's two slots are used.
+        mailbox.deliver(
+            portal, HUB_DOMAIN, GATEWAY, creditBody(0, Wire.ASSET_TAO, alice, uint64(5 * UNIT), 0)
+        );
+        deposit(bob, 100 * USDC, toTao(bob));
+        deposit(bob, 100 * USDC, toTao(bob));
+        assertEq(portal.orderSlots(), 0);
+        uint256 locked = stable.balanceOf(address(vault));
+
+        // The hub has not promised to answer another order. A deposit takes nothing.
+        stable.mint(alice, 100 * USDC);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 100 * USDC);
+        vm.expectRevert(Portal.NoOrderSlot.selector);
+        vault.deposit(100 * USDC, toTao(alice), 0, type(uint64).max);
+
+        // A sale burns nothing.
+        vm.expectRevert(Portal.NoOrderSlot.selector);
+        tao.sell(uint64(UNIT), toStable(alice), 0, type(uint64).max);
+        vm.stopPrank();
+
+        assertEq(stable.balanceOf(alice), 100 * USDC);
+        assertEq(stable.balanceOf(address(vault)), locked);
+        assertEq(tao.balanceOf(alice), 5 * UNIT);
+        assertEq(portal.nextOrder(), 2);
+        assertEq(mailbox.sentCount(), 2);
+    }
+
+    function test_TheHubsPaymentsBringSlots() public {
+        deposit(bob, 100 * USDC, toTao(bob));
+        deposit(bob, 100 * USDC, toTao(bob));
+
+        // The answer to the first order brings one slot, and the portal takes an order.
+        vm.expectEmit(address(portal));
+        emit OrderSlotsGranted(0, 1);
+        mailbox.deliver(
+            portal, HUB_DOMAIN, GATEWAY, creditBody(0, Wire.ASSET_TAO, bob, uint64(UNIT), 1)
+        );
+        assertEq(portal.orderSlots(), 1);
+        deposit(bob, 100 * USDC, toTao(bob));
+        assertEq(portal.orderSlots(), 0);
+
+        // A payment can bring more than one, and one that brings none changes nothing.
+        mailbox.deliver(
+            portal, HUB_DOMAIN, GATEWAY, creditBody(1, Wire.ASSET_TAO, bob, uint64(UNIT), 3)
+        );
+        mailbox.deliver(
+            portal, HUB_DOMAIN, GATEWAY, creditBody(2, Wire.ASSET_TAO, bob, uint64(UNIT), 0)
+        );
+        assertEq(portal.orderSlots(), 3);
+    }
+
+    function test_AMessageOfSlotsAloneBringsThemOnce() public {
+        bytes memory body = slotsBody(7, 5);
+        vm.expectEmit(address(portal));
+        emit OrderSlotsGranted(7, 5);
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(portal.orderSlots(), 7);
+
+        // The transport cannot bring the same slots again.
+        vm.expectRevert(abi.encodeWithSelector(Portal.AlreadyProcessed.selector, 7));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        // A payment under the same number is refused too, with its slots.
+        vm.expectRevert(abi.encodeWithSelector(Portal.AlreadyProcessed.selector, 7));
+        mailbox.deliver(
+            portal, HUB_DOMAIN, GATEWAY, creditBody(7, Wire.ASSET_TAO, bob, uint64(UNIT), 9)
+        );
+        assertEq(portal.orderSlots(), 7);
+    }
+
+    function test_OnlyTheHubGivesSlots() public {
+        bytes memory body = slotsBody(0, 5);
+        vm.prank(alice);
+        vm.expectRevert(Portal.OnlyMailbox.selector);
+        portal.handle(HUB_DOMAIN, GATEWAY, body);
+
+        bytes32 other = bytes32(uint256(0xBAD));
+        vm.expectRevert(abi.encodeWithSelector(Portal.NotTheHub.selector, HUB_DOMAIN, other));
+        mailbox.deliver(portal, HUB_DOMAIN, other, body);
+        assertEq(portal.orderSlots(), 2);
+    }
+
+    function test_APaymentThatCannotBeMadeYetBringsItsSlotsWhenItIsMade() public {
+        // A payment of an alpha token arrives before the token exists. The portal refuses
+        // it whole, slots and all, and the transport delivers it again.
+        bytes memory body = abi.encode(
+            Wire.KIND_CREDIT,
+            uint64(1),
+            Wire.ASSET_ALPHA,
+            CHUTES,
+            alice,
+            uint64(UNIT),
+            false,
+            uint64(0),
+            false,
+            uint128(1e18),
+            uint32(4)
+        );
+        vm.expectRevert(abi.encodeWithSelector(Portal.NoSuchToken.selector, CHUTES));
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(portal.orderSlots(), 2);
+
+        registerToken(CHUTES, "Chutes", "CHUTES");
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
+        assertEq(portal.orderSlots(), 6);
     }
 }

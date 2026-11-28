@@ -18,12 +18,18 @@ import {MockMailbox} from "../mocks/MockMailbox.sol";
 /// half a TAO) and refunds some at random. It keeps what the hub keeps: the tUSD the bridge
 /// has outstanding and the supply of each canonical token that it let the spoke mint. Its
 /// answers reach the portal in any order, as the transport may deliver them.
+///
+/// The model also keeps the hub's count of order slots. An order uses one. A payment
+/// takes back to the portal the slots that it is missing, and a message of slots alone
+/// does so when the portal is short of them.
 contract Handler is Test {
     uint32 internal constant HUB_DOMAIN = 964;
     bytes32 internal constant GATEWAY = bytes32(uint256(0x6A7E));
     uint16 internal constant CHUTES = 64;
     uint64 internal constant TAO_PRICE = 400;
     uint64 internal constant SHARES_PER_TAO = 2;
+    /// The most order slots that the hub lets the portal have.
+    uint32 internal constant MAX_SLOTS = 6;
 
     MockStable internal stable;
     MockMailbox internal mailbox;
@@ -42,6 +48,11 @@ contract Handler is Test {
     /// The hub's messages, and whether each was delivered.
     bytes[] public messages;
     mapping(uint256 => bool) public delivered;
+    /// The order slots that are out, as the hub counts them: at the portal, on their way
+    /// to it, or used by an order that the hub has not taken.
+    uint32 public slotsOut;
+    /// The orders that the portal refused for lack of a slot.
+    uint256 public refusedOrders;
 
     // ---- what the invariants need to know of the path
     uint256 public releases;
@@ -65,6 +76,9 @@ contract Handler is Test {
         // The token's registration was the hub's first message.
         messages.push("");
         delivered[0] = true;
+        // The portal starts with all the slots it may have.
+        slotsOut = MAX_SLOTS;
+        assertEq(portal_.orderSlots(), MAX_SLOTS);
     }
 
     function messageCount() external view returns (uint256) {
@@ -79,8 +93,17 @@ contract Handler is Test {
         stable.mint(payer, amount);
         vm.startPrank(payer);
         stable.approve(address(vault), amount);
+        _expectRefusalWithoutASlot();
         vault.deposit(amount, _destination(uint8(bound(kind, 1, 5)), payer), 0, type(uint64).max);
         vm.stopPrank();
+    }
+
+    /// Without a slot the portal takes no order: the next call reverts, and the payer
+    /// keeps what the order would have taken.
+    function _expectRefusalWithoutASlot() private {
+        if (portal.orderSlots() != 0) return;
+        refusedOrders++;
+        vm.expectRevert(Portal.NoOrderSlot.selector);
     }
 
     function sellTao(uint256 actor, uint256 amount, uint8 kind) external {
@@ -89,6 +112,7 @@ contract Handler is Test {
         if (held == 0) return;
         kind = uint8(bound(kind, 0, 5));
         if (kind == Wire.TO_TAO) kind = Wire.TO_STABLE;
+        _expectRefusalWithoutASlot();
         vm.prank(payer);
         tao.sell(uint64(bound(amount, 1, held)), _destination(kind, payer), 0, type(uint64).max);
     }
@@ -99,6 +123,7 @@ contract Handler is Test {
         if (held == 0) return;
         kind = uint8(bound(kind, 0, 5));
         if (kind == Wire.TO_ALPHA) kind = Wire.TO_TAO;
+        _expectRefusalWithoutASlot();
         vm.prank(payer);
         chutes.sell(uint64(bound(amount, 1, held)), _destination(kind, payer), 0, type(uint64).max);
     }
@@ -128,6 +153,8 @@ contract Handler is Test {
         Wire.Order memory order = abi.decode(body, (Wire.Order));
         assertEq(order.nonce, nextOrder, "the portal's orders are in sequence");
         nextOrder++;
+        assertGt(slotsOut, 0, "the portal sent an order without a slot");
+        slotsOut--;
 
         // What the order pays with reaches the hub as TAO or tUSD.
         uint256 tusd;
@@ -167,7 +194,16 @@ contract Handler is Test {
             principalAdded += shares * rate / 1e18;
             _credit(order, Wire.ASSET_ALPHA, CHUTES, shares, rate, false);
         }
-        // Credits and assets on Bittensor leave nothing to pay out here.
+        // Credits and assets on Bittensor leave nothing to pay out here, and no message
+        // takes the order's slot back.
+    }
+
+    /// Anyone has the hub send the portal the slots it is missing, when at most half of
+    /// them are out.
+    function grantSlots() external {
+        if (slotsOut * 2 > MAX_SLOTS) return;
+        messages.push(abi.encode(Wire.KIND_SLOTS, uint64(messages.length), MAX_SLOTS - slotsOut));
+        slotsOut = MAX_SLOTS;
     }
 
     /// The transport delivers one of the hub's messages, whichever comes first.
@@ -188,8 +224,8 @@ contract Handler is Test {
         // and what did not fit is owed.
         try mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body) {
             delivered[index] = true;
-            (,, uint8 asset) = abi.decode(body, (uint8, uint64, uint8));
-            if (asset == Wire.ASSET_STABLE) releases++;
+            (uint8 kind,, uint8 asset) = abi.decode(body, (uint8, uint64, uint8));
+            if (kind == Wire.KIND_CREDIT && asset == Wire.ASSET_STABLE) releases++;
         } catch {}
     }
 
@@ -217,6 +253,9 @@ contract Handler is Test {
     ) private {
         if (amount == 0) return;
         address to = refund ? order.payer : address(uint160(uint256(order.recipient)));
+        // The payment takes back the slots that the portal is missing.
+        uint32 slots = MAX_SLOTS - slotsOut;
+        slotsOut = MAX_SLOTS;
         messages.push(
             abi.encode(
                 Wire.KIND_CREDIT,
@@ -228,7 +267,8 @@ contract Handler is Test {
                 true,
                 order.nonce,
                 refund,
-                rate
+                rate,
+                slots
             )
         );
     }
@@ -260,6 +300,11 @@ contract RailsInvariantTest is Fixture {
     AlphaToken internal chutes;
     address[3] internal actors;
 
+    /// Few slots, so that the portal runs out of them now and then.
+    function initialSlots() internal pure override returns (uint32) {
+        return 6;
+    }
+
     function setUp() public override {
         super.setUp();
         chutes = registerToken(CHUTES, "Chutes", "CHUTES");
@@ -281,11 +326,36 @@ contract RailsInvariantTest is Fixture {
             ordered[order.source] += order.amount;
         }
         for (uint256 i = 1; i < handler.messageCount(); ++i) {
-            if (handler.delivered(i)) continue;
+            bytes memory message = handler.messages(i);
+            if (handler.delivered(i) || abi.decode(message, (uint8)) != Wire.KIND_CREDIT) continue;
             (,, uint8 asset,,, uint64 amount) =
-                abi.decode(handler.messages(i), (uint8, uint64, uint8, uint16, address, uint64));
+                abi.decode(message, (uint8, uint64, uint8, uint16, address, uint64));
             answered[asset] += amount;
         }
+    }
+
+    /// The slots that the hub's messages are bringing and have not delivered yet.
+    function _slotsOnTheirWay() internal view returns (uint256 slots) {
+        for (uint256 i = 1; i < handler.messageCount(); ++i) {
+            if (handler.delivered(i)) continue;
+            bytes memory message = handler.messages(i);
+            if (abi.decode(message, (uint8)) == Wire.KIND_SLOTS) {
+                (,, uint32 count) = abi.decode(message, (uint8, uint64, uint32));
+                slots += count;
+            } else {
+                Wire.Credit memory credit;
+                (, credit) = abi.decode(message, (uint8, Wire.Credit));
+                slots += credit.slots;
+            }
+        }
+    }
+
+    /// Every slot that the hub counts as out is at the portal, on its way to it, or used
+    /// by an order that the hub has not taken. So the portal never takes an order that
+    /// the hub has not promised to answer.
+    function invariant_ThePortalHoldsOnlySlotsThatTheHubCounts() public view {
+        uint256 ordersOnTheirWay = mailbox.sentCount() - handler.nextOrder();
+        assertEq(portal.orderSlots() + _slotsOnTheirWay() + ordersOnTheirWay, handler.slotsOut());
     }
 
     /// Every dollar the hub counts as outstanding, every dollar it told the portal to pay

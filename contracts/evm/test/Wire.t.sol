@@ -30,6 +30,10 @@ contract WireHarness {
     {
         return Wire.decodeRegisterToken(body);
     }
+
+    function decodeSlots(bytes calldata body) external pure returns (uint64, uint32) {
+        return Wire.decodeSlots(body);
+    }
 }
 
 /// @notice The vectors of `golden_vectors` in `precompiles/src/rails_wire.rs`: the hub
@@ -59,7 +63,12 @@ contract WireTest is Test {
         hex"0000000000000000000000000000000000000000000000000000000000000001"
         hex"0000000000000000000000000000000000000000000000000000000000000007"
         hex"0000000000000000000000000000000000000000000000000000000000000000"
-        hex"0000000000000000000000000000000000000000000000000f43fc2c04ee0000";
+        hex"0000000000000000000000000000000000000000000000000f43fc2c04ee0000"
+        hex"0000000000000000000000000000000000000000000000000000000000000002";
+
+    bytes internal constant SLOTS = hex"0000000000000000000000000000000000000000000000000000000000000003"
+        hex"000000000000000000000000000000000000000000000000000000000000000b"
+        hex"0000000000000000000000000000000000000000000000000000000000000040";
 
     bytes internal constant REGISTER_TOKEN = hex"0000000000000000000000000000000000000000000000000000000000000002"
         hex"0000000000000000000000000000000000000000000000000000000000000003"
@@ -113,6 +122,14 @@ contract WireTest is Test {
         assertEq(credit.order, 7);
         assertFalse(credit.refund);
         assertEq(credit.rate, 1.1e18);
+        assertEq(credit.slots, 2);
+    }
+
+    function test_SlotsDecodeFromTheBytesTheHubWrites() public view {
+        assertEq(wire.kind(SLOTS), Wire.KIND_SLOTS);
+        (uint64 nonce, uint32 slots) = wire.decodeSlots(SLOTS);
+        assertEq(nonce, 11);
+        assertEq(slots, 64);
     }
 
     function test_ATokenRegistrationDecodesFromTheBytesTheHubWrites() public view {
