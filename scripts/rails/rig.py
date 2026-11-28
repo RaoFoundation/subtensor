@@ -65,9 +65,11 @@ MULTISIG_KEY = setting("MULTISIG_KEY")
 USER_KEY = setting("USER_KEY")
 USER = setting("USER_ADDRESS")
 MULTISIG = setting("MULTISIG")
-# What an order pays on the spoke for its answer (wei), and an exit on the hub (rao).
+# What an order pays on the spoke for its answer (wei). What the hub counts for one
+# message to the spoke, and what the rig pays into the spoke's budget (rao).
 ANSWER_FEE = int(setting("ANSWER_FEE"))
-EXIT_FEE = int(setting("EXIT_FEE"))
+MESSAGE_COST = int(setting("MESSAGE_COST"))
+MESSAGE_BUDGET = int(setting("MESSAGE_BUDGET"))
 
 UNIT = 10**9
 USDC = 10**6

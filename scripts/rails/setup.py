@@ -19,12 +19,13 @@ from rig import (
     DEPLOYER,
     DEPLOYER_KEY,
     DEPLOYMENTS,
-    EXIT_FEE,
     HUB_CHAIN_ID,
     HUB_RPC,
     HUB_WS,
     KEEPER,
     MANIFEST,
+    MESSAGE_BUDGET,
+    MESSAGE_COST,
     RELAYER,
     SPOKE_BRIDGE,
     SPOKE_CHAIN_ID,
@@ -404,8 +405,19 @@ async def configure() -> None:
         await submit(
             chain, bt.calls.Rails.set_gateway(gateway=mirror(hub["gateway"])), alice, root=True
         )
-        # An exit from Bittensor pays the gateway for its message.
-        await submit(chain, bt.calls.Rails.set_exit_fee(fee=EXIT_FEE), alice, root=True)
+        # The spoke's budget on the hub pays the transport for every message to the spoke.
+        # The hub takes an order only while the budget covers its queue at the cost set
+        # here. In production the budget is paid from the answer fees that the portal
+        # collects.
+        await submit(
+            chain,
+            bt.calls.Rails.set_message_cost(bridge=SPOKE_BRIDGE, cost=MESSAGE_COST),
+            alice,
+            root=True,
+        )
+        await submit(
+            chain, bt.calls.Rails.fund_messages(bridge=SPOKE_BRIDGE, amount=MESSAGE_BUDGET), alice
+        )
 
         async def priced():
             return await chain.query(bt.storage.SubtensorModule.TaoUsdPrice)

@@ -9,9 +9,12 @@ defaultIsm:
   threshold: 1
 defaultHook:
   type: merkleTreeHook
+# The transport charges for every message, on both chains, so that the rig pays as
+# production does: an order pays on the spoke, and the spoke's budget pays on the hub.
+# 0.000001 of the chain's coin: on Bittensor that is 1,000 rao.
 requiredHook:
   type: protocolFee
   owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   beneficiary: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   maxProtocolFee: "1000000000000000000"
-  protocolFee: "0"
+  protocolFee: "1000000000000"

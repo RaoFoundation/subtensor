@@ -54,7 +54,10 @@ def btcli(*arguments: str) -> dict | list:
     assert result.exit_code == 0, f"btcli {' '.join(arguments)}\n{result.output}"
     decoder, text, document = json.JSONDecoder(), result.output.strip(), None
     while text:
-        document, end = decoder.raw_decode(text)
+        try:
+            document, end = decoder.raw_decode(text)
+        except json.JSONDecodeError as error:
+            raise AssertionError(f"btcli {' '.join(arguments)} printed:\n{text}") from error
         text = text[end:].lstrip()
     assert document is not None, f"btcli {' '.join(arguments)} printed nothing"
     return document
@@ -85,8 +88,12 @@ def make_wallet(directory: Path) -> None:
         "BTCLI_MULTISIG_CACHE": str(directory / "multisig_cache.json"),
         "BTCLI_SUBNET_NAMES_CACHE": str(directory / "subnet_names.json"),
         "BTCLI_TOKEN_SYMBOLS_CACHE": str(directory / "token_symbols.json"),
+        # A program reads the JSON here, not a person: no terminal styling in it, whatever
+        # the terminal that runs this is.
+        "TERM": "dumb",
     }.items():
         os.environ[variable] = value
+    os.environ.pop("FORCE_COLOR", None)
 
 
 def wait_for_order(order: int) -> dict:
@@ -170,18 +177,21 @@ def exit_and_transfer(spoke: Spoke) -> None:
         "--amount", "100", "--receive", "stable", "--to-address", USER, "--yes", *CLEAR,
     )  # fmt: skip
     assert result["success"], result
-    # The exit waits in the hub's outbox. Anyone may send the outbox: here, the wallet's
-    # EVM key. (The rig's keeper does the same, so this may find the outbox empty.)
-    btcli("bridge", "flush", "--rpc-url", HUB_RPC, "--yes")
+    # The exit waits in the queue of its bridge. Anyone may send the queue: here, the
+    # wallet's EVM key. (The rig's keeper does the same, so this may find the queue empty.)
+    btcli("bridge", "flush", "--bridge", str(SPOKE_BRIDGE), "--rpc-url", HUB_RPC, "--yes")
     deadline = time.monotonic() + 180
     while spoke.balance(spoke.stable, USER) == stable:
         assert time.monotonic() < deadline, "the exit did not arrive on the spoke"
         time.sleep(1)
     arrived = spoke.balance(spoke.stable, USER) - stable
     assert arrived == 100 * USDC
+    # The vault's allowance covered the payment, so the vault owes nothing more.
+    owed = btcli("bridge", "claim", "--to", USER, "--yes")
+    assert owed["owed"] == 0 and owed["tx_hash"] is None, owed
     show(
-        "bridge transfer, bridge exit, bridge flush",
-        f"100 tUSD -> {arrived / USDC:.2f} USDC on the spoke",
+        "bridge transfer, bridge exit, bridge flush, bridge claim",
+        f"100 tUSD -> {arrived / USDC:.2f} USDC on the spoke, and nothing left owed",
     )
 
 
