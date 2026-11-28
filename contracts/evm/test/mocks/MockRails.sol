@@ -5,9 +5,10 @@ import {IRails} from "precompiles/rails.sol";
 
 /// @notice The hub's precompile for tests of the gateway: it records what it is asked and
 /// answers what a test set. It keeps the hub's rules for who pays the transport: each
-/// bridge has its own TAO and a reserve, a message is queued only if that TAO covers the
-/// reserve for every queued message, and the caller of `ackOutbound` is handed what it
-/// pays the transport, up to the reserve.
+/// bridge has its own TAO, a reserve and a ceiling, a message is queued only if that TAO
+/// covers the reserve for every queued message, and the caller of `ackOutbound` is handed
+/// what it pays the transport, up to the reserve and what the bridge's TAO can spare
+/// above the reserves of its queue, and never more than the ceiling.
 contract MockRails is IRails {
     struct Outbound {
         uint32 domain;
@@ -29,8 +30,10 @@ contract MockRails is IRails {
     /// @notice What the account of each bridge holds for its messages, in wei. This
     /// contract holds it, as the hub's accounts do.
     mapping(uint32 bridge => uint256) public budget;
-    /// @notice The most the hub pays for one message to each bridge's spoke, in wei.
+    /// @notice What the hub sets aside for one message to each bridge's spoke, in wei.
     mapping(uint32 bridge => uint256) public reserve;
+    /// @notice The most the hub pays for one message to each bridge's spoke, in wei.
+    mapping(uint32 bridge => uint256) public ceiling;
     uint8 public status = 1;
     uint64 public amountOut;
     bool public refuse;
@@ -57,13 +60,24 @@ contract MockRails is IRails {
         budget[bridge] += msg.value;
     }
 
-    /// @notice Sets the reserve of `bridge`, as `Rails.set_message_reserve` does.
-    function setReserve(uint32 bridge, uint256 reserve_) external {
+    /// @notice Sets the reserve and the ceiling of `bridge`, as
+    /// `Rails.set_message_reserve` does.
+    function setReserve(uint32 bridge, uint256 reserve_, uint256 ceiling_) external {
+        require(ceiling_ >= reserve_, "dispatch execution failed: CeilingBelowReserve");
         require(
             budget[bridge] >= reserve_ * _queued(bridge),
             "dispatch execution failed: MessagesNotFunded"
         );
         reserve[bridge] = reserve_;
+        ceiling[bridge] = ceiling_;
+    }
+
+    /// @notice The most the hub pays for the message at the head of the queue of `bridge`
+    /// now, as `Rails.message_limit` computes it.
+    function limit(uint32 bridge) public view returns (uint256) {
+        uint256 spare = budget[bridge] - reserve[bridge] * _queued(bridge);
+        uint256 pays = reserve[bridge] + spare;
+        return pays < ceiling[bridge] ? pays : ceiling[bridge];
     }
 
     /// @notice Queues a message for `bridge`. In these tests a bridge's id is its domain.
@@ -107,7 +121,7 @@ contract MockRails is IRails {
             nonce == head[bridge] && nonce < outbox[bridge].length,
             "dispatch execution failed: NotOutboxHead"
         );
-        require(paid <= reserve[bridge], "dispatch execution failed: FeeAboveReserve");
+        require(paid <= limit(bridge), "dispatch execution failed: FeeAboveLimit");
         budget[bridge] -= paid;
         head[bridge]++;
         // The hub moves what the caller pays the transport from the bridge's account to
@@ -125,13 +139,13 @@ contract MockRails is IRails {
             uint32 domain,
             bytes32 recipient,
             bytes memory body,
-            uint256 reserve_
+            uint256 limit_
         )
     {
         nonce = head[bridge];
         if (nonce >= outbox[bridge].length) return (false, 0, 0, bytes32(0), "", 0);
         Outbound storage next = outbox[bridge][nonce];
-        return (true, nonce, next.domain, next.recipient, next.body, reserve[bridge]);
+        return (true, nonce, next.domain, next.recipient, next.body, limit(bridge));
     }
 
     function quote(uint32, bytes calldata) external pure returns (bool, uint64, string memory) {

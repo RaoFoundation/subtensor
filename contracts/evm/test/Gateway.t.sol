@@ -226,10 +226,11 @@ contract GatewayTest is Test {
         assertEq(gateway.flush(BASE, 1), 1);
     }
 
-    /// On the hub, the account of `bridge` holds `reserve` for each of `messages` messages.
+    /// On the hub, the account of `bridge` holds `reserve` for each of `messages` messages,
+    /// and the hub pays no more than the reserve for one.
     function fundBridge(uint32 bridge, uint256 reserve, uint256 messages) internal {
         rails.fund{value: reserve * messages}(bridge);
-        rails.setReserve(bridge, reserve);
+        rails.setReserve(bridge, reserve, reserve);
     }
 
     function test_AMessageIsPaidForFromTheAccountOfItsBridge() public {
@@ -302,6 +303,63 @@ contract GatewayTest is Test {
         assertEq(address(gateway).balance, 0);
     }
 
+    function test_AQueueThatAHigherChargeHoldsUpDrainsFromWhatTheAccountCanSpare() public {
+        // The hub sets 0.2 TAO aside for a message to Base and pays up to 0.6 for one.
+        rails.fund{value: 0.6 ether}(BASE);
+        rails.setReserve(BASE, 0.2 ether, 0.6 ether);
+        mailbox.setFee(0.1 ether);
+        for (uint64 i = 0; i < 3; ++i) {
+            rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, i));
+        }
+
+        // The transport's charge rises above the reserve. Base's account holds the three
+        // reserves and nothing to spare: the queue is held up.
+        mailbox.setFee(0.5 ether);
+        vm.expectEmit(address(gateway));
+        emit MessageHeld(BASE, 0, 0.5 ether, 0.2 ether);
+        assertEq(gateway.flush(BASE, 3), 0);
+
+        // Anyone pays into Base's account on the hub. Nobody pays the gateway. The whole
+        // queue leaves: each message uses its reserve, and the hub adds the rest from
+        // what the account can spare.
+        rails.fund{value: 0.9 ether}(BASE);
+        vm.prank(stranger);
+        assertEq(gateway.flush(BASE, 3), 3);
+        assertEq(address(mailbox).balance, 1.5 ether);
+        assertEq(rails.budget(BASE), 0);
+        assertEq(address(gateway).balance, 0);
+
+        // An order of the bridge now settles and its answer leaves with it, though the
+        // charge is still above the reserve.
+        rails.fund{value: 0.5 ether}(BASE);
+        rails.setAnswer(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(3)));
+        mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
+        assertEq(mailbox.sentCount(), 4);
+        assertEq(rails.budget(BASE), 0);
+    }
+
+    function test_AChargeAboveTheCeilingIsNotTheHubsToPay() public {
+        // The hub pays at most 0.3 TAO for a message, and Base's account can spare much
+        // more.
+        rails.fund{value: 5 ether}(BASE);
+        rails.setReserve(BASE, 0.2 ether, 0.3 ether);
+        rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+        mailbox.setFee(0.5 ether);
+
+        vm.expectEmit(address(gateway));
+        emit MessageHeld(BASE, 0, 0.5 ether, 0.3 ether);
+        assertEq(gateway.flush(BASE, 1), 0);
+        assertEq(rails.budget(BASE), 5 ether);
+
+        // A caller pays what is above the ceiling: 0.2 TAO. The hub pays its 0.3.
+        vm.deal(stranger, 1 ether);
+        vm.prank(stranger);
+        assertEq(gateway.flush{value: 1 ether}(BASE, 1), 1);
+        assertEq(stranger.balance, 0.8 ether);
+        assertEq(rails.budget(BASE), 4.7 ether);
+        assertEq(address(gateway).balance, 0);
+    }
+
     function test_ACallerGetsBackWhatWasNotNeeded() public {
         fundBridge(BASE, 0.2 ether, 1);
         rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
@@ -325,7 +383,7 @@ contract GatewayTest is Test {
 
     function test_AnOrderWaitsUntilItsBridgeHoldsTheReserveForItsAnswer() public {
         // The hub pays for messages to Base, and nobody paid into Base's account.
-        rails.setReserve(BASE, 1 ether);
+        rails.setReserve(BASE, 1 ether, 1 ether);
         mailbox.setFee(0.6 ether);
         rails.setAnswer(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
 
@@ -361,17 +419,23 @@ contract GatewayTest is Test {
         assertEq(address(gateway).balance, 5 ether);
     }
 
-    /// Whatever the transport charges and whatever a caller sends along, the gateway ends
-    /// with what it began with, the hub pays no more than the reserve for a message, and
-    /// the caller pays exactly what the transport charges above the reserve.
+    /// Whatever the transport charges, whatever the hub's account for the bridge can
+    /// spare and whatever a caller sends along: the gateway ends with what it began with,
+    /// every TAO that reaches the transport comes from the hub's account or from the
+    /// caller, the hub's account still holds the reserve for each message that waits, and
+    /// the hub never pays more than the ceiling for a message.
     function testFuzz_TheGatewayPaysOnExactlyWhatItIsHanded(
         uint64 reserve,
+        uint64 above,
+        uint64 spare,
         uint64 fee,
         uint64 offered,
         uint8 messages
     ) public {
         messages = uint8(bound(messages, 1, 6));
-        fundBridge(BASE, reserve, messages);
+        uint256 ceiling = uint256(reserve) + above;
+        rails.fund{value: uint256(reserve) * messages + spare}(BASE);
+        rails.setReserve(BASE, reserve, ceiling);
         for (uint64 i = 0; i < messages; ++i) {
             rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, i));
         }
@@ -382,16 +446,24 @@ contract GatewayTest is Test {
         vm.prank(stranger);
         uint256 sent = gateway.flush{value: offered}(BASE, messages);
 
-        uint256 fromHub = fee < reserve ? fee : reserve;
-        uint256 difference = fee - fromHub;
-        // As many messages leave as the caller's TAO pays the difference for.
-        uint256 affordable = difference == 0 ? messages : offered / difference;
-        assertEq(sent, affordable < messages ? affordable : messages);
+        uint256 fromHub = budget - rails.budget(BASE);
+        uint256 fromCaller = offered - stranger.balance;
         assertEq(rails.head(BASE), sent);
-        assertEq(rails.budget(BASE), budget - sent * fromHub);
-        assertEq(stranger.balance, offered - sent * difference);
         assertEq(address(mailbox).balance, sent * uint256(fee));
+        assertEq(fromHub + fromCaller, sent * uint256(fee));
         assertEq(address(gateway).balance, 0);
+        assertLe(fromHub, sent * ceiling);
+        assertGe(rails.budget(BASE), uint256(reserve) * (messages - sent));
+        // A charge within the reserve needs nothing from the caller, and all messages go.
+        if (fee <= reserve) {
+            assertEq(sent, messages);
+            assertEq(fromCaller, 0);
+        }
+        // The hand-over stops only where the next message needs more than the hub pays
+        // and the caller has left.
+        if (sent < messages) {
+            assertGt(uint256(fee) - rails.limit(BASE), offered - fromCaller);
+        }
     }
 
     function test_TheGuardianPausesAndOnlyTheOwnerResumes() public {

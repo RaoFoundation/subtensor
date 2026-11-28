@@ -30,11 +30,14 @@ import {
 /// It holds no TAO between transactions. The TAO that pays the transport for the hub's
 /// messages is in accounts of the hub, one for each bridge. For each message the gateway
 /// tells the hub what the transport charges. The hub hands the gateway that much from the
-/// account of the message's bridge, up to the bridge's reserve, and the gateway pays it on
-/// in the same transaction. The hub keeps the reserve for every queued message, so a
-/// message can always leave at a charge up to the reserve. If the transport charges more,
-/// the message waits until whoever calls `flush` pays the difference, or until the charge
-/// falls.
+/// account of the message's bridge, up to a limit, and the gateway pays it on in the same
+/// transaction.
+///
+/// The limit is the hub's to set. The hub keeps a reserve for every queued message, so a
+/// message can always leave at a charge up to the reserve. Above the reserve the hub pays
+/// from what the bridge's account can spare, up to the bridge's ceiling. If the transport
+/// charges more than the limit, the message waits until the account can spare more, until
+/// whoever calls `flush` pays the difference, or until the charge falls.
 ///
 /// Upgradeable (UUPS). The owner upgrades, configures and resumes. The guardian only
 /// pauses.
@@ -86,9 +89,9 @@ contract Gateway is
         bytes32 messageId
     );
     /// @notice Message `nonce` of the hub's queue for `bridge` waits: the transport
-    /// charges `fee` for it, the hub pays at most `reserve`, and nobody paid the
+    /// charges `fee` for it, the hub pays at most `limit` now, and nobody paid the
     /// difference. The messages behind it wait too.
-    event MessageHeld(uint32 indexed bridge, uint64 indexed nonce, uint256 fee, uint256 reserve);
+    event MessageHeld(uint32 indexed bridge, uint64 indexed nonce, uint256 fee, uint256 limit);
     event InterchainSecurityModuleSet(address module);
     event GuardianSet(address guardian);
     event FlushLimitSet(uint256 limit);
@@ -164,11 +167,12 @@ contract Gateway is
     /// `bridge` to the transport. Anyone may call this: it does what the hub already
     /// decided.
     ///
-    /// The hub pays the transport's charge for a message up to the bridge's reserve. If
-    /// the transport charges more, the caller pays the difference with this call. What
-    /// the caller sent and was not needed goes back. Without it the hand-over stops at
-    /// that message. Each bridge has its own queue, so such a message holds only the
-    /// messages to the same spoke.
+    /// The hub pays the transport's charge for a message up to a limit: the bridge's
+    /// reserve, and above it what the bridge's account can spare, up to the bridge's
+    /// ceiling. If the transport charges more, the caller pays the difference with this
+    /// call. What the caller sent and was not needed goes back. Without it the hand-over
+    /// stops at that message. Each bridge has its own queue, so such a message holds only
+    /// the messages to the same spoke.
     /// @return sent How many were handed over.
     function flush(uint32 bridge, uint256 limit)
         external
@@ -181,8 +185,8 @@ contract Gateway is
         if (msg.value > spent) Address.sendValue(payable(msg.sender), msg.value - spent);
     }
 
-    /// @dev `offered` is what the caller pays towards charges above the reserve. Returns
-    /// how many messages left and how much of `offered` they used.
+    /// @dev `offered` is what the caller pays towards charges above what the hub pays.
+    /// Returns how many messages left and how much of `offered` they used.
     function _flush(uint32 bridge, uint256 limit, uint256 offered)
         private
         returns (uint256 sent, uint256 spent)
@@ -194,13 +198,13 @@ contract Gateway is
                 uint32 domain,
                 bytes32 recipient,
                 bytes memory body,
-                uint256 reserve
+                uint256 limit
             ) = RAILS.nextOutbound(bridge);
             if (!pending) break;
             uint256 fee = mailbox.quoteDispatch(domain, recipient, body);
-            uint256 fromHub = fee < reserve ? fee : reserve;
+            uint256 fromHub = fee < limit ? fee : limit;
             if (fee - fromHub > offered - spent) {
-                emit MessageHeld(bridge, nonce, fee, reserve);
+                emit MessageHeld(bridge, nonce, fee, limit);
                 break;
             }
             spent += fee - fromHub;
