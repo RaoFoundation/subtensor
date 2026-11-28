@@ -329,6 +329,11 @@ reported, and tells the vault to release only what it burned. Checked end to end
     the gateway contract names. The contract reads it from the transport in the same
     call in which it pays. A gateway that is upgraded with wrong code could name
     another amount. It holds that TAO in any case.
+29. **A queue can be filled.** The queue of a bridge holds 1,024 messages. A person
+    can fill it with small exits. Each exit pays the message cost, so the budget
+    grows with the queue. While the queue is full, the bridge takes no order and no
+    exit. Anyone empties it with `Gateway.flush`, for gas only. The queues of other
+    bridges are not touched.
 6. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
    after the payer signed. The order's minimum bounds the loss. btcli defaults to 5%
    and the swap page to 1%. The pool's swap limits make a large push slow.
