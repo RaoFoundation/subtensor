@@ -23,6 +23,8 @@ contract MockMailbox is IMailbox {
     uint256 public feePerByte;
     /// @notice Destinations that `dispatch` refuses.
     mapping(uint32 destination => bool) public blocked;
+    /// @notice Messages that `dispatch` refuses, by the hash of their body.
+    mapping(bytes32 body => bool) public refused;
     Message[] public sent;
 
     constructor(uint32 localDomain_) {
@@ -45,6 +47,10 @@ contract MockMailbox is IMailbox {
         blocked[destination] = blocked_;
     }
 
+    function setRefused(bytes calldata body, bool refused_) external {
+        refused[keccak256(body)] = refused_;
+    }
+
     function sentCount() external view returns (uint256) {
         return sent.length;
     }
@@ -60,6 +66,7 @@ contract MockMailbox is IMailbox {
     {
         require(msg.value == _charge(destination, body), "MockMailbox: wrong fee");
         require(!blocked[destination], "MockMailbox: destination blocked");
+        require(!refused[keccak256(body)], "MockMailbox: message refused");
         sent.push(Message(destination, recipient, body, msg.value));
         return keccak256(abi.encode(sent.length, destination, recipient, body));
     }

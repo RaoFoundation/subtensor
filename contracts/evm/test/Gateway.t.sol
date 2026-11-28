@@ -265,6 +265,35 @@ contract GatewayTest is Test {
         assertEq(gateway.flush(BASE, 1), 1);
     }
 
+    function test_TheHubsAdminDefersAMessageThatTheTransportRefuses() public {
+        // Three messages wait. The transport refuses the first one, and takes the others.
+        for (uint64 i = 0; i < 3; ++i) {
+            rails.enqueue(BASE, PORTAL, credit(i));
+        }
+        mailbox.setRefused(credit(0), true);
+
+        // The message is paid for, so the gateway does not defer it. Nothing leaves: the
+        // messages behind it wait.
+        vm.expectRevert("MockMailbox: message refused");
+        gateway.flush(BASE, 3);
+        assertEq(mailbox.sentCount(), 0);
+        assertEq(rails.head(BASE), 0);
+
+        // The hub's admin defers it (`Rails.defer_outbound`). The messages behind it leave.
+        rails.deferOutbound(BASE, 0);
+        assertEq(gateway.flush(BASE, 3), 2);
+
+        // It stays in the hub, and leaves when the transport takes it.
+        assertTrue(rails.deferred(BASE, 0));
+        vm.expectRevert("MockMailbox: message refused");
+        gateway.send(BASE, 0);
+        mailbox.setRefused(credit(0), false);
+        gateway.send(BASE, 0);
+        assertEq(mailbox.sentCount(), 3);
+        assertEq(mailbox.lastBody(), credit(0));
+        assertEq(rails.waiting(BASE), 0);
+    }
+
     /// On the hub, the account of `bridge` holds `reserve` for each of `messages` messages,
     /// and the hub pays no more than the reserve for one.
     function fundBridge(uint32 bridge, uint256 reserve, uint256 messages) internal {

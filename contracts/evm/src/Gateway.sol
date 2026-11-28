@@ -187,8 +187,10 @@ contract Gateway is
     /// not wait for it.
     ///
     /// Reverts if the transport refuses a message: that message stays at the head of the
-    /// queue. Nothing here catches a failed call. A caught call would let a caller with
-    /// too little gas defer a message that is paid for.
+    /// queue, and the messages behind it wait. Nothing here catches a failed call. A
+    /// caught call would let a caller with too little gas defer a message that is paid
+    /// for. The admin of the hub can defer a message that the transport does not take
+    /// (`Rails.defer_outbound`). Then the messages behind it leave.
     /// @return sent How many were handed to the transport.
     function flush(uint32 bridge, uint256 limit)
         external
