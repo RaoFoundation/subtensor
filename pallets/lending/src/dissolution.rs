@@ -26,7 +26,6 @@ use frame_support::{
     dispatch::DispatchResult,
     ensure,
     storage::with_storage_layer,
-    traits::Get,
     weights::{Weight, WeightMeter},
 };
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -37,6 +36,7 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 use crate::{
     Config, DissolvingSubnets, Error, Event, LendingParamsStore, LendingPoolInterface, Pallet,
     PoolTaoEma, PositionCount, Positions, ResidualAlpha, SyntheticOutstanding, TotalPositions,
+    WeightInfo,
     math::{
         default::Launch,
         dereg::{rate, short_owed},
@@ -100,12 +100,6 @@ pub struct Dissolving {
     pub settled_tao: u64,
 }
 
-/// Hand-counted weight of one short's settlement (accrual, payment, refund and removal),
-/// measured by no benchmark yet.
-/// TODO(benchmark): replace with the measured weight of `on_dissolve` once it is benchmarked.
-const SHORT_SETTLEMENT_READS: u64 = 24;
-const SHORT_SETTLEMENT_WRITES: u64 = 22;
-
 impl<T: Config> Pallet<T> {
     /// The lending alpha of `netuid` as it stands: the open shorts' `q` and the defaulted shorts'
     /// residual alpha.
@@ -145,15 +139,16 @@ impl<T: Config> Pallet<T> {
     }
 
     /// The settlement of every short of `netuid` (see the module doc). Charges the work to
-    /// `meter`. The scan of `Positions` has no per-subnet index, so it reads every open position
-    /// once (bounded by `TotalPositions`, not by the subnet).
+    /// `meter` at its measured weight ([`Self::dissolution_weight`]). The scan of `Positions` has
+    /// no per-subnet index, so it reads every open position once (bounded by `TotalPositions`,
+    /// not by the subnet).
     pub fn settle_shorts_at_dissolution(netuid: NetUid, meter: &mut WeightMeter) {
-        meter.consume(T::DbWeight::get().reads(3));
         let record = DissolvingSubnets::<T>::get(netuid);
         let book = SyntheticOutstanding::<T>::get(netuid);
         let residual = ResidualAlpha::<T>::get(netuid);
         let open = PositionCount::<T>::get(netuid);
         if record.is_none() && open == 0 && book == 0 && residual == 0 {
+            meter.consume(Self::dissolution_weight(0, 0));
             return;
         }
 
@@ -163,7 +158,17 @@ impl<T: Config> Pallet<T> {
             record.map_or_else(|| Self::live_lending_alpha(netuid), |rec| rec.lending_alpha);
         let settled_before = record.map_or(0, |rec| rec.settled_tao);
 
-        let shorts = Self::open_shorts(netuid, open, meter);
+        // A subnet with no position at all has no short to look for.
+        let (shorts, scanned) = if open == 0 {
+            (Vec::new(), 0)
+        } else {
+            (Self::open_shorts(netuid), TotalPositions::<T>::get())
+        };
+        let found = u32::try_from(shorts.len()).unwrap_or(u32::MAX);
+        meter.consume(Self::dissolution_weight(
+            found,
+            scanned.saturating_sub(found),
+        ));
         let now = frame_system::Pallet::<T>::block_number();
         let lending = LendingParamsStore::<T>::get();
         let curve = lending.rate_curve();
@@ -179,7 +184,6 @@ impl<T: Config> Pallet<T> {
             Position<BlockNumberFor<T>>,
         )> = Vec::with_capacity(shorts.len());
         for (id, pos) in shorts {
-            meter.consume(Self::short_settlement_weight());
             let custody = Self::position_custody(&id, pos.opened_at);
             let settled = match refs {
                 Some(refs) => {
@@ -248,18 +252,10 @@ impl<T: Config> Pallet<T> {
         );
     }
 
-    /// The open shorts of `netuid`, read off `Positions`. Skips the scan when the subnet holds
-    /// no position at all. Charges the scan to `meter`.
-    fn open_shorts(
+    /// The open shorts of `netuid`, read off `Positions`: one pass over every open position.
+    pub(crate) fn open_shorts(
         netuid: NetUid,
-        open: u32,
-        meter: &mut WeightMeter,
     ) -> Vec<(PositionId<T::AccountId>, Position<BlockNumberFor<T>>)> {
-        if open == 0 {
-            return Vec::new();
-        }
-        let scanned = u64::from(TotalPositions::<T>::get());
-        meter.consume(T::DbWeight::get().reads(scanned));
         Positions::<T>::iter()
             .filter(|(id, _)| id.1 == netuid && id.2 == Side::Short)
             .collect()
@@ -298,8 +294,17 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// The weight one short's settlement adds to the meter; see the constants above.
-    pub(crate) fn short_settlement_weight() -> Weight {
-        T::DbWeight::get().reads_writes(SHORT_SETTLEMENT_READS, SHORT_SETTLEMENT_WRITES)
+    /// The measured weight of a settlement that settles `shorts` shorts and reads `others`
+    /// positions of other subnets (or longs of this one) on its pass over `Positions`: the
+    /// `on_dissolve` benchmark, whose shorts are every open position, plus the benchmark of the
+    /// pass for the rest. With neither, it is the weight of a subnet with no lending.
+    #[must_use]
+    pub fn dissolution_weight(shorts: u32, others: u32) -> Weight {
+        let settled = T::WeightInfo::on_dissolve(shorts);
+        if others == 0 {
+            settled
+        } else {
+            settled.saturating_add(T::WeightInfo::on_dissolve_scan(others))
+        }
     }
 }

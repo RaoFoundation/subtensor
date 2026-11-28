@@ -13,6 +13,11 @@ with no position behind it; `long_locked_alpha` and `long_lifted_tao`), and
 the three price references in TAO per alpha: the live `spot`, the `twap`
 median and the `sma` of daily means.
 
+`dissolving` is None unless the subnet is being dissolved. Then it holds the
+pool TAO at the flag (`pool_tao_at_flag`), the lending alpha frozen at the flag
+(`lending_alpha`) and the TAO its shorts have settled so far (`settled_tao`,
+paid to the stakers). The record is removed once the owner refund has read it.
+
 **Category:** Lending
 
 ## Parameters
@@ -48,7 +53,8 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`Lending.ResidualAlpha`](/code/pallets/lending/src/lib.rs#L229)
+- Storage [`Lending.ResidualAlpha`](/code/pallets/lending/src/lib.rs#L232)
+- Storage [`Lending.DissolvingSubnets`](/code/pallets/lending/src/lib.rs#L237)
 - Runtime API [`LendingRuntimeApi.market`](/code/runtime/src/lib.rs#L3026-L3028)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

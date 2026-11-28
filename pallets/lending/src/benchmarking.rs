@@ -1,5 +1,9 @@
 //! Benchmarks of `pallet_lending`: the short calls, the root setters, the parts of
-//! `on_initialize`, the coldkey-swap re-key and the v1 migration.
+//! `on_initialize`, the coldkey-swap re-key, the dissolution hooks and the v1 migration.
+//!
+//! Every benchmark that accrues interest runs the rate curve at its worst case: the exponent
+//! `k` at its upper bound, the cap at its upper bound, and the position underwater at the slow
+//! price (`u > 1`), so the curve takes all `k` steps (`strain`).
 //!
 //! The pools come from `Config::BenchmarkHelper`. In the runtime that is the real subnet pool,
 //! so the short calls are measured through the adapter's swap legs with the fee settled to a
@@ -26,16 +30,17 @@ use frame_system::{RawOrigin, pallet_prelude::BlockNumberFor};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    BenchmarkHelper, Call, Config, Custody, DeregParamsStore, Due, Enabled, HasMigrationRun,
-    HolderPositions, InterestRetry, InterestTotals, LendingInterface, LendingParamsStore,
-    LendingPoolInterface, LongParamsStore, LongsEnabled, NextDue, Pallet, PendingDeregParams,
-    PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma, Positions, RankPrice,
-    RankRing, ResidualAlpha, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
+    BenchmarkHelper, Call, Config, Custody, DeregParamsStore, DissolvingSubnets, Due, Enabled,
+    HasMigrationRun, HolderPositions, InterestRetry, InterestTotals, LendingInterface,
+    LendingParamsStore, LendingPoolInterface, LongParamsStore, LongsEnabled, NextDue, Pallet,
+    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma,
+    PositionCount, Positions, RankPrice, RankRing, ResidualAlpha, ShortParamsStore, SwappedOutAt,
+    SyntheticOutstanding, TotalPositions, TwapRing,
     hooks::MAX_POSITIONS_PER_HOLDER,
     interest::MAX_DUE_BUCKETS_PER_BLOCK,
     math::interest::BLOCKS_PER_DAY,
     migrations,
-    params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
+    params::{DeregParams, LendingParams, LongParams, MAX_RATE_CAP_BPS, RAO, ShortParams},
     prices::{MAX_RANK_DAYS, MAX_TWAP_SAMPLES, RANK_SAMPLES_PER_DAY},
     types::{Leg, PositionId, Side},
 };
@@ -53,11 +58,26 @@ const POOL_ALPHA: u64 = 500_000 * RAO;
 const SHORT_Q: u64 = 200 * RAO;
 /// Collateral of one benchmark short, far above its coverage need.
 const COLLATERAL: u64 = 1_000 * RAO;
+/// Collateral left in a strained benchmark short. With its proceeds of about 20 TAO it holds
+/// about 25 TAO against 40 TAO of debt at the doubled slow price: `u` is about 1.6, the rate is
+/// far above the base APR and under the cap, and the short can still buy its alpha back at spot.
+const STRAINED_COLLATERAL: u64 = 5 * RAO;
 /// Free TAO of one benchmark holder: collateral and deposits for a full list of positions.
 const HOLDER_TAO: u64 = 100_000 * RAO;
 
 /// Blocks a position ages before a measured touch, so that the touch pays interest.
 const AGE_BLOCKS: u32 = 100;
+
+/// The highest exponent of the rate curve `LendingParams::validate` accepts.
+const MAX_RATE_K: u8 = 8;
+
+/// Most shorts of one subnet the dissolution benchmark settles.
+const MAX_DISSOLVED_SHORTS: u32 = 256;
+/// Free TAO of one holder of the dissolution benchmark: one short's collateral and deposit.
+/// Small, so that all of them fit under the TAO supply the runtime mints.
+const SETTLED_HOLDER_TAO: u64 = 2 * COLLATERAL;
+/// Most positions of other subnets the dissolution scan benchmark reads.
+const MAX_SCANNED_POSITIONS: u32 = 1_024;
 
 fn netuid_of(index: u32) -> NetUid {
     NetUid::from(u16::try_from(index).expect("benchmark netuids fit u16"))
@@ -98,10 +118,15 @@ fn seeded_pools<T: Config>(subnets: u32) -> Vec<NetUid> {
     netuids
 }
 
-/// [`seeded_pools`] with shorts enabled and a block author for the swap fees.
+/// [`seeded_pools`] with shorts enabled, a block author for the swap fees and the costliest
+/// rate curve the setter accepts: the most steps, and a cap that stops none of them early.
 fn market<T: Config>(subnets: u32) -> Vec<NetUid> {
     let netuids = seeded_pools::<T>(subnets);
     Enabled::<T>::put(true);
+    LendingParamsStore::<T>::mutate(|params| {
+        params.rate_k = MAX_RATE_K;
+        params.rate_cap_bps = MAX_RATE_CAP_BPS;
+    });
     T::BenchmarkHelper::set_block_author();
     netuids
 }
@@ -163,17 +188,48 @@ fn collateral<T: Config>(who: &T::AccountId, netuid: NetUid) -> u64 {
     Positions::<T>::get((who.clone(), netuid, Side::Short)).map_or(0, |pos| pos.collateral)
 }
 
-/// Leaves one rao of collateral in a short and its custody, as after a long bleed: the next
-/// scheduled charge takes it and defaults the short.
-fn bleed<T: Config>(id: &PositionId<T::AccountId>) {
+/// Leaves `keep` rao of collateral in a short and its custody, as after a long bleed.
+fn leave<T: Config>(id: &PositionId<T::AccountId>, keep: u64) {
     let (who, netuid, side) = id;
     let custody = Pallet::<T>::custody_account(who, *netuid, *side).expect("position exists");
     Positions::<T>::mutate(id, |pos| {
         let pos = pos.as_mut().expect("position exists");
-        let taken = pos.collateral.saturating_sub(1);
+        let taken = pos.collateral.saturating_sub(keep);
         T::Pool::transfer_tao(&custody, who, taken).expect("custody holds the collateral");
-        pos.collateral = 1;
+        pos.collateral = keep;
     });
+}
+
+/// Doubles the slow price of `netuid` (the TWAP median and the published rank SMA) and leaves
+/// the spot where it is, as after a fall of the spot from a long plateau: every short of the
+/// subnet owes twice its proceeds at the slow price.
+fn stress<T: Config>(netuid: NetUid) {
+    let refs = Pallet::<T>::price_refs(netuid).expect("seeded");
+    let twap = refs.twap.saturating_add(refs.twap);
+    TwapRing::<T>::mutate(netuid, |ring| {
+        for sample in ring.as_mut().expect("seeded").samples.iter_mut() {
+            *sample = twap;
+        }
+    });
+    RankPrice::<T>::insert(netuid, refs.sma.saturating_add(refs.sma));
+}
+
+/// The short accrues on the stretched part of the curve, short of the cap: the rate takes all
+/// `k` steps.
+fn assert_strained<T: Config>(id: &PositionId<T::AccountId>) {
+    let pos = Positions::<T>::get(id).expect("position exists");
+    let refs = Pallet::<T>::price_refs(id.1).expect("seeded");
+    let curve = LendingParamsStore::<T>::get().rate_curve();
+    assert_eq!(curve.k, MAX_RATE_K);
+    let rate = pos.rate_bps(&refs, &curve);
+    assert!(rate > curve.apr_bps && rate < curve.cap_bps);
+}
+
+/// Leaves `keep` rao of collateral in a short whose subnet is under [`stress`], so that its
+/// next accrual runs the whole curve.
+fn strain<T: Config>(id: &PositionId<T::AccountId>, keep: u64) {
+    leave::<T>(id, keep);
+    assert_strained::<T>(id);
 }
 
 /// Interest has reached the pool of `netuid`: the measured touch paid a charge.
@@ -186,13 +242,18 @@ mod benchmarks {
     use super::*;
 
     /// A holder one position short of the cap opens the last one, in a block after a coldkey
-    /// swap marked the key (the marker is read and cleared).
+    /// swap marked the key (the marker is read and cleared). The emission-set gate passes over
+    /// each of the `s` live subnets.
     #[benchmark]
-    fn open_short() {
+    fn open_short(s: Linear<MAX_POSITIONS_PER_HOLDER, MAX_SUBNETS>) {
         let caller: T::AccountId = funded::<T>(whitelisted_caller());
-        let netuids = market::<T>(MAX_POSITIONS_PER_HOLDER);
-        let (last, held) = netuids.split_last().unwrap();
-        for netuid in held.iter().copied() {
+        let netuids = market::<T>(s);
+        let (last, rest) = netuids.split_last().unwrap();
+        for netuid in rest
+            .iter()
+            .copied()
+            .take(MAX_POSITIONS_PER_HOLDER as usize - 1)
+        {
             open::<T>(&caller, netuid);
         }
         SwappedOutAt::<T>::insert(&caller, now::<T>());
@@ -215,11 +276,15 @@ mod benchmarks {
         assert!(!SwappedOutAt::<T>::contains_key(&caller));
     }
 
-    /// An aged short grows: the increase pays the interest accrued so far.
+    /// An aged, strained short grows: the increase pays the interest accrued so far at the
+    /// stretched rate, and the emission-set gate passes over each of the `s` live subnets.
     #[benchmark]
-    fn increase_short() {
+    fn increase_short(s: Linear<1, MAX_SUBNETS>) {
         let caller: T::AccountId = funded::<T>(whitelisted_caller());
-        let netuid = holding::<T>(&caller, 1)[0];
+        let netuid = market::<T>(s)[0];
+        let id = open::<T>(&caller, netuid);
+        stress::<T>(netuid);
+        strain::<T>(&id, STRAINED_COLLATERAL);
         age::<T>(AGE_BLOCKS);
 
         #[extrinsic_call]
@@ -235,14 +300,17 @@ mod benchmarks {
         assert_interest_paid::<T>(netuid);
     }
 
-    /// A full close by a holder with a full list of positions: the buy-back, the interest,
-    /// the refund, and every record of the position removed.
+    /// A full close of a strained short by a holder with a full list of positions: the
+    /// buy-back, the interest at the stretched rate, the refund, and every record of the
+    /// position removed.
     #[benchmark]
     fn close_short() {
         let caller: T::AccountId = funded::<T>(whitelisted_caller());
         let netuids = holding::<T>(&caller, MAX_POSITIONS_PER_HOLDER);
         let netuid = netuids[0];
         let id = (caller.clone(), netuid, Side::Short);
+        stress::<T>(netuid);
+        strain::<T>(&id, STRAINED_COLLATERAL);
         age::<T>(AGE_BLOCKS);
 
         #[extrinsic_call]
@@ -263,12 +331,18 @@ mod benchmarks {
         assert_interest_paid::<T>(netuid);
     }
 
-    /// A partial close: the buy-back, the interest and the coverage check of what is left.
-    /// `close_short` is charged the larger of this and the full close.
+    /// A partial close on the de-risk branch (SPEC 1.4): the short is underwater at the slow
+    /// price before and after, so what is left fails the coverage check and the close passes
+    /// only because it lowers `u`. The buy-back, the interest at the stretched rate, the
+    /// coverage need and the de-risk comparison. `close_short` is charged the larger of this
+    /// and the full close.
     #[benchmark]
     fn close_short_partial() {
         let caller: T::AccountId = funded::<T>(whitelisted_caller());
         let netuid = holding::<T>(&caller, 1)[0];
+        let id = (caller.clone(), netuid, Side::Short);
+        stress::<T>(netuid);
+        strain::<T>(&id, STRAINED_COLLATERAL);
         age::<T>(AGE_BLOCKS);
 
         #[block]
@@ -284,12 +358,18 @@ mod benchmarks {
 
         assert_eq!(minted::<T>(&caller, netuid), SHORT_Q / 2);
         assert_interest_paid::<T>(netuid);
+        // Still underwater at the slow price, which the coverage need is never below: the
+        // coverage check failed and the de-risk comparison let the close through.
+        assert_strained::<T>(&id);
     }
 
+    /// A top-up of an aged, strained short: it pays the interest accrued at the stretched rate.
     #[benchmark]
     fn add_collateral() {
         let caller: T::AccountId = funded::<T>(whitelisted_caller());
         let netuid = holding::<T>(&caller, 1)[0];
+        stress::<T>(netuid);
+        strain::<T>(&(caller.clone(), netuid, Side::Short), STRAINED_COLLATERAL);
         age::<T>(AGE_BLOCKS);
         let before = collateral::<T>(&caller, netuid);
 
@@ -332,6 +412,8 @@ mod benchmarks {
     fn set_lending_params() {
         // The heaviest path: the call tightens the live group (a higher base APR), so it replaces
         // a pending group and is scheduled for the delay in force, with `LendingParamsScheduled`.
+        // The call runs at block 1 (see `pools`).
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
         let now = frame_system::Pallet::<T>::block_number();
         let live = LendingParams::default();
         let earlier = LendingParams {
@@ -479,10 +561,11 @@ mod benchmarks {
 
     /// `c` scheduled charges in the bucket of the current block, each of another holder and,
     /// up to the subnet count, on another subnet. Every charge is the worst case: the short has
-    /// one rao of collateral left, so the charge takes it to the pool as interest and then
-    /// defaults the short (SPEC section 1 item 4): its proceeds go to the pool, its deposit is
-    /// burned, its alpha moves to `ResidualAlpha` and the position is removed with its custody
-    /// record, retry count, holder entry, counts and `Due` entry.
+    /// one rao of collateral left and accrues at the stretched rate, so the charge takes the
+    /// rao to the pool as interest and then defaults the short (SPEC section 1 item 4): its
+    /// proceeds go to the pool, its deposit is burned, its alpha moves to `ResidualAlpha` and
+    /// the position is removed with its custody record, retry count, holder entry, counts and
+    /// `Due` entry. The measured charge includes its default; nothing is added for one.
     #[benchmark]
     fn collect_due(c: Linear<0, { T::MaxChargesPerBlock::get() }>) {
         let netuids = market::<T>(c.clamp(1, MAX_SUBNETS));
@@ -490,7 +573,10 @@ mod benchmarks {
             .map(|index| {
                 let netuid = netuids[index as usize % netuids.len()];
                 let id = open::<T>(&holder::<T>(index), netuid);
-                bleed::<T>(&id);
+                if (index as usize) < netuids.len() {
+                    stress::<T>(netuid);
+                }
+                strain::<T>(&id, 1);
                 id
             })
             .collect();
@@ -582,6 +668,115 @@ mod benchmarks {
         }
 
         assert!(admitted);
+    }
+
+    /// The flag of a subnet's dissolution (`on_dissolve_flag`) on a subnet with lending: the
+    /// books are read and the record of the flag is written.
+    #[benchmark]
+    fn on_dissolve_flag() {
+        let netuid = holding::<T>(&holder::<T>(0), 1)[0];
+        ResidualAlpha::<T>::insert(netuid, SHORT_Q);
+        let pool_tao = T::Pool::pool_tao(netuid);
+
+        #[block]
+        {
+            <Pallet<T> as LendingInterface<T::AccountId>>::on_dissolve_flag(
+                netuid,
+                pool_tao.into(),
+            );
+        }
+
+        let record = DissolvingSubnets::<T>::get(netuid).expect("recorded");
+        assert_eq!(
+            (record.t_flag, record.lending_alpha),
+            (pool_tao, 2 * SHORT_Q)
+        );
+    }
+
+    /// The seed of a subnet's price rings and `T_ema` at registration (`on_subnet_registered`).
+    #[benchmark]
+    fn on_subnet_registered() {
+        let netuid = pools::<T>(1)[0];
+        TwapRing::<T>::remove(netuid);
+        RankRing::<T>::remove(netuid);
+
+        #[block]
+        {
+            Pallet::<T>::on_subnet_registered(netuid);
+        }
+
+        assert!(TwapRing::<T>::get(netuid).is_some());
+        assert!(RankRing::<T>::get(netuid).is_some());
+        assert!(PoolTaoEma::<T>::get(netuid).is_some());
+    }
+
+    /// The settlement of a dissolved subnet's `c` shorts (`on_dissolve`), each of another
+    /// holder, with no position on any other subnet. Every short is the worst case: it accrues
+    /// at the stretched rate and pays the interest to the pool, then pays what it owes at the
+    /// dereg rate into the pot and gets the rest of its custody back, so both transfers run,
+    /// and the position is removed with its custody record, retry count, holder entry, counts
+    /// and `Due` entry. The subnet also clears a `ResidualAlpha` and rewrites its record. The
+    /// fit starts at one short: a subnet with none takes the early return, which the fit's
+    /// intercept covers.
+    #[benchmark]
+    fn on_dissolve(c: Linear<1, MAX_DISSOLVED_SHORTS>) {
+        let netuid = market::<T>(1)[0];
+        let ids: Vec<_> = (0..c)
+            .map(|index| {
+                // One open a block: the per-block mint limit of a subnet does not bind.
+                age::<T>(1);
+                let who: T::AccountId = account("holder", index, 0);
+                T::BenchmarkHelper::fund(&who, SETTLED_HOLDER_TAO);
+                open::<T>(&who, netuid)
+            })
+            .collect();
+        stress::<T>(netuid);
+        for id in &ids {
+            strain::<T>(id, STRAINED_COLLATERAL);
+        }
+        ResidualAlpha::<T>::insert(netuid, SHORT_Q);
+        Pallet::<T>::record_dissolve_flag(netuid, T::Pool::pool_tao(netuid).into());
+        age::<T>(AGE_BLOCKS);
+        let mut meter = frame_support::weights::WeightMeter::new();
+
+        #[block]
+        {
+            <Pallet<T> as LendingInterface<T::AccountId>>::on_dissolve(netuid, &mut meter);
+        }
+
+        for id in &ids {
+            assert!(!Positions::<T>::contains_key(id));
+            assert!(!Custody::<T>::contains_key(id));
+            assert_interest_paid::<T>(netuid);
+        }
+        assert_eq!(SyntheticOutstanding::<T>::get(netuid), 0);
+        assert_eq!(ResidualAlpha::<T>::get(netuid), 0);
+        assert_eq!(PositionCount::<T>::get(netuid), 0);
+        assert_eq!(TotalPositions::<T>::get(), 0);
+        assert!(DissolvingSubnets::<T>::get(netuid).is_some_and(|record| record.settled_tao > 0));
+    }
+
+    /// What the settlement's scan of `Positions` costs for `p` positions of other subnets: the
+    /// map has no per-subnet index, so a dissolution reads every open position once
+    /// (`TotalPositions`) and keeps its own.
+    #[benchmark]
+    fn on_dissolve_scan(p: Linear<0, MAX_SCANNED_POSITIONS>) {
+        let netuids = market::<T>(2);
+        let (dissolved, other) = (netuids[0], netuids[1]);
+        let id = open::<T>(&holder::<T>(0), other);
+        let pos = Positions::<T>::take(&id).expect("position exists");
+        for index in 0..p {
+            let who: T::AccountId = account("scanned", index, 0);
+            Positions::<T>::insert((who, other, Side::Short), pos);
+        }
+        let found;
+
+        #[block]
+        {
+            found = Pallet::<T>::open_shorts(dissolved);
+        }
+
+        assert!(found.is_empty());
     }
 
     /// The v1 initialisation with `s` live subnets, each seeded with both rings and `T_ema`.

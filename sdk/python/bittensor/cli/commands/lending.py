@@ -188,6 +188,11 @@ def show_market(
             "swap fee": f"{market['swap_fee']:.3%}",
             "synthetic outstanding": str(market["synthetic_outstanding"]),
             "residual alpha": str(market["residual_alpha"]),
+            "dissolving": (
+                "no"
+                if market["dissolving"] is None
+                else f"settled {market['dissolving']['settled_tao']}"
+            ),
             "long locked alpha": str(market["long_locked_alpha"]),
             "long lifted TAO": str(market["long_lifted_tao"]),
             "spot": f"{market['spot']:.9f}",

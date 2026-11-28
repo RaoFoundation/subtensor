@@ -356,15 +356,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// The weight of [`Self::ensure_in_emission_set`], which `open_short` and `increase_short`
-    /// add to their measured weight: one pass over the subnets, bounded by the subnet limit.
-    pub fn emission_gate_weight() -> frame_support::weights::Weight {
-        T::DbWeight::get().reads(
-            crate::pool::EMISSION_SET_READS_PER_SUBNET
-                .saturating_mul(u64::from(T::Pool::subnet_limit())),
-        )
-    }
-
     pub(crate) fn ensure_side_enabled(side: Side) -> DispatchResult {
         match side {
             Side::Short => {

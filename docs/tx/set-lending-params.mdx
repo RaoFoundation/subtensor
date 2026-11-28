@@ -25,7 +25,7 @@ Verify with the `lending_params` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | Lending | [`Lending.set_lending_params`](/code/pallets/lending/src/lib.rs#L700-L708), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | Lending | [`Lending.set_lending_params`](/code/pallets/lending/src/lib.rs#L710-L715), `Sudo.sudo` |
 
 ## Verify
 
@@ -83,14 +83,11 @@ result = sub.execute_tool("set_lending_params", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.set_lending_params` — [`pallets/lending/src/lib.rs#L705`](/code/pallets/lending/src/lib.rs#L700-L708):
+`Lending.set_lending_params` — [`pallets/lending/src/lib.rs#L712`](/code/pallets/lending/src/lib.rs#L710-L715):
 
 ```rust
 #[pallet::call_index(22)]
-#[pallet::weight(
-    T::WeightInfo::set_lending_params()
-        .saturating_add(T::DbWeight::get().reads_writes(1, 1))
-)]
+#[pallet::weight(T::WeightInfo::set_lending_params())]
 pub fn set_lending_params(origin: OriginFor<T>, params: LendingParams) -> DispatchResult {
     ensure_root(origin)?;
     Self::queue_lending_params(params)

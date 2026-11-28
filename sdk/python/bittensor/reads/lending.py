@@ -66,6 +66,17 @@ def _grow_quote(view, quote: Optional[dict], netuid: int) -> dict:
     }
 
 
+def _dissolving(view, netuid: int, record: Optional[dict]) -> Optional[dict]:
+    """A subnet's dissolution record while it is being dissolved, else None."""
+    if record is None:
+        return None
+    return {
+        "pool_tao_at_flag": view.balance(int(record["t_flag"]), 0),
+        "lending_alpha": view.balance(int(record["lending_alpha"]), netuid),
+        "settled_tao": view.balance(int(record["settled_tao"]), 0),
+    }
+
+
 def _ok(quote: Optional[dict]) -> dict:
     """A quote's value; raises the chain error the quoted call would fail with."""
     if quote is None:
@@ -161,12 +172,19 @@ async def lending_market(view, netuid: int) -> Optional[dict]:
     with no position behind it; `long_locked_alpha` and `long_lifted_tao`), and
     the three price references in TAO per alpha: the live `spot`, the `twap`
     median and the `sma` of daily means.
+
+    `dissolving` is None unless the subnet is being dissolved. Then it holds the
+    pool TAO at the flag (`pool_tao_at_flag`), the lending alpha frozen at the flag
+    (`lending_alpha`) and the TAO its shorts have settled so far (`settled_tao`,
+    paid to the stakers). The record is removed once the owner refund has read it.
     """
     market = await view.runtime(api.LendingRuntimeApi.market, [netuid])
     if not market:
         return None
     residual = await view.query(st.Lending.ResidualAlpha, [netuid])
+    dissolving = await view.query(st.Lending.DissolvingSubnets, [netuid])
     return {
+        "dissolving": _dissolving(view, netuid, dissolving),
         "netuid": netuid,
         "pool_tao": view.balance(int(market["pool_tao"]), 0),
         "pool_alpha": view.balance(int(market["pool_alpha"]), netuid),

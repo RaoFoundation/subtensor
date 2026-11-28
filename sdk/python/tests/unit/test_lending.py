@@ -12,7 +12,7 @@ from bittensor.cli.context import AppContext
 from bittensor.intents import REGISTRY, build
 from bittensor.intents._money import UNBOUNDED
 from bittensor.intents.lending import PARAM_GROUPS
-from bittensor.result import BittensorError, ChainError
+from bittensor.result import BittensorError, ChainError, chain_error_from_dispatch
 from tests.harness.fake_substrate import (
     LENDING_CLOSE_QUOTE,
     LENDING_GROW_QUOTE,
@@ -219,6 +219,16 @@ class TestSetters:
         assert tuple(call) == ("Lending", SETTERS[group], {"params": expected})
         assert list(call.params["params"]) == list(PARAM_GROUPS[group])
 
+    @pytest.mark.parametrize(
+        ("group", "name"),
+        [(group, name) for group, names in PARAM_GROUPS.items() for name in names],
+    )
+    @pytest.mark.asyncio
+    async def test_every_field_is_set_by_name(self, wallet, group, name):
+        op = "set_lending_params" if group == "lending" else f"set_lending_{group}_params"
+        call = await build(op, {"changes": {name: 12_345}}).build(FakeSubstrate(), wallet)
+        assert call.params["params"] == {**LENDING_PARAMS[group], name: 12_345}
+
     def test_the_lending_group_is_the_rate_curve_and_the_shared_limits(self):
         assert PARAM_GROUPS["lending"] == (
             "apr_bps", "rate_k", "rate_cap_bps", "rate_delay_blocks",
@@ -360,6 +370,33 @@ class TestReads:
         sub.seed_runtime("LendingRuntimeApi", "market", None)
         assert asyncio.run(lending.lending_market(netuid=9)) is None
 
+    def test_a_dissolving_subnet_shows_its_record(self):
+        sub = FakeSubstrate()
+        lending = Client("local", substrate=sub).lending
+        assert asyncio.run(lending.lending_market(netuid=1))["dissolving"] is None
+        sub.seed(
+            "Lending",
+            "DissolvingSubnets",
+            [1],
+            {"t_flag": 40_000 * RAO, "lending_alpha": 6 * RAO, "settled_tao": 2 * RAO},
+        )
+        dissolving = asyncio.run(lending.lending_market(netuid=1))["dissolving"]
+        assert dissolving["pool_tao_at_flag"].rao == 40_000 * RAO
+        assert dissolving["pool_tao_at_flag"].netuid == 0
+        assert dissolving["lending_alpha"].rao == 6 * RAO
+        assert dissolving["lending_alpha"].netuid == 1
+        assert dissolving["settled_tao"].rao == 2 * RAO
+
+    def test_the_read_shows_every_field_the_setters_take(self):
+        params = asyncio.run(Client("local", substrate=FakeSubstrate()).lending.lending_params())
+        for group, names in PARAM_GROUPS.items():
+            assert tuple(params[group]) == names
+
+    def test_a_short_outside_the_emission_set_is_named(self):
+        error = chain_error_from_dispatch({"Module": {"index": 34, "error": "0x19000000"}})
+        assert isinstance(error, ChainError)
+        assert error.name == "SubnetNotInEmission"
+
     def test_quotes_are_in_tao(self):
         sub = FakeSubstrate()
         asked = []
@@ -404,6 +441,29 @@ class TestCli:
         result = invoke("--json", "lending", "params", "show")
         assert result.exit_code == 0, result.output
         assert json.loads(result.output) == {**LENDING_PARAMS, "pending_lending_params": None}
+
+    def test_params_show_the_block_a_waiting_change_goes_live(self, fake_reads):  # noqa: F811
+        fake_reads.seed("Lending", "PendingLendingParams", [], (WAITING_LENDING, 30_000))
+        result = invoke("lending", "params", "show")
+        assert result.exit_code == 0, result.output
+        rows = [line for line in result.output.splitlines() if "effective_at" in line]
+        assert rows and "30,000" in rows[0]
+
+    def test_market_shows_whether_a_subnet_is_dissolving(self, fake_reads):  # noqa: F811
+        result = invoke("lending", "market", "--netuid", "1")
+        assert result.exit_code == 0, result.output
+        (row,) = [line for line in result.output.splitlines() if "dissolving" in line]
+        assert " no" in row
+        fake_reads.seed(
+            "Lending",
+            "DissolvingSubnets",
+            [1],
+            {"t_flag": RAO, "lending_alpha": RAO, "settled_tao": 2 * RAO},
+        )
+        result = invoke("lending", "market", "--netuid", "1")
+        assert result.exit_code == 0, result.output
+        (row,) = [line for line in result.output.splitlines() if "dissolving" in line]
+        assert "settled" in row
 
     def test_params_set_submits_the_groups_setter(self, submitted):
         result = invoke(

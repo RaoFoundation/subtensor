@@ -166,14 +166,6 @@ impl<T: Config> Pallet<T> {
         InterestRetry::<T>::remove(id);
     }
 
-    /// The weight one default adds to a scheduled charge, counted by hand until the charge is
-    /// measured with its default branch: the credit of the proceeds to the pool and the burn of
-    /// the deposit (two transfers and the reserve), the two alpha books, the counts, the
-    /// holder's list and the removals.
-    pub(crate) fn default_weight() -> frame_support::weights::Weight {
-        T::DbWeight::get().reads_writes(12, 14)
-    }
-
     /// Runs the scheduled charges due at or before `now`, oldest bucket first, and returns how
     /// many it ran, how many of them defaulted a short and how many buckets it read. It stops
     /// at `MaxChargesPerBlock` charges or [`MAX_DUE_BUCKETS_PER_BLOCK`] buckets; `NextDue` keeps

@@ -499,24 +499,17 @@ pub mod pallet {
             } else {
                 T::WeightInfo::on_initialize_ema(live)
             };
-            if applied {
+            // The apply is measured with all four groups pending, so it covers a block that
+            // applies the lending group or any other. A block with nothing pending pays only the
+            // pending-parameter reads that the hooks above are measured with.
+            if lending || applied {
                 weight = weight.saturating_add(T::WeightInfo::apply_pending_params(live));
             }
-            // The pending lending parameters are read every block; applying them reads and
-            // writes `LendingParams` and clears the entry.
-            weight = weight.saturating_add(if lending {
-                T::DbWeight::get().reads_writes(2, 2)
-            } else {
-                T::DbWeight::get().reads(1)
-            });
-            // A default is part of its charge: the charges are bounded by `MaxChargesPerBlock`,
-            // and each default adds its own part on top of the measured charge.
+            // A default is part of its charge: `collect_due` is measured with every charge
+            // defaulting its short, so the defaults of a block add nothing to it.
             weight
                 .saturating_add(T::WeightInfo::collect_due(collected.charges))
                 .saturating_add(T::WeightInfo::collect_due_buckets(collected.buckets))
-                .saturating_add(
-                    Self::default_weight().saturating_mul(u64::from(collected.defaults)),
-                )
         }
 
         fn on_runtime_upgrade() -> Weight {
@@ -536,7 +529,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// Opens a short: mints `q` alpha, sells it, and pays the proceeds to custody (SPEC P1-P23).
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::open_short().saturating_add(Pallet::<T>::emission_gate_weight()))]
+        #[pallet::weight(T::WeightInfo::open_short(T::Pool::subnet_limit()))]
         pub fn open_short(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -560,7 +553,7 @@ pub mod pallet {
 
         /// Adds `q` to an open short (SPEC P1-P23).
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::increase_short().saturating_add(Pallet::<T>::emission_gate_weight()))]
+        #[pallet::weight(T::WeightInfo::increase_short(T::Pool::subnet_limit()))]
         pub fn increase_short(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -715,10 +708,7 @@ pub mod pallet {
         /// `LendingParamsScheduled`; any other call, a longer delay included, is live from the
         /// next block.
         #[pallet::call_index(22)]
-        #[pallet::weight(
-            T::WeightInfo::set_lending_params()
-                .saturating_add(T::DbWeight::get().reads_writes(1, 1))
-        )]
+        #[pallet::weight(T::WeightInfo::set_lending_params())]
         pub fn set_lending_params(origin: OriginFor<T>, params: LendingParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_lending_params(params)

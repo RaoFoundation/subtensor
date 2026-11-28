@@ -345,8 +345,13 @@ fn the_meter_is_charged_for_every_short_settled() {
         set_issuance(SN1, 1_000_000 * RAO);
         flag(sn1());
         let meter = settle(sn1());
-        let per_short = Lending::short_settlement_weight();
-        assert!(meter.consumed().ref_time() >= per_short.ref_time().saturating_mul(2));
+        // The measured settlement of two shorts, with no other position on the pass, and more
+        // for two shorts than for one.
+        assert_eq!(meter.consumed(), Lending::dissolution_weight(2, 0));
+        assert!(
+            Lending::dissolution_weight(2, 0).ref_time()
+                > Lending::dissolution_weight(1, 0).ref_time()
+        );
     });
 }
 

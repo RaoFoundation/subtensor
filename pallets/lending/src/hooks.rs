@@ -203,9 +203,10 @@ impl<T: Config> Pallet<T> {
     /// (`SwappedOutAt`): the open would derive the custody account the moved position uses.
     ///
     /// Returns the measured weight of moving the positions it found (`rekey_positions`); a
-    /// swap that moves nothing read the two position lists.
+    /// swap that moves nothing is charged the measured admission check, which reads the same
+    /// two lists.
     pub(crate) fn rekey_positions(old: &T::AccountId, new: &T::AccountId) -> Weight {
-        let nothing_moved = T::DbWeight::get().reads(2);
+        let nothing_moved = T::WeightInfo::coldkey_swap_destination_ok();
         if old == new {
             return nothing_moved;
         }
@@ -344,6 +345,6 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     /// the pool (reserves, weight, price).
     fn on_subnet_registered(netuid: NetUid) -> Weight {
         Self::on_subnet_registered(netuid);
-        T::DbWeight::get().reads_writes(8, 5)
+        T::WeightInfo::on_subnet_registered()
     }
 }

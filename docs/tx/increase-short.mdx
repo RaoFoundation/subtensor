@@ -16,7 +16,7 @@ Fails rather than selling for less than the current quote less
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.increase_short`](/code/pallets/lending/src/lib.rs#L545-L566) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.increase_short`](/code/pallets/lending/src/lib.rs#L555-L576) |
 
 ## Parameters
 
@@ -70,11 +70,11 @@ result = sub.execute_tool("increase_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.increase_short` — [`pallets/lending/src/lib.rs#L547`](/code/pallets/lending/src/lib.rs#L545-L566):
+`Lending.increase_short` — [`pallets/lending/src/lib.rs#L557`](/code/pallets/lending/src/lib.rs#L555-L576):
 
 ```rust
 #[pallet::call_index(1)]
-#[pallet::weight(T::WeightInfo::increase_short().saturating_add(Pallet::<T>::emission_gate_weight()))]
+#[pallet::weight(T::WeightInfo::increase_short(T::Pool::subnet_limit()))]
 pub fn increase_short(
     origin: OriginFor<T>,
     netuid: NetUid,
@@ -97,6 +97,6 @@ pub fn increase_short(
 }
 ```
 
-Delegates to [`do_grow`](/code/pallets/lending/src/positions.rs#L442).
+Delegates to [`do_grow`](/code/pallets/lending/src/positions.rs#L433).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
