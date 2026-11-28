@@ -356,13 +356,24 @@ pub fn set_live_lending(change: impl FnOnce(&mut crate::params::LendingParams)) 
     crate::LendingParamsStore::<Test>::mutate(change);
 }
 
-/// Sets the least rate floor and no delay of a rate increase, for the tests of the curve and
-/// of parameter changes: with the launch floor (the base APR) every position below `u = 1`
-/// pays one flat rate, and a raised rate would wait three days.
+/// Seeds both slow prices of a subnet at `price`: the TWAP ring and the SMA30 rank ring, each a
+/// full window of `price`. A short's debt reads the lower of the two and a long's the higher
+/// (SPEC 2.1), so this moves a position's debt over its holdings without moving the pool.
+pub fn seed_slow_prices(netuid: u16, price: Price) {
+    let netuid = NetUid::from(netuid);
+    let samples = crate::LendingParamsStore::<Test>::get().twap_samples;
+    crate::TwapRing::<Test>::insert(netuid, crate::prices::TwapState::seeded(price, samples));
+    crate::RankRing::<Test>::insert(netuid, crate::prices::RankState::seeded(price, 30));
+    crate::RankPrice::<Test>::insert(netuid, price);
+}
+
+/// Sets the curve of the tests of the rate (exponent 2, cap 100%: `LAUNCH` in `tests/interest.rs`)
+/// and no delay of a rate increase, so that a tightening applies in the next block.
 pub fn bare_curve() {
     set_live_lending(|p| {
-        p.rate_floor_bps = 1;
-        p.rate_increase_delay_blocks = 0;
+        p.rate_k = 2;
+        p.rate_cap_bps = 10_000;
+        p.rate_delay_blocks = 0;
     });
 }
 

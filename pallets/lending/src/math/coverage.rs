@@ -4,22 +4,14 @@
 use super::{
     PriceRefs,
     curve::{Curve, PoolState},
-    fixed::{BPS, mul_div_ceil, mul_div_floor, pro_rata_floor, scale_price_floor},
+    fixed::{BPS, mul_div_ceil, pro_rata_floor, scale_price_floor},
 };
 
-/// Book-aware short stress in bps (SPEC P2):
-/// `Stress_eff = Stress * (1 + slope * Q / X) = floor(stress * (1e4 * X + slope * Q) / (1e4 * X))`
-/// with `Q` the short book and `X` the pool alpha. `None` (infinite) for an empty pool.
-#[must_use]
-pub fn stress_eff_bps(stress_bps: u32, slope_bps: u32, book: u64, pool_alpha: u64) -> Option<u128> {
-    let base = BPS.saturating_mul(u128::from(pool_alpha));
-    let lifted = base.saturating_add(u128::from(slope_bps).saturating_mul(u128::from(book)));
-    mul_div_floor(u128::from(stress_bps), lifted, base)
-}
-
 /// Short coverage need (SPEC 1.1): `ceil(BuyCost(book | pumped pool) * q_pos / book)`, the pool
-/// pumped to `Stress_eff * max(spot, SMA30_rank)` and the buy-back quoted with fees. The TWAP
-/// median is not part of the short reference (SPEC P2).
+/// pumped to `Stress * max(spot, SMA30_rank)` and the buy-back quoted with fees. `Stress` is the
+/// same flat multiple for every book size: a larger book costs more per position only through
+/// the slippage of the whole-book buy-back. The TWAP median is not part of the short reference
+/// (SPEC P2).
 /// The position is covered while `C + P >= need`.
 ///
 /// `book` is `SyntheticOutstanding` with this position counted. `None` means the whole-book
@@ -31,14 +23,12 @@ pub fn short_need<C: Curve>(
     q_pos: u64,
     book: u64,
     stress_bps: u32,
-    slope_bps: u32,
 ) -> Option<u64> {
     if book == 0 {
         return Some(0);
     }
-    let stress = stress_eff_bps(stress_bps, slope_bps, book, pool.alpha)?;
     let reference = refs.spot.max(refs.sma);
-    let target = scale_price_floor(reference, stress, BPS)?;
+    let target = scale_price_floor(reference, u128::from(stress_bps), BPS)?;
     let pumped = C::pumped(pool, target)?;
     let book_cost = C::tao_in_for_alpha(&pumped, book)?;
     let share = mul_div_ceil(book_cost, u128::from(q_pos), u128::from(book))?;
@@ -87,34 +77,21 @@ mod tests {
     }
 
     #[test]
-    fn stress_grows_with_the_book() {
-        assert_eq!(stress_eff_bps(30_000, 20_000, 0, 1_000), Some(30_000));
-        // Q/X = 10 %: 3 * (1 + 2 * 0.1) = 3.6
-        assert_eq!(stress_eff_bps(30_000, 20_000, 100, 1_000), Some(36_000));
-        assert_eq!(stress_eff_bps(30_000, 0, 100, 1_000), Some(30_000));
-        // floor: 3 * (1 + 2/3) = 5 exactly; 3 * (1 + 2 * 1/7) = 3.857142...
-        assert_eq!(stress_eff_bps(30_000, 20_000, 1, 7), Some(38_571));
-        assert_eq!(stress_eff_bps(30_000, 20_000, 1, 0), None);
-    }
-
-    #[test]
     fn short_need_is_zero_without_a_book_or_a_position() {
+        assert_eq!(short_need::<Cp>(&POOL, &flat_refs(), 0, 0, 30_000), Some(0));
         assert_eq!(
-            short_need::<Cp>(&POOL, &flat_refs(), 0, 0, 30_000, 20_000),
-            Some(0)
-        );
-        assert_eq!(
-            short_need::<Cp>(&POOL, &flat_refs(), 0, RAO, 30_000, 20_000),
+            short_need::<Cp>(&POOL, &flat_refs(), 0, RAO, 30_000),
             Some(0)
         );
     }
 
     #[test]
     fn short_need_is_infinite_once_the_book_outgrows_the_pumped_pool() {
-        // Pumped 3x+ the pool holds < X / sqrt(3) alpha, so a book of X / 2 cannot be bought.
-        let book = POOL.alpha / 2;
+        // Pumped 3x the pool holds X / sqrt(3) alpha (57.7 % of X), so a book of 60 % of X
+        // cannot be bought.
+        let book = POOL.alpha / 5 * 3;
         assert_eq!(
-            short_need::<Cp>(&POOL, &flat_refs(), book, book, 30_000, 20_000),
+            short_need::<Cp>(&POOL, &flat_refs(), book, book, 30_000),
             None
         );
     }
@@ -123,28 +100,31 @@ mod tests {
     fn short_need_uses_the_higher_of_spot_and_sma_and_rounds_shares_up() {
         let refs = flat_refs();
         let book = POOL.alpha / 100;
-        let base = short_need::<Cp>(&POOL, &refs, book, book, 30_000, 20_000).unwrap();
+        let base = short_need::<Cp>(&POOL, &refs, book, book, 30_000).unwrap();
         // At least Stress x the spot value of the book.
         assert!(base > 3 * (POOL.tao / 100));
         let high = Price::from_bits(refs.spot.to_bits() * 2);
         let lifted = PriceRefs { sma: high, ..refs };
-        assert!(short_need::<Cp>(&POOL, &lifted, book, book, 30_000, 20_000).unwrap() > base);
+        assert!(short_need::<Cp>(&POOL, &lifted, book, book, 30_000).unwrap() > base);
         let low = Price::from_bits(refs.spot.to_bits() / 2);
         let lowered = PriceRefs { sma: low, ..refs };
         assert_eq!(
-            short_need::<Cp>(&POOL, &lowered, book, book, 30_000, 20_000),
+            short_need::<Cp>(&POOL, &lowered, book, book, 30_000),
             Some(base)
         );
         // The TWAP median is not a short reference: it moves the need in neither direction.
         for twap in [high, low] {
             let moved = PriceRefs { twap, ..refs };
             assert_eq!(
-                short_need::<Cp>(&POOL, &moved, book, book, 30_000, 20_000),
+                short_need::<Cp>(&POOL, &moved, book, book, 30_000),
                 Some(base)
             );
         }
+        // An empty pool has no pumped state.
+        let empty = PoolState::model(0, 0);
+        assert_eq!(short_need::<Cp>(&empty, &refs, 1, 1, 30_000), None);
         // Three equal thirds each round up, so together they cover at least the whole book.
-        let third = short_need::<Cp>(&POOL, &refs, book / 3, book, 30_000, 20_000).unwrap();
+        let third = short_need::<Cp>(&POOL, &refs, book / 3, book, 30_000).unwrap();
         assert!(third * 3 >= base - 3 && third >= base / 3);
     }
 

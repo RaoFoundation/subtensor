@@ -2039,7 +2039,7 @@ class Lending:
 
     @staticmethod
     def set_lending_params(params: 'LendingParams') -> Call:
-        'Replaces `LendingParams` from the next block (SPEC 2.1). If the call raises the rate terms (a higher `apr_bps`, `rate_cap_bps` or `rate_floor_bps`, or any change of `rate_k`), the new terms are live only after the `rate_increase_delay_blocks` in force; the other fields still change from the next block.'
+        'Replaces `LendingParams` (SPEC 2.1). A call that tightens the live group (a higher `apr_bps` or `rate_cap_bps`, any change of `rate_k` or of `twap_samples` or `twap_interval_blocks`, or a shorter `rate_delay_blocks`) is live only at the block set by the `rate_delay_blocks` in force at the call, and emits `LendingParamsScheduled`; any other call, a longer delay included, is live from the next block.'
         return Call('Lending', 'set_lending_params', {'params': params})
 
     @staticmethod

@@ -219,10 +219,10 @@ for `legacy_owner_cut_accrued`, rank-price reads for `get_network_to_prune`.
 
 Thin wrappers; call indices fixed from 0. User calls keep the spec's names because their arguments differ by side
 (`min_tao_out` vs `min_alpha_out`, mint vs lift):
-`open_short, increase_short, close_short, add_collateral, withdraw_collateral, poke` and
-`open_long, increase_long, close_long, add_long_collateral, withdraw_long_collateral, poke_long`.
+`open_short, increase_short, close_short, add_collateral` and
+`open_long, increase_long, close_long, add_long_collateral`.
 Root: `set_enabled, set_longs_enabled, set_lending_params, set_short_params, set_long_params, set_dereg_params`.
-`ProxyType::Lending` (next free index on main, appended) allows exactly the twelve user calls and Utility batches of them.
+`ProxyType::Lending` (next free index on main, appended) allows exactly the eight user calls and Utility batches of them.
 
 ## 7. Invariants, tests and differential checks
 

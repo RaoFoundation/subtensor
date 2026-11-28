@@ -216,7 +216,7 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_flow(side, netuid, q, opening, &market, &params, now)?;
 
-        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
+        let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
         let (after, proceeds) = quote_grow::<T>(side, &market.pool, q)?;
         ensure!(proceeds > 0, Error::<T>::InvalidAmount);
         ensure!(
@@ -265,7 +265,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
+        let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
         let full = alpha == pos.leg.alpha();
         let quote = quote_close::<T>(&pos.leg, &market.pool, alpha, pos.collateral, u64::MAX)?;
         if !full {

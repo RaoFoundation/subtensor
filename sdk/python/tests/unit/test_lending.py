@@ -40,12 +40,11 @@ SETTERS = {
     "long": "set_long_params",
     "dereg": "set_dereg_params",
 }
-# A rate increase waiting out its delay, as the chain stores its terms.
-WAITING_RATE = {
+# A tightening waiting out its delay, as the chain stores it: the whole queued group.
+WAITING_LENDING = {
+    **LENDING_PARAMS["lending"],
     "apr_bps": 3_000,
-    "rate_k": 2,
     "rate_cap_bps": 20_000,
-    "rate_floor_bps": 2_500,
 }
 
 
@@ -222,7 +221,7 @@ class TestSetters:
 
     def test_the_lending_group_is_the_rate_curve_and_the_shared_limits(self):
         assert PARAM_GROUPS["lending"] == (
-            "apr_bps", "rate_k", "rate_cap_bps", "rate_floor_bps", "rate_increase_delay_blocks",
+            "apr_bps", "rate_k", "rate_cap_bps", "rate_delay_blocks",
             "charge_interval_blocks", "min_pool_tao", "min_notional", "deposit",
             "twap_samples", "twap_interval_blocks",
         )  # fmt: skip
@@ -237,25 +236,32 @@ class TestSetters:
         with pytest.raises(BittensorError):
             build("set_lending_params", {"changes": {"exit_hysteresis_bps": 500}})
 
+    @pytest.mark.parametrize("removed", ["rate_floor_bps", "stress_slope_bps"])
+    def test_removed_fields_are_refused(self, removed):
+        with pytest.raises(BittensorError):
+            build("set_lending_params", {"changes": {removed: 1}})
+        with pytest.raises(BittensorError):
+            build("set_lending_short_params", {"changes": {removed: 1}})
+
     @pytest.mark.asyncio
-    async def test_the_floor_and_the_delay_are_set_by_name(self, wallet):
-        changes = {"rate_floor_bps": 2_500, "rate_increase_delay_blocks": 0}
+    async def test_the_delay_is_set_by_name(self, wallet):
+        changes = {"rate_delay_blocks": 0}
         call = await build("set_lending_params", {"changes": changes}).build(
             FakeSubstrate(), wallet
         )
         assert call.params["params"] == {**LENDING_PARAMS["lending"], **changes}
 
     @pytest.mark.asyncio
-    async def test_a_waiting_rate_increase_is_carried_by_the_next_call(self, wallet):
+    async def test_a_waiting_lending_change_is_carried_by_the_next_call(self, wallet):
         sub = FakeSubstrate()
-        sub.seed("Lending", "PendingRateIncrease", [], (WAITING_RATE, 30_000))
+        sub.seed("Lending", "PendingLendingParams", [], (WAITING_LENDING, 30_000))
         call = await build("set_lending_params", {"changes": {"deposit": 5}}).build(sub, wallet)
-        expected = {**LENDING_PARAMS["lending"], **WAITING_RATE, "deposit": 5}
+        expected = {**WAITING_LENDING, "deposit": 5}
         assert call.params["params"] == expected
         assert list(call.params["params"]) == list(PARAM_GROUPS["lending"])
-        # A named rate field wins over the waiting one.
+        # A named field wins over the waiting one.
         call = await build("set_lending_params", {"changes": {"apr_bps": 1_000}}).build(sub, wallet)
-        assert call.params["params"] == {**expected, "deposit": 10**8, "apr_bps": 1_000}
+        assert call.params["params"] == {**WAITING_LENDING, "apr_bps": 1_000}
 
     @pytest.mark.asyncio
     async def test_changes_merge_over_a_group_queued_this_block(self, wallet):
@@ -285,13 +291,13 @@ class TestSetters:
 class TestReads:
     def test_params_are_the_switches_and_the_four_groups(self):
         params = asyncio.run(Client("local", substrate=FakeSubstrate()).lending.lending_params())
-        assert params == {**LENDING_PARAMS, "pending_rate_increase": None}
+        assert params == {**LENDING_PARAMS, "pending_lending_params": None}
 
-    def test_params_show_a_waiting_rate_increase(self):
+    def test_params_show_a_waiting_lending_change(self):
         sub = FakeSubstrate()
-        sub.seed("Lending", "PendingRateIncrease", [], (WAITING_RATE, 30_000))
+        sub.seed("Lending", "PendingLendingParams", [], (WAITING_LENDING, 30_000))
         params = asyncio.run(Client("local", substrate=sub).lending.lending_params())
-        assert params["pending_rate_increase"] == {**WAITING_RATE, "effective_at": 30_000}
+        assert params["pending_lending_params"] == {**WAITING_LENDING, "effective_at": 30_000}
         assert params["lending"] == LENDING_PARAMS["lending"]
 
     def test_a_short_position_carries_its_leg(self):
@@ -392,7 +398,7 @@ class TestCli:
     def test_params_show(self, fake_reads):  # noqa: F811
         result = invoke("--json", "lending", "params", "show")
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output) == {**LENDING_PARAMS, "pending_rate_increase": None}
+        assert json.loads(result.output) == {**LENDING_PARAMS, "pending_lending_params": None}
 
     def test_params_set_submits_the_groups_setter(self, submitted):
         result = invoke(

@@ -82,8 +82,8 @@ def show_params(ctx: typer.Context):
     for group in PARAM_GROUPS:
         for name, value in params[group].items():
             fields[f"{group}.{name}"] = f"{value:,}"
-    for name, value in (params.get("pending_rate_increase") or {}).items():
-        fields[f"pending rate increase.{name}"] = f"{value:,}"
+    for name, value in (params.get("pending_lending_params") or {}).items():
+        fields[f"pending lending params.{name}"] = f"{value:,}"
     app_ctx.output.detail("lending parameters", fields, params)
 
 
@@ -99,8 +99,10 @@ def set_params(
     """Change fields of one lending parameter group (root only).
 
     The other fields of the group keep their value. The chain checks the whole
-    group against its bounds and applies it from the next block. List the
-    fields with `btcli lending params show`.
+    group against its bounds and applies it from the next block. A lending change
+    that tightens the rates waits the live `rate_delay_blocks` instead, and shows
+    under `pending lending params` until then. List the fields with
+    `btcli lending params show`.
     """
     app_ctx: AppContext = ctx_of(ctx)
     if group not in _SETTERS:

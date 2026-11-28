@@ -149,19 +149,23 @@ impl Leg {
     }
 
     /// The two terms of `u`, the debt over the holdings the rate curve reads (SPEC section 1
-    /// item 2, 7.1 item 4), with `collateral` the position's `C`: a short has
-    /// `floor(q * TWAP_median)` over `C + P`, a long has `D` over `floor(A * TWAP_median) + C`.
+    /// item 2, 7.1 item 4), with `collateral` the position's `C`. The alpha is valued at the
+    /// slow price, the one of the TWAP median and the 30-day rank SMA that makes `u` smaller:
+    /// a short has `floor(q * min(TWAP_median, SMA30_rank))` over `C + P`, a long has `D` over
+    /// `floor(A * max(TWAP_median, SMA30_rank)) + C`. The notional interest accrues on stays at
+    /// the TWAP median ([`Leg::notional`]).
     #[must_use]
-    pub fn debt_over_holdings(&self, collateral: u64, twap: Price) -> (u128, u128) {
+    pub fn debt_over_holdings(&self, collateral: u64, refs: &PriceRefs) -> (u128, u128) {
         let collateral = u128::from(collateral);
         match *self {
             Leg::Short { minted, proceeds } => (
-                u128::from(short_notional(minted, twap)),
+                u128::from(mul_price_floor(minted, refs.twap.min(refs.sma))),
                 collateral.saturating_add(u128::from(proceeds)),
             ),
             Leg::Long { locked_alpha, debt } => (
                 u128::from(debt),
-                u128::from(mul_price_floor(locked_alpha, twap)).saturating_add(collateral),
+                u128::from(mul_price_floor(locked_alpha, refs.twap.max(refs.sma)))
+                    .saturating_add(collateral),
             ),
         }
     }
@@ -241,16 +245,16 @@ pub struct Charge {
 
 impl<BlockNumber: Copy + UniqueSaturatedInto<u64>> Position<BlockNumber> {
     /// The yearly rate in bps of the position as it stands (SPEC section 1 item 2): the curve
-    /// at its debt over its holdings, both valued at `twap`.
+    /// at its debt over its holdings, the alpha valued at the slow price of `refs`.
     #[must_use]
-    pub fn rate_bps(&self, twap: Price, curve: &RateCurve) -> u32 {
-        let (debt, holdings) = self.leg.debt_over_holdings(self.collateral, twap);
+    pub fn rate_bps(&self, refs: &PriceRefs, curve: &RateCurve) -> u32 {
+        let (debt, holdings) = self.leg.debt_over_holdings(self.collateral, refs);
         curve.rate(debt, holdings)
     }
 
     /// Charge-on-touch settlement (SPEC section 1 item 2, P15): reads the rate from the position
     /// as stored, before anything changes it, accrues interest at that rate on the leg's notional
-    /// up to `now`, then takes `min(due, collateral)` from the collateral. Returns the settled
+    /// (at the TWAP median) up to `now`, then takes `min(due, collateral)` from the collateral. Returns the settled
     /// position and the charge, which the caller moves to the pool at commit (pool-internal, not
     /// flow).
     ///
@@ -258,13 +262,13 @@ impl<BlockNumber: Copy + UniqueSaturatedInto<u64>> Position<BlockNumber> {
     /// next (a top-up, a resize) changes the rate only from this block on, and a
     /// change of the curve applies from each position's next accrual.
     #[must_use]
-    pub fn settle(self, twap: Price, curve: &RateCurve, now: BlockNumber) -> (Self, Charge) {
+    pub fn settle(self, refs: &PriceRefs, curve: &RateCurve, now: BlockNumber) -> (Self, Charge) {
         let now_blocks: u64 = now.unique_saturated_into();
         let last: u64 = self.accrual.last_accrued.unique_saturated_into();
         let elapsed = now_blocks.saturating_sub(last);
-        let rate_bps = self.rate_bps(twap, curve);
+        let rate_bps = self.rate_bps(refs, curve);
         let owed = accrue(
-            self.leg.notional(twap),
+            self.leg.notional(refs.twap),
             rate_bps,
             elapsed,
             self.accrual.remainder,

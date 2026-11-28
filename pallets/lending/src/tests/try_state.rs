@@ -129,7 +129,7 @@ fn i26_fails_for_out_of_bounds_live_params() {
         LendingParamsStore::<Test>::mutate(|p| p.rate_cap_bps = p.apr_bps - 1);
     });
     assert_fault("I26: LendingParams out of bounds", || {
-        LendingParamsStore::<Test>::mutate(|p| p.rate_floor_bps = 0);
+        LendingParamsStore::<Test>::mutate(|p| p.rate_cap_bps = 1_000_001);
     });
     assert_fault("I26: ShortParams out of bounds", || {
         ShortParamsStore::<Test>::mutate(|p| p.stress_bps = 9_999);
@@ -144,11 +144,29 @@ fn i26_fails_for_out_of_bounds_live_params() {
 
 #[test]
 fn i26_fails_for_out_of_bounds_pending_params() {
-    assert_fault("I26: LendingParams out of bounds", || {
-        PendingLendingParams::<Test>::put(LendingParams {
-            twap_samples: 73,
-            ..Default::default()
-        });
+    // Pending groups are due at block 2 or later, the block after the test's block 1.
+    assert_fault("I26: pending LendingParams out of bounds", || {
+        PendingLendingParams::<Test>::put((
+            LendingParams {
+                twap_samples: 73,
+                ..Default::default()
+            },
+            2,
+        ));
+    });
+    assert_fault("I26: pending LendingParams out of bounds", || {
+        // A cap below the live base APR fails the cross-check against the live group.
+        PendingLendingParams::<Test>::put((
+            LendingParams {
+                apr_bps: 2_001,
+                rate_cap_bps: 2_000,
+                ..Default::default()
+            },
+            2,
+        ));
+    });
+    assert_fault("I26: pending LendingParams is overdue", || {
+        PendingLendingParams::<Test>::put((LendingParams::default(), 1));
     });
     assert_fault("I26: ShortParams out of bounds", || {
         PendingShortParams::<Test>::put(ShortParams {

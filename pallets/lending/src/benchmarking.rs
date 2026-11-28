@@ -29,13 +29,13 @@ use crate::{
     BenchmarkHelper, Call, Config, Custody, DeregParamsStore, Due, Enabled, HasMigrationRun,
     HolderPositions, InterestRetry, InterestTotals, LendingInterface, LendingParamsStore,
     LendingPoolInterface, LongParamsStore, LongsEnabled, NextDue, Pallet, PendingDeregParams,
-    PendingLendingParams, PendingLongParams, PendingRateIncrease, PendingShortParams, PoolTaoEma,
-    Positions, RankPrice, RankRing, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
+    PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma, Positions, RankPrice,
+    RankRing, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
     hooks::MAX_POSITIONS_PER_HOLDER,
     interest::MAX_DUE_BUCKETS_PER_BLOCK,
     math::interest::BLOCKS_PER_DAY,
     migrations,
-    params::{DeregParams, LendingParams, LongParams, RAO, RateTerms, ShortParams},
+    params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
     prices::{MAX_RANK_DAYS, MAX_TWAP_SAMPLES, RANK_SAMPLES_PER_DAY},
     types::{Leg, PositionId, Side},
 };
@@ -317,32 +317,26 @@ mod benchmarks {
 
     #[benchmark]
     fn set_lending_params() {
-        // The heaviest path: the call raises the rate terms, so it replaces a pending increase,
-        // queues the other fields with the live terms and deposits `RateIncreaseScheduled`.
+        // The heaviest path: the call tightens the live group (a higher base APR), so it replaces
+        // a pending group and is scheduled for the delay in force, with `LendingParamsScheduled`.
+        let now = frame_system::Pallet::<T>::block_number();
         let live = LendingParams::default();
-        let earlier = RateTerms {
+        let earlier = LendingParams {
             rate_cap_bps: live.rate_cap_bps.saturating_mul(2),
-            ..live.rate_terms()
+            ..live.clone()
         };
-        PendingRateIncrease::<T>::put((earlier, frame_system::Pallet::<T>::block_number()));
-        let raised = RateTerms {
+        PendingLendingParams::<T>::put((earlier, now));
+        let params = LendingParams {
             apr_bps: live.apr_bps.saturating_add(1),
-            ..live.rate_terms()
-        };
-        let rest = LendingParams {
             deposit: live.deposit.saturating_add(1),
-            ..live
+            ..live.clone()
         };
-        let params = rest.clone().with_rate_terms(raised);
+        let apply_at = now + BlockNumberFor::<T>::from(live.rate_delay_blocks);
 
         #[extrinsic_call]
-        _(RawOrigin::Root, params);
+        _(RawOrigin::Root, params.clone());
 
-        assert_eq!(PendingLendingParams::<T>::get(), Some(rest));
-        assert!(matches!(
-            PendingRateIncrease::<T>::get(),
-            Some((terms, _)) if terms == raised
-        ));
+        assert_eq!(PendingLendingParams::<T>::get(), Some((params, apply_at)));
     }
 
     #[benchmark]
@@ -442,7 +436,8 @@ mod benchmarks {
             rank_window_days: MAX_RANK_DAYS - 1,
             ..DeregParams::default()
         });
-        PendingLendingParams::<T>::put(LendingParams::default());
+        let now = frame_system::Pallet::<T>::block_number();
+        PendingLendingParams::<T>::put((LendingParams::default(), now));
         PendingShortParams::<T>::put(ShortParams::default());
         PendingLongParams::<T>::put(LongParams::default());
         PendingDeregParams::<T>::put(DeregParams::default());
@@ -450,7 +445,9 @@ mod benchmarks {
 
         #[block]
         {
-            applied = Pallet::<T>::apply_pending_params(&netuids);
+            let lending = Pallet::<T>::apply_pending_lending_params(now, &netuids);
+            let others = Pallet::<T>::apply_pending_params(&netuids);
+            applied = lending || others;
         }
 
         assert!(applied);

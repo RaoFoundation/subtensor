@@ -50,7 +50,7 @@ pub mod pallet {
         LendingPoolInterface, WeightInfo, long_weights,
         math::fixed::Price,
         migrations,
-        params::{DeregParams, LendingParams, LongParams, RateTerms, ShortParams},
+        params::{DeregParams, LendingParams, LongParams, ShortParams},
         positions::Grow,
         prices::{RankState, TwapState},
         types::{InterestTotal, Position, PositionId, Side},
@@ -127,15 +127,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type DeregParamsStore<T> = StorageValue<_, DeregParams, ValueQuery>;
 
-    /// `LendingParams` written by `set_lending_params`, applied in the next `on_initialize`.
+    /// `LendingParams` written by `set_lending_params` with the block from which they are live
+    /// (`apply_at`, SPEC 2.1). A call that tightens the live group sets `apply_at` to its block
+    /// plus the `rate_delay_blocks` then in force; any other call sets the next block.
+    /// `on_initialize` of `apply_at` makes the group live and clears the entry; a later call
+    /// replaces it.
     #[pallet::storage]
-    pub type PendingLendingParams<T> = StorageValue<_, LendingParams, OptionQuery>;
-
-    /// Rate terms a `set_lending_params` call raised, with the block from which they are live
-    /// (the call's block plus the `rate_increase_delay_blocks` then in force). `on_initialize`
-    /// of that block applies them; a later call replaces or clears the entry.
-    #[pallet::storage]
-    pub type PendingRateIncrease<T> = StorageValue<_, (RateTerms, BlockNumberFor<T>), OptionQuery>;
+    pub type PendingLendingParams<T> =
+        StorageValue<_, (LendingParams, BlockNumberFor<T>), OptionQuery>;
 
     /// `ShortParams` written by `set_short_params`, applied in the next `on_initialize`.
     #[pallet::storage]
@@ -299,13 +298,13 @@ pub mod pallet {
             old: LendingParams,
             new: LendingParams,
         },
-        /// `set_lending_params` raised the rate terms: `new` is live from block `effective_at`.
-        RateIncreaseScheduled {
-            new: RateTerms,
-            effective_at: BlockNumberFor<T>,
+        /// `set_lending_params` tightened the live group (SPEC 2.1): `new` becomes live at block
+        /// `apply_at`, and until then `old` stays in force.
+        LendingParamsScheduled {
+            old: LendingParams,
+            new: LendingParams,
+            apply_at: BlockNumberFor<T>,
         },
-        /// A scheduled rate increase became live.
-        RateIncreaseApplied { old: RateTerms, new: RateTerms },
         /// A pending `ShortParams` became live.
         ShortParamsSet { old: ShortParams, new: ShortParams },
         /// A pending `LongParams` became live.
@@ -442,7 +441,8 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        /// Applies pending parameters and a rate increase that is due first, then samples prices for every live subnet,
+        /// Applies the pending lending parameters that are due and the other pending parameters
+        /// first, then samples prices for every live subnet,
         /// whether lending is enabled or not (SPEC 2.1, section 9 item 4), then runs the
         /// interest charges that are due, up to `MaxChargesPerBlock` (SPEC P15).
         ///
@@ -452,8 +452,8 @@ pub mod pallet {
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let subnets = T::Pool::live_subnets();
             let live = u32::try_from(subnets.len()).unwrap_or(u32::MAX);
+            let lending = Self::apply_pending_lending_params(now, &subnets);
             let applied = Self::apply_pending_params(&subnets);
-            let raised = Self::apply_pending_rate_increase(now);
             let sampled = Self::sample_prices(now.unique_saturated_into(), &subnets);
             let (charges, buckets) = Self::collect_due(now);
             let mut weight = if sampled {
@@ -464,9 +464,9 @@ pub mod pallet {
             if applied {
                 weight = weight.saturating_add(T::WeightInfo::apply_pending_params(live));
             }
-            // The pending rate increase is read every block; applying it reads and writes
-            // `LendingParams` and clears the entry.
-            weight = weight.saturating_add(if raised {
+            // The pending lending parameters are read every block; applying them reads and
+            // writes `LendingParams` and clears the entry.
+            weight = weight.saturating_add(if lending {
                 T::DbWeight::get().reads_writes(2, 2)
             } else {
                 T::DbWeight::get().reads(1)
@@ -664,10 +664,12 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Replaces `LendingParams` from the next block (SPEC 2.1). If the call raises the rate
-        /// terms (a higher `apr_bps`, `rate_cap_bps` or `rate_floor_bps`, or any change of
-        /// `rate_k`), the new terms are live only after the `rate_increase_delay_blocks` in
-        /// force; the other fields still change from the next block.
+        /// Replaces `LendingParams` (SPEC 2.1). A call that tightens the live group (a higher
+        /// `apr_bps` or `rate_cap_bps`, any change of `rate_k` or of `twap_samples` or
+        /// `twap_interval_blocks`, or a shorter `rate_delay_blocks`) is live only at the block
+        /// set by the `rate_delay_blocks` in force at the call, and emits
+        /// `LendingParamsScheduled`; any other call, a longer delay included, is live from the
+        /// next block.
         #[pallet::call_index(22)]
         #[pallet::weight(
             T::WeightInfo::set_lending_params()

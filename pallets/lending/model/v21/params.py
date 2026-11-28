@@ -14,6 +14,7 @@ class SynthParams(_SP):
     apr_bps: int = int(_R.get('apr', 2_000))          # P3 shared base APR (rate at u = 1)
     rate_k: int = int(_R.get('k', 4))                 # P5 curvature exponent k (1..8)
     rate_cap_bps: int = int(_R.get('cap', 200_000))   # P5 cap on the yearly rate (bps/yr)
+    stress_slope_bps: int = int(_R.get('slope', 20_000))  # P2 book slope; v2.1 final removes it (slope=0)
 
 
 @dataclass(frozen=True)

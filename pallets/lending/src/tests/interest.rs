@@ -15,6 +15,7 @@ use crate::{
     Due, Event, InterestRetry, InterestTotals, LendingPoolInterface, NextDue, PositionCount,
     Positions, TotalPositions,
     interest::RETRY_DELAY_BLOCKS,
+    math::fixed::Price,
     params::{LendingParams, RAO},
     types::{Leg, Position, PositionId, Side},
 };
@@ -22,11 +23,12 @@ use crate::{
 const ALICE: AccountId = 1;
 const BOB: AccountId = 2;
 const SN1: u16 = 1;
-/// Base APR, exponent, cap and floor of a rate.
-pub(super) type Curve = (u128, u32, u128, u128);
-/// The launch curve (SPEC 2.1) under the least floor, which `live` sets so that these tests
-/// see the curve below the base rate. The launch floor has its own tests in `tests/rate.rs`.
-const LAUNCH: Curve = (2_000, 2, 10_000, 1);
+/// Base APR (the floor of the rate), exponent and cap of a rate.
+pub(super) type Curve = (u128, u32, u128);
+/// A curve with exponent 2 and cap 100%: the tests below read the curve above `u = 1`, which
+/// the launch curve (k = 1, cap 200%) reaches only at a larger debt. The launch values have
+/// their own tests in `tests/rate.rs`.
+const LAUNCH: Curve = (2_000, 2, 10_000);
 /// The launch cadence (SPEC P15).
 const INTERVAL: u64 = 360;
 /// The model's `BPS * BPY`: the denominator of one block of interest.
@@ -47,7 +49,7 @@ fn alpha(n: u64) -> u64 {
 }
 
 /// Subnet 1 with a deep pool (5,000 TAO / 50,000 alpha, spot 0.1), lending and longs on, and
-/// Alice and Bob funded with 100 TAO each. The rate floor is the least and a rate increase
+/// Alice and Bob funded with 100 TAO each. The rate curve is the test curve and a rate increase
 /// is not delayed (see [`bare_curve`]).
 fn live() -> sp_io::TestExternalities {
     let mut ext = migrated_ext();
@@ -119,12 +121,12 @@ pub(super) fn model_accrue(notional: u64, rate: u32, blocks: u64, remainder: u12
     (u64::try_from(num / DEN).expect("fits"), num % DEN)
 }
 
-/// The model's `rate_from`, `min(cap, apr * (num / den)^k)` floored at each of the `k` steps,
-/// lifted to the floor for a position with debt and holdings.
-pub(super) fn model_rate((apr, k, cap, floor): Curve, num: u128, den: u128) -> u32 {
+/// The model's `rate_from` (SPEC 2.1): the base APR at `u <= 1`, otherwise `apr * u^k` floored at
+/// each of the `k` steps and stopped at the cap, and the base APR is the floor of the result.
+pub(super) fn model_rate((apr, k, cap): Curve, num: u128, den: u128) -> u32 {
     let capped = u32::try_from(cap).expect("fits");
-    if num == 0 {
-        return 0;
+    if num <= den {
+        return u32::try_from(apr).expect("fits");
     }
     if den == 0 {
         return capped;
@@ -136,13 +138,18 @@ pub(super) fn model_rate((apr, k, cap, floor): Curve, num: u128, den: u128) -> u
             return capped;
         }
     }
-    u32::try_from(rate.max(floor)).expect("at most the cap")
+    u32::try_from(rate.max(apr)).expect("at most the cap")
+}
+
+/// `floor(alpha * price)`.
+fn value_at(alpha: u64, price: Price) -> u64 {
+    u64::try_from((u128::from(alpha) * price.to_bits()) >> 64).expect("fits")
 }
 
 /// `floor(alpha * TWAP_median)` at the TWAP the pallet reads now.
 fn at_twap(alpha: u64) -> u64 {
     let twap = Lending::price_refs(sn1()).expect("rings are seeded").twap;
-    u64::try_from((u128::from(alpha) * twap.to_bits()) >> 64).expect("fits")
+    value_at(alpha, twap)
 }
 
 /// The model's short notional at the TWAP the pallet reads now: `floor(q * TWAP_median)`.
@@ -158,17 +165,20 @@ fn notional(pos: &Position<u64>) -> u64 {
     }
 }
 
-/// The model's `short_u` and `long_u` at the TWAP the pallet reads now, and the rate of `curve`
-/// at them: a short's `N / (C + P)`, a long's `D / (floor(A * TWAP_median) + C)`.
+/// The model's `short_u` and `long_u` at the references the pallet reads now (SPEC 2.1, the
+/// slow price), and the rate of `curve` at them: a short's `floor(q * min(TWAP, SMA30)) / (C + P)`,
+/// a long's `D / (floor(A * max(TWAP, SMA30)) + C)`.
 fn rate_on(curve: Curve, pos: &Position<u64>) -> u32 {
+    let refs = Lending::price_refs(sn1()).expect("rings are seeded");
     let (num, den) = match pos.leg {
         Leg::Short { minted, proceeds } => (
-            u128::from(short_notional(minted)),
+            u128::from(value_at(minted, refs.twap.min(refs.sma))),
             u128::from(pos.collateral) + u128::from(proceeds),
         ),
         Leg::Long { locked_alpha, debt } => (
             u128::from(debt),
-            u128::from(at_twap(locked_alpha)) + u128::from(pos.collateral),
+            u128::from(value_at(locked_alpha, refs.twap.max(refs.sma)))
+                + u128::from(pos.collateral),
         ),
     };
     model_rate(curve, num, den)
@@ -204,6 +214,11 @@ fn both_sides_are_charged_every_360_blocks_from_the_open() {
     live().execute_with(|| {
         assert_ok!(open_short(ALICE));
         assert_ok!(open_long(BOB));
+        // Slow prices at 0.15 against the spot of 0.1: Alice's short owes about 1.5 times what
+        // it holds (u = 30 / (0.01 + 20)), so it is on the convex curve, and Bob's long holds
+        // more than it owes (u about 0.5), so it is on the base APR.
+        seed_slow_prices(SN1, px(15, 100));
+        leave_collateral(ALICE, Side::Short, tao(1) / 100);
         let opened = System::block_number();
         let first = opened + INTERVAL;
         for (who, side) in [(ALICE, Side::Short), (BOB, Side::Long)] {
@@ -225,7 +240,8 @@ fn both_sides_are_charged_every_360_blocks_from_the_open() {
         run_to(first);
         // Each side pays its own rate: the curve at the position's debt over its holdings.
         let (short_rate, long_rate) = (rate_of(&short), rate_of(&long));
-        assert!(short_rate > 0 && short_rate < long_rate && long_rate < 2_000);
+        assert_eq!(long_rate, 2_000);
+        assert!(short_rate > long_rate);
         let (short_owed, _) = model_accrue(short_notional(alpha(200)), short_rate, INTERVAL, 0);
         let (long_owed, _) = model_accrue(DEBT, long_rate, INTERVAL, 0);
         let mut charged = charges();
@@ -330,17 +346,17 @@ fn charges_of_an_odd_interval_carry_the_remainder_to_the_closed_form_total() {
 
 #[test]
 fn a_curve_change_mid_period_applies_from_the_next_accrual() {
-    // The base APR and the exponent on their own, and all three parameters at once. These
-    // longs hold more than they owe, where no cap binds: the cap has its own test below.
-    let changes: [Curve; 3] = [
-        (4_000, 2, 10_000, 1),
-        (2_000, 1, 10_000, 1),
-        (10_000, 5, 500_000, 1),
-    ];
+    // The base APR and the exponent on their own, and all three parameters at once. Alice's
+    // long holds 5 TAO over about 10 TAO of alpha at the slow price 0.05 (u about 1.3), so every
+    // curve moves its rate; Bob's holds more than it owes and stays on the base APR until the
+    // curve moves it. No cap binds: the cap has its own test below.
+    let changes: [Curve; 3] = [(4_000, 2, 10_000), (2_000, 1, 10_000), (10_000, 5, 500_000)];
     for curve in changes {
         live().execute_with(|| {
             assert_ok!(open_long(ALICE));
             assert_ok!(open_long(BOB));
+            seed_slow_prices(SN1, px(5, 100));
+            leave_collateral(ALICE, Side::Long, tao(5));
             // Bob's long accrues at block 180 by a touch; Alice's is not accrued until its
             // charge.
             run_to(180);
@@ -392,8 +408,10 @@ fn a_curve_change_mid_period_applies_from_the_next_accrual() {
 fn a_cap_change_mid_period_applies_from_the_next_accrual() {
     live().execute_with(|| {
         assert_ok!(open_short(ALICE));
-        // With next to no collateral the short owes more than it holds: u > 1.
-        leave_collateral(ALICE, Side::Short, 1_000);
+        // Slow prices at 0.15 and 0.01 TAO of collateral: the short owes 1.5 times what it holds,
+        // so the uncapped rate is above the new cap, and the collateral covers the interest.
+        seed_slow_prices(SN1, px(15, 100));
+        leave_collateral(ALICE, Side::Short, tao(1) / 100);
         let before = position(ALICE, Side::Short);
         run_to(180);
         set_lending(|p| p.rate_cap_bps = 2_000);
@@ -403,11 +421,12 @@ fn a_cap_change_mid_period_applies_from_the_next_accrual() {
         run_to(361);
         let uncapped = rate_of(&before);
         assert!(uncapped > 2_000 && uncapped < 10_000);
-        assert_eq!(rate_on((2_000, 2, 2_000, 1), &before), 2_000);
+        assert_eq!(rate_on((2_000, 2, 2_000), &before), 2_000);
         // The whole period accrues at the new cap, also the 179 blocks before the change.
         let (owed, _) = model_accrue(notional(&before), 2_000, 360, 0);
-        assert_eq!(charges(), vec![(ALICE, Side::Short, 1_000, 2_000)]);
-        assert_eq!(position(ALICE, Side::Short).accrual.due, owed - 1_000);
+        assert!(owed < before.collateral);
+        assert_eq!(charges(), vec![(ALICE, Side::Short, owed, 2_000)]);
+        assert_eq!(position(ALICE, Side::Short).accrual.due, 0);
         healthy();
     });
 }

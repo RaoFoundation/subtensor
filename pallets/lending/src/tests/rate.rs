@@ -13,19 +13,21 @@ use super::mock::*;
 use crate::{
     Error, Event, LendingParamsStore, Positions, RankPrice, RankRing, TwapRing,
     math::{
-        fixed::{Price, price},
+        PriceRefs,
+        coverage::short_need,
+        curve::{ConstantProduct, Curve as _},
+        fixed::{Price, mul_div_ceil, price},
         rate::RateCurve,
     },
-    params::RAO,
+    params::{RAO, ShortParams},
     prices::{RankState, TwapState},
     types::{Accrual, Leg, Position, Side},
 };
 
 const ALICE: AccountId = 1;
 const SN1: u16 = 1;
-/// The launch curve (SPEC 2.1) under the least floor, which `live` sets so that these tests
-/// see the curve below the base rate.
-const LAUNCH: Curve = (2_000, 2, 10_000, 1);
+/// The curve of the tests of the rate (see `bare_curve`): exponent 2, cap 100%.
+const LAUNCH: Curve = (2_000, 2, 10_000);
 const INTERVAL: u64 = 360;
 /// The model's `BPS * BPY`.
 const DEN: u128 = 10_000 * 7_200 * 365;
@@ -55,7 +57,7 @@ fn launch() -> sp_io::TestExternalities {
     ext
 }
 
-/// [`launch`] with the least rate floor and no delay of a rate increase (see [`bare_curve`]).
+/// [`launch`] with no delay of a rate increase (see [`bare_curve`]).
 fn live() -> sp_io::TestExternalities {
     let mut ext = launch();
     ext.execute_with(bare_curve);
@@ -124,18 +126,34 @@ fn notional(pos: &Position<u64>) -> u64 {
     }
 }
 
-/// A position's debt over its holdings (the model's `short_u`, `long_u`): a short's
-/// `N / (C + P)`, a long's `D / (floor(A * TWAP_median) + C)`.
+/// A position's debt over its holdings (the model's `short_u`, `long_u`, SPEC 2.1): a short's
+/// `floor(q * min(TWAP, SMA30)) / (C + P)`, a long's `D / (floor(A * max(TWAP, SMA30)) + C)`.
 fn debt_over_holdings(pos: &Position<u64>) -> (u128, u128) {
+    let refs = Lending::price_refs(sn1()).expect("rings are seeded");
     match pos.leg {
         Leg::Short { minted, proceeds } => (
-            u128::from(at_twap(minted)),
+            u128::from(value_at(minted, refs.twap.min(refs.sma))),
             u128::from(pos.collateral) + u128::from(proceeds),
         ),
         Leg::Long { locked_alpha, debt } => (
             u128::from(debt),
-            u128::from(at_twap(locked_alpha)) + u128::from(pos.collateral),
+            u128::from(value_at(locked_alpha, refs.twap.max(refs.sma)))
+                + u128::from(pos.collateral),
         ),
+    }
+}
+
+/// `floor(alpha * price)`.
+fn value_at(alpha: u64, price: Price) -> u64 {
+    u64::try_from((u128::from(alpha) * price.to_bits()) >> 64).expect("fits")
+}
+
+/// The references of a price that is flat: TWAP, SMA30 and spot all at `price`.
+fn flat(price: Price) -> PriceRefs {
+    PriceRefs {
+        spot: price,
+        twap: price,
+        sma: price,
     }
 }
 
@@ -150,7 +168,9 @@ fn rate_of(pos: &Position<u64>) -> u32 {
     rate_on(LAUNCH, pos)
 }
 
-// The rate is read before the touch (SPEC section 1 item 2).
+// The rate is read before the touch (SPEC section 1 item 2). At the launch state every side is
+// on the base APR, so these touches check the blocks and the rate of each accrual; the ordering
+// with a rate that moves is `a_top_up_lowers_the_rate_only_from_its_block`.
 
 /// One touch of an open position: its name, its side, whether it closes the position, and
 /// the call.
@@ -206,13 +226,12 @@ fn every_touch_accrues_at_the_rate_read_before_it_mutates() {
             if closes {
                 assert!(!Positions::<Test>::contains_key((ALICE, sn1(), side)));
             } else {
-                // The touch moved the position's rate, and the accrual did not use it.
+                // The touch leaves the accrual at block 100 with the remainder of the 99 blocks.
                 let after = position(ALICE, side);
-                assert_ne!(rate_of(&after), rate, "{name} moves the rate");
                 assert_eq!(after.accrual.remainder, remainder, "{name}");
                 assert_eq!(after.accrual.last_accrued, 100, "{name}");
 
-                // The next scheduled charge accrues the 261 blocks since at the new rate.
+                // The next scheduled charge accrues the 261 blocks since at the rate then.
                 run_to(1 + INTERVAL);
                 let (next, _) = model_accrue(notional(&after), rate_of(&after), 261, remainder);
                 assert_eq!(charges(), vec![(side, next, rate_of(&after))], "{name}");
@@ -220,6 +239,23 @@ fn every_touch_accrues_at_the_rate_read_before_it_mutates() {
             healthy();
         });
     }
+}
+
+/// Puts the short or long of Alice past `u = 1` at slow prices seeded here, without a touch:
+/// a short owes 1.5 times what it holds at 0.15 (0.01 TAO of collateral), and a long holds 3
+/// TAO over its alpha at 0.05. Each leaves a period's interest under the collateral.
+fn stressed(side: Side) {
+    let (price, collateral) = match side {
+        Side::Short => (px(15, 100), tao(1) / 100),
+        Side::Long => (px(5, 100), tao(3)),
+    };
+    seed_slow_prices(SN1, price);
+    let pos = position(ALICE, side);
+    set_balance(
+        Lending::custody_of(side, &ALICE, sn1(), pos.opened_at),
+        collateral + pos.leg.proceeds() + pos.deposit,
+    );
+    Positions::<Test>::insert((ALICE, sn1(), side), Position { collateral, ..pos });
 }
 
 #[test]
@@ -231,6 +267,7 @@ fn a_top_up_lowers_the_rate_only_from_its_block() {
     for (side, add) in adds {
         live().execute_with(|| {
             assert_ok!(open(side));
+            stressed(side);
             run_to(200);
             let before = position(ALICE, side);
             let high = rate_of(&before);
@@ -263,6 +300,9 @@ fn split_ext() -> sp_io::TestExternalities {
     ext.execute_with(|| {
         set_pool(SN1, tao(2_000_000), alpha(16_000_000));
         let eighth = price(1, 8);
+        // The hourly rank samples read the pool's moving price, not its spot: pin it at the same
+        // 0.125, or the first sample moves the SMA off the reference.
+        set_moving_price(SN1, eighth);
         let samples = LendingParamsStore::<Test>::get().twap_samples;
         TwapRing::<Test>::insert(sn1(), TwapState::seeded(eighth, samples));
         RankRing::<Test>::insert(sn1(), RankState::seeded(eighth, 30));
@@ -273,7 +313,7 @@ fn split_ext() -> sp_io::TestExternalities {
     ext
 }
 
-/// Opens a short of 8,000 alpha (1,000 TAO of notional) holding 1,600 TAO of collateral and
+/// Opens a short of 8,000 alpha (1,000 TAO of notional) holding 20 TAO of collateral and
 /// 900 TAO of proceeds as `pieces` equal positions of different holders, runs three scheduled
 /// charges, and returns each charge's rate and the total charged over the pieces.
 fn charges_of_a_split_short(pieces: u64) -> Vec<(u32, u64)> {
@@ -292,7 +332,7 @@ fn charges_of_a_split_short(pieces: u64) -> Vec<(u32, u64)> {
             // own proceeds depend on the order of the opens.
             let key = (who, sn1(), Side::Short);
             let pos = Positions::<Test>::get(key).expect("open");
-            let (collateral, proceeds) = (tao(1_600) / pieces, tao(900) / pieces);
+            let (collateral, proceeds) = (tao(20) / pieces, tao(900) / pieces);
             let custody = Lending::custody_of(Side::Short, &who, sn1(), pos.opened_at);
             set_balance(custody, collateral + proceeds + pos.deposit);
             let leg = Leg::Short {
@@ -328,10 +368,10 @@ fn charges_of_a_split_short(pieces: u64) -> Vec<(u32, u64)> {
 #[test]
 fn a_short_and_its_pro_rata_pieces_pay_the_same_rate_and_interest() {
     let whole = charges_of_a_split_short(1);
-    // u = 1,000 / 2,500 = 0.4: 2,000 * 0.4^2 = 320 bps at the first charge.
-    assert_eq!(whole[0].0, model_rate(LAUNCH, 1_000, 2_500));
-    assert_eq!(whole[0].0, 320);
-    assert_eq!(whole[0].1, model_accrue(tao(1_000), 320, INTERVAL, 0).0);
+    // u = 1,000 / 920 about 1.09, stepped twice from the base APR: 2,000 -> 2,173 -> 2,361 bps.
+    assert_eq!(whole[0].0, model_rate(LAUNCH, 1_000, 920));
+    assert_eq!(whole[0].0, 2_361);
+    assert_eq!(whole[0].1, model_accrue(tao(1_000), 2_361, INTERVAL, 0).0);
     for pieces in [10, 100] {
         let split = charges_of_a_split_short(pieces);
         for (round, (one, many)) in whole.iter().zip(&split).enumerate() {
@@ -353,13 +393,11 @@ fn a_long_and_its_pro_rata_pieces_pay_the_same_rate_and_interest() {
         apr_bps: 2_000,
         k: 2,
         cap_bps: 10_000,
-        // The least floor, so the curve below the base rate is what the test sees.
-        floor_bps: 1,
     };
-    let twap = price(1, 8);
-    // A long of 1,000 TAO of debt holding 8,000 alpha (1,000 TAO at the TWAP) and 600 TAO.
+    let twap = price(1, 16);
+    // A long of 1,000 TAO of debt holding 8,000 alpha (500 TAO at the TWAP) and 300 TAO.
     let piece = |pieces: u64| Position {
-        collateral: tao(600) / pieces,
+        collateral: tao(300) / pieces,
         deposit: 0,
         opened_at: 1u64,
         charge_at: 361,
@@ -373,18 +411,19 @@ fn a_long_and_its_pro_rata_pieces_pay_the_same_rate_and_interest() {
             debt: tao(1_000) / pieces,
         },
     };
-    // u = 1,000 / 1,600: 2,000 * 0.625 = 1,250, then 781.25 floored.
-    let expected = model_rate(LAUNCH, 1_000, 1_600);
-    assert_eq!(expected, 781);
+    // u = 1,000 / 800 = 1.25: 2,000 * 1.25 = 2,500, then 3,125.
+    let expected = model_rate(LAUNCH, 1_000, 800);
+    assert_eq!(expected, 3_125);
+    let refs = flat(twap);
     let mut whole = piece(1);
     let mut split = [piece(10), piece(100)];
     for round in 1..=3 {
         let now = 1 + round * INTERVAL;
-        let (next, one) = whole.settle(twap, &curve, now);
+        let (next, one) = whole.settle(&refs, &curve, now);
         whole = next;
         for part in &mut split {
             let pieces = tao(1_000) / part.leg.notional(twap);
-            let (next, many) = part.settle(twap, &curve, now);
+            let (next, many) = part.settle(&refs, &curve, now);
             *part = next;
             assert_eq!(
                 many.rate_bps, one.rate_bps,
@@ -450,6 +489,49 @@ fn the_twap_median_does_not_move_the_short_open_check() {
     assert_eq!(quote(Some(price(1, 2)), Some(price(15, 100))), raised);
 }
 
+#[test]
+fn a_twap_pump_alone_leaves_a_shorts_rate() {
+    live().execute_with(|| {
+        assert_ok!(open_short());
+        stressed(Side::Short);
+        let before = rate_of(&position(ALICE, Side::Short));
+        assert!(before > 2_000, "{before}");
+        // Only the TWAP median moves: a short reads the lower of the TWAP and the SMA30, so a
+        // pump of the median alone leaves its debt and its rate where they were.
+        let samples = LendingParamsStore::<Test>::get().twap_samples;
+        TwapRing::<Test>::insert(sn1(), TwapState::seeded(price(1, 2), samples));
+        assert_eq!(rate_of(&position(ALICE, Side::Short)), before);
+        // The SMA30 falling below it sets the debt, and the rate falls with it.
+        RankRing::<Test>::insert(sn1(), RankState::seeded(price(1, 10), 30));
+        RankPrice::<Test>::insert(sn1(), price(1, 10));
+        assert!(rate_of(&position(ALICE, Side::Short)) < before);
+        healthy();
+    });
+}
+
+#[test]
+fn the_short_stress_is_one_multiplier_at_every_book_size() {
+    split_ext().execute_with(|| {
+        let market = Lending::market(sn1()).expect("live");
+        let stress = ShortParams::default().stress_bps;
+        assert_eq!(stress, 30_000);
+        // Two equal opens of `q` on books of different sizes each need their share of buying the
+        // whole book back from a pool pumped to three times the reference (the stress). The
+        // multiplier does not depend on the book's size.
+        let q = alpha(100);
+        let pumped = ConstantProduct::pumped(&market.pool, price(3, 8)).expect("pumped");
+        for book in [q, 10 * q, 100 * q] {
+            let cost = ConstantProduct::tao_in_for_alpha(&pumped, book).expect("cost");
+            let share = mul_div_ceil(cost, u128::from(q), u128::from(book)).expect("share");
+            assert_eq!(
+                short_need::<ConstantProduct>(&market.pool, &market.refs, q, book, stress),
+                Some(u64::try_from(share).expect("fits")),
+                "book of {book}"
+            );
+        }
+    });
+}
+
 // Try-state (SPEC I23).
 
 #[test]
@@ -478,7 +560,8 @@ fn i23_holds_on_every_curve_and_fails_for_a_remainder_of_a_rao_or_more() {
                 (p.apr_bps, p.rate_k, p.rate_cap_bps) = (apr_bps, rate_k, rate_cap_bps);
             });
             let curve = LendingParamsStore::<Test>::get().rate_curve();
-            assert_eq!(drained.rate_bps(twap(), &curve), rate_cap_bps);
+            let refs = Lending::price_refs(sn1()).expect("rings are seeded");
+            assert_eq!(drained.rate_bps(&refs, &curve), rate_cap_bps);
             healthy();
         }
 

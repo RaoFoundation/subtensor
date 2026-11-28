@@ -660,9 +660,16 @@ const LAUNCH_CURVE: RateCurve = RateCurve {
     apr_bps: 2_000,
     k: 2,
     cap_bps: 10_000,
-    // The least floor, so the curve below the base rate is what the test sees.
-    floor_bps: 1,
 };
+
+/// The references of a price that is flat: TWAP, SMA30 and spot all at `price`.
+fn flat(price: Price) -> PriceRefs {
+    PriceRefs {
+        spot: price,
+        twap: price,
+        sma: price,
+    }
+}
 
 #[test]
 fn settle_charges_interest_up_to_the_collateral() {
@@ -674,14 +681,14 @@ fn settle_charges_interest_up_to_the_collateral() {
     };
     let twap = price(1, 1);
     let (drained, charge) =
-        position_at(tao(1), 0, leg, 1).settle(twap, &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
+        position_at(tao(1), 0, leg, 1).settle(&flat(twap), &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
     assert_eq!((charge.amount, charge.rate_bps), (tao(1), 10_000));
     assert_eq!(drained.collateral, 0);
     assert_eq!(drained.accrual.due, tao(9));
 
     // Holding 10 TAO is u = 1: the base 20% a year owes 2 TAO.
     let (covered, charge) =
-        position_at(tao(10), 0, leg, 1).settle(twap, &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
+        position_at(tao(10), 0, leg, 1).settle(&flat(twap), &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
     assert_eq!((charge.amount, charge.rate_bps), (tao(2), 2_000));
     assert_eq!(covered.collateral, tao(8));
     assert_eq!(covered.accrual.due, 0);
@@ -690,17 +697,19 @@ fn settle_charges_interest_up_to_the_collateral() {
 
 #[test]
 fn settle_reads_the_rate_before_it_takes_the_charge() {
-    // u = 10 / 20 = 0.5: 5% a year on 10 TAO owes 0.5 TAO. The rate is the one of the 20 TAO
-    // held before the charge, not of the 19.5 TAO left after it.
+    // u = 10 / (3 + 5) = 1.25 before the charge: 2,000 * 1.25 = 2,500, then 3,125. A year at
+    // 31.25% on 10 TAO of notional owes 3.125 TAO, and the 3 TAO held pays all it has.
     let leg = Leg::Short {
         minted: alpha(10),
         proceeds: tao(5),
     };
-    let pos = position_at(tao(15), 0, leg, 1);
-    let (settled, charge) = pos.settle(price(1, 1), &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
-    assert_eq!((charge.amount, charge.rate_bps), (tao(1) / 2, 500));
-    assert_eq!(pos.rate_bps(price(1, 1), &LAUNCH_CURVE), 500);
-    assert_eq!(settled.rate_bps(price(1, 1), &LAUNCH_CURVE), 525);
+    let refs = flat(price(1, 1));
+    let pos = position_at(tao(3), 0, leg, 1);
+    let (settled, charge) = pos.settle(&refs, &LAUNCH_CURVE, 1 + YEAR_BLOCKS);
+    assert_eq!((charge.amount, charge.rate_bps), (tao(3), 3_125));
+    assert_eq!(pos.rate_bps(&refs, &LAUNCH_CURVE), 3_125);
+    // Nothing held against the debt after the charge: u = 10 / 5 = 2, so 4,000, then 8,000.
+    assert_eq!(settled.rate_bps(&refs, &LAUNCH_CURVE), 8_000);
 }
 
 #[test]
@@ -710,9 +719,10 @@ fn settle_at_the_same_block_is_a_no_op() {
         debt: tao(10),
     };
     let pos = position_at(tao(5), tao(1), leg, 7);
-    let (settled, charge) = pos.settle(price(1, 1), &LAUNCH_CURVE, 7);
-    // Debt 10 over 10 of alpha value plus 5 of collateral: 2,000 * (2/3)^2, floored per step.
-    assert_eq!((charge.amount, charge.rate_bps), (tao(1), 888));
+    let (settled, charge) = pos.settle(&flat(price(1, 1)), &LAUNCH_CURVE, 7);
+    // Debt 10 over 10 of alpha value plus 5 of collateral: u = 2/3 <= 1, so the base APR. The
+    // charge is the 1 TAO already due, not a new accrual.
+    assert_eq!((charge.amount, charge.rate_bps), (tao(1), 2_000));
     assert_eq!(settled.collateral, tao(4));
     assert_eq!(settled.accrual.due, 0);
 }

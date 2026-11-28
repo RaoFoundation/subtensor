@@ -36,7 +36,7 @@ type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 /// `Lock`: stake conviction-lock management and nothing else.
 type LockAllowed = LockCalls;
 
-/// `Lending`: operate the real account's lending positions and nothing else. The ten
+/// `Lending`: operate the real account's lending positions and nothing else. The eight
 /// position calls plus the three batch wrappers; a batch dispatches its children on this
 /// same filtered origin, so it carries only lending calls. No root setter, no transfer, no
 /// stake call, and (unlike the other granting proxies) no recipient-guard calls: lending
@@ -1751,7 +1751,7 @@ mod tests {
         ));
     }
 
-    /// `Lending` admits exactly the ten position calls and the three batch wrappers: no root
+    /// `Lending` admits exactly the eight position calls and the three batch wrappers: no root
     /// setter, no transfer, no stake call, no recipient-guard call, no other wrapper. Only
     /// `Any` admits a lending call besides it, and only `Any` may grant it onward.
     #[test]

@@ -3,7 +3,7 @@
 //! Every open position has one entry in `Due`, at its `charge_at`. `on_initialize` drains the
 //! buckets up to the current block in order, at most `MaxChargesPerBlock` charges per block;
 //! `NextDue` is the first bucket not yet drained, so a backlog carries over. A charge reads the
-//! position's rate from the curve `min(cap, apr * u^k)`, accrues the position to the current
+//! position's rate from the curve `min(cap, apr * max(1, u^k))`, accrues the position to the current
 //! block at that rate, takes `min(due, C)` from its collateral and credits the subnet pool's
 //! TAO reserve. The curve's parameters are read when the charge runs, so a root change applies
 //! from each position's next accrual and no setter touches a position.
@@ -192,8 +192,8 @@ impl<T: Config> Pallet<T> {
         now: BlockNumberFor<T>,
     ) -> Result<Position<BlockNumberFor<T>>, DispatchError> {
         let (who, netuid, side) = id;
-        let twap = Self::price_refs(*netuid)?.twap;
-        let (settled, charge) = pos.settle(twap, curve, now);
+        let refs = Self::price_refs(*netuid)?;
+        let (settled, charge) = pos.settle(&refs, curve, now);
         let custody = Self::position_custody(id, pos.opened_at);
         Self::pay_interest(
             who,

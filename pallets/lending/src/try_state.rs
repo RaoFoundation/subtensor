@@ -10,9 +10,8 @@ use crate::{
     Config, DeregParamsStore, Due, HolderPositions, InterestRetry, InterestTotals,
     LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore,
     LongPositionCount, NextDue, Pallet, PendingDeregParams, PendingLendingParams,
-    PendingLongParams, PendingRateIncrease, PendingShortParams, PositionCount, Positions,
-    RankGeneration, RankPrice, RankRing, RankRingGeneration, ShortParamsStore,
-    SyntheticOutstanding, TotalPositions, TwapRing,
+    PendingLongParams, PendingShortParams, PositionCount, Positions, RankGeneration, RankPrice,
+    RankRing, RankRingGeneration, ShortParamsStore, SyntheticOutstanding, TotalPositions, TwapRing,
     math::interest::ACCRUAL_DEN,
     positions::ALPHA_SUPPLY_CAP,
     types::{Leg, Position},
@@ -141,25 +140,18 @@ impl<T: Config> Pallet<T> {
     fn check_i26_params() -> Result<(), TryRuntimeError> {
         let ceiling = T::MaxLongPositionsCeiling::get();
         let max_longs = LongPositionCount::<T>::iter_values().max().unwrap_or(0);
-        let lending = PendingLendingParams::<T>::get()
-            .into_iter()
-            .chain([LendingParamsStore::<T>::get()]);
-        for params in lending {
+        let live = LendingParamsStore::<T>::get();
+        ensure!(live.validate().is_ok(), "I26: LendingParams out of bounds");
+        // A pending group is within the bounds, with the cap cross-check against the live group,
+        // and not yet due: `on_initialize` applies it in its block.
+        if let Some((pending, apply_at)) = PendingLendingParams::<T>::get() {
             ensure!(
-                params.validate().is_ok(),
-                "I26: LendingParams out of bounds"
-            );
-        }
-        // A pending rate increase is within the bounds of the rate terms and not yet due:
-        // `on_initialize` applies it in its block.
-        if let Some((terms, effective_at)) = PendingRateIncrease::<T>::get() {
-            ensure!(
-                terms.validate().is_ok(),
-                "I26: pending rate increase out of bounds"
+                pending.validate_against_live(&live).is_ok(),
+                "I26: pending LendingParams out of bounds"
             );
             ensure!(
-                effective_at > frame_system::Pallet::<T>::block_number(),
-                "I26: pending rate increase is overdue"
+                apply_at > frame_system::Pallet::<T>::block_number(),
+                "I26: pending LendingParams is overdue"
             );
         }
         let short = PendingShortParams::<T>::get()
@@ -255,17 +247,15 @@ impl<T: Config> Pallet<T> {
     }
 
     /// SPEC I23: the rate of every open position, recomputed from its stored `q`, `C`, `P` (or
-    /// `D`, `A`, `C`) and the subnet's TWAP median on the live curve, is at most `rate_cap_bps`,
-    /// and so is the rate of a position with no holdings left; the rate of a position with debt
-    /// is at least `rate_floor_bps`, so never zero. A stored position keeps no record
-    /// of the rate it was last charged at (the charge reports it in `InterestCharged`), so the
-    /// equality half of I23 is checked by the tests. The carried remainder of every accrual is
-    /// below one rao (`math::interest::accrue`).
+    /// `D`, `A`, `C`) and the subnet's slow price on the live curve, lies in `apr_bps..=
+    /// rate_cap_bps`. A stored position keeps no record of the rate it was last charged at (the
+    /// charge reports it in `InterestCharged`), so the equality half of I23 is checked by the
+    /// tests. The carried remainder of every accrual is below one rao (`math::interest::accrue`).
     fn check_i23_rate() -> Result<(), TryRuntimeError> {
         let curve = LendingParamsStore::<T>::get().rate_curve();
         ensure!(
-            curve.rate(1, 0) <= curve.cap_bps,
-            "I23: rate above rate_cap_bps"
+            curve.apr_bps <= curve.cap_bps,
+            "I23: rate_cap_bps below apr_bps"
         );
         for ((_, netuid, _), pos) in Positions::<T>::iter() {
             ensure!(
@@ -274,11 +264,10 @@ impl<T: Config> Pallet<T> {
             );
             // A subnet without price rings fails I25; its positions have no rate to check.
             if let Ok(refs) = Self::price_refs(netuid) {
-                let rate = pos.rate_bps(refs.twap, &curve);
-                ensure!(rate <= curve.cap_bps, "I23: rate above rate_cap_bps");
+                let rate = pos.rate_bps(&refs, &curve);
                 ensure!(
-                    rate >= curve.floor_bps || pos.leg.notional(refs.twap) == 0,
-                    "I23: rate of a position with debt below rate_floor_bps"
+                    rate >= curve.apr_bps && rate <= curve.cap_bps,
+                    "I23: rate outside apr_bps..=rate_cap_bps"
                 );
             }
         }

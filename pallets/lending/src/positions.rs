@@ -114,14 +114,9 @@ pub(crate) fn coverage_need<C: Curve>(
     params: &Params,
 ) -> Option<u64> {
     match *leg {
-        Leg::Short { minted, .. } => short_need::<C>(
-            pool,
-            refs,
-            minted,
-            book,
-            params.short.stress_bps,
-            params.short.stress_slope_bps,
-        ),
+        Leg::Short { minted, .. } => {
+            short_need::<C>(pool, refs, minted, book, params.short.stress_bps)
+        }
         Leg::Long { locked_alpha, debt } => Some(long_need::<C>(
             pool,
             refs,
@@ -409,7 +404,7 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_flow(side, netuid, size, opening, &market, &params, now)?;
 
-        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
+        let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
         let (after, value) = quote_grow::<T>(side, &market.pool, size)?;
         ensure!(value > 0, Error::<T>::InvalidAmount);
         ensure!(value >= min_out, Error::<T>::SlippageExceeded);
@@ -548,7 +543,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
+        let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
         let full = alpha == pos.leg.alpha();
         let quote = quote_close::<T>(&pos.leg, &market.pool, alpha, pos.collateral, bound)?;
         let leg = pos.leg.shrunk(alpha, quote.consumed);
@@ -680,7 +675,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         let market = Self::market(netuid)?;
-        let (pos, charge) = held.settle(market.refs.twap, &params.lending.rate_curve(), now);
+        let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
         ensure!(
             T::Pool::tao_balance(who) >= amount,
             Error::<T>::InsufficientBalance

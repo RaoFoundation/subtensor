@@ -4894,9 +4894,9 @@
         "pallet": "Lending",
         "call": "set_dereg_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 700,
-        "end_line": 703,
-        "url": "/code/pallets/lending/src/lib.rs#L698-L703",
+        "line": 702,
+        "end_line": 705,
+        "url": "/code/pallets/lending/src/lib.rs#L700-L705",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -4986,9 +4986,9 @@
         "pallet": "Lending",
         "call": "set_long_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 692,
-        "end_line": 695,
-        "url": "/code/pallets/lending/src/lib.rs#L690-L695",
+        "line": 694,
+        "end_line": 697,
+        "url": "/code/pallets/lending/src/lib.rs#L692-L697",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -5042,7 +5042,7 @@
   {
     "name": "set_lending_params",
     "summary": "Change the lending parameters shared by shorts and longs (root only).",
-    "description": "Change the lending parameters shared by shorts and longs (root only).\n\n`changes` names the fields to change among `apr_bps`, `rate_k`,\n`rate_cap_bps`, `rate_floor_bps`, `rate_increase_delay_blocks`,\n`charge_interval_blocks`, `min_pool_tao`, `min_notional`, `deposit`,\n`twap_samples` and `twap_interval_blocks`; amounts are in rao. The rest\nkeep their value. `apr_bps`, `rate_k`,\n`rate_cap_bps` and `rate_floor_bps` are the interest rate\n`max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))` of a\nposition's debt over its holdings `u`. The chain checks the whole group\nagainst its bounds and refuses it whole on any breach. A change that raises\nno rate (`apr_bps`, `rate_cap_bps` and `rate_floor_bps` each at or\nbelow the live value, `rate_k` unchanged) applies from the next block,\nand so do the other fields. Any other change of the four rate fields waits\n`rate_increase_delay_blocks` blocks (the value live at the call); until\nthen the group shows the live rate fields and the read's\n`pending_rate_increase` the waiting ones. Each call replaces the waiting\nincrease: rate fields left out of `changes` keep their waiting value and\nthe delay starts again, and naming all four at or below their live values\ncancels it. Verify with the\n`lending_params` read.",
+    "description": "Change the lending parameters shared by shorts and longs (root only).\n\n`changes` names the fields to change among `apr_bps`, `rate_k`,\n`rate_cap_bps`, `rate_delay_blocks`, `charge_interval_blocks`,\n`min_pool_tao`, `min_notional`, `deposit`, `twap_samples` and\n`twap_interval_blocks`; amounts are in rao. The rest keep their value.\n`apr_bps`, `rate_k` and `rate_cap_bps` set the interest rate\n`min(rate_cap_bps, apr_bps * max(1, u^rate_k))` a year, where `u` is a\nposition's debt over its holdings at the slow price. The chain checks the\nwhole group against its bounds and refuses it whole on any breach; the cap\nmay not be below the base APR, in the live group or in the new one.\nA change that tightens the rate (a higher `apr_bps` or `rate_cap_bps`, any\nchange of `rate_k`, `twap_samples` or `twap_interval_blocks`, or a shorter\n`rate_delay_blocks`) waits the `rate_delay_blocks` in force at the call\n(3 days at launch); the read's `pending_lending_params` shows it until then.\nAny other change, a longer delay included, applies from the next block. Each\ncall replaces the waiting group: fields left out of `changes` keep their\nwaiting value, and the delay starts again if that value still tightens.\nVerify with the `lending_params` read.",
     "signer": "coldkey",
     "origin": "root",
     "verify": "lending_params",
@@ -5078,9 +5078,9 @@
         "pallet": "Lending",
         "call": "set_lending_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 676,
-        "end_line": 679,
-        "url": "/code/pallets/lending/src/lib.rs#L671-L679",
+        "line": 678,
+        "end_line": 681,
+        "url": "/code/pallets/lending/src/lib.rs#L673-L681",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]
@@ -5088,7 +5088,7 @@
   {
     "name": "set_lending_short_params",
     "summary": "Change the short-side lending parameters (root only).",
-    "description": "Change the short-side lending parameters (root only).\n\n`changes` names the fields to change among `stress_bps`,\n`stress_slope_bps` and `open_limit_bps`; the rest keep their value.\nThe chain refuses the group whole on any bound breach and applies it from\nthe next block. Verify with the `lending_params` read.",
+    "description": "Change the short-side lending parameters (root only).\n\n`changes` names the fields to change among `stress_bps` and\n`open_limit_bps`; the rest keep their value.\nThe chain refuses the group whole on any bound breach and applies it from\nthe next block. Verify with the `lending_params` read.",
     "signer": "coldkey",
     "origin": "root",
     "verify": "lending_params",
@@ -5124,9 +5124,9 @@
         "pallet": "Lending",
         "call": "set_short_params",
         "path": "pallets/lending/src/lib.rs",
-        "line": 684,
-        "end_line": 687,
-        "url": "/code/pallets/lending/src/lib.rs#L682-L687",
+        "line": 686,
+        "end_line": 689,
+        "url": "/code/pallets/lending/src/lib.rs#L684-L689",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       }
     ]

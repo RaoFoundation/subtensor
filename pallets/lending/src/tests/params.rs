@@ -8,11 +8,10 @@ use subtensor_runtime_common::NetUid;
 use super::mock::*;
 use crate::{
     DeregParamsStore, Enabled, Error, Event, LendingParamsStore, LongParamsStore, LongsEnabled,
-    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingRateIncrease,
-    PendingShortParams, PoolTaoEma, RankGeneration, RankPrice, RankRing, RankRingGeneration,
-    ShortParamsStore, TwapRing,
+    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma,
+    RankGeneration, RankPrice, RankRing, RankRingGeneration, ShortParamsStore, TwapRing,
     math::fixed::Price,
-    params::{DeregParams, LendingParams, LongParams, RAO, RateTerms, ShortParams},
+    params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
     prices::{RankState, TwapState},
 };
 
@@ -115,19 +114,11 @@ fn set_lending_params_bounds_at_the_edges() {
             |p, v| p.rate_cap_bps = v as u32,
             c,
         );
-        // The floor's upper edge is the cap of the same value (10,000 at launch).
         check_edges(
-            "rate_floor_bps",
-            &base,
-            (1, 10_000),
-            |p, v| p.rate_floor_bps = v as u32,
-            c,
-        );
-        check_edges(
-            "rate_increase_delay_blocks",
+            "rate_delay_blocks",
             &base,
             (0, 216_000),
-            |p, v| p.rate_increase_delay_blocks = v as u32,
+            |p, v| p.rate_delay_blocks = v as u32,
             c,
         );
         check_edges(
@@ -169,49 +160,72 @@ fn set_lending_params_bounds_at_the_edges() {
     });
 }
 
+/// The launch group with the three rate terms set; every other field is at its launch value.
+fn with_terms(apr_bps: u32, rate_k: u8, rate_cap_bps: u32) -> LendingParams {
+    LendingParams {
+        apr_bps,
+        rate_k,
+        rate_cap_bps,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn the_rate_curve_is_set_within_its_bounds() {
     migrated_ext().execute_with(|| {
-        let terms = |apr_bps, rate_k, rate_cap_bps, rate_floor_bps| RateTerms {
-            apr_bps,
-            rate_k,
-            rate_cap_bps,
-            rate_floor_bps,
-        };
-        let with = |apr_bps, rate_k, rate_cap_bps, rate_floor_bps| {
-            set_lending(LendingParams::default().with_rate_terms(terms(
-                apr_bps,
-                rate_k,
-                rate_cap_bps,
-                rate_floor_bps,
-            )))
-        };
-        // Nothing higher than the launch terms and the same exponent: queued with the group.
-        assert_ok!(with(1, 2, 1, 1));
+        // Lower terms do not tighten: the group is queued for the next block.
+        assert_ok!(set_lending(with_terms(1_000, 1, 2_000)));
         assert_eq!(
-            PendingLendingParams::<Test>::get().map(|p| p.rate_terms()),
-            Some(terms(1, 2, 1, 1))
+            PendingLendingParams::<Test>::get(),
+            Some((with_terms(1_000, 1, 2_000), 2))
         );
-        assert_eq!(PendingRateIncrease::<Test>::get(), None);
-        // The widest terms raise the rate: held as a pending increase.
-        assert_ok!(with(10_000, 8, 1_000_000, 1_000_000));
+        // The widest terms raise the rate: queued for the launch delay of 21,600 blocks.
+        assert_ok!(set_lending(with_terms(10_000, 8, 1_000_000)));
         assert_eq!(
-            PendingRateIncrease::<Test>::get().map(|(terms, _)| terms),
-            Some(terms(10_000, 8, 1_000_000, 1_000_000))
+            PendingLendingParams::<Test>::get(),
+            Some((with_terms(10_000, 8, 1_000_000), 1 + 21_600))
         );
-        assert_noop!(with(2_000, 0, 10_000, 2_000), Error::<Test>::InvalidParams);
-        assert_noop!(with(2_000, 9, 10_000, 2_000), Error::<Test>::InvalidParams);
+        // Each rejected call writes nothing: the pending group is the last accepted one.
+        for rejected in [
+            with_terms(2_000, 0, 20_000),
+            with_terms(2_000, 9, 20_000),
+            with_terms(0, 1, 20_000),
+            with_terms(10_001, 1, 20_000),
+            with_terms(2_000, 2, 1_000_001),
+            // The cap may not be below the base APR, whichever of the two moved.
+            with_terms(2_000, 2, 1_999),
+            with_terms(10_000, 2, 9_999),
+            with_terms(2_001, 2, 2_000),
+        ] {
+            assert_noop!(set_lending(rejected), Error::<Test>::InvalidParams);
+        }
+        assert_eq!(
+            PendingLendingParams::<Test>::get(),
+            Some((with_terms(10_000, 8, 1_000_000), 1 + 21_600))
+        );
+    });
+}
+
+#[test]
+fn the_cap_admits_the_base_apr_under_the_live_and_the_new_group() {
+    migrated_ext().execute_with(|| {
+        set_live_lending(|p| {
+            p.apr_bps = 5_000;
+            p.rate_cap_bps = 5_000;
+        });
+        // Lowering both in one call leaves a cap below the live base APR: refused.
         assert_noop!(
-            with(2_000, 2, 1_000_001, 2_000),
+            set_lending(with_terms(1_000, 1, 1_000)),
             Error::<Test>::InvalidParams
         );
-        // The cap may not be below the base APR, whichever of the two moved.
-        assert_noop!(with(2_000, 2, 1_999, 1), Error::<Test>::InvalidParams);
-        assert_noop!(with(10_000, 2, 9_999, 1), Error::<Test>::InvalidParams);
-        // The floor is at least 1 and at most the cap, whichever of the two moved.
-        assert_noop!(with(2_000, 2, 10_000, 0), Error::<Test>::InvalidParams);
-        assert_noop!(with(2_000, 2, 10_000, 10_001), Error::<Test>::InvalidParams);
-        assert_noop!(with(2_000, 2, 2_000, 2_001), Error::<Test>::InvalidParams);
+        // Lowering the APR first, with the cap still at 5,000, is accepted.
+        assert_ok!(set_lending(with_terms(1_000, 1, 5_000)));
+        next_block();
+        assert_eq!(
+            LendingParamsStore::<Test>::get(),
+            with_terms(1_000, 1, 5_000)
+        );
+        assert_ok!(set_lending(with_terms(1_000, 1, 1_000)));
     });
 }
 
@@ -221,15 +235,11 @@ fn the_launch_curve_is_the_spec_table() {
         let live = LendingParamsStore::<Test>::get();
         assert_eq!(
             (live.apr_bps, live.rate_k, live.rate_cap_bps),
-            (2_000, 2, 10_000)
+            (2_000, 1, 20_000)
         );
-        // The two fields added to the table: the floor is the base APR and a raised rate
-        // waits three days.
-        assert_eq!(
-            (live.rate_floor_bps, live.rate_increase_delay_blocks),
-            (2_000, 21_600)
-        );
-        assert_eq!(PendingRateIncrease::<Test>::get(), None);
+        // A raised rate waits three days.
+        assert_eq!(live.rate_delay_blocks, 21_600);
+        assert_eq!(PendingLendingParams::<Test>::get(), None);
     });
 }
 
@@ -243,13 +253,6 @@ fn set_short_params_bounds_at_the_edges() {
             &base,
             (10_000, 100_000),
             |p, v| p.stress_bps = v as u32,
-            c,
-        );
-        check_edges(
-            "stress_slope_bps",
-            &base,
-            (0, 100_000),
-            |p, v| p.stress_slope_bps = v as u32,
             c,
         );
         check_edges(
@@ -400,7 +403,7 @@ fn a_rejected_setter_writes_nothing() {
 #[test]
 fn each_group_applies_in_the_next_block_with_exactly_one_event() {
     migrated_ext().execute_with(|| {
-        // A lower base APR: a raised rate is delayed (`tests/rate_increase.rs`).
+        // A lower base APR does not tighten: it is live in the next block.
         let lending = LendingParams {
             apr_bps: 1_500,
             ..Default::default()
@@ -521,9 +524,15 @@ fn skew_sn1_twap() -> Price {
     Price::from_bits(3)
 }
 
+/// Sets the delay of a tightening to zero, so that a tightening is live in the next block.
+fn no_delay() {
+    set_live_lending(|p| p.rate_delay_blocks = 0);
+}
+
 #[test]
 fn a_twap_samples_change_reseeds_every_ring_with_its_median_not_spot() {
     migrated_ext().execute_with(|| {
+        no_delay();
         let median = skew_sn1_twap();
         let sn2_median = px(5_000, 10_000);
         assert_ok!(set_lending(LendingParams {
@@ -548,11 +557,15 @@ fn a_twap_samples_change_reseeds_every_ring_with_its_median_not_spot() {
 #[test]
 fn a_twap_interval_change_reseeds_and_other_lending_changes_do_not() {
     migrated_ext().execute_with(|| {
+        no_delay();
         let median = skew_sn1_twap();
         let skewed = TwapRing::<Test>::get(NetUid::from(1));
 
+        // Each group carries no delay: a group's delay is live once it applies, so a default
+        // (three days) would hold back the next tightening.
         assert_ok!(set_lending(LendingParams {
             apr_bps: 2_500,
+            rate_delay_blocks: 0,
             ..Default::default()
         }));
         next_block();
@@ -561,6 +574,7 @@ fn a_twap_interval_change_reseeds_and_other_lending_changes_do_not() {
         assert_ok!(set_lending(LendingParams {
             apr_bps: 2_500,
             twap_interval_blocks: 600,
+            rate_delay_blocks: 0,
             ..Default::default()
         }));
         next_block();

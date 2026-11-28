@@ -79,8 +79,7 @@ LENDING_PARAMS: dict[str, Any] = {
         "apr_bps": 2_000,
         "rate_k": 2,
         "rate_cap_bps": 10_000,
-        "rate_floor_bps": 2_000,
-        "rate_increase_delay_blocks": 21_600,
+        "rate_delay_blocks": 21_600,
         "charge_interval_blocks": 360,
         "min_pool_tao": 1_000 * 10**9,
         "min_notional": 10 * 10**9,
@@ -88,7 +87,7 @@ LENDING_PARAMS: dict[str, Any] = {
         "twap_samples": 72,
         "twap_interval_blocks": 300,
     },
-    "short": {"stress_bps": 30_000, "stress_slope_bps": 20_000, "open_limit_bps": 100},
+    "short": {"stress_bps": 30_000, "open_limit_bps": 100},
     "long": {
         "stress_bps": 20_000,
         "stress_floor_bps": 15_000,

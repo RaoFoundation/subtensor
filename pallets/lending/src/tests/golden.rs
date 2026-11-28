@@ -1,9 +1,10 @@
 //! Differential tests: replays the reference models' vectors through the pure core and requires
 //! exact equality on every row. `golden/v21.json` (`model/gen_golden_v21.py`, from `model/v21`)
-//! holds what v2.1 defines: the rate curve, the short coverage need on `max(spot, SMA30_rank)`
-//! and accrual at the curve rate. `golden/math.json` (`model/gen_golden.py`, from `model/v201`)
-//! holds what v2.1 keeps: the pool curve, the long coverage need and the accrual formula. Do
-//! not edit the JSON by hand; regenerate it from the models.
+//! holds what v2.1 defines: the final rate (floor at apr, SPEC 2.1), the short coverage need on
+//! `max(spot, SMA30_rank)` at the flat stress, and accrual at the final rate on the slow price.
+//! `golden/math.json` (`model/gen_golden.py`, from `model/v201`) holds what v2.1 keeps: the pool
+//! curve, the long coverage need and the accrual formula. Do not edit the JSON by hand;
+//! regenerate it from the models.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
@@ -17,7 +18,7 @@ use crate::math::{
     curve::{ConstantProduct as Cp, Curve, FEE_DEN, FEE_NUM, PoolState},
     fixed::{Price, Q64},
     interest::{ACCRUAL_DEN, BLOCKS_PER_DAY, BLOCKS_PER_YEAR, accrue},
-    rate::{RateCurve, curve_bps, rate_bps},
+    rate::{RateCurve, rate_bps},
 };
 use crate::params::{LongParams, ShortParams};
 use crate::types::{Accrual, Leg, Position};
@@ -29,7 +30,8 @@ const CURVE_PRICE_ROWS: usize = 200;
 const LONG_COVERAGE_ROWS: usize = 180;
 const INTEREST_ROWS: usize = 200;
 /// Row counts written by `gen_golden_v21.py`.
-const RATE_ROWS: usize = 3_201;
+const RATE_ROWS: usize = 3_264;
+const RATE_EDGE_ROWS: usize = 1_857;
 const SHORT_COVERAGE_ROWS: usize = 540;
 const ACCRUAL_ROWS: usize = 400;
 
@@ -200,7 +202,17 @@ fn curve_of(row: &Value) -> RateCurve {
         apr_bps: small(&row["apr"]),
         k: u8::try_from(small(&row["k"])).expect("fits u8"),
         cap_bps: small(&row["cap"]),
-        floor_bps: small(&row["floor"]),
+    }
+}
+
+/// The final rate of a row (SPEC 2.1, floor at apr). A floor-on row is the final rate. A
+/// floor-off row is the pure curve, which the final rate reads as `max(curve, apr)`.
+fn final_rate(row: &Value) -> u32 {
+    let model = small(&row["rate"]);
+    if row["floor"].as_u64() == Some(1) {
+        model
+    } else {
+        model.max(small(&row["apr"]))
     }
 }
 
@@ -215,47 +227,63 @@ fn v21_header_matches_the_core_constants() {
         BLOCKS_PER_YEAR
     );
     assert_eq!(small(&doc["stress_bps"]), sp.stress_bps);
-    assert_eq!(small(&doc["stress_slope_bps"]), sp.stress_slope_bps);
+    // v2.1 has one flat stress: the slope is gone from the model and from the vectors.
+    assert!(doc.get("stress_slope_bps").is_none());
 }
 
 #[test]
 fn rate_rows_match_the_model() {
     let doc = golden_v21();
     let all = rows(&doc, "rate");
-    let (mut capped, mut zero, mut floored, mut exponents) = (0, 0, 0, [0usize; 9]);
+    let (mut capped, mut covered, mut exponents) = (0, 0, [0usize; 9]);
     for (i, row) in all.iter().enumerate() {
         let curve = curve_of(row);
         let (n, d) = (num(&row["num"]), num(&row["den"]));
-        // The curve is the model's, to the integer; the floor is applied on top of it.
-        let unfloored = small(&row["curve"]);
+        let expected = final_rate(row);
         assert_eq!(
-            curve_bps(curve.apr_bps, curve.k, curve.cap_bps, n, d),
-            unfloored,
-            "curve, row {i}"
-        );
-        let expected = small(&row["rate"]);
-        assert_eq!(
-            rate_bps(curve.apr_bps, curve.k, curve.cap_bps, curve.floor_bps, n, d),
+            rate_bps(curve.apr_bps, curve.k, curve.cap_bps, n, d),
             expected,
             "rate, row {i}"
         );
         assert_eq!(curve.rate(n, d), expected, "curve rate, row {i}");
-        assert!(expected <= curve.cap_bps, "rate above the cap, row {i}");
-        if n > 0 {
-            assert!(expected >= curve.floor_bps, "rate below the floor, row {i}");
-        } else {
-            assert_eq!(expected, 0, "rate without debt, row {i}");
+        assert!(
+            (curve.apr_bps..=curve.cap_bps).contains(&expected),
+            "rate outside apr..=cap, row {i}"
+        );
+        if n <= d {
+            // A covered position, and a position with no debt, pays the base APR.
+            assert_eq!(expected, curve.apr_bps, "covered, row {i}");
+            covered += 1;
         }
-        capped += usize::from(unfloored == curve.cap_bps);
-        zero += usize::from(unfloored == 0);
-        floored += usize::from(expected != unfloored);
+        capped += usize::from(expected == curve.cap_bps);
         exponents[usize::from(curve.k)] += 1;
     }
     assert_eq!(all.len(), RATE_ROWS);
-    // The file exercises the cap, the zero curve, the floor and every exponent 1..=8.
-    assert!(capped > 1_000 && zero > 100 && floored > 500);
+    // The file exercises the cap, the covered region and every exponent 1..=8 equally.
+    assert!(capped > 500 && covered > 1_000);
     assert_eq!(exponents[0], 0);
-    assert!(exponents[1..].iter().all(|rows| *rows > 150));
+    assert!(exponents[1..].iter().all(|rows| *rows == RATE_ROWS / 8));
+}
+
+#[test]
+fn rate_edge_rows_match_the_model() {
+    let doc = golden_v21();
+    let all = rows(&doc, "rate_edge");
+    let mut at_cap = 0;
+    for (i, row) in all.iter().enumerate() {
+        let curve = curve_of(row);
+        let (n, d) = (num(&row["num"]), num(&row["den"]));
+        let expected = final_rate(row);
+        assert_eq!(
+            rate_bps(curve.apr_bps, curve.k, curve.cap_bps, n, d),
+            expected,
+            "edge rate, row {i}"
+        );
+        assert_eq!(curve.rate(n, d), expected, "edge curve rate, row {i}");
+        at_cap += usize::from(expected == curve.cap_bps);
+    }
+    assert_eq!(all.len(), RATE_EDGE_ROWS);
+    assert!(at_cap > 900);
 }
 
 #[test]
@@ -273,20 +301,21 @@ fn short_coverage_rows_match_the_model() {
         };
         assert_eq!(Cp::spot(&p), refs.spot, "spot, row {i}");
         let (q, book) = (amount(&row["q"]), amount(&row["book"]));
-        let need = short_need::<Cp>(&p, &refs, q, book, sp.stress_bps, sp.stress_slope_bps);
+        let need = short_need::<Cp>(&p, &refs, q, book, sp.stress_bps);
         assert_eq!(need.map(u128::from), opt_num(&row["need"]), "need, row {i}");
         infinite += usize::from(need.is_none());
     }
     assert_eq!(all.len(), SHORT_COVERAGE_ROWS);
     assert!(infinite > 0 && infinite < all.len());
     // Each pool, book and SMA comes with three TWAP medians (above, between and below spot
-    // and SMA) and one need: the TWAP median is not a short reference.
+    // and SMA) and one need: the TWAP median is not a short reference, and the stress is flat.
     for group in all.chunks(3) {
         let twaps: Vec<_> = group.iter().map(|row| num(&row["twap"])).collect();
         let bounds = (num(&group[0]["spot"]), num(&group[0]["sma"]));
         assert!(twaps[0] > bounds.0.max(bounds.1) && twaps[2] < bounds.0.min(bounds.1));
         assert!(group.iter().all(|row| row["need"] == group[0]["need"]));
         assert!(group.iter().all(|row| row["sma"] == group[0]["sma"]));
+        assert!(group.iter().all(|row| row["spot"] == group[0]["spot"]));
     }
 }
 
@@ -294,10 +323,17 @@ fn short_coverage_rows_match_the_model() {
 fn accrual_rows_match_the_model() {
     let doc = golden_v21();
     let all = rows(&doc, "accrual");
-    let (mut shorts, mut longs, mut capped, mut zero) = (0, 0, 0, 0);
+    let (mut shorts, mut longs, mut capped, mut at_apr) = (0, 0, 0, 0);
     for (i, row) in all.iter().enumerate() {
         let curve = curve_of(row);
         let twap = price(&row["twap"]);
+        // The rate and the notional read only the TWAP median and SMA30 (SPEC 1 item 2), so the
+        // spot is not part of the row and does not enter the references.
+        let refs = PriceRefs {
+            spot: twap,
+            twap,
+            sma: price(&row["sma"]),
+        };
         let collateral = amount(&row["collateral"]);
         let leg = if row["side"] == "short" {
             shorts += 1;
@@ -327,19 +363,19 @@ fn accrual_rows_match_the_model() {
         };
         let rate = small(&row["rate"]);
         assert_eq!(
-            leg.debt_over_holdings(collateral, twap),
+            leg.debt_over_holdings(collateral, &refs),
             (num(&row["num"]), num(&row["den"])),
             "debt over holdings, row {i}"
         );
         assert_eq!(
-            leg.notional(twap),
+            leg.notional(refs.twap),
             amount(&row["notional"]),
             "notional, row {i}"
         );
-        assert_eq!(pos.rate_bps(twap, &curve), rate, "rate, row {i}");
+        assert_eq!(pos.rate_bps(&refs, &curve), rate, "rate, row {i}");
 
         // The pure accrual at the row's rate.
-        let accrued = accrue(leg.notional(twap), rate, blocks, num(&row["rem_in"]));
+        let accrued = accrue(leg.notional(refs.twap), rate, blocks, num(&row["rem_in"]));
         let due_out = amount(&row["due_out"]);
         assert_eq!(
             amount(&row["due_in"]) + accrued.owed,
@@ -355,7 +391,7 @@ fn accrual_rows_match_the_model() {
 
         // The position's settlement: the same rate, and the due split into what the collateral
         // pays now and what stays due.
-        let (settled, charge) = pos.settle(twap, &curve, blocks);
+        let (settled, charge) = pos.settle(&refs, &curve, blocks);
         assert_eq!(charge.rate_bps, rate, "settled rate, row {i}");
         assert_eq!(charge.amount, due_out.min(collateral), "charge, row {i}");
         assert_eq!(
@@ -367,9 +403,9 @@ fn accrual_rows_match_the_model() {
         assert_eq!(settled.accrual.remainder, num(&row["rem_out"]));
         assert_eq!(settled.accrual.last_accrued, blocks);
         capped += usize::from(rate == curve.cap_bps);
-        zero += usize::from(rate == 0);
+        at_apr += usize::from(rate == curve.apr_bps);
     }
     assert_eq!(all.len(), ACCRUAL_ROWS);
     assert_eq!((shorts, longs), (ACCRUAL_ROWS / 2, ACCRUAL_ROWS / 2));
-    assert!(capped > 20 && zero > 20);
+    assert!(capped > 20 && at_apr > 20);
 }

@@ -83,14 +83,15 @@ async def lending_params(view) -> dict:
     `lending`, `short`, `long` and `dereg` are the parameter groups as the chain
     stores them: rates and bands in basis points, windows in blocks or days, and
     the `lending` amounts (`min_pool_tao`, `min_notional`, `deposit`) in rao.
-    `lending.apr_bps`, `rate_k`, `rate_cap_bps` and `rate_floor_bps` are the
-    interest rate: a position pays
-    `max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))` a year on its
-    notional, with `u` its debt over its holdings. A group changed by its setter
-    is live from the block after the change, except a change that raises a rate
-    field (or changes `rate_k`), which waits `lending.rate_increase_delay_blocks`
-    blocks: `pending_rate_increase` is then the four waiting rate fields and
-    `effective_at`, the block they go live, and `None` when nothing waits.
+    `lending.apr_bps`, `rate_k` and `rate_cap_bps` are the interest rate: a
+    position pays `min(rate_cap_bps, apr_bps * max(1, u^rate_k))` a year on its
+    notional, with `u` its debt over its holdings at the slow price, so never
+    less than `apr_bps`. A group changed by its setter is live from the block
+    after the change, except a tightening (a higher rate term, a change of
+    `rate_k` or of the TWAP window, or a shorter `lending.rate_delay_blocks`),
+    which waits the delay in force at the call: `pending_lending_params` is then
+    the waiting group and `effective_at`, the block it goes live, and `None`
+    when nothing waits.
     """
     params = await view.runtime(api.LendingRuntimeApi.params, [])
     if params is None:
@@ -98,8 +99,8 @@ async def lending_params(view) -> dict:
     record = {"enabled": bool(params["enabled"]), "longs_enabled": bool(params["longs_enabled"])}
     for group in ("lending", "short", "long", "dereg"):
         record[group] = {name: int(value) for name, value in params[group].items()}
-    waiting = await view.query(st.Lending.PendingRateIncrease)
-    record["pending_rate_increase"] = waiting and {
+    waiting = await view.query(st.Lending.PendingLendingParams)
+    record["pending_lending_params"] = waiting and {
         **{name: int(value) for name, value in waiting[0].items()},
         "effective_at": int(waiting[1]),
     }

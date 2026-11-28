@@ -5,10 +5,12 @@
 //! `Pending…` twin and becomes live in the next block's `on_initialize`, with one
 //! `<Group>ParamsSet` event (I26).
 //!
-//! The rate terms of `LendingParams` (`apr_bps`, `rate_k`, `rate_cap_bps`, `rate_floor_bps`)
-//! are the exception when a call raises them: the new terms wait `rate_increase_delay_blocks`
-//! in `PendingRateIncrease` before they become live (an approved addition beyond SPEC-v2.1),
-//! so a holder sees a higher rate coming before it is charged.
+//! `LendingParams` is the exception when a call tightens it (SPEC 2.1, rate-tightening delay):
+//! an increase of `apr_bps` or `rate_cap_bps`, any change of `rate_k`, any change of
+//! `twap_samples` or `twap_interval_blocks`, and a decrease of `rate_delay_blocks` waits the
+//! delay live at the call in `PendingLendingParams` before the whole new group becomes live, so
+//! a holder sees a higher rate coming before it is charged. A decrease of the delay therefore
+//! cannot take effect before the old delay has run out.
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{dispatch::DispatchResult, storage::StorageValue, traits::Get};
@@ -20,8 +22,8 @@ use subtensor_runtime_common::NetUid;
 
 use crate::{
     Config, DeregParamsStore, Error, Event, LendingParamsStore, LongParamsStore, Pallet,
-    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingRateIncrease,
-    PendingShortParams, ShortParamsStore, math::rate::RateCurve,
+    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingShortParams,
+    ShortParamsStore, math::rate::RateCurve,
 };
 
 /// One TAO (or one alpha) in rao.
@@ -33,26 +35,20 @@ pub const RAO: u64 = 1_000_000_000;
 pub const MAX_LONG_POSITIONS_CEILING: u32 = 1_024;
 
 /// Launch value of `LendingParams::rate_k`, the exponent of the rate curve (SPEC 2.1).
-// PROVISIONAL (spec 10.3): the launch exponent is an open decision; change it here only.
-pub const LAUNCH_RATE_K: u8 = 2;
+pub const LAUNCH_RATE_K: u8 = 1;
 
-/// Launch value of `LendingParams::rate_cap_bps`, the cap of the rate curve (SPEC 2.1).
-// PROVISIONAL (spec 10.3): the launch cap is an open decision; change it here only.
-pub const LAUNCH_RATE_CAP_BPS: u32 = 10_000;
+/// Launch value of `LendingParams::rate_cap_bps`, the cap of the rate curve (SPEC 2.1):
+/// 200% a year.
+pub const LAUNCH_RATE_CAP_BPS: u32 = 20_000;
 
 /// Highest `LendingParams::rate_cap_bps` the setter accepts (SPEC 2.1): 10,000% a year.
 pub const MAX_RATE_CAP_BPS: u32 = 1_000_000;
 
-/// Launch value of `LendingParams::rate_floor_bps`, the least yearly rate of a position with
-/// debt: the launch base APR.
-// PROVISIONAL (pending model results): change the launch floor here only.
-pub const LAUNCH_RATE_FLOOR_BPS: u32 = 2_000;
+/// Launch value of `LendingParams::rate_delay_blocks`: 3 days, one TWAP window.
+pub const LAUNCH_RATE_DELAY_BLOCKS: u32 = 21_600;
 
-/// Launch value of `LendingParams::rate_increase_delay_blocks`: 3 days.
-pub const LAUNCH_RATE_INCREASE_DELAY_BLOCKS: u32 = 21_600;
-
-/// Highest `LendingParams::rate_increase_delay_blocks` the setter accepts: 30 days.
-pub const MAX_RATE_INCREASE_DELAY_BLOCKS: u32 = 216_000;
+/// Highest `LendingParams::rate_delay_blocks` the setter accepts: 30 days.
+pub const MAX_RATE_DELAY_BLOCKS: u32 = 216_000;
 
 /// Why a parameter group was rejected (surfaced as `InvalidParams`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -77,78 +73,22 @@ fn ensure_range<T: PartialOrd>(
     Ok(())
 }
 
-/// The rate terms of [`LendingParams`]: the four values that set what a position pays. A
-/// `set_lending_params` call that raises them is delayed (see [`RateTerms::is_decrease_from`]).
-#[freeze_struct("d4d3d18134405a8b")]
-#[derive(
-    Encode,
-    Decode,
-    DecodeWithMemTracking,
-    MaxEncodedLen,
-    TypeInfo,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Debug,
-)]
-pub struct RateTerms {
-    /// `LendingParams::apr_bps`.
-    pub apr_bps: u32,
-    /// `LendingParams::rate_k`.
-    pub rate_k: u8,
-    /// `LendingParams::rate_cap_bps`.
-    pub rate_cap_bps: u32,
-    /// `LendingParams::rate_floor_bps`.
-    pub rate_floor_bps: u32,
-}
-
-impl RateTerms {
-    /// Whether moving from `current` to these terms can raise no position's rate: the base APR,
-    /// the cap and the floor are each at most the current one and the exponent is unchanged. A
-    /// change of `k` raises the rate on one side of `u = 1`, so it never counts as a decrease.
-    /// Equal terms are a decrease.
-    #[must_use]
-    pub fn is_decrease_from(&self, current: &Self) -> bool {
-        self.apr_bps <= current.apr_bps
-            && self.rate_cap_bps <= current.rate_cap_bps
-            && self.rate_floor_bps <= current.rate_floor_bps
-            && self.rate_k == current.rate_k
-    }
-
-    /// Checks the bounds of the four terms (see [`LendingParams::validate`]).
-    pub fn validate(&self) -> Result<(), ParamsError> {
-        ensure_range("apr_bps", self.apr_bps, 1, 10_000)?;
-        ensure_range("rate_k", self.rate_k, 1, 8)?;
-        ensure_range(
-            "rate_cap_bps",
-            self.rate_cap_bps,
-            self.apr_bps,
-            MAX_RATE_CAP_BPS,
-        )?;
-        ensure_range("rate_floor_bps", self.rate_floor_bps, 1, self.rate_cap_bps)
-    }
-}
-
 /// Parameters shared by both sides (`set_lending_params`).
-#[freeze_struct("148aeaef958b5228")]
+#[freeze_struct("8aa7e9e63672c054")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, PartialEq, Eq, Debug,
 )]
 pub struct LendingParams {
-    /// Base APR, both sides (P3/L3): the yearly rate of a position at `u = 1`. Must be
-    /// positive: interest is what ends a stretched position.
+    /// Base APR, both sides (P3/L3): the yearly rate of a position at `u <= 1`, and the floor
+    /// of every position's rate. Must be positive: interest is what ends a stretched position.
     pub apr_bps: u32,
-    /// Exponent `k` of the rate curve `min(cap, apr * u^k)`, both sides (P5).
+    /// Exponent `k` of the rate curve `min(cap, apr * max(1, u^k))`, both sides (P5).
     pub rate_k: u8,
     /// Cap of the yearly rate in bps, both sides (P5). At least `apr_bps`.
     pub rate_cap_bps: u32,
-    /// Least yearly rate in bps of a position with debt, both sides. At least 1, so no
-    /// position with debt accrues at a rate of zero, and at most `rate_cap_bps`.
-    pub rate_floor_bps: u32,
-    /// Blocks a `set_lending_params` call that raises the rate terms waits before the new
-    /// terms are live. The value in force at the call sets that call's wait.
-    pub rate_increase_delay_blocks: u32,
+    /// Blocks a `set_lending_params` call that tightens the group waits before the new group is
+    /// live. The value in force at the call sets that call's wait.
+    pub rate_delay_blocks: u32,
     /// Blocks between interest charges (P15).
     pub charge_interval_blocks: u32,
     /// Minimum SubnetTAO for opens and increases, rao (P18).
@@ -169,8 +109,7 @@ impl Default for LendingParams {
             apr_bps: 2_000,
             rate_k: LAUNCH_RATE_K,
             rate_cap_bps: LAUNCH_RATE_CAP_BPS,
-            rate_floor_bps: LAUNCH_RATE_FLOOR_BPS,
-            rate_increase_delay_blocks: LAUNCH_RATE_INCREASE_DELAY_BLOCKS,
+            rate_delay_blocks: LAUNCH_RATE_DELAY_BLOCKS,
             charge_interval_blocks: 360,
             min_pool_tao: 1_000 * RAO,
             min_notional: 10 * RAO,
@@ -182,50 +121,49 @@ impl Default for LendingParams {
 }
 
 impl LendingParams {
-    /// The rate curve these parameters define (SPEC section 1 item 2, with the floor).
+    /// The rate curve these parameters define (SPEC section 1 item 2).
     #[must_use]
     pub fn rate_curve(&self) -> RateCurve {
         RateCurve {
             apr_bps: self.apr_bps,
             k: self.rate_k,
             cap_bps: self.rate_cap_bps,
-            floor_bps: self.rate_floor_bps,
         }
     }
 
-    /// The four rate terms of these parameters.
+    /// Whether moving from `live` to these parameters tightens the group (SPEC 2.1): an
+    /// increase of `apr_bps` or `rate_cap_bps`, any change of `rate_k`, any change of
+    /// `twap_samples` or `twap_interval_blocks`, or a decrease of `rate_delay_blocks`. A
+    /// tightening waits the delay live at the call (the old one, for a shorter delay). Any other
+    /// change (a decrease of the rate terms, a longer delay, the charge cadence, the minimums or
+    /// the deposit) is live from the next block.
     #[must_use]
-    pub fn rate_terms(&self) -> RateTerms {
-        RateTerms {
-            apr_bps: self.apr_bps,
-            rate_k: self.rate_k,
-            rate_cap_bps: self.rate_cap_bps,
-            rate_floor_bps: self.rate_floor_bps,
-        }
+    pub fn tightens(&self, live: &Self) -> bool {
+        self.apr_bps > live.apr_bps
+            || self.rate_cap_bps > live.rate_cap_bps
+            || self.rate_k != live.rate_k
+            || self.twap_samples != live.twap_samples
+            || self.twap_interval_blocks != live.twap_interval_blocks
+            || self.rate_delay_blocks < live.rate_delay_blocks
     }
 
-    /// These parameters with their four rate terms replaced by `terms`.
-    #[must_use]
-    pub fn with_rate_terms(self, terms: RateTerms) -> Self {
-        Self {
-            apr_bps: terms.apr_bps,
-            rate_k: terms.rate_k,
-            rate_cap_bps: terms.rate_cap_bps,
-            rate_floor_bps: terms.rate_floor_bps,
-            ..self
-        }
-    }
-
-    /// Checks every bound of the SPEC 2.1 table for this group, and those of the two fields
-    /// added to it. The cap's lower bound is the base APR of the same value, so the curve
-    /// reaches the base rate at `u = 1`; the floor's upper bound is the cap of the same value.
+    /// Checks every bound of the SPEC 2.1 table for this group, and those of the field added to
+    /// it. The cap's lower bound is the base APR of the same value, so the curve reaches the
+    /// base rate at `u = 1`.
     pub fn validate(&self) -> Result<(), ParamsError> {
-        self.rate_terms().validate()?;
+        ensure_range("apr_bps", self.apr_bps, 1, 10_000)?;
+        ensure_range("rate_k", self.rate_k, 1, 8)?;
         ensure_range(
-            "rate_increase_delay_blocks",
-            self.rate_increase_delay_blocks,
+            "rate_cap_bps",
+            self.rate_cap_bps,
+            self.apr_bps,
+            MAX_RATE_CAP_BPS,
+        )?;
+        ensure_range(
+            "rate_delay_blocks",
+            self.rate_delay_blocks,
             0,
-            MAX_RATE_INCREASE_DELAY_BLOCKS,
+            MAX_RATE_DELAY_BLOCKS,
         )?;
         ensure_range(
             "charge_interval_blocks",
@@ -239,18 +177,27 @@ impl LendingParams {
         ensure_range("twap_samples", self.twap_samples, 3, 72)?;
         ensure_range("twap_interval_blocks", self.twap_interval_blocks, 50, 1_200)
     }
+
+    /// [`Self::validate`], and the cap cross-check of SPEC 2.1 against the live group: the cap
+    /// is at least the base APR under both the live and the new values, so the bound holds
+    /// whichever of the two is in force.
+    pub fn validate_against_live(&self, live: &Self) -> Result<(), ParamsError> {
+        self.validate()?;
+        if self.rate_cap_bps.min(live.rate_cap_bps) < self.apr_bps.max(live.apr_bps) {
+            return Err(ParamsError::OutOfRange("rate_cap_bps"));
+        }
+        Ok(())
+    }
 }
 
 /// Short-only parameters (`set_short_params`).
-#[freeze_struct("7a49a229cde0d334")]
+#[freeze_struct("99c4185eab9d27e5")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Clone, PartialEq, Eq, Debug,
 )]
 pub struct ShortParams {
-    /// Coverage stress (P2).
+    /// Coverage stress (P2), flat for every book size.
     pub stress_bps: u32,
-    /// Book-aware stress slope (P2).
-    pub stress_slope_bps: u32,
     /// Net minted alpha per block as a share of SubnetAlphaIn (P8).
     pub open_limit_bps: u32,
 }
@@ -259,7 +206,6 @@ impl Default for ShortParams {
     fn default() -> Self {
         Self {
             stress_bps: 30_000,
-            stress_slope_bps: 20_000,
             open_limit_bps: 100,
         }
     }
@@ -269,7 +215,6 @@ impl ShortParams {
     /// Checks every bound of the SPEC 2.1 table for this group.
     pub fn validate(&self) -> Result<(), ParamsError> {
         ensure_range("stress_bps", self.stress_bps, 10_000, 100_000)?;
-        ensure_range("stress_slope_bps", self.stress_slope_bps, 0, 100_000)?;
         ensure_range("open_limit_bps", self.open_limit_bps, 1, 1_000)
     }
 }
@@ -383,52 +328,54 @@ where
 }
 
 impl<T: Config> Pallet<T> {
-    /// `set_lending_params`: validate, then queue for the next block (SPEC 2.1).
+    /// `set_lending_params`: validate, then schedule the whole group (SPEC 2.1).
     ///
-    /// The rate terms are compared with the live ones. A decrease is queued with the rest and
-    /// clears a pending increase. An increase is held in `PendingRateIncrease` for the live
-    /// `rate_increase_delay_blocks` (at least until the next block), replacing an earlier
-    /// pending one; the rest of the group is queued with the live rate terms, unless that
-    /// leaves the live group as it is.
+    /// A call that tightens the live group (see [`LendingParams::tightens`]) is written to
+    /// `PendingLendingParams` with `apply_at` the live `rate_delay_blocks` after this
+    /// block, and emits `LendingParamsScheduled`. A later call replaces the pending group
+    /// whatever it holds. Any other call is applied in the next block. The delay is at least one
+    /// block, so `apply_at` is always in the future.
     pub(crate) fn queue_lending_params(params: LendingParams) -> DispatchResult {
-        params.validate().map_err(|_| Error::<T>::InvalidParams)?;
         let live = LendingParamsStore::<T>::get();
-        let (current, new) = (live.rate_terms(), params.rate_terms());
-        if new.is_decrease_from(&current) {
-            PendingRateIncrease::<T>::kill();
-            PendingLendingParams::<T>::put(params);
+        params
+            .validate_against_live(&live)
+            .map_err(|_| Error::<T>::InvalidParams)?;
+        let now = frame_system::Pallet::<T>::block_number();
+        if params.tightens(&live) {
+            let delay = BlockNumberFor::<T>::from(live.rate_delay_blocks).max(One::one());
+            let apply_at = now.saturating_add(delay);
+            PendingLendingParams::<T>::put((params.clone(), apply_at));
+            Self::deposit_event(Event::LendingParamsScheduled {
+                old: live,
+                new: params,
+                apply_at,
+            });
         } else {
-            let delay = BlockNumberFor::<T>::from(live.rate_increase_delay_blocks);
-            let effective_at =
-                frame_system::Pallet::<T>::block_number().saturating_add(delay.max(One::one()));
-            PendingRateIncrease::<T>::put((new, effective_at));
-            let rest = params.with_rate_terms(current);
-            if rest == live {
-                PendingLendingParams::<T>::kill();
-            } else {
-                PendingLendingParams::<T>::put(rest);
-            }
-            Self::deposit_event(Event::RateIncreaseScheduled { new, effective_at });
+            PendingLendingParams::<T>::put((params, now.saturating_add(One::one())));
         }
         Ok(())
     }
 
-    /// Makes a pending rate increase live once its block is reached, with one
-    /// `RateIncreaseApplied` event. Runs after [`Self::apply_pending_params`], so the terms land
-    /// on the group that block made live. No position is touched: each one reads the new terms
-    /// at its next accrual. Returns whether an increase was applied.
-    pub(crate) fn apply_pending_rate_increase(now: BlockNumberFor<T>) -> bool {
-        let Some((new, effective_at)) = PendingRateIncrease::<T>::get() else {
+    /// Makes the pending `LendingParams` live once its `apply_at` is reached, with one
+    /// `LendingParamsSet` event, and re-seeds the TWAP rings if their window changed. Runs first
+    /// in `on_initialize`, before any charge of that block, and returns whether it applied a
+    /// group. No position is touched: each one reads the new group at its next accrual.
+    pub(crate) fn apply_pending_lending_params(now: BlockNumberFor<T>, subnets: &[NetUid]) -> bool {
+        let Some((new, apply_at)) = PendingLendingParams::<T>::get() else {
             return false;
         };
-        if now < effective_at {
+        if now < apply_at {
             return false;
         }
-        PendingRateIncrease::<T>::kill();
-        let live = LendingParamsStore::<T>::get();
-        let old = live.rate_terms();
-        LendingParamsStore::<T>::put(live.with_rate_terms(new));
-        Self::deposit_event(Event::RateIncreaseApplied { old, new });
+        PendingLendingParams::<T>::kill();
+        let old = LendingParamsStore::<T>::get();
+        LendingParamsStore::<T>::put(&new);
+        if (old.twap_samples, old.twap_interval_blocks)
+            != (new.twap_samples, new.twap_interval_blocks)
+        {
+            Self::reseed_twap_rings_from_median(subnets, new.twap_samples);
+        }
+        Self::deposit_event(Event::LendingParamsSet { old, new });
         true
     }
 
@@ -456,22 +403,11 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Applies every pending group (SPEC 2.1, I26): one `<Group>ParamsSet` event each, and the
-    /// ring re-seeds that a TWAP or rank window change requires. No position is touched.
-    /// Returns whether any group was pending.
+    /// Applies every pending group other than `LendingParams` (SPEC 2.1, I26): one
+    /// `<Group>ParamsSet` event each, and the rank ring re-seed that a rank window change
+    /// requires. No position is touched. Returns whether any group was pending.
     pub(crate) fn apply_pending_params(subnets: &[NetUid]) -> bool {
         let mut applied = false;
-        if let Some((old, new)) =
-            take_pending::<_, LendingParamsStore<T>, PendingLendingParams<T>>()
-        {
-            applied = true;
-            if (old.twap_samples, old.twap_interval_blocks)
-                != (new.twap_samples, new.twap_interval_blocks)
-            {
-                Self::reseed_twap_rings_from_median(subnets, new.twap_samples);
-            }
-            Self::deposit_event(Event::LendingParamsSet { old, new });
-        }
         if let Some((old, new)) = take_pending::<_, ShortParamsStore<T>, PendingShortParams<T>>() {
             applied = true;
             Self::deposit_event(Event::ShortParamsSet { old, new });
@@ -537,21 +473,14 @@ mod tests {
                 p.apr_bps,
                 p.rate_k,
                 p.rate_cap_bps,
+                p.rate_delay_blocks,
                 p.charge_interval_blocks
             ),
-            (2_000, 2, 10_000, 360)
+            (2_000, 1, 20_000, 21_600, 360)
         );
         assert_eq!(
-            (p.rate_floor_bps, p.rate_increase_delay_blocks),
-            (2_000, 21_600)
-        );
-        assert_eq!(
-            (p.rate_floor_bps, p.rate_increase_delay_blocks),
-            (LAUNCH_RATE_FLOOR_BPS, LAUNCH_RATE_INCREASE_DELAY_BLOCKS)
-        );
-        assert_eq!(
-            (p.rate_k, p.rate_cap_bps),
-            (LAUNCH_RATE_K, LAUNCH_RATE_CAP_BPS)
+            (p.rate_k, p.rate_cap_bps, p.rate_delay_blocks),
+            (LAUNCH_RATE_K, LAUNCH_RATE_CAP_BPS, LAUNCH_RATE_DELAY_BLOCKS)
         );
         assert_eq!(
             (p.min_pool_tao, p.min_notional, p.deposit),
@@ -561,10 +490,7 @@ mod tests {
         assert_eq!(p.validate(), Ok(()));
 
         let s = ShortParams::default();
-        assert_eq!(
-            (s.stress_bps, s.stress_slope_bps, s.open_limit_bps),
-            (30_000, 20_000, 100)
-        );
+        assert_eq!((s.stress_bps, s.open_limit_bps), (30_000, 100));
         assert_eq!(s.validate(), Ok(()));
 
         let l = LongParams::default();
@@ -612,21 +538,12 @@ mod tests {
             |p, x| p.rate_cap_bps = x,
             v,
         );
-        // The launch cap bounds the floor from above.
         check_bounds(
             &base,
-            "rate_floor_bps",
-            1,
-            (1, 10_000),
-            |p, x| p.rate_floor_bps = x,
-            v,
-        );
-        check_bounds(
-            &base,
-            "rate_increase_delay_blocks",
+            "rate_delay_blocks",
             1,
             (0, 216_000),
-            |p, x| p.rate_increase_delay_blocks = x,
+            |p, x| p.rate_delay_blocks = x,
             v,
         );
         check_bounds(
@@ -678,7 +595,6 @@ mod tests {
             LendingParams {
                 apr_bps,
                 rate_cap_bps,
-                rate_floor_bps: 1,
                 ..Default::default()
             }
             .validate()
@@ -700,102 +616,108 @@ mod tests {
     }
 
     #[test]
-    fn the_rate_floor_is_at_least_one_and_at_most_the_cap() {
-        let with = |rate_cap_bps, rate_floor_bps| {
+    fn the_cap_is_checked_against_the_live_and_the_new_base_apr() {
+        let live = LendingParams::default(); // apr 2,000, cap 20,000
+        let with = |apr_bps, rate_cap_bps| {
             LendingParams {
+                apr_bps,
                 rate_cap_bps,
-                rate_floor_bps,
-                ..Default::default()
+                ..live.clone()
             }
-            .validate()
+            .validate_against_live(&live)
         };
-        assert_eq!(with(10_000, 1), Ok(()));
-        assert_eq!(with(10_000, 10_000), Ok(()));
         assert_eq!(with(2_000, 2_000), Ok(()));
-        assert_eq!(with(1_000_000, 1_000_000), Ok(()));
-        assert_eq!(
-            with(10_000, 0),
-            Err(ParamsError::OutOfRange("rate_floor_bps"))
-        );
-        assert_eq!(
-            with(10_000, 10_001),
-            Err(ParamsError::OutOfRange("rate_floor_bps"))
-        );
-        // Lowering the cap under a floor that stays is rejected the same way.
-        assert_eq!(
-            with(2_000, 2_001),
-            Err(ParamsError::OutOfRange("rate_floor_bps"))
-        );
-    }
-
-    #[test]
-    fn a_rate_change_is_a_decrease_only_if_nothing_rises_and_k_stays() {
-        let current = LendingParams::default().rate_terms();
-        let with = |f: fn(&mut RateTerms)| {
-            let mut terms = current;
-            f(&mut terms);
-            terms.is_decrease_from(&current)
+        assert_eq!(with(10_000, 10_000), Ok(()));
+        // A new base APR above the live cap, with the cap lowered to it, is rejected: the live
+        // group would be briefly invalid if it were applied first.
+        let high = LendingParams {
+            apr_bps: 10_000,
+            rate_cap_bps: 10_000,
+            ..live.clone()
         };
-        assert!(current.is_decrease_from(&current));
-        assert!(with(|t| t.apr_bps -= 1));
-        assert!(with(|t| t.rate_cap_bps -= 1));
-        assert!(with(|t| t.rate_floor_bps -= 1));
-        assert!(with(|t| {
-            t.apr_bps = 1;
-            t.rate_cap_bps = 1;
-            t.rate_floor_bps = 1;
-        }));
-        assert!(!with(|t| t.apr_bps += 1));
-        assert!(!with(|t| t.rate_cap_bps += 1));
-        assert!(!with(|t| t.rate_floor_bps += 1));
-        // One term up makes the change an increase, whatever comes down with it.
-        assert!(!with(|t| {
-            t.apr_bps -= 1;
-            t.rate_cap_bps += 1;
-        }));
-        assert!(!with(|t| {
-            t.rate_floor_bps -= 1;
-            t.apr_bps += 1;
-        }));
-        // Any change of the exponent is an increase: a higher k raises the rate above u = 1,
-        // a lower k raises it below.
-        assert!(!with(|t| t.rate_k += 1));
-        assert!(!with(|t| t.rate_k -= 1));
-        assert!(!with(|t| {
-            t.rate_k -= 1;
-            t.apr_bps = 1;
-            t.rate_cap_bps = 1;
-            t.rate_floor_bps = 1;
-        }));
+        assert_eq!(
+            LendingParams {
+                apr_bps: 10_000,
+                rate_cap_bps: 9_999,
+                ..live.clone()
+            }
+            .validate_against_live(&live),
+            Err(ParamsError::OutOfRange("rate_cap_bps"))
+        );
+        // Lowering both rate terms in one call is checked against the larger of the two base
+        // APRs (here the live 10,000), so it needs the cap to stay high for one step: the cap
+        // comes down in a second call, once the base APR has.
+        let lower_both = LendingParams {
+            apr_bps: 2_000,
+            rate_cap_bps: 2_000,
+            ..live.clone()
+        };
+        assert_eq!(
+            lower_both.validate_against_live(&high),
+            Err(ParamsError::OutOfRange("rate_cap_bps"))
+        );
+        let first_step = LendingParams {
+            apr_bps: 2_000,
+            rate_cap_bps: 10_000,
+            ..live.clone()
+        };
+        assert_eq!(first_step.validate_against_live(&high), Ok(()));
+        assert_eq!(lower_both.validate_against_live(&first_step), Ok(()));
     }
 
     #[test]
-    fn the_rate_terms_round_trip_through_the_group() {
-        let base = LendingParams::default();
-        assert_eq!(base.clone().with_rate_terms(base.rate_terms()), base);
-        let terms = RateTerms {
+    fn a_change_tightens_only_if_it_raises_a_rate_term_or_moves_k_or_the_twap() {
+        let live = LendingParams::default();
+        let tightens = |f: fn(&mut LendingParams)| {
+            let mut next = live.clone();
+            f(&mut next);
+            next.tightens(&live)
+        };
+        assert!(!live.tightens(&live));
+        // Decreases of the rate terms are not tightening.
+        assert!(!tightens(|p| p.apr_bps -= 1));
+        assert!(!tightens(|p| p.rate_cap_bps -= 1));
+        assert!(!tightens(|p| {
+            p.apr_bps = 1;
+            p.rate_cap_bps = 1;
+        }));
+        // Increases of either term are.
+        assert!(tightens(|p| p.apr_bps += 1));
+        assert!(tightens(|p| p.rate_cap_bps += 1));
+        // One term up tightens whatever comes down with it.
+        assert!(tightens(|p| {
+            p.apr_bps -= 1;
+            p.rate_cap_bps += 1;
+        }));
+        // Any change of the exponent tightens: a higher k raises the rate above u = 1, a lower
+        // one raises it below.
+        assert!(tightens(|p| p.rate_k += 1));
+        assert!(tightens(|p| p.rate_k -= 1));
+        // Any change of the TWAP window tightens.
+        assert!(tightens(|p| p.twap_samples += 1));
+        assert!(tightens(|p| p.twap_samples -= 1));
+        assert!(tightens(|p| p.twap_interval_blocks += 1));
+        assert!(tightens(|p| p.twap_interval_blocks -= 1));
+        // A longer delay is not a tightening; a shorter one is, since it waits the current delay.
+        assert!(!tightens(|p| p.rate_delay_blocks += 1));
+        assert!(tightens(|p| p.rate_delay_blocks -= 1));
+        // The cadence, the minimums and the deposit are not rate terms.
+        assert!(!tightens(|p| p.charge_interval_blocks += 1));
+        assert!(!tightens(|p| p.min_pool_tao += RAO));
+        assert!(!tightens(|p| p.min_notional += RAO));
+        assert!(!tightens(|p| p.deposit += RAO));
+    }
+
+    #[test]
+    fn the_rate_curve_reads_apr_k_and_cap() {
+        let moved = LendingParams {
             apr_bps: 1_500,
             rate_k: 3,
             rate_cap_bps: 50_000,
-            rate_floor_bps: 7,
+            ..Default::default()
         };
-        let moved = base.clone().with_rate_terms(terms);
-        assert_eq!(moved.rate_terms(), terms);
-        assert_eq!(
-            moved,
-            LendingParams {
-                apr_bps: 1_500,
-                rate_k: 3,
-                rate_cap_bps: 50_000,
-                rate_floor_bps: 7,
-                ..base
-            }
-        );
         let curve = moved.rate_curve();
-        assert_eq!(
-            (curve.apr_bps, curve.k, curve.cap_bps, curve.floor_bps),
-            (1_500, 3, 50_000, 7)
-        );
+        assert_eq!((curve.apr_bps, curve.k, curve.cap_bps), (1_500, 3, 50_000));
     }
 
     #[test]
@@ -808,14 +730,6 @@ mod tests {
             1,
             (10_000, 100_000),
             |p, x| p.stress_bps = x,
-            v,
-        );
-        check_bounds(
-            &base,
-            "stress_slope_bps",
-            1,
-            (0, 100_000),
-            |p, x| p.stress_slope_bps = x,
             v,
         );
         check_bounds(

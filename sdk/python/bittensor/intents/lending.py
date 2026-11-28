@@ -36,8 +36,7 @@ PARAM_GROUPS: dict[str, tuple[str, ...]] = {
         "apr_bps",
         "rate_k",
         "rate_cap_bps",
-        "rate_floor_bps",
-        "rate_increase_delay_blocks",
+        "rate_delay_blocks",
         "charge_interval_blocks",
         "min_pool_tao",
         "min_notional",
@@ -45,7 +44,7 @@ PARAM_GROUPS: dict[str, tuple[str, ...]] = {
         "twap_samples",
         "twap_interval_blocks",
     ),
-    "short": ("stress_bps", "stress_slope_bps", "open_limit_bps"),
+    "short": ("stress_bps", "open_limit_bps"),
     "long": ("stress_bps", "stress_floor_bps", "lift_cap_bps", "open_limit_bps"),
     "dereg": (
         "zone_bps",
@@ -473,23 +472,20 @@ def _checked_changes(group: str, changes: Optional[dict]) -> dict[str, int]:
 async def _merged_params(substrate, group: str, changes: dict[str, int]) -> dict[str, int]:
     """The group the setter submits: ``changes`` over the value the next block would hold.
 
-    That is the group already queued this block when there is one, so two setters in a
-    block compose, and the live group otherwise. The lending group's rate fields come
-    from the rate increase waiting out its delay, when there is one.
+    That is the group already queued when there is one, so two setters compose, and the
+    live group otherwise. A queued lending group is ``(params, apply_at)``: a tightening
+    waiting out its delay, which the next call replaces, so the fields this call leaves
+    alone keep the queued values.
     """
     current = await substrate.query(*_PENDING[group])
+    if current is not None and group == "lending":
+        current = current[0]
     if current is None:
         view = await substrate.runtime_call(*LendingRuntimeApi.params, [])
         if view is None:
             raise BittensorError("this chain has no lending runtime API")
         current = view[group]
     merged = {name: int(current[name]) for name in PARAM_GROUPS[group]}
-    if group == "lending":
-        # A rate increase waiting out its delay is replaced by the next call, so a call that
-        # leaves the rate fields alone carries the waiting values rather than cancelling them.
-        waiting = await substrate.query(*st.Lending.PendingRateIncrease)
-        if waiting is not None:
-            merged |= {name: int(value) for name, value in waiting[0].items()}
     return merged | changes
 
 
@@ -503,24 +499,22 @@ class SetLendingParams(Intent):
     """Change the lending parameters shared by shorts and longs (root only).
 
     ``changes`` names the fields to change among ``apr_bps``, ``rate_k``,
-    ``rate_cap_bps``, ``rate_floor_bps``, ``rate_increase_delay_blocks``,
-    ``charge_interval_blocks``, ``min_pool_tao``, ``min_notional``, ``deposit``,
-    ``twap_samples`` and ``twap_interval_blocks``; amounts are in rao. The rest
-    keep their value. ``apr_bps``, ``rate_k``,
-    ``rate_cap_bps`` and ``rate_floor_bps`` are the interest rate
-    ``max(rate_floor_bps, min(rate_cap_bps, apr_bps * u^rate_k))`` of a
-    position's debt over its holdings ``u``. The chain checks the whole group
-    against its bounds and refuses it whole on any breach. A change that raises
-    no rate (``apr_bps``, ``rate_cap_bps`` and ``rate_floor_bps`` each at or
-    below the live value, ``rate_k`` unchanged) applies from the next block,
-    and so do the other fields. Any other change of the four rate fields waits
-    ``rate_increase_delay_blocks`` blocks (the value live at the call); until
-    then the group shows the live rate fields and the read's
-    ``pending_rate_increase`` the waiting ones. Each call replaces the waiting
-    increase: rate fields left out of ``changes`` keep their waiting value and
-    the delay starts again, and naming all four at or below their live values
-    cancels it. Verify with the
-    ``lending_params`` read.
+    ``rate_cap_bps``, ``rate_delay_blocks``, ``charge_interval_blocks``,
+    ``min_pool_tao``, ``min_notional``, ``deposit``, ``twap_samples`` and
+    ``twap_interval_blocks``; amounts are in rao. The rest keep their value.
+    ``apr_bps``, ``rate_k`` and ``rate_cap_bps`` set the interest rate
+    ``min(rate_cap_bps, apr_bps * max(1, u^rate_k))`` a year, where ``u`` is a
+    position's debt over its holdings at the slow price. The chain checks the
+    whole group against its bounds and refuses it whole on any breach; the cap
+    may not be below the base APR, in the live group or in the new one.
+    A change that tightens the rate (a higher ``apr_bps`` or ``rate_cap_bps``, any
+    change of ``rate_k``, ``twap_samples`` or ``twap_interval_blocks``, or a shorter
+    ``rate_delay_blocks``) waits the ``rate_delay_blocks`` in force at the call
+    (3 days at launch); the read's ``pending_lending_params`` shows it until then.
+    Any other change, a longer delay included, applies from the next block. Each
+    call replaces the waiting group: fields left out of ``changes`` keep their
+    waiting value, and the delay starts again if that value still tightens.
+    Verify with the ``lending_params`` read.
     """
 
     op = "set_lending_params"
@@ -550,8 +544,8 @@ class SetLendingParams(Intent):
 class SetLendingShortParams(Intent):
     """Change the short-side lending parameters (root only).
 
-    ``changes`` names the fields to change among ``stress_bps``,
-    ``stress_slope_bps`` and ``open_limit_bps``; the rest keep their value.
+    ``changes`` names the fields to change among ``stress_bps`` and
+    ``open_limit_bps``; the rest keep their value.
     The chain refuses the group whole on any bound breach and applies it from
     the next block. Verify with the ``lending_params`` read.
     """
