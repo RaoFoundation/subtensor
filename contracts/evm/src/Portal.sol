@@ -9,9 +9,6 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {
     PausableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import {
-    ReentrancyGuardUpgradeable
-} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -50,7 +47,6 @@ contract Portal is
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
     PausableUpgradeable,
-    ReentrancyGuardUpgradeable,
     IPortal,
     IMessageRecipient,
     ISpecifiesInterchainSecurityModule
@@ -139,8 +135,6 @@ contract Portal is
     /// @notice The vault paid `amount` of the stablecoin to `to`. `stillOwed` is what the
     /// vault's allowance did not cover yet.
     event StablePaid(address indexed to, uint256 amount, uint256 stillOwed);
-    /// @notice The stablecoin refused a payment to `to`. The amount stays owed.
-    event StablePaymentFailed(address indexed to, uint256 amount);
     event AnswerFeeSet(uint256 fee, address recipient);
     event FeesSwept(address indexed recipient, uint256 amount);
 
@@ -182,7 +176,6 @@ contract Portal is
         __Ownable_init(owner_);
         __Ownable2Step_init();
         __Pausable_init();
-        __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         mailbox = mailbox_;
         hubDomain = hubDomain_;
@@ -302,7 +295,6 @@ contract Portal is
     function handle(uint32 origin, bytes32 sender, bytes calldata body)
         external
         payable
-        nonReentrant
         whenNotPaused
     {
         if (msg.sender != address(mailbox)) revert OnlyMailbox();
@@ -363,35 +355,26 @@ contract Portal is
     /// @notice Pays `to` the stablecoin it is owed, as far as the vault's allowance goes
     /// now. Anyone may call this: the payment can only go to `to`.
     /// @return paid What was paid now.
-    function claim(address to) external nonReentrant whenNotPaused returns (uint256 paid) {
+    function claim(address to) external whenNotPaused returns (uint256 paid) {
         return _pay(to);
     }
 
-    /// @dev Never reverts on what the vault or the stablecoin does: the hub's answer is
-    /// carried out once, and what cannot be paid now stays owed. A payment larger than
-    /// the vault's allowance, a stopped vault and a recipient that the stablecoin blocks
-    /// all leave the debt on record and hold nobody else's payment.
+    /// @dev Pays what the vault can release now of what `to` is owed, and leaves the rest
+    /// on record. A payment larger than the vault's allowance, and a payment while the
+    /// vault is stopped, do not fail: they wait here, in part or in whole.
     ///
-    /// The debt is taken off before the vault is called and put back if the payment
-    /// fails. `handle` and `claim`, the only ways here, cannot be entered again while
-    /// one of them runs, so nothing reads the debt in between.
+    /// The debt is lowered before the vault is called. If the stablecoin refuses the
+    /// transfer, the whole call reverts: nothing is hidden from a caller that estimates
+    /// gas, and an answer of the hub stays with the transport, which delivers it again.
     function _pay(address to) private returns (uint256 paid) {
         uint256 amount = owed[to];
-        if (amount == 0) return 0;
         uint256 available = vault.releasable();
         paid = amount < available ? amount : available;
         if (paid == 0) return 0;
         owed[to] = amount - paid;
         totalOwed -= paid;
-        // forge-lint: disable-next-line(reentrancy-no-eth)
-        try vault.release(to, paid) {
-            emit StablePaid(to, paid, amount - paid);
-        } catch {
-            owed[to] += paid;
-            totalOwed += paid;
-            emit StablePaymentFailed(to, paid);
-            paid = 0;
-        }
+        emit StablePaid(to, paid, amount - paid);
+        vault.release(to, paid);
     }
 
     function _registerToken(Wire.RegisterToken memory register) private {

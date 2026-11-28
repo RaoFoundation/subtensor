@@ -9,6 +9,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Portal} from "../src/Portal.sol";
 import {RateLimit} from "../src/RateLimit.sol";
 import {Wire} from "../src/Wire.sol";
+import {MockStable} from "../src/mocks/MockStable.sol";
 import {AlphaToken} from "../src/tokens/AlphaToken.sol";
 import {Fixture} from "./Fixture.sol";
 
@@ -47,7 +48,6 @@ contract PortalTest is Fixture {
     event RegistryMismatch(uint16 indexed netuid, address listed, address token);
     event FeesSwept(address indexed recipient, uint256 amount);
     event StablePaid(address indexed to, uint256 amount, uint256 stillOwed);
-    event StablePaymentFailed(address indexed to, uint256 amount);
 
     // ---------------------------------------------------------------- orders
 
@@ -405,22 +405,42 @@ contract PortalTest is Fixture {
     function test_ARecipientTheStablecoinBlocksHoldsNobodyElse() public {
         deposit(alice, 250 * USDC, toTao(alice));
         stable.setBlocked(bob, true);
+        bytes memory toBob = creditBody(
+            hubNonce++, Wire.ASSET_STABLE, 0, bob, uint64(100 * UNIT), false, 0, false, 0
+        );
 
-        vm.expectEmit(address(portal));
-        emit StablePaymentFailed(bob, 100 * USDC);
-        credit(Wire.ASSET_STABLE, 0, bob, 100 * UNIT, 0);
-        // Bob's payment stays owed. It used none of the vault's allowance.
-        assertEq(portal.owed(bob), 100 * USDC);
+        // The stablecoin refuses the transfer. The answer is not carried out: it stays
+        // with the transport, and it used none of the vault's allowance.
+        vm.expectRevert(MockStable.Blocked.selector);
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, toBob);
+        assertFalse(portal.processed(0));
+        assertEq(portal.owed(bob), 0);
         assertEq(vault.releasable(), 1_000_000 * USDC);
-        // Alice is paid as if nothing had happened.
+        // Answers are carried out in any order: alice is paid as if nothing had happened.
         credit(Wire.ASSET_STABLE, 0, alice, 50 * UNIT, 0);
         assertEq(stable.balanceOf(alice), 50 * USDC);
 
-        // When the stablecoin lets bob receive again, anyone has him paid.
+        // When the stablecoin lets bob receive again, the transport delivers his answer.
         stable.setBlocked(bob, false);
-        assertEq(portal.claim(bob), 100 * USDC);
+        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, toBob);
         assertEq(stable.balanceOf(bob), 100 * USDC);
         assertEq(portal.totalOwed(), 0);
+    }
+
+    function test_AClaimForABlockedAddressFails() public {
+        deposit(alice, 3_000_000 * USDC, toTao(alice));
+        credit(Wire.ASSET_STABLE, 0, bob, 1_500_000 * UNIT, 0);
+        assertEq(portal.owed(bob), 500_000 * USDC);
+        skip(1 days);
+
+        // Nothing is hidden from the caller: the claim fails, and the debt stays.
+        stable.setBlocked(bob, true);
+        vm.expectRevert(MockStable.Blocked.selector);
+        portal.claim(bob);
+        assertEq(portal.owed(bob), 500_000 * USDC);
+
+        stable.setBlocked(bob, false);
+        assertEq(portal.claim(bob), 500_000 * USDC);
     }
 
     // ---------------------------------------------------------------- pause

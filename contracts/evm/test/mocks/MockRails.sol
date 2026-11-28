@@ -23,6 +23,8 @@ contract MockRails is IRails {
     /// @notice The queue of each bridge, and how far the gateway has taken it.
     mapping(uint32 bridge => Outbound[]) public outbox;
     mapping(uint32 bridge => uint64) public head;
+    /// @notice What is left of what was paid in for each bridge's messages, in wei.
+    mapping(uint32 bridge => uint256) public budget;
     uint8 public status = 1;
     uint64 public amountOut;
     bool public refuse;
@@ -42,6 +44,12 @@ contract MockRails is IRails {
     function setAnswer(uint32 domain, bytes32 recipient, bytes calldata body) external {
         _answer = Outbound(domain, recipient, body);
         _hasAnswer = true;
+    }
+
+    /// @notice Pays `amount` into the budget of `bridge`, as `Rails.fund_messages` does.
+    /// The test gives the gateway the TAO.
+    function fund(uint32 bridge, uint256 amount) external {
+        budget[bridge] += amount;
     }
 
     /// @notice Queues a message for `bridge`. In these tests a bridge's id is its domain.
@@ -66,11 +74,13 @@ contract MockRails is IRails {
         return (status, amountOut, domain);
     }
 
-    function ackOutbound(uint32 bridge, uint64 nonce) external {
+    function ackOutbound(uint32 bridge, uint64 nonce, uint256 paid) external {
         require(
             nonce == head[bridge] && nonce < outbox[bridge].length,
             "dispatch execution failed: NotOutboxHead"
         );
+        require(paid <= budget[bridge], "dispatch execution failed: MessagesNotFunded");
+        budget[bridge] -= paid;
         head[bridge]++;
     }
 

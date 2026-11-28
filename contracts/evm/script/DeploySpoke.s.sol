@@ -26,10 +26,10 @@ import {MockStable} from "../src/mocks/MockStable.sol";
 ///   and in seconds.
 /// - `ANSWER_FEE`: what each order pays for the hub's answer, in wei. It has no default:
 ///   decide it. Set it to at least the worth of what the hub charges this bridge for one
-///   message (`Rails.AnswerCost`). Zero only if the transport carries the hub's
+///   message (`Rails.MessageCost`). Zero only if the transport carries the hub's
 ///   messages for nothing.
 /// - `FEE_RECIPIENT`: who receives the answer fees: the operator that pays them into
-///   the bridge's budget on Bittensor (`Rails.fund_answers`). It has no default.
+///   the bridge's budget on Bittensor (`Rails.fund_messages`). It has no default.
 /// - `OUTPUT`: where to write the addresses, under `deployments/`.
 contract DeploySpoke is Script {
     function run() external {
