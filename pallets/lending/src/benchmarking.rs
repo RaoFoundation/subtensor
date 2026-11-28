@@ -30,7 +30,7 @@ use crate::{
     HolderPositions, InterestRetry, InterestTotals, LendingInterface, LendingParamsStore,
     LendingPoolInterface, LongParamsStore, LongsEnabled, NextDue, Pallet, PendingDeregParams,
     PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma, Positions, RankPrice,
-    RankRing, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
+    RankRing, ResidualAlpha, ShortParamsStore, SwappedOutAt, TotalPositions, TwapRing,
     hooks::MAX_POSITIONS_PER_HOLDER,
     interest::MAX_DUE_BUCKETS_PER_BLOCK,
     math::interest::BLOCKS_PER_DAY,
@@ -161,6 +161,19 @@ fn minted<T: Config>(who: &T::AccountId, netuid: NetUid) -> u64 {
 
 fn collateral<T: Config>(who: &T::AccountId, netuid: NetUid) -> u64 {
     Positions::<T>::get((who.clone(), netuid, Side::Short)).map_or(0, |pos| pos.collateral)
+}
+
+/// Leaves one rao of collateral in a short and its custody, as after a long bleed: the next
+/// scheduled charge takes it and defaults the short.
+fn bleed<T: Config>(id: &PositionId<T::AccountId>) {
+    let (who, netuid, side) = id;
+    let custody = Pallet::<T>::custody_account(who, *netuid, *side).expect("position exists");
+    Positions::<T>::mutate(id, |pos| {
+        let pos = pos.as_mut().expect("position exists");
+        let taken = pos.collateral.saturating_sub(1);
+        T::Pool::transfer_tao(&custody, who, taken).expect("custody holds the collateral");
+        pos.collateral = 1;
+    });
 }
 
 /// Interest has reached the pool of `netuid`: the measured touch paid a charge.
@@ -465,15 +478,20 @@ mod benchmarks {
     }
 
     /// `c` scheduled charges in the bucket of the current block, each of another holder and,
-    /// up to the subnet count, on another subnet. Every charge takes interest to the pool,
-    /// reads a custody record, clears a retry count and schedules the next charge.
+    /// up to the subnet count, on another subnet. Every charge is the worst case: the short has
+    /// one rao of collateral left, so the charge takes it to the pool as interest and then
+    /// defaults the short (SPEC section 1 item 4): its proceeds go to the pool, its deposit is
+    /// burned, its alpha moves to `ResidualAlpha` and the position is removed with its custody
+    /// record, retry count, holder entry, counts and `Due` entry.
     #[benchmark]
     fn collect_due(c: Linear<0, { T::MaxChargesPerBlock::get() }>) {
         let netuids = market::<T>(c.clamp(1, MAX_SUBNETS));
         let ids: Vec<_> = (0..c)
             .map(|index| {
                 let netuid = netuids[index as usize % netuids.len()];
-                open::<T>(&holder::<T>(index), netuid)
+                let id = open::<T>(&holder::<T>(index), netuid);
+                bleed::<T>(&id);
+                id
             })
             .collect();
         let interval = LendingParamsStore::<T>::get().charge_interval_blocks;
@@ -482,6 +500,8 @@ mod benchmarks {
         for id in &ids {
             assert!(Due::<T>::contains_key(block, id));
         }
+        let residual: u64 = netuids.iter().map(ResidualAlpha::<T>::get).sum();
+        assert_eq!(residual, 0);
         let ran;
 
         #[block]
@@ -489,14 +509,16 @@ mod benchmarks {
             ran = Pallet::<T>::collect_due(block);
         }
 
-        assert_eq!(ran.0, c);
+        assert_eq!((ran.charges, ran.defaults), (c, c));
         for id in &ids {
-            let pos = Positions::<T>::get(id).expect("still open");
-            assert_eq!(pos.charge_at, block + interval.into());
-            assert!(Due::<T>::contains_key(pos.charge_at, id));
+            assert!(!Positions::<T>::contains_key(id));
+            assert!(!Custody::<T>::contains_key(id));
             assert_eq!(InterestRetry::<T>::get(id), 0);
             assert_interest_paid::<T>(id.1);
         }
+        let residual: u64 = netuids.iter().map(ResidualAlpha::<T>::get).sum();
+        assert_eq!(residual, u64::from(c) * SHORT_Q);
+        assert_eq!(TotalPositions::<T>::get(), 0);
     }
 
     /// `b` empty `Due` buckets read while the cursor catches up with the current block.
@@ -515,7 +537,7 @@ mod benchmarks {
             ran = Pallet::<T>::collect_due(block);
         }
 
-        assert_eq!(ran, (0, b));
+        assert_eq!((ran.charges, ran.buckets, ran.defaults), (0, b, 0));
         assert_eq!(NextDue::<T>::get(), Some(block + 1u32.into()));
     }
 

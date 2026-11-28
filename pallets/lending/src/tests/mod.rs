@@ -5,6 +5,7 @@
     clippy::unwrap_used
 )]
 
+mod default;
 mod golden;
 mod hooks;
 mod interest;

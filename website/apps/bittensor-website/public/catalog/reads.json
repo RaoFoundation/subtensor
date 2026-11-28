@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 3057,
-        "end_line": 3067,
-        "url": "/code/runtime/src/lib.rs#L3057-L3067",
+        "line": 3061,
+        "end_line": 3071,
+        "url": "/code/runtime/src/lib.rs#L3061-L3071",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1087,9 +1087,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2841,
-        "end_line": 2843,
-        "url": "/code/runtime/src/lib.rs#L2841-L2843",
+        "line": 2845,
+        "end_line": 2847,
+        "url": "/code/runtime/src/lib.rs#L2845-L2847",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1296,7 +1296,7 @@
   {
     "name": "lending_market",
     "summary": "A subnet's lending market, or None for a subnet without price rings.",
-    "description": "A subnet's lending market, or None for a subnet without price rings.\n\nThe pool as lending prices it (`pool_tao`, `pool_alpha`, the TAO reserve's\n`quote_weight` and the `swap_fee`, both fractions), the books\n(`synthetic_outstanding`: alpha minted by shorts and not yet bought back;\n`long_locked_alpha` and `long_lifted_tao`), and the three price references\nin TAO per alpha: the live `spot`, the `twap` median and the `sma` of daily\nmeans.",
+    "description": "A subnet's lending market, or None for a subnet without price rings.\n\nThe pool as lending prices it (`pool_tao`, `pool_alpha`, the TAO reserve's\n`quote_weight` and the `swap_fee`, both fractions), the books\n(`synthetic_outstanding`: alpha minted by shorts and not yet bought back;\n`residual_alpha`: alpha minted by shorts that defaulted, which stays issued\nwith no position behind it; `long_locked_alpha` and `long_lifted_tao`), and\nthe three price references in TAO per alpha: the live `spot`, the `twap`\nmedian and the `sma` of daily means.",
     "params": {
       "netuid": "integer"
     },
@@ -1309,13 +1309,22 @@
     "python": "sub.lending.lending_market(...)",
     "hits": [
       {
+        "kind": "storage",
+        "container": "Lending",
+        "name": "ResidualAlpha",
+        "path": "pallets/lending/src/lib.rs",
+        "line": 229,
+        "url": "/code/pallets/lending/src/lib.rs#L229",
+        "raw_url": "/code/raw/pallets/lending/src/lib.rs"
+      },
+      {
         "kind": "runtime",
         "container": "LendingRuntimeApi",
         "name": "market",
         "path": "runtime/src/lib.rs",
-        "line": 3022,
-        "end_line": 3024,
-        "url": "/code/runtime/src/lib.rs#L3022-L3024",
+        "line": 3026,
+        "end_line": 3028,
+        "url": "/code/runtime/src/lib.rs#L3026-L3028",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1345,9 +1354,9 @@
         "container": "LendingRuntimeApi",
         "name": "params",
         "path": "runtime/src/lib.rs",
-        "line": 3006,
-        "end_line": 3008,
-        "url": "/code/runtime/src/lib.rs#L3006-L3008",
+        "line": 3010,
+        "end_line": 3012,
+        "url": "/code/runtime/src/lib.rs#L3010-L3012",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1376,9 +1385,9 @@
         "container": "LendingRuntimeApi",
         "name": "position",
         "path": "runtime/src/lib.rs",
-        "line": 3010,
-        "end_line": 3016,
-        "url": "/code/runtime/src/lib.rs#L3010-L3016",
+        "line": 3014,
+        "end_line": 3020,
+        "url": "/code/runtime/src/lib.rs#L3014-L3020",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1403,9 +1412,9 @@
         "container": "LendingRuntimeApi",
         "name": "positions_of",
         "path": "runtime/src/lib.rs",
-        "line": 3018,
-        "end_line": 3020,
-        "url": "/code/runtime/src/lib.rs#L3018-L3020",
+        "line": 3022,
+        "end_line": 3024,
+        "url": "/code/runtime/src/lib.rs#L3022-L3024",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1685,9 +1694,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2845,
-        "end_line": 2847,
-        "url": "/code/runtime/src/lib.rs#L2845-L2847",
+        "line": 2849,
+        "end_line": 2851,
+        "url": "/code/runtime/src/lib.rs#L2849-L2851",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1966,9 +1975,9 @@
         "container": "LendingRuntimeApi",
         "name": "quote_close_short",
         "path": "runtime/src/lib.rs",
-        "line": 3041,
-        "end_line": 3047,
-        "url": "/code/runtime/src/lib.rs#L3041-L3047",
+        "line": 3045,
+        "end_line": 3051,
+        "url": "/code/runtime/src/lib.rs#L3045-L3051",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1997,9 +2006,9 @@
         "container": "LendingRuntimeApi",
         "name": "quote_increase_short",
         "path": "runtime/src/lib.rs",
-        "line": 3033,
-        "end_line": 3039,
-        "url": "/code/runtime/src/lib.rs#L3033-L3039",
+        "line": 3037,
+        "end_line": 3043,
+        "url": "/code/runtime/src/lib.rs#L3037-L3043",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2084,9 +2093,9 @@
         "container": "LendingRuntimeApi",
         "name": "quote_open_short",
         "path": "runtime/src/lib.rs",
-        "line": 3026,
-        "end_line": 3031,
-        "url": "/code/runtime/src/lib.rs#L3026-L3031",
+        "line": 3030,
+        "end_line": 3035,
+        "url": "/code/runtime/src/lib.rs#L3030-L3035",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2113,9 +2122,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 3069,
-        "end_line": 3097,
-        "url": "/code/runtime/src/lib.rs#L3069-L3097",
+        "line": 3073,
+        "end_line": 3101,
+        "url": "/code/runtime/src/lib.rs#L3073-L3101",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2142,9 +2151,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 3099,
-        "end_line": 3127,
-        "url": "/code/runtime/src/lib.rs#L3099-L3127",
+        "line": 3103,
+        "end_line": 3131,
+        "url": "/code/runtime/src/lib.rs#L3103-L3131",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2223,9 +2232,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2869,
-        "end_line": 2871,
-        "url": "/code/runtime/src/lib.rs#L2869-L2871",
+        "line": 2873,
+        "end_line": 2875,
+        "url": "/code/runtime/src/lib.rs#L2873-L2875",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2288,9 +2297,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2881,
-        "end_line": 2883,
-        "url": "/code/runtime/src/lib.rs#L2881-L2883",
+        "line": 2885,
+        "end_line": 2887,
+        "url": "/code/runtime/src/lib.rs#L2885-L2887",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2975,9 +2984,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2852,
-        "end_line": 2854,
-        "url": "/code/runtime/src/lib.rs#L2852-L2854",
+        "line": 2856,
+        "end_line": 2858,
+        "url": "/code/runtime/src/lib.rs#L2856-L2858",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -3378,9 +3387,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2875,
-        "end_line": 2877,
-        "url": "/code/runtime/src/lib.rs#L2875-L2877",
+        "line": 2879,
+        "end_line": 2881,
+        "url": "/code/runtime/src/lib.rs#L2879-L2881",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

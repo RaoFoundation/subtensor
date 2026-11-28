@@ -1,6 +1,6 @@
 """Golden vectors for the v2.1 final pure core (pallets/lending/src/math), generated from model/v21.
 
-Writes ../src/tests/golden/v21.json (or the path given as the first argument) with four sections:
+Writes ../src/tests/golden/v21.json (or the path given as the first argument) with five sections:
 
   rate       rate(apr, k, cap, floor, num, den) (SPEC 1 item 2, P5): the 3,264 vectors of the upstream run,
              apr 1 / 2,000 / 10,000 x k 1..8 x cap 2,000 .. 1,000,000 (cap >= apr) x 12 operand pairs x the
@@ -17,6 +17,14 @@ Writes ../src/tests/golden/v21.json (or the path given as the first argument) wi
   accrual    due and remainder after n blocks at the final rate. A short has num = floor(q x min(TWAP, SMA30)),
              den = C + P and is charged on notional = floor(q x TWAP); a long has num = D, den =
              floor(A x max(TWAP, SMA30)) + C and is charged on notional = D (SPEC 1 item 2, the slow price).
+  default    whole-model scenarios of a short default (SPEC 1 item 4, I2, I5): a short opens at block 1 on a
+             pool of `tao` / `alpha` with `collateral_open`, the slow prices are then set to `twap` / `sma` and
+             its collateral to `collateral_left` (as after a long bleed; written directly, the model has no
+             faster way to get there), and the blocks run with no other trade. Each row lists every scheduled
+             charge `[blocks after the open, amount, rate]` up to the default, and the default itself: its
+             block, `residual` (q moved to ResidualAlpha), `proceeds_to_pool` (P credited to SubnetTAO), the
+             deposit burned and SubnetTAO after it. Rows cover collateral that pays the charge exactly (no
+             default at that charge), one rao less and one rao more, on both sides of u = 1.
 
 Every row is computed twice: by the formulas written out in this file and by v21.core with the final switches
 (`rate_floor` as the row says, `u_price_slow` on, the stress slope at 0). The script fails on any mismatch and
@@ -277,11 +285,107 @@ def accrual_rows():
     return rows, bad
 
 
+# ---------------------------------------------------------------------------- default rows
+DEFAULT_POOLS = ((5_000 * RAO, 50_000 * RAO), (25_000 * RAO, 9_000_000 * RAO), (2_000 * RAO, 480_000 * RAO),
+                 (123_456_789_012_345, 9_876_543_210_987_654))
+DEFAULT_HORIZON = 6                                                        # charges; the TWAP median holds
+
+
+def default_formula(apr, k, cap, q, twap, sma, C, P, interval):
+    """SPEC 1 items 2 and 4 written out: each scheduled charge reads the rate, accrues, takes min(due, C);
+    the short defaults at the first charge that leaves C == 0 with interest due."""
+    due = rem = 0
+    charges = []
+    for n in range(1, DEFAULT_HORIZON + 1):
+        rate = curve(apr, k, cap, q * min(twap, sma) >> 64, C + P)
+        owed, rem = accrue(q * twap >> 64, rate, interval, rem)
+        due += owed
+        c = min(due, C)
+        C, due = C - c, due - c
+        if c:
+            charges.append([n * interval, S(c), rate])
+        if C == 0 and due > 0:
+            return charges, n * interval
+    return charges, None
+
+
+def default_run(apr, k, cap, T, X, q, c_open, twap, sma, c_left):
+    """The same scenario through v21.core, block by block. Returns the opened position's proceeds and
+    deposit, the charges, and the default: (blocks after the open, residual, proceeds_to_pool, burned,
+    SubnetTAO after), or None if it did not default within the horizon."""
+    sp = dataclasses.replace(SynthParams(), apr_bps=apr, rate_k=k, rate_cap_bps=cap, stress_slope_bps=0)
+    sw = dataclasses.replace(ModelSwitches(), rate_floor=True, u_price_slow=True)
+    sn = core.Subnet(T, X, X, sp=sp, lp=LongParams(), sw=sw, trace=True)
+    sn.credit('a', c_open + sp.deposit)
+    sn.begin_block()
+    sn.open_short('a', q, c_open)
+    sn.end_block()
+    pos = sn.shorts['a']
+    opened, proceeds, deposit, issuance = sn.block, pos.P, pos.deposit, sn.issuance
+    sn.twap = [twap] * sp.twap_samples
+    sn.sma_days = [sma] * sp.rank_days
+    sn.custody -= pos.C - c_left
+    pos.C = c_left
+    charges, default = [], None
+    for _ in range(DEFAULT_HORIZON * sp.charge_interval):
+        sn.begin_block()
+        seen, t_before, burned = len(sn.events), sn.T, sn.burned
+        sn.end_block()
+        paid = 0
+        for ev in sn.events[seen:]:
+            if ev[1] == 'interest':
+                charges.append([sn.block - opened, S(ev[4]), ev[5]])
+                paid += ev[4]
+            elif ev[1] == 'short_default':
+                assert ev[3] == q and sn.residual == q and sn.synth == 0 and sn.issuance == issuance
+                assert 'a' not in sn.shorts and sn.custody == 0
+                default = (sn.block - opened, sn.residual, sn.T - t_before - paid, sn.burned - burned, sn.T)
+        if default:
+            break
+    return proceeds, deposit, charges, default
+
+
+def default_rows():
+    rows, bad = [], 0
+    for i in range(48):
+        T, X = DEFAULT_POOLS[i % len(DEFAULT_POOLS)]
+        apr, k, cap = LAUNCH if i % 3 == 0 else curve_params()
+        q = X * rng.randrange(60, 99) // 10_000                            # over min_notional, under the open impact cap
+        spot = pm.price(T, X)
+        c_open = 5 * (q * spot >> 64)
+        # Slow prices after the open: below the open price (u < 1, the base APR whatever C is) for two rows
+        # in three, above it (u > 1, the convex part) for the third.
+        scale = rng.randrange(10_500, 40_000) if i % 3 == 2 else rng.randrange(3_000, 9_000)
+        twap = spot * scale // BPS
+        sma = twap * rng.randrange(8_000, 12_500) // BPS
+        interval = SynthParams().charge_interval
+        first = accrue(q * twap >> 64, apr, interval, 0)[0]
+        # The collateral left: exactly the first charge at the base APR, one rao around it, nothing, or a
+        # random amount worth up to a few charges.
+        c_left = (first, first - 1, first + 1, 0, rng.randrange(0, 4 * first), rng.randrange(0, 3 * first))[i % 6]
+        proceeds, deposit, charges, default = default_run(apr, k, cap, T, X, q, c_open, twap, sma, c_left)
+        f_charges, f_default = default_formula(apr, k, cap, q, twap, sma, c_left, proceeds, interval)
+        bad += default is None
+        if default is None:
+            continue
+        at, residual, to_pool, burned, tao_after = default
+        bad += (charges, at) != (f_charges, f_default)
+        bad += (residual, to_pool, burned) != (q, proceeds, deposit)
+        rows.append(dict(tao=S(T), alpha=S(X), apr=apr, k=k, cap=cap, q=S(q), collateral_open=S(c_open),
+                         proceeds=S(proceeds), deposit=S(deposit), twap=S(twap), sma=S(sma),
+                         collateral_left=S(c_left), charges=charges, default_at=at, residual=S(residual),
+                         proceeds_to_pool=S(to_pool), burned=S(burned), tao_after=S(tao_after)))
+    # The exact-cover rows must show both outcomes of the first charge.
+    firsts = [r['default_at'] for r in rows]
+    bad += not (360 in firsts and 720 in firsts)
+    return rows, bad
+
+
 if __name__ == '__main__':
     here = os.path.dirname(os.path.abspath(__file__))
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, '..', 'src', 'tests', 'golden', 'v21.json')
     sections = dict(rate=rate_rows(), rate_edge=edge_rate_rows(), coverage=coverage_rows(),
-                    accrual=accrual_rows())
+                    accrual=accrual_rows(), default=default_rows())
     sp = SynthParams()
     out = dict(source='model/v21', seed=SEED, q64=S(Q64), blocks_per_year=BPY, stress_bps=sp.stress_bps,
                **{name: rows for name, (rows, _) in sections.items()})

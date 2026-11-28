@@ -12,11 +12,12 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 use sp_runtime::traits::AccountIdConversion;
-use subtensor_runtime_common::{AlphaBalance, NetUid};
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
 use crate::{
-    Config, Custody, Due, Event, HolderPositions, InterestRetry, LendingPoolInterface, Pallet,
-    Positions, SwappedOutAt, SyntheticOutstanding, WeightInfo,
+    Config, Custody, Due, Event, HolderPositions, InterestRetry, LendingPoolInterface,
+    LongLiftedTao, Pallet, Positions, ResidualAlpha, SwappedOutAt, SyntheticOutstanding,
+    WeightInfo,
     types::{PositionId, Side},
 };
 
@@ -38,9 +39,14 @@ pub trait LendingInterface<AccountId> {
     /// The alpha of `netuid` held by `who` that lending keeps locked, in rao. Everything a
     /// custody account holds is locked; any other account has none.
     fn locked_alpha(who: &AccountId, netuid: NetUid) -> u64;
-    /// The alpha lending has minted on `netuid` and not yet burned (`SyntheticOutstanding`), in
-    /// rao. It is part of `get_alpha_issuance` (SPEC I7) and of no staker's claim.
+    /// The alpha lending has minted on `netuid` and not yet burned, in rao: the open shorts'
+    /// `SyntheticOutstanding` plus the `ResidualAlpha` defaulted shorts left in circulation.
+    /// It is part of `get_alpha_issuance` (SPEC I2, I7) and of no staker's claim.
     fn lending_alpha(netuid: NetUid) -> u64;
+    /// `LongLiftedTao` of `netuid`, in rao: pool TAO that is lender credit, not real TAO;
+    /// outflows must never take it (Jacob, Nov 27, C1 option (a)); enforced on swap paths in
+    /// the longs task.
+    fn long_credit(netuid: NetUid) -> TaoBalance;
     /// Whether a coldkey swap from `old` to `new` may be admitted: `false` if `old` holds
     /// positions and `new` holds any. Read-only. The swap refuses such a destination when it
     /// is announced and when it executes, so [`Self::on_coldkey_swap`] always moves every
@@ -82,6 +88,10 @@ impl<AccountId> LendingInterface<AccountId> for () {
 
     fn lending_alpha(_netuid: NetUid) -> u64 {
         0
+    }
+
+    fn long_credit(_netuid: NetUid) -> TaoBalance {
+        TaoBalance::from(0u64)
     }
 
     fn coldkey_swap_destination_ok(_old: &AccountId, _new: &AccountId) -> bool {
@@ -248,8 +258,11 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     }
 
     fn lending_alpha(netuid: NetUid) -> u64 {
-        // TODO(task5): add `ResidualAlpha`, the alpha defaults leave in circulation.
-        SyntheticOutstanding::<T>::get(netuid)
+        SyntheticOutstanding::<T>::get(netuid).saturating_add(ResidualAlpha::<T>::get(netuid))
+    }
+
+    fn long_credit(netuid: NetUid) -> TaoBalance {
+        TaoBalance::from(LongLiftedTao::<T>::get(netuid))
     }
 
     fn coldkey_swap_destination_ok(old: &T::AccountId, new: &T::AccountId) -> bool {
@@ -280,6 +293,10 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     }
 
     // HOLD(2.8/2.9): payout split pending spec decision
+    // TODO(ResidualAlpha dissolution): when a subnet dissolves, its `ResidualAlpha` (the alpha
+    // defaulted shorts left in circulation, SPEC section 1 item 4) must be settled here
+    // together with the rest of the payout split, and its entry removed. Not implemented: the
+    // payout is pending the spec decision above, so a dissolved subnet keeps its entry.
     fn on_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) {}
 
     // HOLD(2.6): pending spec decision

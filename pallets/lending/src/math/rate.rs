@@ -60,6 +60,28 @@ pub struct RateCurve {
     pub cap_bps: u32,
 }
 
+/// Whether a partial close de-risks a short (SPEC 1.4): `u` after it is at most `u` before
+/// it, `q2 * (C1 + P1) <= q1 * (C2 + P2)`, with `q` the minted alpha and `held` the position's
+/// `C + P` before (`1`, interest settled) and after (`2`). Both sides of `u` are valued at the
+/// same slow price `min(TWAP_median, SMA30_rank)`, so the price cancels and the comparison is
+/// exact in integers, as in the model (`model/v21/core.py`, `close_short`). A product that does
+/// not fit `u128` (no minted alpha within the supply cap produces one) is not a de-risk.
+#[must_use]
+pub fn short_close_derisks(
+    q_before: u64,
+    held_before: u128,
+    q_after: u64,
+    held_after: u128,
+) -> bool {
+    match (
+        u128::from(q_after).checked_mul(held_before),
+        u128::from(q_before).checked_mul(held_after),
+    ) {
+        (Some(after), Some(before)) => after <= before,
+        _ => false,
+    }
+}
+
 impl RateCurve {
     /// The yearly rate in bps at debt `num` over holdings `den` (see [`rate_bps`]).
     #[must_use]

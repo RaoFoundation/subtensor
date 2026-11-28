@@ -157,13 +157,15 @@ async def lending_market(view, netuid: int) -> Optional[dict]:
     The pool as lending prices it (`pool_tao`, `pool_alpha`, the TAO reserve's
     `quote_weight` and the `swap_fee`, both fractions), the books
     (`synthetic_outstanding`: alpha minted by shorts and not yet bought back;
-    `long_locked_alpha` and `long_lifted_tao`), and the three price references
-    in TAO per alpha: the live `spot`, the `twap` median and the `sma` of daily
-    means.
+    `residual_alpha`: alpha minted by shorts that defaulted, which stays issued
+    with no position behind it; `long_locked_alpha` and `long_lifted_tao`), and
+    the three price references in TAO per alpha: the live `spot`, the `twap`
+    median and the `sma` of daily means.
     """
     market = await view.runtime(api.LendingRuntimeApi.market, [netuid])
     if not market:
         return None
+    residual = await view.query(st.Lending.ResidualAlpha, [netuid])
     return {
         "netuid": netuid,
         "pool_tao": view.balance(int(market["pool_tao"]), 0),
@@ -171,6 +173,7 @@ async def lending_market(view, netuid: int) -> Optional[dict]:
         "quote_weight": int(market["quote_weight"]) / _PERQUINTILL,
         "swap_fee": int(market["swap_fee"]) / _FEE_DENOMINATOR,
         "synthetic_outstanding": view.balance(int(market["synthetic_outstanding"]), netuid),
+        "residual_alpha": view.balance(int(residual or 0), netuid),
         "long_locked_alpha": view.balance(int(market["long_locked_alpha"]), netuid),
         "long_lifted_tao": view.balance(int(market["long_lifted_tao"]), 0),
         "spot": _price(market["spot"]),

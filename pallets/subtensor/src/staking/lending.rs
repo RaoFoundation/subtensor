@@ -284,9 +284,16 @@ impl<T: Config + pallet_subtensor_swap::Config> LendingPoolInterface<T::AccountI
 
     /// `get_alpha_issuance`: the reserve, the outstanding alpha and the swap pallet's
     /// reservoir. A short's minted alpha lands in the first two (see `mint_and_sell`), so it
-    /// is counted once (SPEC I7, P23).
+    /// is counted once (SPEC I7, P23). A default burns none of it: the alpha it moves from
+    /// `SyntheticOutstanding` to `ResidualAlpha` stays where the sale put it and stays counted
+    /// here, so in the halving schedule, `root_proportion` and the 21M cap as well (SPEC I2).
     fn alpha_issuance(netuid: NetUid) -> u64 {
         Self::get_alpha_issuance(netuid).to_u64()
+    }
+
+    /// The coinbase's own answer (`Pallet::is_in_emission_set`), read-only.
+    fn is_in_emission_set(netuid: NetUid) -> bool {
+        Self::is_in_emission_set(netuid)
     }
 
     fn tao_balance(who: &T::AccountId) -> u64 {
@@ -348,6 +355,12 @@ impl<T: Config + pallet_subtensor_swap::Config> LendingPoolInterface<T::AccountI
         Self::transfer_tao(from, &subnet_account, tao)?;
         Self::increase_provided_tao_reserve(netuid, tao);
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(tao));
+        Ok(amount)
+    }
+
+    /// `burn_tao`: the TAO moves to the burn account, as every other burn of this pallet.
+    fn burn_tao(from: &T::AccountId, amount: u64) -> Result<u64, DispatchError> {
+        Self::burn_tao(from, TaoBalance::from(amount))?;
         Ok(amount)
     }
 

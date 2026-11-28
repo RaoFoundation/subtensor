@@ -1,5 +1,7 @@
 //! Position operations (DESIGN-v2 sections 4 and 5; SPEC 1.1-1.4, P2-P23, L2-L12): open,
 //! increase, close and add collateral, on either side. Collateral leaves a position only on close.
+//! A short opens and grows only on a subnet in the emission set (`ensure_in_emission_set`); a
+//! partial close of a short passes on coverage or on de-risking (`partial_close_allowed`).
 //!
 //! Every operation charges interest on touch: `Position::settle` up front for the amounts and
 //! `Pallet::pay_interest` at commit, the same pair the `Due` queue runs (see `interest`).
@@ -27,9 +29,10 @@ use crate::{
         coverage::{long_need, short_need},
         curve::{Curve, PoolState},
         fixed::BPS,
+        rate::short_close_derisks,
     },
     params::{DeregParams, LendingParams, LongParams, RAO, ShortParams},
-    types::{Leg, Market, Position, Side},
+    types::{Leg, Market, Position, PositionId, Side},
 };
 
 /// The alpha supply cap (SPEC P23, I21): 21,000,000 alpha.
@@ -86,6 +89,41 @@ pub(crate) fn held_against(collateral: u64, leg: &Leg) -> u64 {
 /// Whether `held` covers `need`. An infinite need (`None`) never does.
 pub(crate) fn covers(need: Option<u64>, held: u64) -> bool {
     need.is_some_and(|need| held >= need)
+}
+
+/// Whether a partial close may leave `leg` with `collateral` (SPEC 1.4), given the coverage
+/// `need` of what is left. `before` is the position with its interest settled and nothing of
+/// the close applied. The close is allowed if what is left is covered. A short's is also
+/// allowed if it de-risks: its `u` does not rise, `q2 * (C1 + P1) <= q1 * (C2 + P2)` at the same
+/// slow price (`math::rate::short_close_derisks`), so an underwater short can always shrink
+/// without a top-up. A long has the coverage rule only.
+pub(crate) fn partial_close_allowed<B>(
+    need: Option<u64>,
+    before: &Position<B>,
+    collateral: u64,
+    leg: &Leg,
+) -> bool {
+    if covers(need, held_against(collateral, leg)) {
+        return true;
+    }
+    match (before.leg, *leg) {
+        (
+            Leg::Short {
+                minted: q_before,
+                proceeds: p_before,
+            },
+            Leg::Short {
+                minted: q_after,
+                proceeds: p_after,
+            },
+        ) => short_close_derisks(
+            q_before,
+            u128::from(before.collateral).saturating_add(u128::from(p_before)),
+            q_after,
+            u128::from(collateral).saturating_add(u128::from(p_after)),
+        ),
+        _ => false,
+    }
 }
 
 /// The pool a position's coverage is measured on: the pool after the operation, with the
@@ -284,6 +322,49 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Removes every record of a position that is gone (a full close, a default): the
+    /// position, its custody record, its `Due` entry at `charge_at` with the retry count, the
+    /// counts and the holder's entry. Moves no funds and touches no book.
+    pub(crate) fn forget_position(key: &PositionId<T::AccountId>, charge_at: BlockNumberFor<T>) {
+        let (who, netuid, side) = key;
+        Positions::<T>::remove(key);
+        Custody::<T>::remove(key);
+        Self::unschedule_charge(key, charge_at);
+        PositionCount::<T>::mutate_exists(netuid, |count| {
+            *count = count.unwrap_or(0).checked_sub(1).filter(|left| *left > 0);
+        });
+        TotalPositions::<T>::mutate(|count| *count = count.saturating_sub(1));
+        HolderPositions::<T>::mutate_exists(who, |held| {
+            if let Some(list) = held {
+                list.retain(|entry| *entry != (*netuid, *side));
+                if list.is_empty() {
+                    *held = None;
+                }
+            }
+        });
+    }
+
+    /// The emission-set gate (Jacob, Nov 27): a short opens and grows only on a subnet that is
+    /// in the emission set now. This is the one check; `open_short`, `increase_short` and
+    /// their quotes each run it once, and no other call does. The predicate is the runtime's
+    /// (`LendingPoolInterface::is_in_emission_set`).
+    pub(crate) fn ensure_in_emission_set(netuid: NetUid) -> DispatchResult {
+        ensure!(
+            T::Pool::is_in_emission_set(netuid),
+            Error::<T>::SubnetNotInEmission
+        );
+        Ok(())
+    }
+
+    /// The weight of [`Self::ensure_in_emission_set`], which `open_short` and `increase_short`
+    /// add to their measured weight: one pass over the subnets, bounded by the subnet limit.
+    pub fn emission_gate_weight() -> frame_support::weights::Weight {
+        T::DbWeight::get().reads(
+            crate::pool::EMISSION_SET_READS_PER_SUBNET
+                .saturating_mul(u64::from(T::Pool::subnet_limit())),
+        )
+    }
+
     pub(crate) fn ensure_side_enabled(side: Side) -> DispatchResult {
         match side {
             Side::Short => {
@@ -402,6 +483,9 @@ impl<T: Config> Pallet<T> {
             market.pool.tao >= params.lending.min_pool_tao,
             Error::<T>::PoolTooShallow
         );
+        if side == Side::Short {
+            Self::ensure_in_emission_set(netuid)?;
+        }
         Self::ensure_flow(side, netuid, size, opening, &market, &params, now)?;
 
         let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
@@ -562,7 +646,7 @@ impl<T: Config> Pallet<T> {
                 &params,
             );
             ensure!(
-                covers(need, held_against(collateral, &leg)),
+                partial_close_allowed(need, &pos, collateral, &leg),
                 coverage_error::<T>(&leg)
             );
         }
@@ -622,21 +706,7 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(collateral.saturating_sub(refund_c))
                 .saturating_add(proceeds.saturating_sub(refund_p))
                 .saturating_add(pos.deposit);
-            Positions::<T>::remove(&key);
-            Custody::<T>::remove(&key);
-            Self::unschedule_charge(&key, pos.charge_at);
-            PositionCount::<T>::mutate_exists(netuid, |count| {
-                *count = count.unwrap_or(0).checked_sub(1).filter(|left| *left > 0);
-            });
-            TotalPositions::<T>::mutate(|count| *count = count.saturating_sub(1));
-            HolderPositions::<T>::mutate_exists(who, |held| {
-                if let Some(list) = held {
-                    list.retain(|entry| *entry != (netuid, side));
-                    if list.is_empty() {
-                        *held = None;
-                    }
-                }
-            });
+            Self::forget_position(&key, pos.charge_at);
         } else {
             Positions::<T>::insert(
                 &key,

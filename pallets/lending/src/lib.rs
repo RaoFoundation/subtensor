@@ -221,6 +221,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type SyntheticOutstanding<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
 
+    /// `ResidualAlpha`: synthetic alpha that defaulted shorts left in circulation (SPEC section
+    /// 1 item 4, I2). A default moves the short's `q` here from `SyntheticOutstanding`; nothing
+    /// is minted or burned. It stays part of the subnet's alpha issuance and of no staker's
+    /// claim.
+    #[pallet::storage]
+    pub type ResidualAlpha<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+
     /// `LongLockedAlpha`: the alpha held in custody by all longs of the subnet (SPEC I12).
     #[pallet::storage]
     pub type LongLockedAlpha<T> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
@@ -364,6 +371,17 @@ pub mod pallet {
             to_pool: u64,
             rate_bps: u32,
         },
+        /// A short defaulted at a scheduled charge that found its collateral exhausted with
+        /// interest still due (SPEC section 1 item 4). Its `residual_alpha` (`q`) moved from
+        /// `SyntheticOutstanding` to `ResidualAlpha`, `proceeds_to_pool` (what its custody
+        /// still held apart from the deposit) was credited to the pool's TAO reserve, its
+        /// deposit was burned and the unpaid interest was forgiven.
+        ShortDefaulted {
+            who: T::AccountId,
+            netuid: NetUid,
+            residual_alpha: u64,
+            proceeds_to_pool: u64,
+        },
     }
 
     #[pallet::error]
@@ -421,6 +439,9 @@ pub mod pallet {
         /// A coldkey swap moved away a position this coldkey opened in this block; it opens
         /// again from the next block.
         SwappedOutThisBlock,
+        /// The subnet is not in the emission set: shorts open and grow only on a subnet that
+        /// currently receives emission. Closing and adding collateral stay allowed.
+        SubnetNotInEmission,
     }
 
     /// Nothing to configure: a chain that starts with this pallet gets the state the runtime
@@ -455,7 +476,7 @@ pub mod pallet {
             let lending = Self::apply_pending_lending_params(now, &subnets);
             let applied = Self::apply_pending_params(&subnets);
             let sampled = Self::sample_prices(now.unique_saturated_into(), &subnets);
-            let (charges, buckets) = Self::collect_due(now);
+            let collected = Self::collect_due(now);
             let mut weight = if sampled {
                 T::WeightInfo::on_initialize_sampling(live)
             } else {
@@ -471,9 +492,14 @@ pub mod pallet {
             } else {
                 T::DbWeight::get().reads(1)
             });
+            // A default is part of its charge: the charges are bounded by `MaxChargesPerBlock`,
+            // and each default adds its own part on top of the measured charge.
             weight
-                .saturating_add(T::WeightInfo::collect_due(charges))
-                .saturating_add(T::WeightInfo::collect_due_buckets(buckets))
+                .saturating_add(T::WeightInfo::collect_due(collected.charges))
+                .saturating_add(T::WeightInfo::collect_due_buckets(collected.buckets))
+                .saturating_add(
+                    Self::default_weight().saturating_mul(u64::from(collected.defaults)),
+                )
         }
 
         fn on_runtime_upgrade() -> Weight {
@@ -486,13 +512,14 @@ pub mod pallet {
         }
     }
 
-    // Call indices 0..=19 are reserved for the user calls (DESIGN-v2 section 6); 5 and 11 are
-    // the poke calls, not part of this task.
+    // Call indices 0..=19 are reserved for the user calls (DESIGN-v2 section 6). Indices 4, 5,
+    // 10 and 11 are retired: v2.1 has no collateral withdrawal and no call that acts on another
+    // holder's position. A short defaults only in its own scheduled charge (`interest`).
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Opens a short: mints `q` alpha, sells it, and pays the proceeds to custody (SPEC P1-P23).
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::open_short())]
+        #[pallet::weight(T::WeightInfo::open_short().saturating_add(Pallet::<T>::emission_gate_weight()))]
         pub fn open_short(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -516,7 +543,7 @@ pub mod pallet {
 
         /// Adds `q` to an open short (SPEC P1-P23).
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::increase_short())]
+        #[pallet::weight(T::WeightInfo::increase_short().saturating_add(Pallet::<T>::emission_gate_weight()))]
         pub fn increase_short(
             origin: OriginFor<T>,
             netuid: NetUid,

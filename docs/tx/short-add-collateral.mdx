@@ -12,7 +12,7 @@ is no withdrawal.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L556-L561) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L583-L588) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("short_add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L558`](/code/pallets/lending/src/lib.rs#L556-L561):
+`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L585`](/code/pallets/lending/src/lib.rs#L583-L588):
 
 ```rust
 #[pallet::call_index(3)]
@@ -75,6 +75,6 @@ pub fn add_collateral(origin: OriginFor<T>, netuid: NetUid, amount: u64) -> Disp
 }
 ```
 
-Delegates to [`do_add_collateral`](/code/pallets/lending/src/positions.rs#L671).
+Delegates to [`do_add_collateral`](/code/pallets/lending/src/positions.rs#L736).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

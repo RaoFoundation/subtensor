@@ -11,7 +11,8 @@ use crate::{
     LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore,
     LongPositionCount, NextDue, Pallet, PendingDeregParams, PendingLendingParams,
     PendingLongParams, PendingShortParams, PositionCount, Positions, RankGeneration, RankPrice,
-    RankRing, RankRingGeneration, ShortParamsStore, SyntheticOutstanding, TotalPositions, TwapRing,
+    RankRing, RankRingGeneration, ResidualAlpha, ShortParamsStore, SyntheticOutstanding,
+    TotalPositions, TwapRing,
     math::interest::ACCRUAL_DEN,
     positions::ALPHA_SUPPLY_CAP,
     types::{Leg, Position},
@@ -61,6 +62,7 @@ impl<T: Config> Pallet<T> {
         Self::check_i25_price_rings()?;
         Self::check_i26_params()?;
         Self::check_i1_synthetic_book()?;
+        Self::check_i2_residual_alpha()?;
         Self::check_i3_custody_tao()?;
         Self::check_i5_interest_schedule()?;
         Self::check_i23_rate()?;
@@ -188,6 +190,36 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// SPEC I2, the part storage can show: a default only moves alpha from
+    /// `SyntheticOutstanding` to `ResidualAlpha`, so an entry is never stored at zero and the
+    /// two books of a subnet add up without overflow (`lending_alpha`). The conservation
+    /// itself (`Δ(SyntheticOutstanding + ResidualAlpha) == minted - bought back`, and no change
+    /// of alpha issuance at a default) has no cumulative record in storage to check against;
+    /// the tests assert it across every operation ([`Self::lending_alpha_books`]).
+    fn check_i2_residual_alpha() -> Result<(), TryRuntimeError> {
+        for (netuid, residual) in ResidualAlpha::<T>::iter() {
+            ensure!(residual > 0, "I2: ResidualAlpha stored at zero");
+            ensure!(
+                SyntheticOutstanding::<T>::get(netuid)
+                    .checked_add(residual)
+                    .is_some(),
+                "I2: SyntheticOutstanding + ResidualAlpha overflows"
+            );
+        }
+        Ok(())
+    }
+
+    /// The I2 accounting of one subnet: `(SyntheticOutstanding, ResidualAlpha)`. Their sum
+    /// rises by exactly the alpha a short mints and falls by exactly the alpha a close buys
+    /// back and burns; a default leaves it unchanged.
+    #[must_use]
+    pub fn lending_alpha_books(netuid: NetUid) -> (u64, u64) {
+        (
+            SyntheticOutstanding::<T>::get(netuid),
+            ResidualAlpha::<T>::get(netuid),
+        )
+    }
+
     /// SPEC I3: each open position's custody holds exactly its collateral, its short proceeds
     /// and its deposit. Custody is per position, so the sum over positions is the protocol's
     /// custody TAO.
@@ -210,6 +242,15 @@ impl<T: Config> Pallet<T> {
     /// first half holds while custody still holds the collateral left (I3). The second half is
     /// checked here: `Due` has one entry per position, at the position's `charge_at`, no entry
     /// lies before `NextDue`, and a retry count belongs to an open position.
+    ///
+    /// The default half of I5 ("no short is stored with `C == 0` and interest due after the
+    /// block's charges") is not true of storage as a whole, so only what is true is asserted:
+    /// such a short may be stored when a touch left it so (a touch charges `min(due, C)` and
+    /// never defaults, as in the model), when its charge was deferred by `MaxChargesPerBlock`
+    /// or when its charge failed and waits in `InterestRetry`. In each case it still has its
+    /// `Due` entry, checked below for every position, and that scheduled charge defaults it.
+    /// That a scheduled charge never stores such a short is a property of the charge itself
+    /// (`interest::charge_position`) and is asserted by the tests. A long has no default.
     fn check_i5_interest_schedule() -> Result<(), TryRuntimeError> {
         let next = NextDue::<T>::get();
         let mut scheduled = 0u64;

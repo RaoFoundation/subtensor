@@ -24,7 +24,8 @@ use crate::{
     },
     params::{DeregParams, LendingParams, LongParams, ShortParams},
     positions::{
-        coverage_need, covers, held_against, post_pool, priced_at, quote_close, quote_grow,
+        coverage_need, held_against, partial_close_allowed, post_pool, priced_at, quote_close,
+        quote_grow,
     },
     types::{Position, Side},
 };
@@ -214,6 +215,7 @@ impl<T: Config> Pallet<T> {
             market.pool.tao >= params.lending.min_pool_tao,
             Error::<T>::PoolTooShallow
         );
+        Self::ensure_in_emission_set(netuid)?;
         Self::ensure_flow(side, netuid, q, opening, &market, &params, now)?;
 
         let (pos, charge) = held.settle(&market.refs, &params.lending.rate_curve(), now);
@@ -284,7 +286,7 @@ impl<T: Config> Pallet<T> {
                 &params,
             );
             ensure!(
-                covers(need, held_against(collateral, &leg)),
+                partial_close_allowed(need, &pos, collateral, &leg),
                 Error::<T>::CoverageNotMet
             );
         }

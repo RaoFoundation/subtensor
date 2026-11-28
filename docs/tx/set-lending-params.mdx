@@ -25,7 +25,7 @@ Verify with the `lending_params` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | Lending | [`Lending.set_lending_params`](/code/pallets/lending/src/lib.rs#L673-L681), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | Lending | [`Lending.set_lending_params`](/code/pallets/lending/src/lib.rs#L700-L708), `Sudo.sudo` |
 
 ## Verify
 
@@ -83,7 +83,7 @@ result = sub.execute_tool("set_lending_params", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.set_lending_params` — [`pallets/lending/src/lib.rs#L678`](/code/pallets/lending/src/lib.rs#L673-L681):
+`Lending.set_lending_params` — [`pallets/lending/src/lib.rs#L705`](/code/pallets/lending/src/lib.rs#L700-L708):
 
 ```rust
 #[pallet::call_index(22)]

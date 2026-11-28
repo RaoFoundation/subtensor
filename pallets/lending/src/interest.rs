@@ -19,6 +19,18 @@
 //! The operations of `positions` charge on touch with the same two steps as the queue:
 //! [`Position::settle`] for the amounts and [`Pallet::pay_interest`] for the credit. A touch
 //! does not move the position's `Due` entry (SPEC P15: queued entries are not moved).
+//!
+//! Short default (SPEC section 1 item 4, I2, I5). The scheduled charge is the only place a
+//! position defaults. Right after it paid what the charge policy takes (`math::default`), in
+//! the same storage layer, it asks the policy whether the short defaults: at launch, when its
+//! collateral is zero with interest still due (Jacob, Nov 27). A default credits what custody
+//! still holds apart from the deposit (the proceeds `P`) to the pool's TAO reserve through the
+//! pool-internal credit, moves the short's `q` from `SyntheticOutstanding` to `ResidualAlpha`
+//! (no alpha is minted or burned), burns the deposit, forgives the unpaid interest and removes
+//! the position with its custody record, counts and retry count. A touch never defaults: the
+//! model's touches charge `min(due, C)` and leave the rest due (`model/v21/core.py`), so a short
+//! a touch left with `C == 0` and interest due defaults at its next scheduled charge. There is
+//! no default of a long.
 
 use alloc::vec::Vec;
 use frame_support::{dispatch::DispatchResult, storage::with_storage_layer, traits::Get};
@@ -30,12 +42,36 @@ use sp_runtime::{
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    Config, Due, Event, InterestRetry, InterestTotals, LendingParamsStore, LendingPoolInterface,
-    NextDue, Pallet, Positions, TotalPositions,
-    math::{interest::next_charge_block, rate::RateCurve},
+    Config, Due, Error, Event, InterestRetry, InterestTotals, LendingParamsStore,
+    LendingPoolInterface, NextDue, Pallet, Positions, ResidualAlpha, SyntheticOutstanding,
+    TotalPositions,
+    math::{
+        default::{ChargePolicy, Launch},
+        interest::next_charge_block,
+        rate::RateCurve,
+    },
     params::LendingParams,
-    types::{Position, PositionId, Side},
+    types::{Leg, Position, PositionId, Side},
 };
+
+/// What a scheduled charge left of a position.
+enum Charged<BlockNumber> {
+    /// The position stays open, settled to the charge's block.
+    Open(Position<BlockNumber>),
+    /// The short defaulted and is gone.
+    Defaulted,
+}
+
+/// What one `collect_due` did, for the weight of `on_initialize`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Collected {
+    /// Scheduled charges run, the defaulting ones included.
+    pub charges: u32,
+    /// `Due` buckets read.
+    pub buckets: u32,
+    /// Charges that ended in a default.
+    pub defaults: u32,
+}
 
 /// Blocks a scheduled charge that failed waits before it is tried again.
 pub const RETRY_DELAY_BLOCKS: u32 = 10;
@@ -111,21 +147,31 @@ impl<T: Config> Pallet<T> {
         InterestRetry::<T>::remove(id);
     }
 
+    /// The weight one default adds to a scheduled charge, counted by hand until the charge is
+    /// measured with its default branch: the credit of the proceeds to the pool and the burn of
+    /// the deposit (two transfers and the reserve), the two alpha books, the counts, the
+    /// holder's list and the removals.
+    pub(crate) fn default_weight() -> frame_support::weights::Weight {
+        T::DbWeight::get().reads_writes(12, 14)
+    }
+
     /// Runs the scheduled charges due at or before `now`, oldest bucket first, and returns how
-    /// many it ran and how many buckets it read. It stops at `MaxChargesPerBlock` charges or
-    /// [`MAX_DUE_BUCKETS_PER_BLOCK`] buckets; `NextDue` keeps the place for the next block
-    /// (SPEC P15).
-    pub(crate) fn collect_due(now: BlockNumberFor<T>) -> (u32, u32) {
+    /// many it ran, how many of them defaulted a short and how many buckets it read. It stops
+    /// at `MaxChargesPerBlock` charges or [`MAX_DUE_BUCKETS_PER_BLOCK`] buckets; `NextDue` keeps
+    /// the place for the next block (SPEC P15). A default is part of its charge, so the same
+    /// budget bounds the defaults of a block.
+    pub(crate) fn collect_due(now: BlockNumberFor<T>) -> Collected {
         let Some(mut cursor) = NextDue::<T>::get() else {
-            return (0, 0);
+            return Collected::default();
         };
         if cursor > now {
-            return (0, 0);
+            return Collected::default();
         }
         let lending = LendingParamsStore::<T>::get();
         let budget = T::MaxChargesPerBlock::get();
         let mut charges = 0u32;
         let mut buckets = 0u32;
+        let mut defaults = 0u32;
         for _ in 0..MAX_DUE_BUCKETS_PER_BLOCK {
             if cursor > now {
                 break;
@@ -135,7 +181,9 @@ impl<T: Config> Pallet<T> {
             let ids: Vec<_> = Due::<T>::iter_key_prefix(cursor).take(room).collect();
             for id in &ids {
                 Due::<T>::remove(cursor, id);
-                Self::charge_due(id, now, &lending);
+                if Self::charge_due::<Launch>(id, now, &lending) {
+                    defaults = defaults.saturating_add(1);
+                }
                 charges = charges.saturating_add(1);
             }
             if charges >= budget {
@@ -149,23 +197,35 @@ impl<T: Config> Pallet<T> {
         } else {
             NextDue::<T>::put(cursor);
         }
-        (charges, buckets)
+        Collected {
+            charges,
+            buckets,
+            defaults,
+        }
     }
 
-    /// Charges one position whose `Due` entry was just taken, and schedules its next charge. A
-    /// charge that succeeds schedules the first block after `now` on the position's grid, read
-    /// with the interval live now, so a late charge rejoins the grid and an interval change
-    /// applies from here (SPEC P15). A charge that fails leaves the position as it was, counts
-    /// in `InterestRetry` and is tried again [`RETRY_DELAY_BLOCKS`] after `now`.
-    fn charge_due(id: &PositionId<T::AccountId>, now: BlockNumberFor<T>, lending: &LendingParams) {
+    /// Charges one position whose `Due` entry was just taken, under the charge policy `P`, and
+    /// schedules its next charge or defaults it. Returns whether it defaulted.
+    ///
+    /// A charge that succeeds on a position that stays open schedules the first block after
+    /// `now` on the position's grid, read with the interval live now, so a late charge rejoins
+    /// the grid and an interval change applies from here (SPEC P15). A charge after which the
+    /// policy defaults the short removes it in the same storage layer (SPEC section 1 item 4).
+    /// A charge or default that fails leaves the position as it was, counts in `InterestRetry`
+    /// and is tried again [`RETRY_DELAY_BLOCKS`] after `now`.
+    pub(crate) fn charge_due<P: ChargePolicy>(
+        id: &PositionId<T::AccountId>,
+        now: BlockNumberFor<T>,
+        lending: &LendingParams,
+    ) -> bool {
         let Some(pos) = Positions::<T>::get(id) else {
-            return;
+            return false;
         };
         let charged =
-            with_storage_layer(|| Self::charge_position(id, pos, &lending.rate_curve(), now));
-        let paid = charged.is_ok();
+            with_storage_layer(|| Self::charge_position::<P>(id, pos, &lending.rate_curve(), now));
         let (pos, charge_at) = match charged {
-            Ok(settled) => {
+            Ok(Charged::Defaulted) => return true,
+            Ok(Charged::Open(settled)) => {
                 InterestRetry::<T>::remove(id);
                 let next = Self::grid_block(settled.opened_at, now, lending.charge_interval_blocks);
                 (settled, next)
@@ -177,23 +237,23 @@ impl<T: Config> Pallet<T> {
         };
         Positions::<T>::insert(id, Position { charge_at, ..pos });
         Self::schedule_charge(id, charge_at);
-        if paid {
-            Self::after_charge(id);
-        }
+        false
     }
 
     /// Accrues `pos` to `now` at its rate on `curve`, on its notional (`q * TWAP_median` for a
-    /// short, the debt for a long), takes `min(due, C)` from its collateral and pays it to the
-    /// pool (SPEC section 1 item 2, I5). Returns the settled position; the caller stores it.
-    fn charge_position(
+    /// short, the debt for a long), takes what the policy `P` names from it (`min(due, C)` at
+    /// launch) and pays it to the pool (SPEC section 1 item 2, I5). Then, for a short the
+    /// policy defaults, runs the default. Returns the settled position, which the caller
+    /// stores, or that it defaulted.
+    fn charge_position<P: ChargePolicy>(
         id: &PositionId<T::AccountId>,
         pos: Position<BlockNumberFor<T>>,
         curve: &RateCurve,
         now: BlockNumberFor<T>,
-    ) -> Result<Position<BlockNumberFor<T>>, DispatchError> {
+    ) -> Result<Charged<BlockNumberFor<T>>, DispatchError> {
         let (who, netuid, side) = id;
         let refs = Self::price_refs(*netuid)?;
-        let (settled, charge) = pos.settle(&refs, curve, now);
+        let (settled, charge) = pos.settle_with::<P>(&refs, curve, now);
         let custody = Self::position_custody(id, pos.opened_at);
         Self::pay_interest(
             who,
@@ -203,9 +263,61 @@ impl<T: Config> Pallet<T> {
             charge.amount,
             charge.rate_bps,
         )?;
-        Ok(settled)
+        if let Leg::Short { minted, proceeds } = settled.leg
+            && P::should_default(settled.collateral, proceeds, settled.accrual.due)
+        {
+            Self::default_short(id, &settled, minted, proceeds, &custody)?;
+            return Ok(Charged::Defaulted);
+        }
+        Ok(Charged::Open(settled))
     }
 
-    /// Runs after every scheduled charge. Empty until the default of SPEC section 1 item 4.
-    pub(crate) fn after_charge(_id: &PositionId<T::AccountId>) {}
+    /// Defaults a short whose scheduled charge was just paid (SPEC section 1 item 4):
+    ///
+    /// 1. what custody holds apart from the deposit goes to the pool's TAO reserve by the
+    ///    pool-internal credit, which is neither flow nor volume (SPEC I18, I19). That is the
+    ///    proceeds `P`; the collateral is zero at a default, and any left under another policy
+    ///    goes with it, as the model sends `C + P` (`model/v201x/core.py`, `_default_short`).
+    ///    It is not interest and is not counted in `InterestTotals`;
+    /// 2. the deposit is burned;
+    /// 3. `q` moves from `SyntheticOutstanding` to `ResidualAlpha`: the alpha was sold at the
+    ///    open and stays in circulation, so none is minted or burned (SPEC I2);
+    /// 4. the unpaid interest is forgiven with the position, which is removed with its custody
+    ///    record, counts, holder entry, `Due` entry and retry count.
+    fn default_short(
+        id: &PositionId<T::AccountId>,
+        pos: &Position<BlockNumberFor<T>>,
+        minted: u64,
+        proceeds: u64,
+        custody: &T::AccountId,
+    ) -> DispatchResult {
+        let (who, netuid, _) = id;
+        let proceeds_to_pool = pos
+            .collateral
+            .checked_add(proceeds)
+            .ok_or(Error::<T>::Overflow)?;
+        if proceeds_to_pool > 0 {
+            Self::credit_pool(*netuid, custody, proceeds_to_pool)?;
+        }
+        if pos.deposit > 0 {
+            let burned = T::Pool::burn_tao(custody, pos.deposit)?;
+            frame_support::ensure!(burned == pos.deposit, Error::<T>::QuoteMismatch);
+        }
+        let book = SyntheticOutstanding::<T>::get(netuid)
+            .checked_sub(minted)
+            .ok_or(Error::<T>::Overflow)?;
+        let residual = ResidualAlpha::<T>::get(netuid)
+            .checked_add(minted)
+            .ok_or(Error::<T>::Overflow)?;
+        SyntheticOutstanding::<T>::insert(netuid, book);
+        ResidualAlpha::<T>::insert(netuid, residual);
+        Self::forget_position(id, pos.charge_at);
+        Self::deposit_event(Event::ShortDefaulted {
+            who: who.clone(),
+            netuid: *netuid,
+            residual_alpha: minted,
+            proceeds_to_pool,
+        });
+        Ok(())
+    }
 }

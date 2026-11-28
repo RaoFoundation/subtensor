@@ -574,6 +574,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "TooManyPositions": _C.LIMIT_EXCEEDED,
     "QuoteMismatch": _C.INTERNAL,
     "SwappedOutThisBlock": _C.TOO_EARLY,
+    # Shorts open and grow only on a subnet that currently receives emission.
+    "SubnetNotInEmission": _C.POLICY_VIOLATION,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

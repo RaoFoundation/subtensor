@@ -13,7 +13,7 @@ read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | Lending | [`Lending.set_long_params`](/code/pallets/lending/src/lib.rs#L694-L699), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | Lending | [`Lending.set_long_params`](/code/pallets/lending/src/lib.rs#L719-L724), `Sudo.sudo` |
 
 ## Verify
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("set_lending_long_params", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.set_long_params` — [`pallets/lending/src/lib.rs#L696`](/code/pallets/lending/src/lib.rs#L694-L699):
+`Lending.set_long_params` — [`pallets/lending/src/lib.rs#L721`](/code/pallets/lending/src/lib.rs#L719-L724):
 
 ```rust
 #[pallet::call_index(24)]
@@ -82,7 +82,7 @@ pub fn set_long_params(origin: OriginFor<T>, params: LongParams) -> DispatchResu
 }
 ```
 
-Delegates to [`queue_long_params`](/code/pallets/lending/src/params.rs#L306).
+Delegates to [`queue_long_params`](/code/pallets/lending/src/params.rs#L390).
 
 `Sudo.sudo` is implemented by Substrate's `pallet_sudo`, outside this repository's pallets.
 

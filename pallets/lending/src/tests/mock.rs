@@ -4,7 +4,7 @@
 //! the same curve, so every leg's result equals the quote the pallet gated on.
 
 use core::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use frame_support::{
     PalletId, derive_impl,
@@ -102,6 +102,10 @@ thread_local! {
     static BALANCES: RefCell<BTreeMap<AccountId, u64>> = const { RefCell::new(BTreeMap::new()) };
     /// Alpha held by an account on a subnet (custody keeps a long's locked alpha here).
     static HELD: RefCell<BTreeMap<(AccountId, u16), u64>> = const { RefCell::new(BTreeMap::new()) };
+    /// Subnets taken out of the emission set; every other live pool is in it.
+    static OUT_OF_EMISSION: RefCell<BTreeSet<u16>> = const { RefCell::new(BTreeSet::new()) };
+    /// TAO burned through `burn_tao`.
+    static BURNED: RefCell<u64> = const { RefCell::new(0) };
     /// The `(coldkey, hotkey)` the pallet hotkey was registered with.
     static HOTKEY_OWNER: RefCell<Option<(AccountId, AccountId)>> = const { RefCell::new(None) };
 }
@@ -189,6 +193,11 @@ impl LendingPoolInterface<AccountId> for FakePool {
     fn alpha_issuance(netuid: NetUid) -> u64 {
         POOLS.with_borrow(|pools| pools.get(&u16::from(netuid)).map_or(0, |p| p.issuance))
     }
+    fn is_in_emission_set(netuid: NetUid) -> bool {
+        let netuid = u16::from(netuid);
+        POOLS.with_borrow(|pools| pools.contains_key(&netuid))
+            && OUT_OF_EMISSION.with_borrow(|out| !out.contains(&netuid))
+    }
     fn tao_balance(who: &AccountId) -> u64 {
         BALANCES.with_borrow(|b| b.get(who).copied().unwrap_or(0))
     }
@@ -218,6 +227,11 @@ impl LendingPoolInterface<AccountId> for FakePool {
     ) -> Result<u64, DispatchError> {
         debit(*from, amount)?;
         with_pool(netuid, |p| p.tao = p.tao.saturating_add(amount));
+        Ok(amount)
+    }
+    fn burn_tao(from: &AccountId, amount: u64) -> Result<u64, DispatchError> {
+        debit(*from, amount)?;
+        BURNED.with_borrow_mut(|burned| *burned = burned.saturating_add(amount));
         Ok(amount)
     }
     fn mint_and_sell(netuid: NetUid, q: u64, to: &AccountId) -> Result<u64, DispatchError> {
@@ -308,6 +322,27 @@ pub fn set_moving_price(netuid: u16, moving: Price) {
     });
 }
 
+/// Puts a subnet in the emission set or takes it out of it.
+pub fn set_in_emission(netuid: u16, in_set: bool) {
+    OUT_OF_EMISSION.with_borrow_mut(|out| {
+        if in_set {
+            out.remove(&netuid);
+        } else {
+            out.insert(netuid);
+        }
+    });
+}
+
+/// TAO burned through the pool's `burn_tao` since the externalities were built.
+pub fn burned_tao() -> u64 {
+    BURNED.with_borrow(|burned| *burned)
+}
+
+/// The sum of every free TAO balance: holders and custody accounts.
+pub fn total_balances() -> u128 {
+    BALANCES.with_borrow(|b| b.values().map(|v| u128::from(*v)).sum())
+}
+
 /// Removes a pool: the subnet is no longer live.
 pub fn remove_pool(netuid: u16) {
     POOLS.with_borrow_mut(|pools| {
@@ -326,6 +361,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     POOLS.with_borrow_mut(BTreeMap::clear);
     BALANCES.with_borrow_mut(BTreeMap::clear);
     HELD.with_borrow_mut(BTreeMap::clear);
+    OUT_OF_EMISSION.with_borrow_mut(BTreeSet::clear);
+    BURNED.with_borrow_mut(|burned| *burned = 0);
     HOTKEY_OWNER.with_borrow_mut(|owner| *owner = None);
     let storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()

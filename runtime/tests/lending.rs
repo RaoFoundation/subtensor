@@ -26,8 +26,9 @@ use pallet_lending::{
 };
 use pallet_lending_runtime_api::runtime_decl_for_lending_runtime_api::LendingRuntimeApiV1;
 use pallet_subtensor::{
-    Owner, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice, SubnetTAO,
-    SubtokenEnabled, TotalStake,
+    FirstEmissionBlockNumber, NetworkRegistrationAllowed, Owner, SubnetAlphaIn, SubnetAlphaOut,
+    SubnetEmissionEnabled, SubnetMechanism, SubnetMovingPrice, SubnetTAO, SubtokenEnabled,
+    TotalStake,
 };
 use pallet_subtensor_proxy::LastCallResult;
 use pallet_subtensor_swap::{FeeRate, PalSwapInitialized, SwapBalancer, balancer::Balancer};
@@ -78,12 +79,15 @@ fn live_subnets() -> Vec<NetUid> {
 }
 
 /// A dynamic subnet with a weighted pool of `tao` / `alpha` backed by the subnet account, and
-/// an emission EMA price of `moving` (the pool's spot if `None`).
+/// an emission EMA price of `moving` (the pool's spot if `None`). It is in the emission set,
+/// where alone a short may open or grow.
 fn pool_subnet(netuid: u16, tao: u64, alpha: u64, moving: Option<f64>) -> NetUid {
     let netuid = NetUid::from(netuid);
     SubtensorModule::init_new_network(netuid, 100);
     SubnetMechanism::<Runtime>::insert(netuid, 1u16);
     SubtokenEnabled::<Runtime>::insert(netuid, true);
+    FirstEmissionBlockNumber::<Runtime>::insert(netuid, 0);
+    NetworkRegistrationAllowed::<Runtime>::insert(netuid, true);
     SubnetTAO::<Runtime>::insert(netuid, TaoBalance::from(tao));
     SubnetAlphaIn::<Runtime>::insert(netuid, AlphaBalance::from(alpha));
     SubnetAlphaOut::<Runtime>::insert(netuid, AlphaBalance::from(1_000_000 * RAO));
@@ -319,6 +323,18 @@ fn short_opens_and_closes_at_the_quoted_amounts() {
             DispatchError::BadOrigin
         );
         assert_ok!(Lending::set_enabled(RuntimeOrigin::root(), true));
+
+        // A subnet out of the emission set takes no new short, and the quote says so.
+        SubnetEmissionEnabled::<Runtime>::insert(netuid, false);
+        assert_noop!(
+            Lending::open_short(RuntimeOrigin::signed(alice()), netuid, q, 5_000 * RAO, 0),
+            pallet_lending::Error::<Runtime>::SubnetNotInEmission
+        );
+        assert_eq!(
+            Api::quote_open_short(netuid, q),
+            Err(pallet_lending::Error::<Runtime>::SubnetNotInEmission.into())
+        );
+        SubnetEmissionEnabled::<Runtime>::insert(netuid, true);
 
         // Open at exactly the quote: the proceeds bound and the least collateral.
         let quote = Api::quote_open_short(netuid, q).expect("quotes");

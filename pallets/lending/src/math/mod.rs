@@ -10,6 +10,7 @@
 
 pub mod coverage;
 pub mod curve;
+pub mod default;
 pub mod dereg;
 pub mod fixed;
 pub mod interest;

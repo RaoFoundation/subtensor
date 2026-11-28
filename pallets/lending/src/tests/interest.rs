@@ -468,7 +468,7 @@ fn leave_collateral(who: AccountId, side: Side, collateral: u64) {
 }
 
 /// The charge is capped at the collateral (SPEC I5); what is left unpaid stays due and is taken
-/// once collateral is added.
+/// once collateral is added. Run for a long, which has no default; a short defaults instead.
 fn charge_is_capped_at_the_collateral(side: Side, open: fn(AccountId) -> DispatchResult) {
     live().execute_with(|| {
         assert_ok!(open(ALICE));
@@ -516,9 +516,35 @@ fn charge_is_capped_at_the_collateral(side: Side, open: fn(AccountId) -> Dispatc
     });
 }
 
+/// A short's scheduled charge is capped at the collateral too, and the short defaults in the
+/// same step for what the collateral could not pay (SPEC section 1 item 4; `tests/default.rs`).
 #[test]
 fn a_short_charge_is_capped_at_the_collateral() {
-    charge_is_capped_at_the_collateral(Side::Short, open_short);
+    live().execute_with(|| {
+        assert_ok!(open_short(ALICE));
+        leave_collateral(ALICE, Side::Short, 1_000);
+        let before = position(ALICE, Side::Short);
+        let pool = FakePool::pool_tao(sn1());
+
+        run_to(361);
+        // The rate is the one of the 1,000 rao held before the charge takes them.
+        let rate = rate_of(&before);
+        let (owed, _) = model_accrue(notional(&before), rate, 360, 0);
+        assert!(owed > 1_000);
+        assert_eq!(charges(), vec![(ALICE, Side::Short, 1_000, rate)]);
+        assert!(lending_events().contains(&Event::ShortDefaulted {
+            who: ALICE,
+            netuid: sn1(),
+            residual_alpha: before.leg.alpha(),
+            proceeds_to_pool: before.leg.proceeds(),
+        }));
+        assert!(!Positions::<Test>::contains_key(id(ALICE, Side::Short)));
+        assert_eq!(
+            FakePool::pool_tao(sn1()),
+            pool + 1_000 + before.leg.proceeds()
+        );
+        healthy();
+    });
 }
 
 #[test]

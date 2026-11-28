@@ -1589,6 +1589,10 @@ impl pallet_lending::BenchmarkHelper<AccountId> for LendingBenchmarkHelper {
         SubtensorModule::init_new_network(netuid, 100);
         pallet_subtensor::SubnetMechanism::<Runtime>::insert(netuid, 1u16);
         pallet_subtensor::SubtokenEnabled::<Runtime>::insert(netuid, true);
+        // In the emission set, where alone a short may open or grow.
+        pallet_subtensor::FirstEmissionBlockNumber::<Runtime>::insert(netuid, 0);
+        pallet_subtensor::NetworkRegistrationAllowed::<Runtime>::insert(netuid, true);
+        pallet_subtensor::SubnetEmissionEnabled::<Runtime>::insert(netuid, true);
         pallet_subtensor::SubnetTAO::<Runtime>::insert(netuid, TaoBalance::new(tao));
         pallet_subtensor::SubnetAlphaIn::<Runtime>::insert(netuid, AlphaBalance::new(alpha));
         pallet_subtensor::SubnetAlphaOut::<Runtime>::insert(netuid, AlphaBalance::new(alpha));

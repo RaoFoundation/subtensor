@@ -39,26 +39,26 @@ fn golden() -> Value {
     serde_json::from_str(include_str!("golden/math.json")).expect("golden JSON parses")
 }
 
-fn golden_v21() -> Value {
+pub(super) fn golden_v21() -> Value {
     serde_json::from_str(include_str!("golden/v21.json")).expect("golden JSON parses")
 }
 
-fn rows<'a>(doc: &'a Value, section: &str) -> &'a Vec<Value> {
+pub(super) fn rows<'a>(doc: &'a Value, section: &str) -> &'a Vec<Value> {
     doc[section].as_array().expect("section is an array")
 }
 
-fn num(v: &Value) -> u128 {
+pub(super) fn num(v: &Value) -> u128 {
     v.as_str()
         .expect("decimal string")
         .parse()
         .expect("unsigned integer")
 }
 
-fn amount(v: &Value) -> u64 {
+pub(super) fn amount(v: &Value) -> u64 {
     u64::try_from(num(v)).expect("fits u64")
 }
 
-fn small(v: &Value) -> u32 {
+pub(super) fn small(v: &Value) -> u32 {
     u32::try_from(v.as_u64().expect("JSON number")).expect("fits u32")
 }
 
@@ -66,7 +66,7 @@ fn opt_num(v: &Value) -> Option<u128> {
     (!v.is_null()).then(|| num(v))
 }
 
-fn price(v: &Value) -> Price {
+pub(super) fn price(v: &Value) -> Price {
     Price::from_bits(num(v))
 }
 

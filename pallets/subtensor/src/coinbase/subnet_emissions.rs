@@ -40,6 +40,18 @@ impl<T: Config> Pallet<T> {
         let shares = Self::get_shares(subnets_to_emit_to);
         log::debug!("Subnet emission shares = {shares:?}");
 
+        Self::shares_of_emission_enabled(shares)
+            .into_iter()
+            .map(|(netuid, share)| {
+                let emission = U64F64::saturating_from_num(block_emission).saturating_mul(share);
+                (netuid, U96F32::saturating_from_num(emission))
+            })
+            .collect::<BTreeMap<NetUid, U96F32>>()
+    }
+
+    /// The final TAO-emission shares: `shares` with every emission-disabled subnet at zero and
+    /// its share redistributed to the enabled ones. Read-only.
+    fn shares_of_emission_enabled(shares: BTreeMap<NetUid, U64F64>) -> BTreeMap<NetUid, U64F64> {
         let zero = U64F64::saturating_from_num(0.0);
         let mut shares_with_emission_enabled = Vec::with_capacity(shares.len());
         let mut has_disabled_subnets = false;
@@ -69,10 +81,35 @@ impl<T: Config> Pallet<T> {
                 } else {
                     share
                 };
-                let emission = U64F64::saturating_from_num(block_emission).saturating_mul(share);
-                (netuid, U96F32::saturating_from_num(emission))
+                (netuid, share)
             })
-            .collect::<BTreeMap<NetUid, U96F32>>()
+            .collect()
+    }
+
+    /// The emission set now: the subnets `get_subnet_block_emissions` gives a nonzero share of
+    /// the block's TAO emission, on the state as it stands. It is the coinbase's own pipeline
+    /// (`get_subnets_to_emit_to`, the price shares scaled by miner burn, the emission gate at
+    /// the stored bar, the `SubnetEmissionEnabled` switch) without the one write of that
+    /// pipeline, the periodic update of the gate bar, so it is read-only and may be asked
+    /// from an extrinsic. One pass over the subnets.
+    pub fn emission_set() -> Vec<NetUid> {
+        let zero = U64F64::saturating_from_num(0);
+        let subnets = Self::get_subnets_to_emit_to(&Self::get_all_subnet_netuids());
+        let mut shares = Self::get_ungated_shares(&subnets);
+        Self::apply_emission_gate(&mut shares);
+        Self::shares_of_emission_enabled(shares)
+            .into_iter()
+            .filter(|(_, share)| *share > zero)
+            .map(|(netuid, _)| netuid)
+            .collect()
+    }
+
+    /// Whether `netuid` is in [`Self::emission_set`]. A subnet that fails its own flags is
+    /// refused before the pass over the others.
+    pub fn is_in_emission_set(netuid: NetUid) -> bool {
+        SubnetEmissionEnabled::<T>::get(netuid)
+            && !Self::get_subnets_to_emit_to(&[netuid]).is_empty()
+            && Self::emission_set().contains(&netuid)
     }
     pub fn record_tao_inflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
@@ -352,12 +389,16 @@ impl<T: Config> Pallet<T> {
     // gate. Emit-disabled subnets are zeroed and their share redistributed to
     // enabled subnets in `get_subnet_block_emissions`.
     pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
-        let price_shares = Self::get_shares_price_ema(subnets_to_emit_to);
-        let mut shares = Self::scale_price_shares_by_miner_burn(price_shares);
+        let mut shares = Self::get_ungated_shares(subnets_to_emit_to);
 
         Self::maybe_update_emission_gate_bar(&shares);
         Self::apply_emission_gate(&mut shares);
         shares
+    }
+
+    /// The shares before the emission gate: EMA-price shares scaled by miner burn. Read-only.
+    fn get_ungated_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
+        Self::scale_price_shares_by_miner_burn(Self::get_shares_price_ema(subnets_to_emit_to))
     }
 
     /// Scales normalized EMA-price shares by `(1 - MinerBurned)` and

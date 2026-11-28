@@ -99,6 +99,12 @@ DESCRIPTIONS: dict[str, str] = {
         "`quote_increase_short` or `quote_close_short` and resubmit with a bound that "
         "matches the current price."
     ),
+    "SubnetNotInEmission": (
+        "The subnet is not in the emission set (it currently receives no share of the block "
+        "emission), so a short cannot be opened or increased there. Closing a short and "
+        "adding collateral stay available. Use a subnet that receives emission, or retry "
+        "once this one does."
+    ),
     "SwappedOutThisBlock": (
         "A coldkey swap moved away a position this coldkey opened in the current block, so "
         "the coldkey cannot open another position until the next block. Retry in the next "

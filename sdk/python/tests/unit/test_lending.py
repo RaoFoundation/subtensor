@@ -352,6 +352,11 @@ class TestReads:
         assert market["quote_weight"] == 0.5
         assert market["swap_fee"] == pytest.approx(33 / 65_535)
         assert (market["spot"], market["twap"], market["sma"]) == pytest.approx((0.1, 0.1, 0.125))
+        # No short has defaulted: the entry is absent and reads as zero.
+        assert market["residual_alpha"].rao == 0 and market["residual_alpha"].netuid == 1
+        sub.seed("Lending", "ResidualAlpha", [1], 3 * RAO)
+        market = asyncio.run(lending.lending_market(netuid=1))
+        assert market["residual_alpha"].rao == 3 * RAO
         sub.seed_runtime("LendingRuntimeApi", "market", None)
         assert asyncio.run(lending.lending_market(netuid=9)) is None
 
@@ -453,6 +458,8 @@ class TestCli:
         result = invoke("--json", "lending", "market", "--netuid", "1")
         assert result.exit_code == 0, result.output
         assert json.loads(result.output)["netuid"] == 1
+        assert "residual_alpha" in json.loads(result.output)
+        assert "residual alpha" in invoke("lending", "market", "--netuid", "1").output
         fake_reads.seed_runtime("LendingRuntimeApi", "market", None)
         assert invoke("lending", "market", "--netuid", "9").exit_code == 1
 

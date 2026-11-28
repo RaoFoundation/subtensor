@@ -10,6 +10,7 @@ use subtensor_runtime_common::NetUid;
 use crate::math::{
     PriceRefs,
     curve::PoolState,
+    default::{ChargePolicy, Launch},
     fixed::{Price, mul_price_floor},
     interest::{accrue, short_notional},
     rate::RateCurve,
@@ -237,7 +238,8 @@ pub struct Position<BlockNumber> {
 /// One interest charge: what an accrual takes from the collateral, and the rate it accrued at.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Charge {
-    /// `min(due, C)` in rao TAO, which the caller moves to the pool.
+    /// What the charge takes from the position, in rao TAO, which the caller moves to the
+    /// pool: `min(due, C)` under the launch policy (`math::default`).
     pub amount: u64,
     /// The yearly rate in bps the accrual read from the position (SPEC I23).
     pub rate_bps: u32,
@@ -254,15 +256,31 @@ impl<BlockNumber: Copy + UniqueSaturatedInto<u64>> Position<BlockNumber> {
 
     /// Charge-on-touch settlement (SPEC section 1 item 2, P15): reads the rate from the position
     /// as stored, before anything changes it, accrues interest at that rate on the leg's notional
-    /// (at the TWAP median) up to `now`, then takes `min(due, collateral)` from the collateral. Returns the settled
-    /// position and the charge, which the caller moves to the pool at commit (pool-internal, not
-    /// flow).
+    /// (at the TWAP median) up to `now`, then takes what is due from the sources the launch
+    /// charge policy names (`math::default`: `min(due, collateral)` from the collateral).
+    /// Returns the settled position and the charge, which the caller moves to the pool at
+    /// commit (pool-internal, not flow).
     ///
     /// The rate is read here and nowhere else, so whatever the caller does to the position
     /// next (a top-up, a resize) changes the rate only from this block on, and a
     /// change of the curve applies from each position's next accrual.
+    ///
+    /// Settling never defaults a position: interest the sources cannot pay stays in
+    /// `accrual.due`, and only the scheduled charge acts on it (`interest`).
     #[must_use]
     pub fn settle(self, refs: &PriceRefs, curve: &RateCurve, now: BlockNumber) -> (Self, Charge) {
+        self.settle_with::<Launch>(refs, curve, now)
+    }
+
+    /// [`Self::settle`] under the charge policy `P`. The pallet runs `Launch`; the tests also
+    /// run the alternative, which is what makes the policy a one-line switch.
+    #[must_use]
+    pub fn settle_with<P: ChargePolicy>(
+        self,
+        refs: &PriceRefs,
+        curve: &RateCurve,
+        now: BlockNumber,
+    ) -> (Self, Charge) {
         let now_blocks: u64 = now.unique_saturated_into();
         let last: u64 = self.accrual.last_accrued.unique_saturated_into();
         let elapsed = now_blocks.saturating_sub(last);
@@ -274,16 +292,20 @@ impl<BlockNumber: Copy + UniqueSaturatedInto<u64>> Position<BlockNumber> {
             self.accrual.remainder,
         );
         let due = self.accrual.due.saturating_add(owed.owed);
-        let amount = due.min(self.collateral);
+        let (from_collateral, from_proceeds, remaining) =
+            P::charge_sources(due, self.collateral, self.leg.proceeds());
         let settled = Self {
-            collateral: self.collateral.saturating_sub(amount),
+            collateral: self.collateral.saturating_sub(from_collateral),
             accrual: Accrual {
                 last_accrued: now,
                 remainder: owed.remainder,
-                due: due.saturating_sub(amount),
+                due: remaining,
             },
+            // Only a short holds proceeds, so a long's leg is unchanged.
+            leg: self.leg.shrunk(0, from_proceeds),
             ..self
         };
+        let amount = from_collateral.saturating_add(from_proceeds);
         (settled, Charge { amount, rate_bps })
     }
 }

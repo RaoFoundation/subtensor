@@ -15,6 +15,12 @@ use subtensor_runtime_common::NetUid;
 
 use crate::math::{curve::FeeRate, fixed::Price};
 
+/// Storage reads [`LendingPoolInterface::is_in_emission_set`] makes per live subnet, at most:
+/// the subnet list entry, the three eligibility flags, the moving price, the miner-burn share
+/// and the emission switch, with one spare. `open_short` and `increase_short` add this many
+/// reads per subnet of the subnet limit to their weight (`Pallet::emission_gate_weight`).
+pub const EMISSION_SET_READS_PER_SUBNET: u64 = 8;
+
 /// Read access to subnet pools and the write legs of the positions. `AccountId` is the holder
 /// of TAO balances and of the alpha that custody keeps.
 pub trait LendingPoolInterface<AccountId> {
@@ -39,6 +45,11 @@ pub trait LendingPoolInterface<AccountId> {
     /// Total alpha issued on the subnet (`SubnetAlphaOut` plus the pool reserve), in rao. The
     /// synthetic mint counts against the supply cap (SPEC P23).
     fn alpha_issuance(netuid: NetUid) -> u64;
+    /// Whether `netuid` is in the emission set now: the subnets the coinbase gives a nonzero
+    /// share of the block's TAO emission, by the runtime's own eligibility and share logic.
+    /// Shorts open and grow only on such a subnet (Jacob, Nov 27). Read-only. The cost is one
+    /// pass over the live subnets, at most [`EMISSION_SET_READS_PER_SUBNET`] reads each.
+    fn is_in_emission_set(netuid: NetUid) -> bool;
     /// Free TAO balance of `who` in rao.
     fn tao_balance(who: &AccountId) -> u64;
     /// Alpha of `netuid` held by `who` (the custody's locked alpha for a long).
@@ -56,6 +67,9 @@ pub trait LendingPoolInterface<AccountId> {
     /// Returns the TAO credited.
     fn credit_pool_tao(netuid: NetUid, from: &AccountId, amount: u64)
     -> Result<u64, DispatchError>;
+    /// Burns `amount` TAO of `from`, the way the runtime burns TAO elsewhere: the deposit of a
+    /// defaulted short (SPEC section 1 item 4). Returns the TAO burned.
+    fn burn_tao(from: &AccountId, amount: u64) -> Result<u64, DispatchError>;
     /// Mints `q` alpha, sells it into the pool and pays the TAO out to `to`. Returns the TAO
     /// paid (`P`).
     fn mint_and_sell(netuid: NetUid, q: u64, to: &AccountId) -> Result<u64, DispatchError>;

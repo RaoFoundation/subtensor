@@ -406,6 +406,7 @@
     "SubnetDoesNotExist",
     "SubnetLimitReached",
     "SubnetNotExists",
+    "SubnetNotInEmission",
     "SubtokenDisabled",
     "SwapInputTooLarge",
     "SwapReturnedZero",

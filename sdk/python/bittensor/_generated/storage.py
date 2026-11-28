@@ -570,6 +570,7 @@ class Lending:
     HolderPositions = Item('Lending', 'HolderPositions', 'BoundedVec')
     SwappedOutAt = Item('Lending', 'SwappedOutAt', 'u32')
     SyntheticOutstanding = Item('Lending', 'SyntheticOutstanding', 'u64')
+    ResidualAlpha = Item('Lending', 'ResidualAlpha', 'u64')
     LongLockedAlpha = Item('Lending', 'LongLockedAlpha', 'u64')
     LongLiftedTao = Item('Lending', 'LongLiftedTao', 'u64')
     LongPositionCount = Item('Lending', 'LongPositionCount', 'u32')

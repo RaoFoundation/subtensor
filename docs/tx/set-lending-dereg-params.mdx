@@ -15,7 +15,7 @@ read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | Lending | [`Lending.set_dereg_params`](/code/pallets/lending/src/lib.rs#L702-L707), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | Lending | [`Lending.set_dereg_params`](/code/pallets/lending/src/lib.rs#L727-L732), `Sudo.sudo` |
 
 ## Verify
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("set_lending_dereg_params", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.set_dereg_params` — [`pallets/lending/src/lib.rs#L704`](/code/pallets/lending/src/lib.rs#L702-L707):
+`Lending.set_dereg_params` — [`pallets/lending/src/lib.rs#L729`](/code/pallets/lending/src/lib.rs#L727-L732):
 
 ```rust
 #[pallet::call_index(25)]
@@ -84,7 +84,7 @@ pub fn set_dereg_params(origin: OriginFor<T>, params: DeregParams) -> DispatchRe
 }
 ```
 
-Delegates to [`queue_dereg_params`](/code/pallets/lending/src/params.rs#L314).
+Delegates to [`queue_dereg_params`](/code/pallets/lending/src/params.rs#L398).
 
 `Sudo.sudo` is implemented by Substrate's `pallet_sudo`, outside this repository's pallets.
 
