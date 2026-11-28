@@ -12,7 +12,7 @@ rank price ring from the emission moving price. Verify with the
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | Lending | [`Lending.set_enabled`](/code/pallets/lending/src/lib.rs#L742-L748), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | Lending | [`Lending.set_enabled`](/code/pallets/lending/src/lib.rs#L776-L782), `Sudo.sudo` |
 
 ## Verify
 
@@ -70,7 +70,7 @@ result = sub.execute_tool("set_lending_enabled", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.set_enabled` — [`pallets/lending/src/lib.rs#L744`](/code/pallets/lending/src/lib.rs#L742-L748):
+`Lending.set_enabled` — [`pallets/lending/src/lib.rs#L778`](/code/pallets/lending/src/lib.rs#L776-L782):
 
 ```rust
 #[pallet::call_index(20)]

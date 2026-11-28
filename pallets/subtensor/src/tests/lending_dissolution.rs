@@ -465,3 +465,233 @@ fn a_short_that_fails_to_settle_holds_the_cleanup_until_it_settles() {
         assert_ok!(pallet_lending::Pallet::<Test>::do_try_state());
     });
 }
+
+/// The `ShortSettlementForced` events of the current block, as `(who, paid)`.
+fn forced_events() -> Vec<(U256, u64)> {
+    System::events()
+        .into_iter()
+        .filter_map(|record| match record.event {
+            RuntimeEvent::Lending(pallet_lending::Event::ShortSettlementForced {
+                who,
+                paid,
+                ..
+            }) => Some((who, paid)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `ShortSettlementWrittenOff` events of the current block, as
+/// `(who, paid, refunded, left_in_custody)`.
+fn written_off_events() -> Vec<(U256, u64, u64, u64)> {
+    System::events()
+        .into_iter()
+        .filter_map(|record| match record.event {
+            RuntimeEvent::Lending(pallet_lending::Event::ShortSettlementWrittenOff {
+                who,
+                paid,
+                refunded,
+                left_in_custody,
+                ..
+            }) => Some((who, paid, refunded, left_in_custody)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A subnet with a short of Alice whose custody lost `missing` rao of what the position
+/// records, dissolved, and a second subnet with no lending dissolved behind it. Runs three
+/// cleanup blocks: every one fails the short, and the cleanup stays on the first subnet at the
+/// lending phase with the second still queued. Returns both subnets, the first one's stakers
+/// and the custody account.
+fn cleanup_held_by_a_short(missing: u64) -> (NetUid, NetUid, [U256; 2], U256) {
+    // Registered first: `legacy_lending_subnet` closes registration behind itself.
+    let behind = add_dynamic_network(&U256::from(3), &U256::from(4));
+    let (netuid, stakers) = legacy_lending_subnet();
+    open_short(netuid);
+    let custody_account = custody(alice(), netuid);
+    remove_balance_from_coldkey_account(&custody_account, missing.into());
+    assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+    assert_ok!(SubtensorModule::do_dissolve_network(behind));
+    for round in 1..=3u32 {
+        System::reset_events();
+        run_block_idle();
+        assert_eq!(failed_events(), vec![alice()], "round {round}");
+        let status = CurrentDissolveCleanupStatus::<Test>::get().expect("cleanup is held");
+        assert_eq!(status.netuid, netuid);
+        assert_eq!(
+            status.phase,
+            DissolveCleanupPhase::SubnetRootDividendsRootClaimed
+        );
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&behind));
+    }
+    (netuid, behind, stakers, custody_account)
+}
+
+/// Runs the cleanup until both subnets have left it. Returns the settlements and the failures
+/// it deposited on the way.
+fn finish_cleanup(netuid: NetUid, behind: NetUid) -> (Vec<(U256, U64F64, u64)>, Vec<U256>) {
+    let mut settled = Vec::new();
+    let mut failed = Vec::new();
+    for _ in 0..256 {
+        let queue = DissolveCleanupQueue::<Test>::get();
+        if CurrentDissolveCleanupStatus::<Test>::get().is_none()
+            && !queue.contains(&netuid)
+            && !queue.contains(&behind)
+        {
+            return (settled, failed);
+        }
+        System::reset_events();
+        run_block_idle();
+        settled.extend(settled_events());
+        failed.extend(failed_events());
+    }
+    panic!("dissolve cleanup stalled");
+}
+
+#[test]
+fn root_settles_a_stuck_short_and_the_cleanup_and_the_next_subnet_finish() {
+    new_test_ext(1).execute_with(|| {
+        let missing = 1_000 * RAO;
+        let (netuid, behind, stakers, custody_account) = cleanup_held_by_a_short(missing);
+        let alice_before = balance(&alice());
+        let stakers_before: u64 = stakers.iter().map(balance).sum();
+
+        // While the custody is short, the call without the write-off fails and changes nothing.
+        assert!(
+            Lending::force_settle_short(RuntimeOrigin::root(), netuid, alice(), false).is_err()
+        );
+        assert_eq!(SettlementRetry::<Test>::get(netuid, alice()), Some(3));
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::signed(alice()), netuid, alice(), true),
+            sp_runtime::DispatchError::BadOrigin
+        );
+
+        // The cause is removed and root settles the short in the call: the normal settlement.
+        add_balance_to_coldkey_account(&custody_account, missing.into());
+        let holdings = balance(&custody_account);
+        System::reset_events();
+        assert_ok!(Lending::force_settle_short(
+            RuntimeOrigin::root(),
+            netuid,
+            alice(),
+            false
+        ));
+        let settled = settled_events();
+        assert_eq!(settled.len(), 1);
+        let (who, _, paid) = settled[0];
+        assert_eq!(who, alice());
+        assert_eq!(forced_events(), vec![(alice(), paid)]);
+        assert!(written_off_events().is_empty());
+        assert_eq!(balance(&alice()), alice_before + holdings - paid);
+        assert_eq!(balance(&custody_account), 0);
+        assert!(short(alice(), netuid).is_none());
+        assert_eq!(SettlementRetry::<Test>::get(netuid, alice()), None);
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(netuid).map(|record| record.settled_tao),
+            Some(paid)
+        );
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), netuid, alice(), true),
+            pallet_lending::Error::<Test>::ShortNotStuck
+        );
+
+        // The cleanup goes on: this subnet and the one queued behind it finish, the stakers get
+        // the short's payment, and the short is not paid or settled a second time.
+        let (settled_later, failed) = finish_cleanup(netuid, behind);
+        assert!(settled_later.is_empty());
+        assert!(failed.is_empty());
+        assert_eq!(balance(&alice()), alice_before + holdings - paid);
+        assert!(stakers.iter().map(balance).sum::<u64>() > stakers_before + paid - 2 * DUST);
+        assert_lending_books_empty(netuid);
+        assert!(!SubtensorModule::if_subnet_exist(behind));
+        assert_ok!(pallet_lending::Pallet::<Test>::do_try_state());
+    });
+}
+
+#[test]
+fn root_writes_off_a_short_that_cannot_settle_and_the_cleanup_finishes() {
+    new_test_ext(1).execute_with(|| {
+        let missing = 1_000 * RAO;
+        let (netuid, behind, stakers, custody_account) = cleanup_held_by_a_short(missing);
+        let held = balance(&custody_account);
+        let alice_before = balance(&alice());
+        let stakers_before: u64 = stakers.iter().map(balance).sum();
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        let pot_before = balance(&subnet_account);
+        let issuance_before = TotalIssuance::<Test>::get();
+        let rate = DissolutionSettlements::<Test>::get(netuid)
+            .expect("in progress")
+            .rate;
+        let due = owed(2_000 * RAO, rate);
+        assert!(due > 0 && due < held, "the pot can be paid in full");
+
+        // The custody stays short. With `write_off` the short is removed all the same: the pot
+        // is paid what it is owed, the holder gets what is left of the custody, which is
+        // `missing` less than the settlement would have returned, and nothing stays behind.
+        System::reset_events();
+        assert_ok!(Lending::force_settle_short(
+            RuntimeOrigin::root(),
+            netuid,
+            alice(),
+            true
+        ));
+        assert_eq!(written_off_events(), vec![(alice(), due, held - due, 0)]);
+        assert!(forced_events().is_empty());
+        assert!(settled_events().is_empty());
+        assert_eq!(balance(&custody_account), 0);
+        assert_eq!(balance(&alice()), alice_before + held - due);
+        assert_eq!(balance(&subnet_account), pot_before + due);
+        // TAO is moved only.
+        assert_eq!(TotalIssuance::<Test>::get(), issuance_before);
+        assert!(short(alice(), netuid).is_none());
+        assert_eq!(SyntheticOutstanding::<Test>::get(netuid), 0);
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(netuid).map(|record| record.settled_tao),
+            Some(due)
+        );
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), netuid, alice(), true),
+            pallet_lending::Error::<Test>::ShortNotStuck
+        );
+
+        let (settled_later, failed) = finish_cleanup(netuid, behind);
+        assert!(settled_later.is_empty());
+        assert!(failed.is_empty());
+        assert_eq!(balance(&alice()), alice_before + held - due);
+        assert!(stakers.iter().map(balance).sum::<u64>() > stakers_before + due - 2 * DUST);
+        assert_lending_books_empty(netuid);
+        assert!(!SubtensorModule::if_subnet_exist(behind));
+        assert_ok!(pallet_lending::Pallet::<Test>::do_try_state());
+    });
+}
+
+#[test]
+fn the_dissolve_calls_are_charged_for_the_lending_flag() {
+    use frame_support::dispatch::GetDispatchInfo;
+    use pallet_lending::LendingInterface;
+    new_test_ext(1).execute_with(|| {
+        let flag = <Lending as LendingInterface<U256>>::dissolve_flag_weight();
+        assert!(flag.ref_time() > 0);
+        assert_eq!(
+            flag,
+            <<Test as pallet_lending::Config>::WeightInfo as pallet_lending::WeightInfo>::on_dissolve_flag()
+        );
+        let netuid = NetUid::from(1);
+        let owner_call = crate::Call::<Test>::dissolve_network {
+            coldkey: U256::from(1),
+            netuid,
+        };
+        let root_call = crate::Call::<Test>::root_dissolve_network { netuid };
+        assert_eq!(
+            owner_call.get_dispatch_info().call_weight,
+            <<Test as Config>::WeightInfo as crate::weights::WeightInfo>::dissolve_network()
+                .saturating_add(flag)
+        );
+        assert_eq!(
+            root_call.get_dispatch_info().call_weight,
+            <<Test as Config>::WeightInfo as crate::weights::WeightInfo>::root_dissolve_network()
+                .saturating_add(flag)
+        );
+    });
+}

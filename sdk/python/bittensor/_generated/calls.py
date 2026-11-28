@@ -2008,6 +2008,11 @@ class Lending:
         return Call('Lending', 'close_short', {'netuid': netuid, 'alpha': alpha, 'max_tao_in': max_tao_in})
 
     @staticmethod
+    def force_settle_short(netuid: 'NetUid', who: 'AccountId32', write_off: 'bool') -> Call:
+        "Unsticks the dissolution of `netuid` from the short of `who`, whose settlement keeps failing and holds the subnet's cleanup, and every subnet queued behind it, at the lending phase (`dissolution`). Root only, and only for a short that is queued in `SettlementRetry` on a subnet whose settlement has read its dereg rate; it touches no other position.  It first runs the cleanup's own settlement of that short, now, at the recorded rate: the accrual, the payment into the pot, the refund of the rest of custody and the removal. If that succeeds the call emits `ShortSettlementForced`. If it fails, the call fails with the settlement's error and changes nothing, unless `write_off` is set: then the short is written off (`Pallet::write_off_short`, `ShortSettlementWrittenOff`), the last resort for a short that can never settle.  Either way the short leaves the retry queue and the per-subnet index, what it paid is added to the pot the stakers are paid from, and the next cleanup step finds the queue without it. A second call for the same short fails with `ShortNotStuck`.  The weight is twice the measured forced settlement: a write-off runs one settlement attempt that is rolled back and then at most the transfers and removals of one more."
+        return Call('Lending', 'force_settle_short', {'netuid': netuid, 'who': who, 'write_off': write_off})
+
+    @staticmethod
     def increase_long(netuid: 'NetUid', lift: 'u64', collateral: 'u64', min_alpha_out: 'u64') -> Call:
         'Lifts `lift` more TAO into an open long (SPEC L1-L12).'
         return Call('Lending', 'increase_long', {'netuid': netuid, 'lift': lift, 'collateral': collateral, 'min_alpha_out': min_alpha_out})

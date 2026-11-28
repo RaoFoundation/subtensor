@@ -452,6 +452,34 @@ pub mod pallet {
             netuid: NetUid,
             error: DispatchError,
         },
+        /// Root settled a short whose dissolution settlement had failed (`force_settle_short`).
+        /// The settlement was the cleanup's own: the short accrued, paid `paid` into the
+        /// subnet's pot at the recorded dereg rate `price` and took the rest of its custody
+        /// back, and `ShortSettledOnDissolution` was emitted with it. The short is gone and is
+        /// no longer queued in `SettlementRetry`.
+        ShortSettlementForced {
+            who: T::AccountId,
+            netuid: NetUid,
+            price: Price,
+            paid: u64,
+        },
+        /// Root wrote off a short whose dissolution settlement cannot succeed
+        /// (`force_settle_short` with `write_off`), after one more attempt failed with `error`.
+        /// The short is gone without its last interest accrual. Of its custody `paid` went into
+        /// the subnet's pot (at most what it owed at the dereg rate `price`), `refunded` went to
+        /// the holder (at most what the settlement would have returned) and `left_in_custody`
+        /// stays in the account `custody`, which no position refers to any more. No TAO was
+        /// minted or burned.
+        ShortSettlementWrittenOff {
+            who: T::AccountId,
+            netuid: NetUid,
+            price: Price,
+            paid: u64,
+            refunded: u64,
+            left_in_custody: u64,
+            custody: T::AccountId,
+            error: DispatchError,
+        },
     }
 
     #[pallet::error]
@@ -515,6 +543,12 @@ pub mod pallet {
         /// The subnet is being dissolved: from its dissolution flag on, its shorts are settled by
         /// the dissolution alone (SPEC P12), so no short opens, grows, closes or takes collateral.
         DissolutionInProgress,
+        /// `force_settle_short` names a short that is not queued in `SettlementRetry`: it has
+        /// not failed a dissolution settlement, or it is already settled.
+        ShortNotStuck,
+        /// `force_settle_short` came before the subnet's settlement read its dereg rate: there is
+        /// no recorded rate to settle the short at yet.
+        SettlementRateNotRead,
     }
 
     /// Nothing to configure: a chain that starts with this pallet gets the state the runtime
@@ -792,6 +826,37 @@ pub mod pallet {
         pub fn set_dereg_params(origin: OriginFor<T>, params: DeregParams) -> DispatchResult {
             ensure_root(origin)?;
             Self::queue_dereg_params(params)
+        }
+
+        /// Unsticks the dissolution of `netuid` from the short of `who`, whose settlement keeps
+        /// failing and holds the subnet's cleanup, and every subnet queued behind it, at the
+        /// lending phase (`dissolution`). Root only, and only for a short that is queued in
+        /// `SettlementRetry` on a subnet whose settlement has read its dereg rate; it touches no
+        /// other position.
+        ///
+        /// It first runs the cleanup's own settlement of that short, now, at the recorded rate:
+        /// the accrual, the payment into the pot, the refund of the rest of custody and the
+        /// removal. If that succeeds the call emits `ShortSettlementForced`. If it fails, the
+        /// call fails with the settlement's error and changes nothing, unless `write_off` is
+        /// set: then the short is written off (`Pallet::write_off_short`,
+        /// `ShortSettlementWrittenOff`), the last resort for a short that can never settle.
+        ///
+        /// Either way the short leaves the retry queue and the per-subnet index, what it paid
+        /// is added to the pot the stakers are paid from, and the next cleanup step finds the
+        /// queue without it. A second call for the same short fails with `ShortNotStuck`.
+        ///
+        /// The weight is twice the measured forced settlement: a write-off runs one settlement
+        /// attempt that is rolled back and then at most the transfers and removals of one more.
+        #[pallet::call_index(26)]
+        #[pallet::weight(T::WeightInfo::force_settle_short().saturating_mul(2))]
+        pub fn force_settle_short(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            who: T::AccountId,
+            write_off: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            Self::do_force_settle_short(netuid, &who, write_off)
         }
     }
 }

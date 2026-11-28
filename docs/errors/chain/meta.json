@@ -389,6 +389,8 @@
     "ServiceDoesNotExist",
     "ServingRateLimitExceeded",
     "SettingWeightsTooFast",
+    "SettlementRateNotRead",
+    "ShortNotStuck",
     "SignatoriesOutOfOrder",
     "SlippageExceeded",
     "SlippageTooHigh",

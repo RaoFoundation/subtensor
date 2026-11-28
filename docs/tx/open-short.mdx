@@ -20,7 +20,7 @@ Fails rather than selling for less than the current quote less
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L587-L608) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L621-L642) |
 
 ## Parameters
 
@@ -76,7 +76,7 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_short` — [`pallets/lending/src/lib.rs#L589`](/code/pallets/lending/src/lib.rs#L587-L608):
+`Lending.open_short` — [`pallets/lending/src/lib.rs#L623`](/code/pallets/lending/src/lib.rs#L621-L642):
 
 ```rust
 #[pallet::call_index(0)]

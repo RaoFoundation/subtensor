@@ -81,6 +81,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "increase_long",
         "close_long",
         "add_long_collateral",
+        # Root-only emergency call for a dissolution held by a short that cannot
+        # settle; with `write_off` it removes a position without its settlement.
+        # Deliberately not agent-executable, like `root_dissolve_network`.
+        "force_settle_short",
     },
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship

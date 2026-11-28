@@ -1089,7 +1089,13 @@ mod dispatches {
         /// Remove a user's subnetwork
         /// The caller must be the owner of the network
         #[pallet::call_index(61)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dissolve_network())]
+        // The weight adds the lending flag (`T::Lending::on_dissolve_flag`, called by
+        // `do_dissolve_network`): two reads and the write of the subnet's dissolution record,
+        // at lending's own measurement of it. The benchmark of this call was measured without
+        // lending storage in its footprint, so the term is not counted twice. It can be dropped
+        // once the benchmark is run again and lists `Lending::DissolvingSubnets`.
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dissolve_network()
+            .saturating_add(<T::Lending as pallet_lending::LendingInterface<T::AccountId>>::dissolve_flag_weight()))]
         pub fn dissolve_network(
             origin: OriginFor<T>,
             _coldkey: T::AccountId,
@@ -2087,7 +2093,9 @@ mod dispatches {
         /// Remove a subnetwork
         /// The caller must be root
         #[pallet::call_index(120)]
-        #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
+        // The weight adds the lending flag, as `dissolve_network` does.
+        #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network()
+            .saturating_add(<T::Lending as pallet_lending::LendingInterface<T::AccountId>>::dissolve_flag_weight()))]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
             ensure_root(origin)?;
             Self::ensure_beta_basket_seed_idle()?;

@@ -40,6 +40,24 @@
 //! the cause is removed. It is never dropped and never settled twice; the pot of the subnet is
 //! not paid without it (SPEC I8).
 //!
+//! The way out. The cleanup works on one subnet at a time, so a short held this way also holds
+//! every subnet queued behind its own. Root ends that with `force_settle_short(netuid, who,
+//! write_off)`, for one short that is queued in `SettlementRetry` on a subnet whose rate is read:
+//!
+//! 1. it runs the settlement of that short, the same one the retry pass runs (accrual to the
+//!    settlement's block, `min(q * r, C + P)` into the pot through the dissolving credit, the rest
+//!    of custody to the holder), in the call, so that it lands as soon as the cause is removed and
+//!    its error is returned to the caller if it is not (`ShortSettlementForced`);
+//! 2. only with `write_off`, and only if (1) failed: the short is removed without that
+//!    settlement ([`Pallet::write_off_short`], `ShortSettlementWrittenOff`). Each of the two
+//!    payments is made if it can be and for at most what custody holds; what cannot move stays in
+//!    the custody account. TAO is only moved, never minted or burned.
+//!
+//! Both add what the short paid to [`Dissolving::settled_tao`] and take the short out of the
+//! queue and the index, so the next cleanup step finds the queue without it and the cleanup of
+//! this subnet and of the ones behind it goes on. A short is still settled at most once: the
+//! call needs the queue entry, which goes with the position.
+//!
 //! The settled TAO is recorded in [`Dissolving::settled_tao`]. `pallet_subtensor` pays it to the
 //! stakers and takes it out of the pool reserve before the owner refund reads the pot, so the
 //! refund is computed as it is for the same subnet with no lending (see the subtensor side).
@@ -231,6 +249,15 @@ impl<T: Config> Pallet<T> {
     /// The flag of `do_dissolve_network` (see the module doc). Records the subnet's lending
     /// values, for a subnet with no lending too: the record is what closes the subnet to the
     /// short calls until `on_dissolve_done` drops it.
+    ///
+    /// The write is deliberately not limited to subnets that have positions or residual alpha.
+    /// A subnet with neither can still be opened on, and `positions::ensure_not_dissolving`
+    /// (`DissolutionInProgress`) reads this record and nothing else. Without it, the only thing
+    /// between the flag and a new short on the dissolving subnet would be the emission-set gate
+    /// of the pool adapter, which is another pallet's rule and is not a statement about
+    /// dissolution; a short opened there would be minted after `T_flag` and `lending_alpha` were
+    /// taken and after the pool left `TotalStake`. The first settlement step writes the record
+    /// anyway, so skipping it here would save one write per dissolution and no storage.
     pub fn record_dissolve_flag(netuid: NetUid, pool_tao: TaoBalance) {
         DissolvingSubnets::<T>::insert(
             netuid,
@@ -555,6 +582,128 @@ impl<T: Config> Pallet<T> {
             paid,
         });
         Ok(())
+    }
+
+    /// `force_settle_short` (see the module doc and the call).
+    ///
+    /// Refuses a short that is not queued in `SettlementRetry` (`ShortNotStuck`) and a subnet
+    /// whose settlement has not read its rate (`SettlementRateNotRead`): the rate is read once
+    /// the accrual walk has passed every short, and no short can hold the cleanup before then.
+    pub(crate) fn do_force_settle_short(
+        netuid: NetUid,
+        who: &T::AccountId,
+        write_off: bool,
+    ) -> DispatchResult {
+        ensure!(
+            SettlementRetry::<T>::contains_key(netuid, who),
+            Error::<T>::ShortNotStuck
+        );
+        let progress = DissolutionSettlements::<T>::get(netuid)
+            .filter(|progress| {
+                matches!(
+                    progress.stage,
+                    SettlementStage::Settling | SettlementStage::Retrying
+                )
+            })
+            .ok_or(Error::<T>::SettlementRateNotRead)?;
+        // Every settlement step writes the record, so a subnet whose rate is read has one.
+        let mut record =
+            DissolvingSubnets::<T>::get(netuid).ok_or(Error::<T>::SettlementRateNotRead)?;
+        let id = (who.clone(), netuid, Side::Short);
+        let pos = Positions::<T>::get(&id).ok_or(Error::<T>::NoPosition)?;
+        let r = progress.rate;
+        let terms = Terms {
+            at: progress.at,
+            refs: Self::price_refs(netuid).ok(),
+            curve: LendingParamsStore::<T>::get().rate_curve(),
+        };
+        let paid = match with_storage_layer(|| Self::settle_short(&id, r, &terms)) {
+            Ok(paid) => {
+                Self::deposit_event(Event::ShortSettlementForced {
+                    who: who.clone(),
+                    netuid,
+                    price: r,
+                    paid,
+                });
+                paid
+            }
+            Err(error) => {
+                ensure!(write_off, error);
+                Self::write_off_short(&id, &pos, r, error)?
+            }
+        };
+        record.settled_tao = record.settled_tao.saturating_add(paid);
+        DissolvingSubnets::<T>::insert(netuid, record);
+        Ok(())
+    }
+
+    /// The last resort of `force_settle_short`: removes the short `id`, whose settlement just
+    /// failed with `error`, without that settlement. Returns what it paid into the pot.
+    ///
+    /// The position is taken as stored: the interest since its last accrual is not charged,
+    /// because the accrual is one of the steps that may be what fails. From the position's
+    /// records it owes the pot `min(q * r, C + P)` and the holder the rest of `C + P` and the
+    /// deposit, as in the settlement. Then, in this order:
+    ///
+    /// 1. the pot is paid what it is owed, capped at the TAO custody holds, through the
+    ///    dissolving credit; if the credit fails nothing is paid;
+    /// 2. the holder is paid what the settlement would have returned, capped at what custody
+    ///    still holds; if the transfer fails nothing is refunded. The holder never gets the
+    ///    part the pot was owed;
+    /// 3. `q` leaves `SyntheticOutstanding` and the position goes with its index key, custody
+    ///    record, schedule, counts and retry entry.
+    ///
+    /// Whatever neither payment could move stays in the custody account, reported as
+    /// `left_in_custody` with the account. No position refers to that account afterwards and
+    /// the pallet has no call that moves it; recovering it takes a further root decision. Every
+    /// leg is a transfer or nothing, so the total of TAO is unchanged. The cost of a write-off
+    /// falls on whoever the failed payment was for: the stakers of the subnet for an unpaid
+    /// pot, the holder for an unpaid refund.
+    fn write_off_short(
+        id: &PositionId<T::AccountId>,
+        pos: &Position<BlockNumberFor<T>>,
+        r: Price,
+        error: DispatchError,
+    ) -> Result<u64, DispatchError> {
+        let (who, netuid, _) = id;
+        let Leg::Short { minted, proceeds } = pos.leg else {
+            return Err(Error::<T>::NoPosition.into());
+        };
+        let custody = Self::position_custody(id, pos.opened_at);
+        let holdings = pos.collateral.saturating_add(proceeds);
+        let owed = settle_short_amount(minted, 0, 0, r).min(holdings);
+        let entitled = holdings.saturating_sub(owed).saturating_add(pos.deposit);
+
+        let to_pot = owed.min(T::Pool::tao_balance(&custody));
+        let paid = if to_pot > 0
+            && with_storage_layer(|| Self::credit_dissolving(*netuid, &custody, to_pot)).is_ok()
+        {
+            to_pot
+        } else {
+            0
+        };
+        let to_holder = entitled.min(T::Pool::tao_balance(&custody));
+        let refunded = if to_holder > 0
+            && with_storage_layer(|| Self::move_tao(&custody, who, to_holder)).is_ok()
+        {
+            to_holder
+        } else {
+            0
+        };
+
+        SyntheticOutstanding::<T>::mutate(netuid, |book| *book = book.saturating_sub(minted));
+        Self::forget_position(id, pos.charge_at);
+        Self::deposit_event(Event::ShortSettlementWrittenOff {
+            who: who.clone(),
+            netuid: *netuid,
+            price: r,
+            paid,
+            refunded,
+            left_in_custody: T::Pool::tao_balance(&custody),
+            custody,
+            error,
+        });
+        Ok(paid)
     }
 
     /// The measured weight of a settlement step that makes `visits` visits

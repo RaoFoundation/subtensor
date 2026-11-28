@@ -280,7 +280,11 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 498,
+    // Spec 499: `Lending::force_settle_short` (call index 26, root only) with its two events and
+    // two errors, and the lending flag added to the weight of `dissolve_network` and
+    // `root_dissolve_network`. No storage changed and no migration runs. `transaction_version`
+    // stays 2: no existing call changed its index, arguments or encoding.
+    spec_version: 499,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,

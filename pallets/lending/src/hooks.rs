@@ -72,6 +72,9 @@ pub trait LendingInterface<AccountId> {
     /// here until [`Self::on_dissolve_done`] no short of the subnet opens, grows, closes or takes
     /// collateral.
     fn on_dissolve_flag(netuid: NetUid, pool_tao: TaoBalance);
+    /// The weight of [`Self::on_dissolve_flag`], which the dispatchables that flag a subnet add
+    /// to their own: the hook runs inside them and their benchmarks do not measure it.
+    fn dissolve_flag_weight() -> Weight;
     /// One step of the settlement of the subnet's shorts at the dereg rate (`dissolution`),
     /// called by the cleanup of a dissolved subnet before any of its pot is distributed, once
     /// per cleanup step until it returns `true`. A step settles as many shorts as `meter` and
@@ -133,6 +136,10 @@ impl<AccountId> LendingInterface<AccountId> for () {
     }
 
     fn on_dissolve_flag(_netuid: NetUid, _pool_tao: TaoBalance) {}
+
+    fn dissolve_flag_weight() -> Weight {
+        Weight::zero()
+    }
 
     fn on_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) -> bool {
         true
@@ -352,6 +359,12 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
 
     fn on_dissolve_flag(netuid: NetUid, pool_tao: TaoBalance) {
         Self::record_dissolve_flag(netuid, pool_tao);
+    }
+
+    /// The measured flag (`WeightInfo::on_dissolve_flag`): the reads of `SyntheticOutstanding`
+    /// and `ResidualAlpha` and the write of `DissolvingSubnets`.
+    fn dissolve_flag_weight() -> Weight {
+        T::WeightInfo::on_dissolve_flag()
     }
 
     /// One step of the shorts' settlement (`dissolution::settle_shorts_at_dissolution`). The

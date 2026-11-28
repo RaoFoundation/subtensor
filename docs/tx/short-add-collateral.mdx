@@ -12,7 +12,7 @@ is no withdrawal.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L649-L654) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.add_collateral`](/code/pallets/lending/src/lib.rs#L683-L688) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("short_add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L651`](/code/pallets/lending/src/lib.rs#L649-L654):
+`Lending.add_collateral` — [`pallets/lending/src/lib.rs#L685`](/code/pallets/lending/src/lib.rs#L683-L688):
 
 ```rust
 #[pallet::call_index(3)]

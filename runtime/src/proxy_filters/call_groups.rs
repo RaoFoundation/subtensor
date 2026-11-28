@@ -255,8 +255,9 @@ call_filter_group!(
     ]
 );
 
-// Lending's root setters. Inventory-only: every one needs `ensure_root`, and no restricted
-// proxy lists them.
+// Lending's root calls: the setters and `force_settle_short`, which unsticks a dissolution
+// held by a short that cannot settle. Inventory-only: every one needs `ensure_root`, and no
+// restricted proxy lists them.
 call_filter_group!(
     LendingRootCalls,
     [
@@ -266,6 +267,7 @@ call_filter_group!(
         RuntimeCall::Lending(LendingCall::set_short_params),
         RuntimeCall::Lending(LendingCall::set_long_params),
         RuntimeCall::Lending(LendingCall::set_dereg_params),
+        RuntimeCall::Lending(LendingCall::force_settle_short),
     ]
 );
 

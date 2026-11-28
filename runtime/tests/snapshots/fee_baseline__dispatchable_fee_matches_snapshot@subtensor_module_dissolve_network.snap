@@ -3,4 +3,4 @@ source: runtime/tests/fee_baseline.rs
 description: subtensor_module_dissolve_network
 expression: fee
 ---
-266795
+332207

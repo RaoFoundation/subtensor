@@ -1006,3 +1006,288 @@ fn a_short_rekeyed_during_the_settlement_is_still_settled_once() {
         assert_eq!(TotalPositions::<Test>::get(), 0);
     });
 }
+
+/// The `ShortSettlementForced` events of the current block, as `(who, price, paid)`.
+fn forced_events() -> Vec<(AccountId, Price, u64)> {
+    lending_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ShortSettlementForced {
+                who, price, paid, ..
+            } => Some((who, price, paid)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `ShortSettlementWrittenOff` events of the current block, as
+/// `(who, paid, refunded, left_in_custody, custody)`.
+fn written_off_events() -> Vec<(AccountId, u64, u64, u64, AccountId)> {
+    lending_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ShortSettlementWrittenOff {
+                who,
+                paid,
+                refunded,
+                left_in_custody,
+                custody,
+                ..
+            } => Some((who, paid, refunded, left_in_custody, custody)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Alice and Bob short subnet 1, the subnet is flagged, and Alice's custody is frozen: Bob is
+/// settled and Alice holds the settlement open over `steps` steps. Returns Alice's custody
+/// account and what Bob paid.
+fn stuck_on_alice(steps: u32) -> (AccountId, u64) {
+    open_short(ALICE);
+    open_short(BOB);
+    set_issuance(SN1, 1_000_000 * RAO);
+    let custody = custody_of(ALICE);
+    flag(sn1());
+    ema_does_not_bind(sn1());
+    set_tao_frozen(custody, true);
+    assert!(!settle_step(sn1(), &mut WeightMeter::new()));
+    let bob_paid = settled_events()[0].2;
+    for _ in 1..steps {
+        next_block();
+        assert!(!settle_step(sn1(), &mut WeightMeter::new()));
+        assert_eq!(failed_events().len(), 1, "reported on every step");
+    }
+    assert_eq!(open_shorts(sn1()), vec![ALICE]);
+    assert_eq!(SettlementRetry::<Test>::get(sn1(), ALICE), Some(steps));
+    (custody, bob_paid)
+}
+
+#[test]
+fn root_settles_a_stuck_short_and_the_settlement_finishes() {
+    live().execute_with(|| {
+        let before = all_tao();
+        let (custody, bob_paid) = stuck_on_alice(3);
+        let alice_before = tao_balance(ALICE);
+        let custody_before = tao_balance(custody);
+        let r = DissolutionSettlements::<Test>::get(sn1())
+            .expect("in progress")
+            .rate;
+
+        // While the cause stands, the call without the write-off fails with the settlement's
+        // error and changes nothing.
+        next_block();
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), ALICE, false),
+            sp_runtime::DispatchError::Other("mock: account frozen")
+        );
+        assert_eq!(SettlementRetry::<Test>::get(sn1(), ALICE), Some(3));
+        assert_eq!(tao_balance(custody), custody_before);
+
+        // With the cause removed, root settles it in the call, at the recorded rate.
+        set_tao_frozen(custody, false);
+        assert_ok!(Lending::force_settle_short(
+            RuntimeOrigin::root(),
+            sn1(),
+            ALICE,
+            false
+        ));
+        let forced = forced_events();
+        assert_eq!(forced.len(), 1);
+        let (who, price, alice_paid) = forced[0];
+        assert_eq!((who, price), (ALICE, r));
+        // It is the normal settlement: its own event is there too, with the same payment.
+        assert_eq!(settled_events(), vec![(ALICE, r, alice_paid)]);
+        assert!(written_off_events().is_empty());
+        assert_eq!(
+            alice_paid,
+            settle_short_amount(200 * RAO, 0, 0, r).min(custody_before)
+        );
+        assert_eq!(tao_balance(custody), 0);
+        assert_eq!(
+            tao_balance(ALICE),
+            alice_before + custody_before - alice_paid
+        );
+        // The queue entry and the index key went with the position.
+        assert!(SettlementRetry::<Test>::iter().next().is_none());
+        assert!(indexed_shorts(sn1()).is_empty());
+        // I8: the pot holds each short's payment once.
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(bob_paid + alice_paid)
+        );
+        assert_eq!(all_tao(), before);
+        assert_no_short_left(ALICE, 0);
+
+        // No second payment: the call needs the queue entry.
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), ALICE, true),
+            Error::<Test>::ShortNotStuck
+        );
+
+        // The next cleanup step finds nothing left and is done, and pays nothing more.
+        next_block();
+        assert!(settle_step(sn1(), &mut WeightMeter::new()));
+        assert!(settled_events().is_empty());
+        assert!(failed_events().is_empty());
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(bob_paid + alice_paid)
+        );
+        assert_eq!(all_tao(), before);
+    });
+}
+
+#[test]
+fn root_writes_off_a_short_that_can_never_settle() {
+    live().execute_with(|| {
+        let before = all_tao();
+        let (custody, bob_paid) = stuck_on_alice(2);
+        let alice_before = tao_balance(ALICE);
+        let custody_before = tao_balance(custody);
+        let pool_before = <FakePool as LendingPoolInterface<AccountId>>::pool_tao(sn1());
+
+        // The custody can never pay: the settlement fails, and with `write_off` the short is
+        // removed without it. Nothing can leave the custody, so everything stays there.
+        next_block();
+        assert_ok!(Lending::force_settle_short(
+            RuntimeOrigin::root(),
+            sn1(),
+            ALICE,
+            true
+        ));
+        assert_eq!(
+            written_off_events(),
+            vec![(ALICE, 0, 0, custody_before, custody)]
+        );
+        assert!(forced_events().is_empty());
+        assert!(settled_events().is_empty());
+        assert_eq!(tao_balance(custody), custody_before);
+        assert_eq!(tao_balance(ALICE), alice_before);
+        assert_eq!(
+            <FakePool as LendingPoolInterface<AccountId>>::pool_tao(sn1()),
+            pool_before
+        );
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(bob_paid)
+        );
+        assert!(SettlementRetry::<Test>::iter().next().is_none());
+        assert!(indexed_shorts(sn1()).is_empty());
+        assert_eq!(all_tao(), before, "TAO is only moved");
+        assert_no_short_left(ALICE, 0);
+
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), ALICE, true),
+            Error::<Test>::ShortNotStuck
+        );
+        next_block();
+        assert!(settle_step(sn1(), &mut WeightMeter::new()));
+        assert!(settled_events().is_empty());
+        assert_eq!(all_tao(), before);
+    });
+}
+
+#[test]
+fn a_write_off_pays_the_pot_first_from_what_the_custody_holds() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        set_issuance(SN1, 1_000_000 * RAO);
+        let custody = custody_of(ALICE);
+        flag(sn1());
+        ema_does_not_bind(sn1());
+        // The rate of this settlement, from the same reads the step makes.
+        let pool = <FakePool as LendingPoolInterface<AccountId>>::pool_tao(sn1());
+        let owed = settle_short_amount(
+            200 * RAO,
+            0,
+            0,
+            rate(pool, u64::MAX, pool, u128::from(1_000_000 * RAO)),
+        );
+        // The custody lost most of the TAO the position records: it holds less than the short
+        // owes the pot, so the settlement's first payment fails. (The mock's balances are not
+        // rolled back with storage, so the failure has to be at the first debit.)
+        let held = owed / 2;
+        assert!(held > 0);
+        set_balance(custody, held);
+        let alice_before = tao_balance(ALICE);
+        let before = all_tao();
+        assert!(!settle_step(sn1(), &mut WeightMeter::new()));
+        assert_eq!(failed_events().len(), 1);
+        assert_eq!(
+            DissolutionSettlements::<Test>::get(sn1()).map(|p| p.rate),
+            Some(rate(pool, u64::MAX, pool, u128::from(1_000_000 * RAO)))
+        );
+
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), ALICE, false),
+            sp_runtime::DispatchError::Other("mock: insufficient TAO")
+        );
+        assert_ok!(Lending::force_settle_short(
+            RuntimeOrigin::root(),
+            sn1(),
+            ALICE,
+            true
+        ));
+        // Everything the custody holds goes to the pot, which is owed more; the holder, who
+        // comes second, gets nothing; nothing stays behind.
+        assert_eq!(written_off_events(), vec![(ALICE, held, 0, 0, custody)]);
+        assert_eq!(tao_balance(custody), 0);
+        assert_eq!(tao_balance(ALICE), alice_before);
+        assert_eq!(
+            <FakePool as LendingPoolInterface<AccountId>>::pool_tao(sn1()),
+            pool + held
+        );
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(held)
+        );
+        assert_eq!(all_tao(), before, "TAO is only moved");
+        assert_no_short_left(ALICE, 0);
+        next_block();
+        assert!(settle_step(sn1(), &mut WeightMeter::new()));
+    });
+}
+
+#[test]
+fn force_settle_is_root_only_and_only_for_a_stuck_short() {
+    live().execute_with(|| {
+        // Not root.
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::signed(ALICE), sn1(), ALICE, true),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        // An open short of a live subnet is not stuck.
+        open_short(ALICE);
+        open_short(BOB);
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), ALICE, true),
+            Error::<Test>::ShortNotStuck
+        );
+        // Queued, but the settlement has not read its rate: there is nothing to settle at.
+        set_issuance(SN1, 1_000_000 * RAO);
+        flag(sn1());
+        ema_does_not_bind(sn1());
+        SettlementRetry::<Test>::insert(sn1(), ALICE, 1);
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), ALICE, true),
+            Error::<Test>::SettlementRateNotRead
+        );
+        SettlementRetry::<Test>::remove(sn1(), ALICE);
+
+        // One stuck short, one that settles: the call reaches the stuck one only.
+        let custody = custody_of(ALICE);
+        set_tao_frozen(custody, true);
+        assert!(!settle_step(sn1(), &mut WeightMeter::new()));
+        assert_eq!(open_shorts(sn1()), vec![ALICE]);
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn1(), BOB, true),
+            Error::<Test>::ShortNotStuck
+        );
+        assert_noop!(
+            Lending::force_settle_short(RuntimeOrigin::root(), sn2(), ALICE, true),
+            Error::<Test>::ShortNotStuck
+        );
+        assert_eq!(open_shorts(sn1()), vec![ALICE]);
+        assert_ok!(Lending::do_try_state());
+    });
+}

@@ -517,4 +517,6 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (34, 24): ErrorInfo('Lending', 'SwappedOutThisBlock', 'A coldkey swap moved away a position this coldkey opened in this block; it opens again from the next block.'),
     (34, 25): ErrorInfo('Lending', 'SubnetNotInEmission', 'The subnet is not in the emission set: shorts open and grow only on a subnet that currently receives emission. Closing and adding collateral stay allowed.'),
     (34, 26): ErrorInfo('Lending', 'DissolutionInProgress', 'The subnet is being dissolved: from its dissolution flag on, its shorts are settled by the dissolution alone (SPEC P12), so no short opens, grows, closes or takes collateral.'),
+    (34, 27): ErrorInfo('Lending', 'ShortNotStuck', '`force_settle_short` names a short that is not queued in `SettlementRetry`: it has not failed a dissolution settlement, or it is already settled.'),
+    (34, 28): ErrorInfo('Lending', 'SettlementRateNotRead', "`force_settle_short` came before the subnet's settlement read its dereg rate: there is no recorded rate to settle the short at yet."),
 }

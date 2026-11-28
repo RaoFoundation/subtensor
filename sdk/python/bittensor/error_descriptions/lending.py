@@ -100,6 +100,16 @@ DESCRIPTIONS: dict[str, str] = {
         "gates against, so the call was rolled back. This is an internal consistency check; "
         "retry the call."
     ),
+    "SettlementRateNotRead": (
+        "Root's `force_settle_short` came before the subnet's dissolution read the price it "
+        "settles its shorts at (`Lending.DissolutionSettlements` is not yet at the settling "
+        "stage). Let the dissolution cleanup advance, then retry."
+    ),
+    "ShortNotStuck": (
+        "Root's `force_settle_short` named a short that is not held in the dissolution's "
+        "retry list (`Lending.SettlementRetry` has no entry for this subnet and coldkey). "
+        "Only a short whose settlement has failed can be forced; check the subnet and coldkey."
+    ),
     "SlippageExceeded": (
         "The trade's price moved past the caller's bound: an open or increase would pay out "
         "less than `min_tao_out` (or `min_alpha_out` for a long), or a close would cost more "

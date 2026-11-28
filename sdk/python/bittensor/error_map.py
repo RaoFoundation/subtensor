@@ -578,6 +578,10 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "SubnetNotInEmission": _C.POLICY_VIOLATION,
     # From the dissolution flag to the end of the cleanup no short call runs on the subnet.
     "DissolutionInProgress": _C.POLICY_VIOLATION,
+    # Root's `force_settle_short` names a short that is not held in the settlement queue,
+    # or comes before the dissolution has read the rate it settles at.
+    "ShortNotStuck": _C.NOT_FOUND,
+    "SettlementRateNotRead": _C.TOO_EARLY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

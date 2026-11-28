@@ -34,7 +34,7 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit) | blocks (12s) | yes | cooldown between axon and url updates | [`ServingRateLimit`](/code/pallets/subtensor/src/lib.rs#L2865) |
 | [`max_validators`](/docs/hyperparameters/max-validators) | integer | root only | top-stake validator permit cap | [`MaxAllowedValidators`](/code/pallets/subtensor/src/lib.rs#L2939) |
 | [`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha) | fraction (u64, u64::MAX = 1.0) | yes | historical adjustment smoothing | [`AdjustmentAlpha`](/code/pallets/subtensor/src/lib.rs#L2989) |
-| [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period) | epochs (tempos) | yes | weight commit-to-reveal delay | [`RevealPeriodEpochs`](/code/pallets/subtensor/src/lib.rs#L3469) |
+| [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period) | epochs (tempos) | yes | weight commit-to-reveal delay | [`RevealPeriodEpochs`](/code/pallets/subtensor/src/lib.rs#L3477) |
 | [`commit_reveal_weights_enabled`](/docs/hyperparameters/commit-reveal-weights-enabled) | flag | yes | commit-reveal weights toggle | [`CommitRevealWeightsEnabled`](/code/pallets/subtensor/src/lib.rs#L2994) |
 | [`alpha_high`](/docs/hyperparameters/alpha-high) | fraction (u16, 65535 = 1.0) | yes | liquid-alpha smoothing upper bound | — |
 | [`alpha_low`](/docs/hyperparameters/alpha-low) | fraction (u16, 65535 = 1.0) | yes | liquid-alpha smoothing lower bound | — |
@@ -42,12 +42,12 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`bonds_penalty`](/docs/hyperparameters/bonds-penalty) | fraction (u16, 65535 = 1.0) | yes | penalty on out-of-consensus bonds | [`BondsPenalty`](/code/pallets/subtensor/src/lib.rs#L2954) |
 | [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) | integer | yes | liquid-alpha sigmoid steepness | [`AlphaSigmoidSteepness`](/code/pallets/subtensor/src/lib.rs#L2874) |
 | [`min_childkey_take`](/docs/hyperparameters/min-childkey-take) | fraction (u16, 65535 = 1.0) | yes | floor for childkey take | [`MinChildkeyTakePerSubnet`](/code/pallets/subtensor/src/lib.rs#L1825) |
-| [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit) | integer | yes | owner-designated prune-immune UIDs | [`ImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L3191) |
+| [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit) | integer | yes | owner-designated prune-immune UIDs | [`ImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L3199) |
 | [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids) | integer | yes | neuron slot capacity before pruning | [`MaxAllowedUids`](/code/pallets/subtensor/src/lib.rs#L2903) |
-| [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) | multiplier (U64F64 bits / 2^64) | yes | shared burn/PoW bump multiplier | [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L4058) |
-| [`burn_half_life`](/docs/hyperparameters/burn-half-life) | blocks (12s) | yes | shared burn/PoW decay half-life | [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L4053) |
-| [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | fraction (u16, 65535 = 1.0) | yes | registration price share locked | [`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L4067) |
-| [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | multiplier (U64F64 bits / 2^64) | yes | collateral released per α earned | [`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L4076) |
+| [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) | multiplier (U64F64 bits / 2^64) | yes | shared burn/PoW bump multiplier | [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L4066) |
+| [`burn_half_life`](/docs/hyperparameters/burn-half-life) | blocks (12s) | yes | shared burn/PoW decay half-life | [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L4061) |
+| [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | fraction (u16, 65535 = 1.0) | yes | registration price share locked | [`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L4075) |
+| [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | multiplier (U64F64 bits / 2^64) | yes | collateral released per α earned | [`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L4084) |
 | [`gamma_enabled`](/docs/hyperparameters/gamma-enabled) | flag | yes | gamma minting toggle | — |
 | [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) | flag | yes | yuma3 consensus variant toggle | [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L3076) |
 | [`yuma_version`](/docs/hyperparameters/yuma-version) | integer | root only | epoch consensus variant (2 or 3) | — |

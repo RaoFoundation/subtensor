@@ -35,8 +35,8 @@ use crate::{
     InterestTotals, LendingInterface, LendingParamsStore, LendingPoolInterface, LongParamsStore,
     LongsEnabled, NextDue, Pallet, PendingDeregParams, PendingLendingParams, PendingLongParams,
     PendingShortParams, PoolTaoEma, PositionCount, Positions, PositionsByNetuid, RankPrice,
-    RankRing, ResidualAlpha, ShortParamsStore, SwappedOutAt, SyntheticOutstanding, TotalPositions,
-    TwapRing,
+    RankRing, ResidualAlpha, SettlementRetry, ShortParamsStore, SwappedOutAt, SyntheticOutstanding,
+    TotalPositions, TwapRing,
     dissolution::{MAX_SETTLEMENTS_PER_BLOCK, Settlement, SettlementStage},
     hooks::MAX_POSITIONS_PER_HOLDER,
     interest::MAX_DUE_BUCKETS_PER_BLOCK,
@@ -772,6 +772,54 @@ mod benchmarks {
                 .next()
                 .is_none()
         );
+        assert!(DissolvingSubnets::<T>::get(netuid).is_some_and(|record| record.settled_tao > 0));
+    }
+
+    /// `force_settle_short` on a short that is queued to be tried again and can settle: the
+    /// costliest settlement, as in `on_dissolve`. The short is not accrued yet, so the call
+    /// accrues it at the stretched rate and pays the interest to the pool, pays what it owes at
+    /// the recorded rate into the pot, gives the rest of its custody back and removes the
+    /// position with its index key, custody record, retry entry, holder entry, counts and `Due`
+    /// entry, then adds the payment to the subnet's record. A write-off repeats at most the two
+    /// transfers and the removal after an attempt that is rolled back; the call is charged
+    /// twice this measurement to cover it.
+    #[benchmark]
+    fn force_settle_short() {
+        let netuid = market::<T>(1)[0];
+        age::<T>(1);
+        let who: T::AccountId = account("holder", 0, 0);
+        T::BenchmarkHelper::fund(&who, SETTLED_HOLDER_TAO);
+        let id = open::<T>(&who, netuid);
+        stress::<T>(netuid);
+        strain::<T>(&id, STRAINED_COLLATERAL);
+        ResidualAlpha::<T>::insert(netuid, SHORT_Q);
+        let pool_tao = T::Pool::pool_tao(netuid);
+        Pallet::<T>::record_dissolve_flag(netuid, pool_tao.into());
+        age::<T>(AGE_BLOCKS);
+        DissolutionSettlements::<T>::insert(
+            netuid,
+            Settlement {
+                stage: SettlementStage::Retrying,
+                at: now::<T>(),
+                rate: rate(
+                    pool_tao,
+                    u64::MAX,
+                    pool_tao,
+                    u128::from(T::Pool::alpha_issuance(netuid)),
+                ),
+                cursor: None,
+            },
+        );
+        SettlementRetry::<T>::insert(netuid, &who, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, who.clone(), true);
+
+        assert!(!Positions::<T>::contains_key(&id));
+        assert!(!Custody::<T>::contains_key(&id));
+        assert!(!SettlementRetry::<T>::contains_key(netuid, &who));
+        assert_interest_paid::<T>(netuid);
+        assert_eq!(SyntheticOutstanding::<T>::get(netuid), 0);
         assert!(DissolvingSubnets::<T>::get(netuid).is_some_and(|record| record.settled_tao > 0));
     }
 
