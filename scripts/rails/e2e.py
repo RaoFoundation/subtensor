@@ -12,9 +12,10 @@ person does and checks what the two chains say after each step:
 6. a holder of TAO on Bittensor leaves through the bridge;
 7. who paid for the messages: each order on the spoke, each exit on the hub, and the
    spoke's account on the hub for exactly what the transport charged;
-8. the transport charges more than the hub sets aside for a message: an order still
-   settles and its answer waits. It leaves when a caller pays the difference, or by
-   itself when the hub may pay the difference from what the spoke's account can spare.
+8. the transport charges more than the hub pays for a message: orders still settle, and
+   their answers are deferred. A newer one leaves first, when its receiver pays the
+   difference. The older one leaves by itself when the hub may pay the difference from
+   what the spoke's account can spare.
 
 It ends with the invariants that hold between the chains at any time.
 """
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from eth_abi import decode as abi_decode
 from eth_abi import encode as abi_encode
@@ -31,8 +32,6 @@ from eth_utils import keccak
 from rig import (
     ANSWER_FEE,
     HUB_RPC,
-    KEEPER,
-    KEEPER_KEY,
     MESSAGE_CEILING,
     MESSAGE_RESERVE,
     MULTISIG,
@@ -70,8 +69,6 @@ RAILS_PRECOMPILE = "0x0000000000000000000000000000000000000815"
 STABLE_SCALE = UNIT // USDC
 # The EVM counts TAO with 18 decimals, the hub with 9.
 WEI_PER_RAO = 10**9
-# Seconds in which the rig's relayer and keeper have all had a turn.
-HELD_FOR = 8
 
 
 def show(step: str, detail: str = "") -> None:
@@ -92,6 +89,8 @@ class Transport:
     gateway: int
     # How many messages for the spoke the gateway has handed to the transport.
     sent: int
+    # The numbers of the spoke's deferred messages: they left the line, and not the hub.
+    deferred: tuple[int, ...]
 
 
 class Rig:
@@ -127,11 +126,15 @@ class Rig:
     async def transport(self) -> Transport:
         """What pays for the hub's messages to the spoke, now."""
         budget = await self.chain.runtime(bt.runtime_api.RailsApi.message_budget, [SPOKE_BRIDGE])
-        sent = await self.chain.query(bt.storage.Rails.NextOutbound, [SPOKE_BRIDGE])
+        (bridge,) = [b for b in await self.chain.rails.bridges() if b["bridge"] == SPOKE_BRIDGE]
+        deferred = tuple(bridge["messages_deferred"])
+        # Every message below the head of the line left the hub, or is deferred.
+        head = int(await self.chain.query(bt.storage.Rails.NextOutbound, [SPOKE_BRIDGE]) or 0)
         return Transport(
             budget=int(budget),
             gateway=(await self.chain.balances.balance(mirror(self.gateway))).rao,
-            sent=int(sent or 0),
+            sent=head - len(deferred),
+            deferred=deferred,
         )
 
     async def staked(self, netuid: int) -> int:
@@ -386,9 +389,10 @@ async def who_paid(rig: Rig, first_order: int, fees_before: int, start: Transpor
     )
 
 
-async def charge_above_the_reserve(rig: Rig) -> None:
-    """The transport charges more than the hub sets aside for a message. An order still
-    settles, and its answer waits. It leaves when a caller pays the difference, or by
+async def a_charge_that_is_not_paid_for(rig: Rig) -> None:
+    """The transport charges more than the hub pays for a message. Orders still settle,
+    and their answers are deferred: they leave the line and stay in the hub. The newer
+    answer leaves first, when its receiver pays the difference. The older one leaves by
     itself when the hub may pay the difference from what the spoke's account can spare."""
     alice = dev_wallet()
     chain, spoke, hub = rig.chain, rig.spoke, rig.hub_evm
@@ -400,56 +404,76 @@ async def charge_above_the_reserve(rig: Rig) -> None:
         )
         await submit(chain, call, alice, root=True)
 
-    async def held_order() -> tuple[int, Transport]:
-        """An order that settles on the hub while its answer waits."""
+    async def deferred_order() -> tuple[int, int]:
+        """An order that settles on the hub while its answer is deferred. Returns the
+        order, and the number of the hub's message that answers it."""
         before = await rig.transport()
         order = spoke.deposit(USER_KEY, 10 * USDC, rails.to_tao(USER))
         receipt = await rig.receipt(order)
         assert receipt["status"] == "settled", receipt
-        # The relayer and the keeper have had their turn: the answer has not left.
-        await asyncio.sleep(HELD_FOR)
-        waiting = await rig.transport()
-        assert waiting == before and not spoke.answers(order), (before, waiting)
-        return order, before
 
-    # The hub sets half the charge aside for a message, and pays no more than that.
+        async def deferred():
+            now = await rig.transport()
+            return now if len(now.deferred) > len(before.deferred) else None
+
+        after = await wait_for(f"the keeper to defer the answer to order {order}", deferred)
+        (message,) = set(after.deferred) - set(before.deferred)
+        # The answer left the line and not the hub: nothing was paid, and nothing arrived.
+        assert after == replace(before, deferred=after.deferred), (before, after)
+        assert not spoke.answers(order)
+        return order, message
+
+    # The hub pays half the charge for a message, and no more.
     await set_terms(reserve, reserve)
     try:
         tokens = spoke.balance(spoke.tao, USER)
-        order, before = await held_order()
-        # Anyone asks the gateway to send the message and pays what the hub does not.
-        # What was sent along and not needed comes back.
-        payer_before = int(hub.call("eth_getBalance", [KEEPER, "latest"]), 16)
-        flush = calldata("flush(uint32,uint256)", ["uint32", "uint256"], [SPOKE_BRIDGE, 8])
-        sent = send(hub, KEEPER_KEY, rig.gateway, flush, value=1_000 * TRANSPORT_FEE * WEI_PER_RAO)
-        gas = int(sent["gasUsed"], 16) * int(sent["effectiveGasPrice"], 16)
-        paid = payer_before - int(hub.call("eth_getBalance", [KEEPER, "latest"]), 16) - gas
-        assert paid == (TRANSPORT_FEE - reserve) * WEI_PER_RAO, paid
-        first = await rig.answer(order)
-        after = await rig.transport()
-        # The hub paid the reserve and no more, and the gateway kept nothing.
-        assert after == Transport(before.budget - reserve, before.gateway, before.sent + 1), after
+        older, older_message = await deferred_order()
+        newer, newer_message = await deferred_order()
+        assert newer_message > older_message, (older_message, newer_message)
 
-        # A second order: its answer waits as the first did.
-        order, before = await held_order()
-        # The admin lets the hub pay up to twice the charge for a message. The spoke's
-        # account has TAO to spare, so the queue drains by itself: nobody pays the gateway.
-        await set_terms(reserve, 2 * TRANSPORT_FEE)
-        second = await rig.answer(order)
+        # The receiver has the gateway send the newer answer, and pays what the hub does
+        # not. What was sent along and not needed comes back.
+        before = await rig.transport()
+        payer_before = int(hub.call("eth_getBalance", [USER, "latest"]), 16)
+        sent = send(
+            hub,
+            USER_KEY,
+            rig.gateway,
+            rails.encode_send(SPOKE_BRIDGE, newer_message),
+            value=1_000 * TRANSPORT_FEE * WEI_PER_RAO,
+        )
+        gas = int(sent["gasUsed"], 16) * int(sent["effectiveGasPrice"], 16)
+        paid = payer_before - int(hub.call("eth_getBalance", [USER, "latest"]), 16) - gas
+        assert paid == (TRANSPORT_FEE - reserve) * WEI_PER_RAO, paid
+        second = await rig.answer(newer)
         after = await rig.transport()
+        # The hub paid the reserve and no more, and the gateway kept nothing. The older
+        # answer is still deferred: the spoke takes the hub's messages in any order.
+        expected = Transport(
+            before.budget - reserve, before.gateway, before.sent + 1, (older_message,)
+        )
+        assert after == expected, (after, expected)
+        assert not spoke.answers(older)
+
+        # The admin lets the hub pay up to twice the charge for a message. The spoke's
+        # account has TAO to spare, so the keeper sends the older answer: nobody pays the
+        # gateway.
+        await set_terms(reserve, 2 * TRANSPORT_FEE)
+        first = await rig.answer(older)
+        before, after = after, await rig.transport()
         # The account paid the whole charge: the message's reserve, and the rest from what
         # it could spare.
-        expected = Transport(before.budget - TRANSPORT_FEE, before.gateway, before.sent + 1)
+        expected = Transport(before.budget - TRANSPORT_FEE, before.gateway, before.sent + 1, ())
         assert after == expected, (after, expected)
         assert spoke.balance(spoke.tao, USER) - tokens == first["amount"] + second["amount"]
     finally:
         await set_terms(MESSAGE_RESERVE, MESSAGE_CEILING)
     show(
-        "a charge above the reserve",
-        f"the transport charged {TRANSPORT_FEE} rao and the hub set {reserve} aside: two "
-        f"orders settled and their answers waited. One left when a caller paid the other "
-        f"{paid // WEI_PER_RAO} rao. One left by itself when the hub could pay the rest "
-        f"from what the spoke's account can spare",
+        "a charge that is not paid for",
+        f"the transport charged {TRANSPORT_FEE} rao and the hub paid at most {reserve}: two "
+        f"orders settled and their answers were deferred. The newer one left first, when "
+        f"its receiver paid the other {paid // WEI_PER_RAO} rao. The older one left by "
+        f"itself when the hub could pay the rest from what the spoke's account can spare",
     )
 
 
@@ -498,7 +522,7 @@ async def main() -> None:
         await refund(rig, chutes)
         await leave_from_bittensor(rig)
         await who_paid(rig, first_order, fees_before, start)
-        await charge_above_the_reserve(rig)
+        await a_charge_that_is_not_paid_for(rig)
         await invariants(rig)
     show("passed")
 

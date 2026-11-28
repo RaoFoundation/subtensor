@@ -33,7 +33,7 @@ else
     say "deploying the gateway to $HUB_NAME"
     # --legacy: Bittensor's EVM prices gas the old way. --slow: one transaction a block.
     (cd "$RAILS_CONTRACTS" && MAILBOX="$HUB_MAILBOX" MULTISIG="$MULTISIG" GUARDIAN="$GUARDIAN" \
-        TIMELOCK_DELAY=0 FLUSH_LIMIT=8 OUTPUT=hub.local.json \
+        TIMELOCK_DELAY=0 OUTPUT=hub.local.json \
         forge script script/DeployGateway.s.sol:DeployGateway \
         --rpc-url "$HUB_RPC" --private-key "$DEPLOYER_KEY" \
         --broadcast --slow --legacy >"$RAILS_LOGS/deploy-gateway.log" 2>&1) ||

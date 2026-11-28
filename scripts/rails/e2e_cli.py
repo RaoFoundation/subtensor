@@ -7,6 +7,7 @@ and the rig's test account as the wallet's EVM key for the transactions on the s
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -18,17 +19,23 @@ from rig import (
     HUB_RPC,
     HUB_WS,
     MANIFEST,
+    MESSAGE_CEILING,
+    MESSAGE_RESERVE,
     SPOKE_BRIDGE,
     SPOKE_NAME,
+    TRANSPORT_FEE,
     USDC,
     USER,
     USER_KEY,
     Spoke,
+    client,
     dev_wallet,
     manifest,
+    submit,
 )
 from typer.testing import CliRunner
 
+import bittensor as bt
 from bittensor.cli.main import app
 from bittensor.evm.keys import import_evm_key
 from bittensor.wallet import Wallet
@@ -200,6 +207,58 @@ def exit_and_transfer(spoke: Spoke) -> None:
     )
 
 
+def set_message_terms(reserve: int, ceiling: int) -> None:
+    """Root sets what the hub pays the transport for one message to the spoke."""
+
+    async def run() -> None:
+        call = bt.calls.Rails.set_message_reserve(
+            bridge=SPOKE_BRIDGE, reserve=reserve, ceiling=ceiling
+        )
+        async with client() as chain:
+            await submit(chain, call, dev_wallet(), root=True)
+
+    asyncio.run(run())
+
+
+def deferred_messages() -> list[int]:
+    (bridge,) = [b for b in btcli("bridge", "list") if b["bridge"] == SPOKE_BRIDGE]
+    return bridge["messages_deferred"]
+
+
+def send_a_deferred_message(spoke: Spoke) -> None:
+    """The hub pays half of what the transport charges, so the message of an exit is
+    deferred. The wallet's EVM key sends it and pays the difference."""
+    stable = spoke.balance(spoke.stable, USER)
+    set_message_terms(TRANSPORT_FEE // 2, TRANSPORT_FEE // 2)
+    try:
+        result = btcli(
+            "bridge", "exit", "--bridge", str(SPOKE_BRIDGE), "--pay-with", "tusd",
+            "--amount", "10", "--receive", "stable", "--to-address", USER, "--yes", *CLEAR,
+        )  # fmt: skip
+        assert result["success"], result
+        # The rig's keeper asks the gateway to send the message. It is not paid for.
+        deadline = time.monotonic() + 180
+        while not (waiting := deferred_messages()):
+            assert time.monotonic() < deadline, "the exit's message was not deferred"
+            time.sleep(1)
+        (message,) = waiting
+        btcli(
+            "bridge", "flush", "--bridge", str(SPOKE_BRIDGE), "--message", str(message),
+            "--pay-up-to", "0.001", "--rpc-url", HUB_RPC, "--yes",
+        )  # fmt: skip
+        while spoke.balance(spoke.stable, USER) == stable:
+            assert time.monotonic() < deadline, "the deferred message did not arrive"
+            time.sleep(1)
+        assert spoke.balance(spoke.stable, USER) - stable == 10 * USDC
+        assert not deferred_messages()
+    finally:
+        set_message_terms(MESSAGE_RESERVE, MESSAGE_CEILING)
+    show(
+        "bridge flush --message",
+        f"message {message} of the hub was deferred, then sent with the difference paid",
+    )
+
+
 def main() -> None:
     (addresses,) = manifest()["spokes"].values()
     spoke = Spoke(addresses)
@@ -210,6 +269,7 @@ def main() -> None:
         deposit_and_sell(spoke, market)
         pool()
         exit_and_transfer(spoke)
+        send_a_deferred_message(spoke)
     print("[e2e] btcli passed", flush=True)
 
 
