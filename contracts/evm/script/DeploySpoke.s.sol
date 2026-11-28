@@ -24,9 +24,12 @@ import {MockStable} from "../src/mocks/MockStable.sol";
 /// - `TIMELOCK_DELAY`: seconds. Defaults to 48 hours.
 /// - `RELEASE_LIMIT`, `RELEASE_PERIOD`: the vault's allowance, in the stablecoin's units
 ///   and in seconds.
-/// - `ANSWER_FEE`: what each order pays for the hub's answer, in wei. Set it to at least
-///   what the transport charges the gateway for one message. Defaults to 0.
-/// - `FEE_RECIPIENT`: who receives the answer fees. Defaults to `MULTISIG`.
+/// - `ANSWER_FEE`: what each order pays for the hub's answer, in wei. It has no default:
+///   decide it. Set it to at least the worth of what the hub charges this bridge for one
+///   message (`Rails.AnswerCost`). Zero only if the transport carries the hub's
+///   messages for nothing.
+/// - `FEE_RECIPIENT`: who receives the answer fees: the operator that pays them into
+///   the bridge's budget on Bittensor (`Rails.fund_answers`). It has no default.
 /// - `OUTPUT`: where to write the addresses, under `deployments/`.
 contract DeploySpoke is Script {
     function run() external {
@@ -84,8 +87,8 @@ contract DeploySpoke is Script {
                 uint32(vm.envUint("HUB_DOMAIN")),
                 bytes32(uint256(uint160(vm.envAddress("GATEWAY")))),
                 vault,
-                vm.envOr("ANSWER_FEE", uint256(0)),
-                vm.envOr("FEE_RECIPIENT", vm.envAddress("MULTISIG"))
+                vm.envUint("ANSWER_FEE"),
+                vm.envAddress("FEE_RECIPIENT")
             )
         );
         return Portal(address(new ERC1967Proxy(address(implementation), initialize)));

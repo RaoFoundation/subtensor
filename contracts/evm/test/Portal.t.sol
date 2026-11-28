@@ -46,6 +46,8 @@ contract PortalTest is Fixture {
     event TokenCreated(uint16 indexed netuid, address token, string name, string symbol);
     event RegistryMismatch(uint16 indexed netuid, address listed, address token);
     event FeesSwept(address indexed recipient, uint256 amount);
+    event StablePaid(address indexed to, uint256 amount, uint256 stillOwed);
+    event StablePaymentFailed(address indexed to, uint256 amount);
 
     // ---------------------------------------------------------------- orders
 
@@ -352,23 +354,73 @@ contract PortalTest is Fixture {
         mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, hex"");
     }
 
-    function test_AReleaseBeyondTheVaultsLimitWaitsForTheRefill() public {
-        deposit(alice, 2_000_000 * USDC, toTao(alice));
+    function test_APaymentBeyondTheVaultsAllowanceIsPaidInParts() public {
+        deposit(alice, 3_000_000 * USDC, toTao(alice));
         bytes memory body =
-            creditBody(0, Wire.ASSET_STABLE, 0, bob, uint64(1_500_000 * UNIT), false, 0, false, 0);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                RateLimit.RateLimited.selector, 1_500_000 * USDC, 1_000_000 * USDC
-            )
-        );
+            creditBody(0, Wire.ASSET_STABLE, 0, bob, uint64(2_500_000 * UNIT), false, 0, false, 0);
+
+        // The vault releases 1,000,000 a day. The hub's answer is carried out once: what
+        // fits is paid now, and the rest is on record.
+        vm.expectEmit(address(portal));
+        emit StablePaid(bob, 1_000_000 * USDC, 1_500_000 * USDC);
         mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
-        // The window holds one limit at most: the owner raises it for a larger release.
-        timelocked(
-            address(vault),
-            abi.encodeCall(vault.setReleaseLimit, (uint128(2_000_000 * USDC), 1 days))
-        );
-        mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
-        assertEq(stable.balanceOf(bob), 1_500_000 * USDC);
+        assertTrue(portal.processed(0));
+        assertEq(stable.balanceOf(bob), 1_000_000 * USDC);
+        assertEq(portal.owed(bob), 1_500_000 * USDC);
+        assertEq(portal.totalOwed(), 1_500_000 * USDC);
+
+        // Nothing more fits now. Anyone asks again later, and only bob is paid.
+        vm.prank(stranger);
+        assertEq(portal.claim(bob), 0);
+        skip(12 hours);
+        vm.prank(stranger);
+        assertEq(portal.claim(bob), 500_000 * USDC);
+        skip(1 days);
+        assertEq(portal.claim(bob), 1_000_000 * USDC);
+        assertEq(stable.balanceOf(bob), 2_500_000 * USDC);
+        assertEq(portal.owed(bob), 0);
+        assertEq(portal.totalOwed(), 0);
+        // Nothing is owed: nothing is paid.
+        skip(1 days);
+        assertEq(portal.claim(bob), 0);
+        assertEq(stable.balanceOf(address(vault)), 500_000 * USDC);
+    }
+
+    function test_AStoppedVaultOwesWhatTheHubToldItToPay() public {
+        deposit(alice, 250 * USDC, toTao(alice));
+        vm.prank(guardian);
+        vault.pause();
+
+        // The answer is not lost and is not tried again and again: it is on record.
+        credit(Wire.ASSET_STABLE, 0, bob, 100 * UNIT, 0);
+        assertEq(stable.balanceOf(bob), 0);
+        assertEq(portal.owed(bob), 100 * USDC);
+        assertEq(portal.claim(bob), 0);
+
+        timelocked(address(vault), abi.encodeCall(vault.unpause, ()));
+        assertEq(portal.claim(bob), 100 * USDC);
+        assertEq(stable.balanceOf(bob), 100 * USDC);
+    }
+
+    function test_ARecipientTheStablecoinBlocksHoldsNobodyElse() public {
+        deposit(alice, 250 * USDC, toTao(alice));
+        stable.setBlocked(bob, true);
+
+        vm.expectEmit(address(portal));
+        emit StablePaymentFailed(bob, 100 * USDC);
+        credit(Wire.ASSET_STABLE, 0, bob, 100 * UNIT, 0);
+        // Bob's payment stays owed. It used none of the vault's allowance.
+        assertEq(portal.owed(bob), 100 * USDC);
+        assertEq(vault.releasable(), 1_000_000 * USDC);
+        // Alice is paid as if nothing had happened.
+        credit(Wire.ASSET_STABLE, 0, alice, 50 * UNIT, 0);
+        assertEq(stable.balanceOf(alice), 50 * USDC);
+
+        // When the stablecoin lets bob receive again, anyone has him paid.
+        stable.setBlocked(bob, false);
+        assertEq(portal.claim(bob), 100 * USDC);
+        assertEq(stable.balanceOf(bob), 100 * USDC);
+        assertEq(portal.totalOwed(), 0);
     }
 
     // ---------------------------------------------------------------- pause

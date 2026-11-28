@@ -114,6 +114,11 @@ contract Handler is Test {
         skip(bound(time, 1, 12 hours));
     }
 
+    /// Anyone has an actor paid what the vault's allowance left owed.
+    function claim(uint256 actor) external {
+        portal.claim(actors[actor % 3]);
+    }
+
     // ---------------------------------------------------------------- the hub
 
     /// The hub settles the portal's next order, or refunds it.
@@ -178,7 +183,9 @@ contract Handler is Test {
             mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body);
             return;
         }
-        // A release beyond the vault's allowance waits with the transport.
+        // A credit for a token whose registration has not arrived waits with the
+        // transport. A payment beyond the vault's allowance does not: it is carried out,
+        // and what did not fit is owed.
         try mailbox.deliver(portal, HUB_DOMAIN, GATEWAY, body) {
             delivered[index] = true;
             (,, uint8 asset) = abi.decode(body, (uint8, uint64, uint8));
@@ -282,11 +289,13 @@ contract RailsInvariantTest is Fixture {
     }
 
     /// Every dollar the hub counts as outstanding, every dollar it told the portal to pay
-    /// and every dollar of an order it has not read yet is in the vault. Beyond that the
-    /// vault holds only what releases rounded down.
+    /// (on its way, or owed while the vault's allowance refills) and every dollar of an
+    /// order it has not read yet is in the vault. Beyond that the vault holds only what
+    /// releases rounded down.
     function invariant_TheVaultCoversEveryDollarOwed() public view {
         (uint256[3] memory ordered, uint256[3] memory answered) = _inFlight();
-        uint256 owed = handler.tusdOutstanding() + ordered[0] + answered[0];
+        uint256 owed =
+            handler.tusdOutstanding() + ordered[0] + answered[0] + portal.totalOwed() * 1000;
         uint256 held = stable.balanceOf(address(vault)) * 1000;
         assertGe(held, owed, "the vault is short");
         assertLe(held - owed, handler.releases() * 999, "the vault holds dollars nobody is owed");
@@ -298,6 +307,15 @@ contract RailsInvariantTest is Fixture {
         (uint256[3] memory ordered, uint256[3] memory answered) = _inFlight();
         assertEq(tao.totalSupply() + answered[1] + ordered[1], handler.taoSupply(), "TAO");
         assertEq(chutes.totalSupply() + answered[2] + ordered[2], handler.chutesSupply(), "CHUTES");
+    }
+
+    /// What the portal owes is what it owes each address, and no more.
+    function invariant_WhatIsOwedIsOwedToSomeone() public view {
+        uint256 total;
+        for (uint256 i = 0; i < 3; ++i) {
+            total += portal.owed(actors[i]);
+        }
+        assertEq(total, portal.totalOwed());
     }
 
     /// The portal passes funds on and keeps none.

@@ -9,6 +9,9 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {
     PausableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {
+    ReentrancyGuardUpgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -31,10 +34,14 @@ import {CanonicalTao} from "./tokens/CanonicalTao.sol";
 /// order for the hub on Bittensor, and it carries out what the hub answers: release the
 /// stablecoin, mint a canonical token, create a subnet's alpha token.
 ///
-/// The portal holds no funds and takes no approvals. Payers deposit at the vault and sell
-/// at the tokens, which are not upgradeable. What an upgrade of the portal could do is
-/// mint canonical tokens and release the stablecoin within the vault's rate limit: that is
-/// why the owner is a timelock, and why a guardian can pause.
+/// The portal holds no stablecoin and no tokens, and takes no approvals. Payers deposit at
+/// the vault and sell at the tokens, which are not upgradeable. What an upgrade of the
+/// portal could do is mint canonical tokens and release the stablecoin within the vault's
+/// rate limit: that is why the owner is a timelock, and why a guardian can pause.
+///
+/// The stablecoin leaves the vault at a limited rate. The portal keeps what the hub told
+/// it to pay and the vault has not released yet (`owed`), and anyone can have it paid as
+/// the allowance refills (`claim`).
 ///
 /// Upgradeable (UUPS). The owner upgrades, configures and resumes. The guardian only
 /// pauses.
@@ -43,6 +50,7 @@ contract Portal is
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
     PausableUpgradeable,
+    ReentrancyGuardUpgradeable,
     IPortal,
     IMessageRecipient,
     ISpecifiesInterchainSecurityModule
@@ -81,6 +89,14 @@ contract Portal is
     /// @notice The hub's messages that were carried out, by nonce.
     BitMaps.BitMap private _processed;
 
+    /// @notice The stablecoin that the hub told this portal to pay to an address and that
+    /// the vault has not released yet, in the stablecoin's units. The vault releases at a
+    /// limited rate. What does not fit when the hub's answer arrives is on record here
+    /// and is paid by `claim` as the allowance refills.
+    mapping(address recipient => uint256) public owed;
+    /// @notice The sum of `owed`.
+    uint256 public totalOwed;
+
     /// @notice What a payer pays with each order for the hub's answer, in this chain's coin,
     /// on top of the transport's fee for the order. Every order has an answer, a refund
     /// too, and the gateway on Bittensor pays the transport for it. This fee makes each
@@ -101,8 +117,9 @@ contract Portal is
         uint64 deadline,
         bytes32 messageId
     );
-    /// @notice A credit of the hub was paid. `settled` and `refunded` name the order it
-    /// answers, if it answers one.
+    /// @notice A credit of the hub was carried out: a token was minted, or the stablecoin
+    /// was paid or put on record as owed (see `StablePaid`). `answersOrder`, `order` and
+    /// `refund` name the order it answers, if it answers one.
     event Credited(
         uint64 indexed nonce,
         address indexed to,
@@ -119,6 +136,11 @@ contract Portal is
     event GatewaySet(bytes32 gateway);
     event InterchainSecurityModuleSet(address module);
     event GuardianSet(address guardian);
+    /// @notice The vault paid `amount` of the stablecoin to `to`. `stillOwed` is what the
+    /// vault's allowance did not cover yet.
+    event StablePaid(address indexed to, uint256 amount, uint256 stillOwed);
+    /// @notice The stablecoin refused a payment to `to`. The amount stays owed.
+    event StablePaymentFailed(address indexed to, uint256 amount);
     event AnswerFeeSet(uint256 fee, address recipient);
     event FeesSwept(address indexed recipient, uint256 amount);
 
@@ -160,6 +182,7 @@ contract Portal is
         __Ownable_init(owner_);
         __Ownable2Step_init();
         __Pausable_init();
+        __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         mailbox = mailbox_;
         hubDomain = hubDomain_;
@@ -279,6 +302,7 @@ contract Portal is
     function handle(uint32 origin, bytes32 sender, bytes calldata body)
         external
         payable
+        nonReentrant
         whenNotPaused
     {
         if (msg.sender != address(mailbox)) revert OnlyMailbox();
@@ -318,8 +342,12 @@ contract Portal is
             credit.refund
         );
         if (credit.asset == Wire.ASSET_STABLE) {
-            // Rounded down to the stablecoin's decimals. The remainder stays in the vault.
-            vault.release(credit.to, credit.amount / stableScale);
+            // The hub sends whole units of the stablecoin. Were it not to, the part below
+            // one unit would stay in the vault.
+            uint256 amount = credit.amount / stableScale;
+            owed[credit.to] += amount;
+            totalOwed += amount;
+            _pay(credit.to);
         } else if (credit.asset == Wire.ASSET_TAO) {
             tao.mint(credit.to, credit.amount);
         } else if (credit.asset == Wire.ASSET_ALPHA) {
@@ -329,6 +357,40 @@ contract Portal is
             token.mint(credit.to, credit.amount, credit.rate);
         } else {
             revert UnknownAsset(credit.asset);
+        }
+    }
+
+    /// @notice Pays `to` the stablecoin it is owed, as far as the vault's allowance goes
+    /// now. Anyone may call this: the payment can only go to `to`.
+    /// @return paid What was paid now.
+    function claim(address to) external nonReentrant whenNotPaused returns (uint256 paid) {
+        return _pay(to);
+    }
+
+    /// @dev Never reverts on what the vault or the stablecoin does: the hub's answer is
+    /// carried out once, and what cannot be paid now stays owed. A payment larger than
+    /// the vault's allowance, a stopped vault and a recipient that the stablecoin blocks
+    /// all leave the debt on record and hold nobody else's payment.
+    ///
+    /// The debt is taken off before the vault is called and put back if the payment
+    /// fails. `handle` and `claim`, the only ways here, cannot be entered again while
+    /// one of them runs, so nothing reads the debt in between.
+    function _pay(address to) private returns (uint256 paid) {
+        uint256 amount = owed[to];
+        if (amount == 0) return 0;
+        uint256 available = vault.releasable();
+        paid = amount < available ? amount : available;
+        if (paid == 0) return 0;
+        owed[to] = amount - paid;
+        totalOwed -= paid;
+        // forge-lint: disable-next-line(reentrancy-no-eth)
+        try vault.release(to, paid) {
+            emit StablePaid(to, paid, amount - paid);
+        } catch {
+            owed[to] += paid;
+            totalOwed += paid;
+            emit StablePaymentFailed(to, paid);
+            paid = 0;
         }
     }
 

@@ -15,6 +15,8 @@ import {IPortal} from "./interfaces/IPortal.sol";
 /// when the approver calls. The portal, which can be upgraded, can do one thing here:
 /// release the stablecoin, within a rate limit that only the owner can change. The limit
 /// bounds what a faulty or forged release can take before the guardian stops releases.
+/// A payment that is larger than the allowance is not lost and does not wait for the
+/// owner: the portal keeps what is still owed and releases it as the allowance refills.
 ///
 /// A deposit counts what arrived by the change of the vault's balance. `deposit` and
 /// `release` cannot be entered again while one of them runs, so a stablecoin that calls
@@ -112,9 +114,9 @@ contract Vault is ReentrancyGuard {
         emit Released(to, amount);
     }
 
-    /// @notice What can be released now.
+    /// @notice What can be released now: nothing while releases are stopped.
     function releasable() external view returns (uint256) {
-        return releases.availableAt(block.timestamp);
+        return paused ? 0 : releases.availableAt(block.timestamp);
     }
 
     function setReleaseLimit(uint128 limit, uint64 period) external onlyOwner {

@@ -19,6 +19,7 @@ import {MockRails} from "./mocks/MockRails.sol";
 
 contract GatewayTest is Test {
     uint32 internal constant BASE = 8453;
+    uint32 internal constant ETHEREUM = 1;
     bytes32 internal constant PORTAL = bytes32(uint256(0xB0));
     uint256 internal constant TIMELOCK_DELAY = 48 hours;
 
@@ -47,8 +48,13 @@ contract GatewayTest is Test {
         uint64 gamma
     );
     event MessageSent(
-        uint64 indexed position, uint32 indexed domain, bytes32 recipient, bytes32 messageId
+        uint32 indexed bridge,
+        uint64 indexed nonce,
+        uint32 domain,
+        bytes32 recipient,
+        bytes32 messageId
     );
+    event FlushFailed(uint32 indexed bridge, bytes reason);
 
     function setUp() public {
         vm.warp(1_800_000_000);
@@ -158,7 +164,7 @@ contract GatewayTest is Test {
         rails.setAnswer(BASE, PORTAL, answer);
 
         vm.expectEmit(true, true, false, false, address(gateway));
-        emit MessageSent(0, BASE, PORTAL, bytes32(0));
+        emit MessageSent(BASE, 0, BASE, PORTAL, bytes32(0));
         mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
 
         assertEq(mailbox.sentCount(), 1);
@@ -166,7 +172,7 @@ contract GatewayTest is Test {
         assertEq(destination, BASE);
         assertEq(recipient, PORTAL);
         assertEq(body, answer);
-        (bool pending,,,,) = rails.nextOutbound();
+        (bool pending,,,,) = rails.nextOutbound(BASE);
         assertFalse(pending);
     }
 
@@ -177,17 +183,47 @@ contract GatewayTest is Test {
         // An order hands over four, the limit.
         mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_NATIVE_TAO));
         assertEq(mailbox.sentCount(), 4);
-        assertEq(rails.head(), 4);
+        assertEq(rails.head(BASE), 4);
 
         // Anyone hands over the rest.
         vm.prank(stranger);
-        assertEq(gateway.flush(10), 2);
+        assertEq(gateway.flush(BASE, 10), 2);
         assertEq(mailbox.sentCount(), 6);
         for (uint256 i = 0; i < 6; ++i) {
             (,, bytes memory body,) = mailbox.sent(i);
             assertEq(body, abi.encode(Wire.KIND_CREDIT, uint64(i)));
         }
-        assertEq(gateway.flush(10), 0);
+        assertEq(gateway.flush(BASE, 10), 0);
+    }
+
+    function test_AnOrderHandsOverOnlyTheQueueOfItsOwnBridge() public {
+        rails.enqueue(ETHEREUM, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+        rails.setAnswer(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(7)));
+
+        mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
+
+        // Base's answer left. Ethereum's message waits for an order of Ethereum, or a flush.
+        assertEq(mailbox.sentCount(), 1);
+        (uint32 destination,,,) = mailbox.sent(0);
+        assertEq(destination, BASE);
+        assertEq(rails.head(ETHEREUM), 0);
+        assertEq(gateway.flush(ETHEREUM, 10), 1);
+    }
+
+    function test_AMessageThatCannotLeaveHoldsOnlyItsOwnBridge() public {
+        rails.enqueue(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+        rails.enqueue(ETHEREUM, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
+        // The transport refuses messages to Base. Ethereum's leave.
+        mailbox.setBlocked(BASE, true);
+
+        vm.expectRevert("MockMailbox: destination blocked");
+        gateway.flush(BASE, 1);
+        assertEq(gateway.flush(ETHEREUM, 1), 1);
+        assertEq(rails.head(BASE), 0);
+        assertEq(rails.head(ETHEREUM), 1);
+
+        mailbox.setBlocked(BASE, false);
+        assertEq(gateway.flush(BASE, 1), 1);
     }
 
     function test_AnOrderSettlesEvenIfItsAnswerCannotLeave() public {
@@ -195,20 +231,22 @@ contract GatewayTest is Test {
         mailbox.setFee(1 ether);
         rails.setAnswer(BASE, PORTAL, abi.encode(Wire.KIND_CREDIT, uint64(0)));
 
+        vm.expectEmit(true, false, false, false, address(gateway));
+        emit FlushFailed(BASE, "");
         mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_TAO));
 
-        // The hub took the order. The answer is still in its outbox, not half-sent.
+        // The hub took the order. The answer is still in its queue, not half-sent.
         assertEq(rails.executedCount(), 1);
         assertEq(mailbox.sentCount(), 0);
-        (bool pending, uint64 position,,,) = rails.nextOutbound();
+        (bool pending, uint64 nonce,,,) = rails.nextOutbound(BASE);
         assertTrue(pending);
-        assertEq(position, 0);
+        assertEq(nonce, 0);
 
         // Once the gateway is funded, anyone sends it.
         vm.expectRevert();
-        gateway.flush(1);
+        gateway.flush(BASE, 1);
         vm.deal(address(gateway), 3 ether);
-        assertEq(gateway.flush(1), 1);
+        assertEq(gateway.flush(BASE, 1), 1);
         assertEq(address(gateway).balance, 2 ether);
         assertEq(address(mailbox).balance, 1 ether);
     }
@@ -216,7 +254,7 @@ contract GatewayTest is Test {
     function test_TheHandOverIsNotCallableFromOutside() public {
         vm.prank(stranger);
         vm.expectRevert(Gateway.OnlySelf.selector);
-        gateway.flushFromHandle();
+        gateway.flushFromHandle(BASE);
     }
 
     function test_TheGuardianPausesAndOnlyTheOwnerResumes() public {
@@ -229,7 +267,7 @@ contract GatewayTest is Test {
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         mailbox.deliver(gateway, BASE, PORTAL, order(0, Wire.TO_NATIVE_TAO));
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        gateway.flush(1);
+        gateway.flush(BASE, 1);
 
         vm.prank(guardian);
         vm.expectRevert(

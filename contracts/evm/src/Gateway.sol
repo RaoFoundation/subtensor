@@ -26,7 +26,10 @@ import {
 /// critical is that the hub trusts it to pass on only messages that the transport's
 /// security module verified.
 ///
-/// It holds TAO only to pay the transport for the hub's answers.
+/// It holds TAO only to pay the transport for the hub's messages. The hub sees to it that
+/// every message is paid for before it is queued: an order's answer from the budget of
+/// the order's bridge, an exit by the account that exits. The TAO arrives at this
+/// contract's account on Bittensor, which is this contract's balance.
 ///
 /// Upgradeable (UUPS). The owner upgrades, configures and resumes. The guardian only
 /// pauses.
@@ -69,13 +72,17 @@ contract Gateway is
         uint64 nonce,
         uint64 gamma
     );
-    /// @notice An answer of the hub was handed to the transport.
+    /// @notice Message `nonce` of the hub's queue for `bridge` was handed to the transport.
     event MessageSent(
-        uint64 indexed position, uint32 indexed domain, bytes32 recipient, bytes32 messageId
+        uint32 indexed bridge,
+        uint64 indexed nonce,
+        uint32 domain,
+        bytes32 recipient,
+        bytes32 messageId
     );
-    /// @notice The answers could not be handed over after an order. They wait in the
-    /// hub's outbox for `flush`.
-    event FlushFailed(bytes reason);
+    /// @notice The answers for `bridge` could not be handed over after an order. They
+    /// wait in the hub's queue for `flush`.
+    event FlushFailed(uint32 indexed bridge, bytes reason);
     event InterchainSecurityModuleSet(address module);
     event GuardianSet(address guardian);
     event FlushLimitSet(uint256 limit);
@@ -119,7 +126,7 @@ contract Gateway is
         whenNotPaused
     {
         if (msg.sender != address(mailbox)) revert OnlyMailbox();
-        (uint8 status, uint64 amountOut) = RAILS.execute(origin, sender, body);
+        (uint8 status, uint64 amountOut, uint32 bridge) = RAILS.execute(origin, sender, body);
 
         // The hub took the body, so it is an order.
         Wire.Order memory order = Wire.decodeOrder(body);
@@ -135,37 +142,42 @@ contract Gateway is
             );
         }
 
-        try this.flushFromHandle() {}
+        // The answer to the order waits in the queue of the order's bridge.
+        try this.flushFromHandle(bridge) {}
         catch (bytes memory reason) {
-            emit FlushFailed(reason);
+            emit FlushFailed(bridge, reason);
         }
     }
 
-    /// @notice Hands up to `limit` of the hub's waiting answers to the transport. Anyone
-    /// may call this: it does what the hub already decided. Reverts as a whole if the
-    /// gateway cannot pay the transport for one of them.
+    /// @notice Hands up to `limit` of the messages that wait in the hub's queue for
+    /// `bridge` to the transport. Anyone may call this: it does what the hub already
+    /// decided. Reverts as a whole if the gateway cannot pay the transport for one of
+    /// them. Each bridge has its own queue, so a message that cannot leave holds only the
+    /// messages to the same spoke.
     /// @return sent How many were handed over.
-    function flush(uint256 limit) external whenNotPaused returns (uint256 sent) {
-        return _flush(limit);
+    function flush(uint32 bridge, uint256 limit) external whenNotPaused returns (uint256 sent) {
+        return _flush(bridge, limit);
     }
 
     /// @dev `handle` calls this through an external call to itself, so that a failure
     /// undoes the hand-over alone.
-    function flushFromHandle() external {
+    function flushFromHandle(uint32 bridge) external {
         if (msg.sender != address(this)) revert OnlySelf();
-        _flush(flushLimit);
+        _flush(bridge, flushLimit);
     }
 
-    function _flush(uint256 limit) private returns (uint256 sent) {
+    function _flush(uint32 bridge, uint256 limit) private returns (uint256 sent) {
         for (; sent < limit; ++sent) {
-            (bool pending, uint64 position, uint32 domain, bytes32 recipient, bytes memory body) =
-                RAILS.nextOutbound();
+            (bool pending, uint64 nonce, uint32 domain, bytes32 recipient, bytes memory body) =
+                RAILS.nextOutbound(bridge);
             if (!pending) break;
+            // The hub queued the message only after this contract's account was paid the
+            // bridge's cost of one message.
             uint256 fee = mailbox.quoteDispatch(domain, recipient, body);
-            // The message leaves the outbox and enters the transport in one transaction.
-            RAILS.ackOutbound(position);
+            // The message leaves the queue and enters the transport in one transaction.
+            RAILS.ackOutbound(bridge, nonce);
             bytes32 messageId = mailbox.dispatch{value: fee}(domain, recipient, body);
-            emit MessageSent(position, domain, recipient, messageId);
+            emit MessageSent(bridge, nonce, domain, recipient, messageId);
         }
     }
 

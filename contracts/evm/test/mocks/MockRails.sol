@@ -20,8 +20,9 @@ contract MockRails is IRails {
     }
 
     Executed[] public executed;
-    Outbound[] public outbox;
-    uint64 public head;
+    /// @notice The queue of each bridge, and how far the gateway has taken it.
+    mapping(uint32 bridge => Outbound[]) public outbox;
+    mapping(uint32 bridge => uint64) public head;
     uint8 public status = 1;
     uint64 public amountOut;
     bool public refuse;
@@ -43,8 +44,9 @@ contract MockRails is IRails {
         _hasAnswer = true;
     }
 
-    function enqueue(uint32 domain, bytes32 recipient, bytes calldata body) external {
-        outbox.push(Outbound(domain, recipient, body));
+    /// @notice Queues a message for `bridge`. In these tests a bridge's id is its domain.
+    function enqueue(uint32 bridge, bytes32 recipient, bytes calldata body) external {
+        outbox[bridge].push(Outbound(bridge, recipient, body));
     }
 
     function executedCount() external view returns (uint256) {
@@ -53,32 +55,34 @@ contract MockRails is IRails {
 
     function execute(uint32 domain, bytes32 sender, bytes calldata order)
         external
-        returns (uint8, uint64)
+        returns (uint8, uint64, uint32)
     {
         require(!refuse, "dispatch execution failed: OrderOutOfSequence");
         executed.push(Executed(msg.sender, domain, sender, order));
         if (_hasAnswer) {
-            outbox.push(_answer);
+            outbox[domain].push(_answer);
             _hasAnswer = false;
         }
-        return (status, amountOut);
+        return (status, amountOut, domain);
     }
 
-    function ackOutbound(uint64 position) external {
+    function ackOutbound(uint32 bridge, uint64 nonce) external {
         require(
-            position == head && head < outbox.length, "dispatch execution failed: NotOutboxHead"
+            nonce == head[bridge] && nonce < outbox[bridge].length,
+            "dispatch execution failed: NotOutboxHead"
         );
-        head++;
+        head[bridge]++;
     }
 
-    function nextOutbound()
+    function nextOutbound(uint32 bridge)
         external
         view
-        returns (bool pending, uint64 position, uint32 domain, bytes32 recipient, bytes memory body)
+        returns (bool pending, uint64 nonce, uint32 domain, bytes32 recipient, bytes memory body)
     {
-        if (head >= outbox.length) return (false, 0, 0, bytes32(0), "");
-        Outbound storage next = outbox[head];
-        return (true, head, next.domain, next.recipient, next.body);
+        nonce = head[bridge];
+        if (nonce >= outbox[bridge].length) return (false, 0, 0, bytes32(0), "");
+        Outbound storage next = outbox[bridge][nonce];
+        return (true, nonce, next.domain, next.recipient, next.body);
     }
 
     function quote(uint32, bytes calldata) external pure returns (bool, uint64, string memory) {

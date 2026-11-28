@@ -17,6 +17,8 @@ contract MockMailbox is IMailbox {
     uint32 public immutable localDomain;
     /// @notice What `dispatch` charges.
     uint256 public fee;
+    /// @notice Destinations that `dispatch` refuses.
+    mapping(uint32 destination => bool) public blocked;
     Message[] public sent;
 
     constructor(uint32 localDomain_) {
@@ -25,6 +27,10 @@ contract MockMailbox is IMailbox {
 
     function setFee(uint256 fee_) external {
         fee = fee_;
+    }
+
+    function setBlocked(uint32 destination, bool blocked_) external {
+        blocked[destination] = blocked_;
     }
 
     function sentCount() external view returns (uint256) {
@@ -41,6 +47,7 @@ contract MockMailbox is IMailbox {
         returns (bytes32)
     {
         require(msg.value == fee, "MockMailbox: wrong fee");
+        require(!blocked[destination], "MockMailbox: destination blocked");
         sent.push(Message(destination, recipient, body, msg.value));
         return keccak256(abi.encode(sent.length, destination, recipient, body));
     }
