@@ -84,6 +84,7 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Balances", "ExistentialDeposit"): 500,
     ("Multisig", "DepositBase"): 132_000_000,
     ("Multisig", "DepositFactor"): 32_000_000,
+    ("Rails", "CongestedAt"): 256,
     ("SubtensorModule", "InitialStartCallDelay"): 100,
 }
 

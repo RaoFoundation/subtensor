@@ -155,9 +155,10 @@ DESCRIPTIONS: dict[str, str] = {
         "full period of price history yet. Retry after `CanonicalPool.TwapPeriod` blocks."
     ),
     "OutboxFull": (
-        "Too many of the hub's messages for this bridge have not left (`Rails.MaxOutbox`): "
-        "they wait in line or are deferred. Anyone can call the gateway's `flush` for the "
-        "bridge to hand the ones in line to the transport, and its `send` for a deferred one."
+        "Too many of the hub's messages wait in this bridge's queue (`Rails.MaxOutbox`). "
+        "Anyone can call the gateway's `flush` for the bridge: each message then leaves, or "
+        "is deferred if nobody pays what the transport charges for it. Deferred messages "
+        "take no place in the queue."
     ),
     "NotOutboxHead": (
         "The message is not the head of its bridge's queue (`Rails.NextOutbound`). The "
@@ -186,5 +187,13 @@ DESCRIPTIONS: dict[str, str] = {
     "GatewayNotFunded": (
         "The account named as the gateway does not hold the existential deposit. Send it "
         "that much first: the hub hands the gateway only what it pays on to the transport."
+    ),
+    "Congested": (
+        "The bridge is congested: `Rails.CongestedAt` or more of its messages are deferred, "
+        "because the transport charges more for them than the hub pays and nobody paid the "
+        "difference. Until some of them have left, the hub makes no new payment on that "
+        "chain: it refunds an order, and refuses an exit. Anyone can send a deferred message "
+        "and pay the difference (`btcli bridge flush --message`), or pay into the bridge's "
+        "account (`Rails.fund_messages`). `btcli bridge list` shows the deferred messages."
     ),
 }

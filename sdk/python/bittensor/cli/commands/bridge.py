@@ -462,7 +462,7 @@ def list_bridges(ctx: typer.Context):
     rows = [
         [
             r["bridge"],
-            "on" if r["enabled"] else "off",
+            ("congested" if r["congested"] else "on") if r["enabled"] else "off",
             r["stablecoin"],
             r["outstanding_tusd"],
             r["mint_cap_tusd"],

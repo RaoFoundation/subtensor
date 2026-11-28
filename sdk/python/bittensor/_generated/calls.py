@@ -2055,7 +2055,7 @@ class Rails:
 
     @staticmethod
     def bridge_out(bridge: 'u32', source: 'NativeAsset', amount: 'u64', destination: 'Destination', min_out: 'u64') -> Call:
-        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`. The signer also pays the bridge's [`MessageReserve`] in TAO into the bridge's account, for the message."
+        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`, or while the bridge is congested ([`Pallet::congested`]). The signer also pays the bridge's [`MessageReserve`] in TAO into the bridge's account, for the message."
         return Call('Rails', 'bridge_out', {'bridge': bridge, 'source': source, 'amount': amount, 'destination': destination, 'min_out': min_out})
 
     @staticmethod
@@ -2065,7 +2065,7 @@ class Rails:
 
     @staticmethod
     def execute(domain: 'u32', sender: 'H256', order: 'Order') -> Call:
-        'Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, the order is out of sequence, or the answer cannot be queued: too many messages of the bridge have not left, or its account does not hold the reserve for one more message. An order that cannot be settled for any other reason is taken and refunded.'
+        "Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, the order is out of sequence, or the answer cannot be queued: the bridge's queue is full, or its account does not hold the reserve for one more message. An order that cannot be settled for any other reason is taken and refunded. That includes an order for a payment on the spoke while the bridge is congested ([`Pallet::congested`])."
         return Call('Rails', 'execute', {'domain': domain, 'sender': sender, 'order': order})
 
     @staticmethod

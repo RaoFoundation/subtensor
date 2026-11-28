@@ -585,6 +585,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "FeeAboveLimit": _C.LIMIT_EXCEEDED,
     "CeilingBelowReserve": _C.INVALID_ARGUMENT,
     "GatewayNotFunded": _C.INSUFFICIENT_BALANCE,
+    "Congested": _C.TOO_EARLY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────
