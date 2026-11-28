@@ -2049,19 +2049,24 @@ class Rails:
     """Call builders for the Rails pallet."""
 
     @staticmethod
-    def ack_outbound(position: 'u64') -> Call:
-        'Takes the message at `position`, the head of the outbox, out of it. Only the gateway may call this, in the transaction in which it hands the message to the transport: if that fails, this is undone with it.'
-        return Call('Rails', 'ack_outbound', {'position': position})
+    def ack_outbound(bridge: 'u32', nonce: 'u64', paid: 'TaoBalance') -> Call:
+        "Takes message `nonce`, the head of the queue of `bridge`, out of it, and takes `paid`, what the transport charges the gateway for the message, from the bridge's budget. Only the gateway may call this, in the transaction in which it pays the transport and hands it the message: if that fails, this is undone with it.  Fails if the budget holds less than `paid`. The message then waits at the head of its queue until the budget is filled."
+        return Call('Rails', 'ack_outbound', {'bridge': bridge, 'nonce': nonce, 'paid': paid})
 
     @staticmethod
     def bridge_out(bridge: 'u32', source: 'NativeAsset', amount: 'u64', destination: 'Destination', min_out: 'u64') -> Call:
-        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`. The signer also pays [`ExitFee`] in TAO to the gateway, which sends the message."
+        "Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a whole if it would deliver less than `min_out`. The signer also pays the bridge's [`MessageCost`] in TAO into the bridge's budget, for the message."
         return Call('Rails', 'bridge_out', {'bridge': bridge, 'source': source, 'amount': amount, 'destination': destination, 'min_out': min_out})
 
     @staticmethod
     def execute(domain: 'u32', sender: 'H256', order: 'Order') -> Call:
-        'Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, the order is out of sequence, or the answer cannot be queued. An order that cannot be settled for any other reason is taken and refunded.'
+        "Settles the order that the portal `sender` on transport domain `domain` sent. Only the gateway may call this.  Fails, and so leaves the order with the transport to deliver again, only if the hub is paused, the portal or its bridge is not live, the order is out of sequence, or the answer cannot be queued: the bridge's queue is full, or its budget does not cover one more message. An order that cannot be settled for any other reason is taken and refunded."
         return Call('Rails', 'execute', {'domain': domain, 'sender': sender, 'order': order})
+
+    @staticmethod
+    def fund_messages(bridge: 'u32', amount: 'TaoBalance') -> Call:
+        "Pays `amount` of the signer's TAO into the budget of `bridge`: to the gateway account, for the transport of messages to the bridge's spoke. Anyone may pay. The operator of a spoke pays in what the spoke's portal collected as answer fees. What is paid in is spent on messages and cannot be taken back."
+        return Call('Rails', 'fund_messages', {'bridge': bridge, 'amount': amount})
 
     @staticmethod
     def list_market(netuid: 'NetUid', bridge: 'u32', address: 'H160') -> Call:
@@ -2079,11 +2084,6 @@ class Rails:
         return Call('Rails', 'register_token', {'bridge': bridge, 'asset': asset, 'address': address})
 
     @staticmethod
-    def set_exit_fee(fee: 'TaoBalance') -> Call:
-        'Sets what a payment through [`Pallet::bridge_out`] pays the gateway for its message. Set it to at least what the transport charges the gateway for one.'
-        return Call('Rails', 'set_exit_fee', {'fee': fee})
-
-    @staticmethod
     def set_gateway(gateway: 'Any') -> Call:
         'Sets the account of the gateway contract, or removes it.'
         return Call('Rails', 'set_gateway', {'gateway': gateway})
@@ -2097,6 +2097,11 @@ class Rails:
     def set_market_cap(netuid: 'NetUid', cap: 'AlphaBalance') -> Call:
         'Sets the most alpha the vault of `netuid` may hold after a purchase.'
         return Call('Rails', 'set_market_cap', {'netuid': netuid, 'cap': cap})
+
+    @staticmethod
+    def set_message_cost(bridge: 'u32', cost: 'TaoBalance') -> Call:
+        "Sets what the hub counts for one message to the spoke of `bridge`. Set it to at least what the transport charges the gateway for one: the bridge's budget must cover its queue at this cost, and an exit pays it. A bridge takes no order before this is set; zero says that the transport is free."
+        return Call('Rails', 'set_message_cost', {'bridge': bridge, 'cost': cost})
 
     @staticmethod
     def set_paused(paused: 'bool') -> Call:

@@ -580,6 +580,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "TwapUnavailable": _C.TOO_EARLY,
     "OutboxFull": _C.LIMIT_EXCEEDED,
     "NotOutboxHead": _C.INVALID_ARGUMENT,
+    "MessagesNotFunded": _C.TOO_EARLY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

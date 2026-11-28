@@ -245,9 +245,22 @@ def encode_sell(amount: int, destination: Destination, min_out: int, deadline: i
     )
 
 
-def encode_flush(limit: int) -> str:
-    """``Gateway.flush``: hand up to ``limit`` of the hub's waiting answers to the transport."""
-    return _call("flush(uint256)", ["uint256"], [limit])
+def encode_flush(bridge: int, limit: int) -> str:
+    """``Gateway.flush``: hand up to ``limit`` of the messages that wait in the queue of
+    ``bridge`` to the transport."""
+    return _call("flush(uint32,uint256)", ["uint32", "uint256"], [bridge, limit])
+
+
+def encode_owed(to: str) -> str:
+    """``Portal.owed``: the stablecoin the hub told the portal to pay ``to`` that the
+    vault has not released yet, in the stablecoin's units."""
+    return _call("owed(address)", ["address"], [to_checksum_address(to)])
+
+
+def encode_claim(to: str) -> str:
+    """``Portal.claim``: have the vault release what its allowance covers of what ``to``
+    is owed. The stablecoin goes to ``to``, whoever calls."""
+    return _call("claim(address)", ["address"], [to_checksum_address(to)])
 
 
 def encode_order_fee() -> str:

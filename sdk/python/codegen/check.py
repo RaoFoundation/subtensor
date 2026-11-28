@@ -92,7 +92,9 @@ RAW_ONLY: dict[str, set[str]] = {
         "list_market",
         "set_market_cap",
         "skip_order",
-        "set_exit_fee",
+        "set_message_cost",
+        # The operator of a spoke pays in what its portal collected as answer fees.
+        "fund_messages",
     },
     # Ordinary funding and migration intents insert registration automatically
     # when they have the recipient descriptor. Expose standalone sponsorship

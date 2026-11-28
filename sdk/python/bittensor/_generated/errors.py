@@ -526,7 +526,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (36, 17): ErrorInfo('Rails', 'MarketCapExceeded', "The vault would hold more alpha than the market's cap."),
     (36, 18): ErrorInfo('Rails', 'SubnetUnknown', 'There is no subnet at this netuid to open a market for.'),
     (36, 19): ErrorInfo('Rails', 'TwapUnavailable', 'The pool has no time-weighted price yet to value credits with.'),
-    (36, 20): ErrorInfo('Rails', 'OutboxFull', 'Too many messages wait for the gateway.'),
-    (36, 21): ErrorInfo('Rails', 'NotOutboxHead', 'The position is not the head of the outbox.'),
+    (36, 20): ErrorInfo('Rails', 'OutboxFull', "Too many messages wait for the gateway in the bridge's queue."),
+    (36, 21): ErrorInfo('Rails', 'NotOutboxHead', "The message is not the head of its bridge's queue."),
     (36, 22): ErrorInfo('Rails', 'Overflow', 'Arithmetic overflowed.'),
+    (36, 23): ErrorInfo('Rails', 'MessagesNotFunded', "The cost of a message to the bridge's spoke is not set, or the bridge's budget does not cover its queue and one more message, or does not cover what the transport charges for the message at the head of its queue."),
 }

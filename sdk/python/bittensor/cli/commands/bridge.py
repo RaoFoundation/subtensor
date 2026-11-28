@@ -370,12 +370,26 @@ def status(
             lambda: rpc.call("eth_getLogs", [rails.credited_filter(spoke.portal, order, start)]),
         )
         answers = [answer for answer in map(rails.decode_credited, logs) if answer["answers_order"]]
+        for answer in answers:
+            if answer["asset"] != "stable":
+                continue
+            # A vault pays a large amount in parts: show what is still to come.
+            read = {"to": spoke.portal, "data": rails.encode_owed(answer["to"])}
+            answer["recipient_owed"] = _run_evm(
+                app_ctx, lambda read=read: rails.decode_uint(rpc.eth_call(read))
+            )
     record["delivered"] = answers
     paid = "; ".join(
         f"{tusd_from_units(a['amount'])} of {a['asset']}"
         + (f" {a['netuid']}" if a["netuid"] is not None else "")
         + f" to {a['to']}"
         + (" (refund)" if a["refund"] else "")
+        + (
+            f" (the vault still owes this address {a['recipient_owed']} units: "
+            "`btcli bridge claim`)"
+            if a.get("recipient_owed")
+            else ""
+        )
         for a in answers
     )
     app_ctx.output.detail(
@@ -447,6 +461,9 @@ def list_bridges(ctx: typer.Context):
             r["mint_cap_tusd"],
             str(r["tao_supply"]),
             r["next_order"],
+            "not set" if r["message_cost"] is None else str(r["message_cost"]),
+            str(r["message_budget"]),
+            r["messages_waiting"],
             r["portal"],
         ]
         for r in records
@@ -461,11 +478,14 @@ def list_bridges(ctx: typer.Context):
             "cap",
             "canonical TAO",
             "orders",
+            "message cost",
+            "message budget",
+            "waiting",
             "portal",
         ],
         rows,
         records,
-        right_align={0, 3, 4, 5, 6},
+        right_align={0, 3, 4, 5, 6, 7, 8, 9},
     )
 
 
@@ -499,18 +519,20 @@ def balance(
 @evm_key_signed
 def flush(
     ctx: typer.Context,
+    bridge: int = typer.Option(..., "--bridge", help="Id of the bridge: 8453 is Base."),
     limit: int = typer.Option(8, "--limit", min=1, help="The most messages to hand over."),
     key: Optional[str] = typer.Option(None, "--evm-key", help=EVM_KEY_HELP),
     rpc_url: Optional[str] = RPC_URL_OPTION,
     manifest: Optional[str] = MANIFEST_OPTION,
 ):
-    """Hand the hub's waiting messages to the transport.
+    """Hand the hub's waiting messages for one bridge to the transport.
 
-    The hub queues what it tells other chains to pay out. The gateway contract
-    on Bittensor's EVM sends that queue each time an order arrives. A payment
-    that starts on Bittensor (`btcli bridge exit`) can wait for the next order:
-    this sends the queue now. Anyone may call it, and it can only send what the
-    hub already decided. The EVM key pays the gas in TAO.
+    The hub queues what it tells another chain to pay out, one queue for each
+    bridge. The gateway contract on Bittensor's EVM sends a bridge's queue each
+    time an order of that bridge arrives. A payment that starts on Bittensor
+    (`btcli bridge exit`) can wait for the next order: this sends the queue
+    now. Anyone may call it, and it can only send what the hub already decided.
+    The EVM key pays the gas in TAO.
     """
     app_ctx = ctx_of(ctx)
     try:
@@ -522,9 +544,65 @@ def flush(
         app_ctx,
         key,
         gateway,
-        data=rails.encode_flush(limit),
-        summary=f"hand up to {limit} of the hub's messages to the transport",
+        data=rails.encode_flush(bridge, limit),
+        summary=f"hand up to {limit} of the hub's messages for bridge {bridge} to the transport",
         rpc_url=rpc_url,
+    )
+
+
+@app.command("claim")
+@with_tx_globals
+@evm_key_signed
+def claim(
+    ctx: typer.Context,
+    to: Optional[str] = typer.Option(
+        None, "--to", help="The address that is owed. Defaults to the EVM key's address."
+    ),
+    key: Optional[str] = typer.Option(None, "--evm-key", help=EVM_KEY_HELP),
+    spoke_name: Optional[str] = SPOKE_OPTION,
+    manifest: Optional[str] = MANIFEST_OPTION,
+):
+    """Collect the stablecoin that a vault still owes an address.
+
+    A vault releases a limited amount of the stablecoin in a period of time. A
+    payment larger than what is left of that amount arrives in parts: the
+    first part with the hub's answer, and the rest when somebody asks again
+    after the allowance refilled. This asks. The stablecoin goes to the address
+    that is owed, whoever calls. The EVM key pays the gas on the spoke.
+    """
+    app_ctx = ctx_of(ctx)
+    spoke = _spoke(app_ctx, spoke_name, manifest)
+    rpc = evm_rpc.EvmRpc(spoke.rpc_url)
+    owner = to or _key_info(app_ctx, key).address
+    read = {"to": spoke.portal, "data": rails.encode_owed(owner)}
+    owed = _run_evm(app_ctx, lambda: rails.decode_uint(rpc.eth_call(read)))
+    if owed == 0:
+        app_ctx.output.detail(
+            None,
+            {"address": owner, "owed": f"0 {spoke.stable_symbol}"},
+            {"address": owner, "owed": 0, "tx_hash": None},
+        )
+        return
+    result = _submit_evm_tx(
+        app_ctx,
+        key,
+        spoke.portal,
+        data=rails.encode_claim(owner),
+        summary=f"collect what the vault owes {owner} on {spoke.name}",
+        rpc_url=spoke.rpc_url,
+    )
+    if result is None:
+        return
+    left = _run_evm(app_ctx, lambda: rails.decode_uint(rpc.eth_call(read)))
+    scale = Decimal(10) ** spoke.stable_decimals
+    app_ctx.output.detail(
+        None,
+        {
+            "address": owner,
+            "paid": f"{(owed - left) / scale} {spoke.stable_symbol}",
+            "still owed": f"{left / scale} {spoke.stable_symbol}",
+        },
+        {"address": owner, "paid": owed - left, "owed": left, "tx_hash": result["tx_hash"]},
     )
 
 

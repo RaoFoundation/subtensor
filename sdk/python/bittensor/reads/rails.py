@@ -148,8 +148,16 @@ async def bridges(view) -> list[dict]:
     """Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.
 
     `outstanding_tusd` is the tUSD the bridge minted and has not burned: the
-    stablecoin its vault must hold. `mint_cap_tusd` bounds it. `available_tao`
+    stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
     and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
+
+    The last three fields say who pays for the hub's messages to the bridge's
+    chain. `message_budget` is the TAO that pays the transport for them.
+    `message_cost` is what the hub counts for one message, or None while it is
+    not set. `messages_waiting` is how many wait for the gateway. The hub takes
+    an order of the bridge only while the budget covers every waiting message
+    and one more at that cost. Anyone can pay into the budget
+    (`Rails.fund_messages`).
     """
     view = await view.at()
     rows = await view.query_map(st.Tusd.Bridges)
@@ -161,6 +169,10 @@ async def bridges(view) -> list[dict]:
         tao_supply = await view.query(st.Rails.TaoSupply, [bridge_id])
         tao_cap = await view.query(st.Rails.TaoCap, [bridge_id])
         next_order = await view.query(st.Rails.NextOrder, [bridge_id])
+        cost = await view.query(st.Rails.MessageCost, [bridge_id])
+        budget = await view.query(st.Rails.MessageBudget, [bridge_id])
+        queued = await view.query(st.Rails.NextMessage, [bridge_id])
+        taken = await view.query(st.Rails.NextOutbound, [bridge_id])
         records.append(
             {
                 "bridge": bridge_id,
@@ -174,6 +186,9 @@ async def bridges(view) -> list[dict]:
                 "tao_supply": view.balance(int(tao_supply or 0), 0),
                 "tao_cap": view.balance(int(tao_cap or 0), 0),
                 "next_order": int(next_order or 0),
+                "message_cost": None if cost is None else view.balance(int(cost), 0),
+                "message_budget": view.balance(int(budget or 0), 0),
+                "messages_waiting": int(queued or 0) - int(taken or 0),
             }
         )
     return sorted(records, key=lambda record: record["bridge"])

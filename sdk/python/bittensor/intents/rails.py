@@ -350,11 +350,11 @@ class BridgeOut(Intent):
     fails as a whole; the asset arrives on the other chain once the bridge has
     relayed the hub's message, usually within a minute. A bridge releases only
     the stablecoin it brought in. Fails rather than delivering less than the
-    current quote less ``rate_tolerance``. The coldkey also pays the hub's exit
-    fee in TAO, on top of the amount: it goes to the gateway, which pays the
-    bridge for the message. A plan's ``preview`` holds the quote as ``receive``
-    and ``minimum``, in units of the delivered asset, and the fee as
-    ``exit_fee_tao``.
+    current quote less ``rate_tolerance``. The coldkey also pays, in TAO and on
+    top of the amount, what one message to the bridge's chain costs: it goes to
+    the gateway, which pays the bridge for the message. A plan's ``preview``
+    holds the quote as ``receive`` and ``minimum``, in units of the delivered
+    asset, and that cost as ``exit_fee_tao``.
     """
 
     op = "bridge_out"
@@ -448,7 +448,8 @@ class BridgeOut(Intent):
             preview.blocks.append(f"the hub would refuse this payment: {error}")
             return preview
         minimum = _less(quote, self.rate_tolerance)
-        exit_fee = Balance.from_rao(int(await substrate.query(*st.Rails.ExitFee) or 0))
+        cost = await substrate.query(*st.Rails.MessageCost, [self.bridge])
+        exit_fee = Balance.from_rao(int(cost or 0))
         preview.facts = [
             ("receive", f"~{self._out_text(quote)}"),
             ("minimum", self._out_text(minimum)),

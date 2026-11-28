@@ -79,8 +79,9 @@ DESCRIPTIONS: dict[str, str] = {
     # ── Rails ───────────────────────────────────────────────────────────
     "NotGateway": (
         "Only the gateway contract's account (`Rails.Gateway`) delivers orders and takes "
-        "messages from the outbox. This call is not for accounts. An exit also fails with "
-        "this while an exit fee is set and no gateway account is: there is nobody to pay."
+        "messages from the outbox. This call is not for accounts. An exit, and a payment into "
+        "a bridge's budget, also fail with this while no gateway account is set: there is "
+        "nobody to pay."
     ),
     "Paused": (
         "The hub of the rails is paused: it takes no order and no exit until the admin origin "
@@ -148,11 +149,18 @@ DESCRIPTIONS: dict[str, str] = {
         "full period of price history yet. Retry after `CanonicalPool.TwapPeriod` blocks."
     ),
     "OutboxFull": (
-        "Too many of the hub's messages wait for the gateway (`Rails.MaxOutbox`). Anyone can "
-        "call the gateway's `flush` to hand them to the transport."
+        "Too many of the hub's messages wait for the gateway in this bridge's queue "
+        "(`Rails.MaxOutbox`). Anyone can call the gateway's `flush` for the bridge to hand "
+        "them to the transport."
     ),
     "NotOutboxHead": (
-        "The position is not the head of the hub's outbox. Messages leave first in, first out; "
-        "read `Rails.OutboxBounds`."
+        "The message is not the head of its bridge's queue. A bridge's messages leave first "
+        "in, first out; read `Rails.NextOutbound`."
+    ),
+    "MessagesNotFunded": (
+        "The hub's messages to this bridge are not paid for. Either the admin has not set "
+        "what one costs (`Rails.MessageCost`), or the bridge's budget (`Rails.MessageBudget`) "
+        "does not cover one more answer. Anyone can pay into the budget with "
+        "`Rails.fund_messages`; orders wait with the transport until then."
     ),
 }
