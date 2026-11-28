@@ -390,8 +390,8 @@
         "container": "Rails",
         "name": "NextOrder",
         "path": "pallets/rails/src/lib.rs",
-        "line": 211,
-        "url": "/code/pallets/rails/src/lib.rs#L211",
+        "line": 220,
+        "url": "/code/pallets/rails/src/lib.rs#L220",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -399,8 +399,8 @@
         "container": "Rails",
         "name": "Receipts",
         "path": "pallets/rails/src/lib.rs",
-        "line": 215,
-        "url": "/code/pallets/rails/src/lib.rs#L215",
+        "line": 224,
+        "url": "/code/pallets/rails/src/lib.rs#L224",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -408,7 +408,7 @@
   {
     "name": "bridges",
     "summary": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.",
-    "description": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.\n\n`outstanding_tusd` is the tUSD the bridge minted and has not burned: the\nstablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`\nand `tao_cap` are the canonical TAO on the bridge's chain and its cap.\n\nThe last five fields say who pays for the hub's messages to the bridge's\nchain. `message_account` holds the TAO for them, and `message_budget` is\nwhat it can pay: its balance less the existential deposit. `message_reserve`\nis what the hub sets aside for each message, or None while it is not set,\nand `message_ceiling` is the most the hub pays for one: above the reserve\nit pays from what the account can spare. `messages_waiting` is how many\nwait for the gateway. The hub takes an order of the bridge only while the\naccount holds the reserve for every waiting message and one more. Anyone\ncan pay into the account (`Rails.fund_messages`).",
+    "description": "Every bridge that may mint tUSD: its chain, portal, caps and what it has outstanding.\n\n`outstanding_tusd` is the tUSD the bridge minted and has not burned: the\nstablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`\nand `tao_cap` are the canonical TAO on the bridge's chain and its cap.\n\nThe last six fields say who pays for the hub's messages to the bridge's\nchain. `message_account` holds the TAO for them, and `message_budget` is\nwhat it can pay: its balance less the existential deposit. `message_reserve`\nis what the hub sets aside for each message, or None while it is not set,\nand `message_ceiling` is the most the hub pays for one: above the reserve\nit pays from what the account can spare. `messages_waiting` is how many\nhave not left the hub. `messages_deferred` lists the numbers of those\namong them that are deferred: they left the line because the transport\ncharged more for them than was paid, and the gateway sends each one when\nsomebody asks it to (`btcli bridge flush --message`). The hub takes an\norder of the bridge only while the account holds the reserve for every\nwaiting message and one more. Anyone can pay into the account\n(`Rails.fund_messages`).",
     "params": {},
     "param_docs": {},
     "category": "Canonical rails",
@@ -439,8 +439,8 @@
         "container": "Rails",
         "name": "TaoSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 264,
-        "url": "/code/pallets/rails/src/lib.rs#L264",
+        "line": 280,
+        "url": "/code/pallets/rails/src/lib.rs#L280",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -448,8 +448,8 @@
         "container": "Rails",
         "name": "TaoCap",
         "path": "pallets/rails/src/lib.rs",
-        "line": 268,
-        "url": "/code/pallets/rails/src/lib.rs#L268",
+        "line": 284,
+        "url": "/code/pallets/rails/src/lib.rs#L284",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -457,8 +457,8 @@
         "container": "Rails",
         "name": "NextOrder",
         "path": "pallets/rails/src/lib.rs",
-        "line": 211,
-        "url": "/code/pallets/rails/src/lib.rs#L211",
+        "line": 220,
+        "url": "/code/pallets/rails/src/lib.rs#L220",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -466,8 +466,8 @@
         "container": "Rails",
         "name": "MessageReserve",
         "path": "pallets/rails/src/lib.rs",
-        "line": 240,
-        "url": "/code/pallets/rails/src/lib.rs#L240",
+        "line": 256,
+        "url": "/code/pallets/rails/src/lib.rs#L256",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -475,8 +475,8 @@
         "container": "Rails",
         "name": "MessageCeiling",
         "path": "pallets/rails/src/lib.rs",
-        "line": 247,
-        "url": "/code/pallets/rails/src/lib.rs#L247",
+        "line": 263,
+        "url": "/code/pallets/rails/src/lib.rs#L263",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -484,8 +484,8 @@
         "container": "Rails",
         "name": "NextMessage",
         "path": "pallets/rails/src/lib.rs",
-        "line": 221,
-        "url": "/code/pallets/rails/src/lib.rs#L221",
+        "line": 230,
+        "url": "/code/pallets/rails/src/lib.rs#L230",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -493,8 +493,17 @@
         "container": "Rails",
         "name": "NextOutbound",
         "path": "pallets/rails/src/lib.rs",
-        "line": 226,
-        "url": "/code/pallets/rails/src/lib.rs#L226",
+        "line": 236,
+        "url": "/code/pallets/rails/src/lib.rs#L236",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
+        "name": "Outbox",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 241,
+        "url": "/code/pallets/rails/src/lib.rs#L241",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -2317,8 +2326,8 @@
         "container": "Rails",
         "name": "Tokens",
         "path": "pallets/rails/src/lib.rs",
-        "line": 252,
-        "url": "/code/pallets/rails/src/lib.rs#L252",
+        "line": 268,
+        "url": "/code/pallets/rails/src/lib.rs#L268",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -2326,8 +2335,8 @@
         "container": "Rails",
         "name": "AlphaSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 277,
-        "url": "/code/pallets/rails/src/lib.rs#L277",
+        "line": 293,
+        "url": "/code/pallets/rails/src/lib.rs#L293",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {

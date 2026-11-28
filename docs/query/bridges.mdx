@@ -9,15 +9,19 @@ description: "Every bridge that may mint tUSD: its chain, portal, caps and what 
 stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
 and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-The last five fields say who pays for the hub's messages to the bridge's
+The last six fields say who pays for the hub's messages to the bridge's
 chain. `message_account` holds the TAO for them, and `message_budget` is
 what it can pay: its balance less the existential deposit. `message_reserve`
 is what the hub sets aside for each message, or None while it is not set,
 and `message_ceiling` is the most the hub pays for one: above the reserve
 it pays from what the account can spare. `messages_waiting` is how many
-wait for the gateway. The hub takes an order of the bridge only while the
-account holds the reserve for every waiting message and one more. Anyone
-can pay into the account (`Rails.fund_messages`).
+have not left the hub. `messages_deferred` lists the numbers of those
+among them that are deferred: they left the line because the transport
+charged more for them than was paid, and the gateway sends each one when
+somebody asks it to (`btcli bridge flush --message`). The hub takes an
+order of the bridge only while the account holds the reserve for every
+waiting message and one more. Anyone can pay into the account
+(`Rails.fund_messages`).
 
 **Category:** Canonical rails
 
@@ -54,13 +58,14 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 - Storage [`Tusd.Bridges`](/code/pallets/tusd/src/lib.rs#L139)
 - Storage [`Tusd.BridgeOutstanding`](/code/pallets/tusd/src/lib.rs#L144)
-- Storage [`Rails.TaoSupply`](/code/pallets/rails/src/lib.rs#L264)
-- Storage [`Rails.TaoCap`](/code/pallets/rails/src/lib.rs#L268)
-- Storage [`Rails.NextOrder`](/code/pallets/rails/src/lib.rs#L211)
-- Storage [`Rails.MessageReserve`](/code/pallets/rails/src/lib.rs#L240)
-- Storage [`Rails.MessageCeiling`](/code/pallets/rails/src/lib.rs#L247)
-- Storage [`Rails.NextMessage`](/code/pallets/rails/src/lib.rs#L221)
-- Storage [`Rails.NextOutbound`](/code/pallets/rails/src/lib.rs#L226)
+- Storage [`Rails.TaoSupply`](/code/pallets/rails/src/lib.rs#L280)
+- Storage [`Rails.TaoCap`](/code/pallets/rails/src/lib.rs#L284)
+- Storage [`Rails.NextOrder`](/code/pallets/rails/src/lib.rs#L220)
+- Storage [`Rails.MessageReserve`](/code/pallets/rails/src/lib.rs#L256)
+- Storage [`Rails.MessageCeiling`](/code/pallets/rails/src/lib.rs#L263)
+- Storage [`Rails.NextMessage`](/code/pallets/rails/src/lib.rs#L230)
+- Storage [`Rails.NextOutbound`](/code/pallets/rails/src/lib.rs#L236)
+- Storage [`Rails.Outbox`](/code/pallets/rails/src/lib.rs#L241)
 - Runtime API [`RailsApi.message_account`](/code/runtime/src/lib.rs#L2998-L3000)
 - Runtime API [`RailsApi.message_budget`](/code/runtime/src/lib.rs#L3002-L3004)
 

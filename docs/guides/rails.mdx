@@ -114,9 +114,9 @@ amount. The reserve is what the hub sets aside to send a message to the other ch
 The preview shows it. What the message does not use stays in the bridge's account on
 the hub and pays for later messages.
 
-The hub queues the payment. Each bridge has its own queue. The queue is sent each time
-an order arrives from that chain. To send it now, with an EVM key that holds TAO for
-gas:
+The hub queues the payment. Each bridge has its own queue. A keeper sends the queues:
+a program that anyone can run. To send a queue now, with an EVM key that holds TAO
+for gas:
 
 ```bash
 btcli bridge flush --bridge 8453
@@ -124,15 +124,24 @@ btcli bridge flush --bridge 8453
 
 The hub pays to send each message. Each message has the bridge's reserve. If sending
 costs more than the reserve, the hub pays the difference from what the bridge's
-account can spare, up to the bridge's ceiling. If that is not enough, the messages
-wait. Anyone can pay the difference. What is not needed comes back:
+account can spare, up to the bridge's ceiling. If that is not enough, anyone can pay
+the difference. What is not needed comes back:
 
 ```bash
 btcli bridge flush --bridge 8453 --pay-up-to 0.01
 ```
 
+A message that is not paid for is deferred. It leaves the queue, so that the messages
+behind it can go. It stays on Bittensor, and nothing is lost. A keeper sends it when
+the hub pays enough. To send it now and pay the difference, name the message by its
+number:
+
+```bash
+btcli bridge flush --bridge 8453 --message 12 --pay-up-to 0.01
+```
+
 `btcli bridge list` shows the reserve and the ceiling of each bridge, what its account
-can pay, and how many messages wait.
+can pay, how many messages have not left, and the numbers of the deferred ones.
 
 ## tUSD
 

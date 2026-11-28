@@ -68,6 +68,10 @@ are no tUSD/alpha pools.
   The id of Base is 8453.
 - **Order**: a message from a portal to the hub: "I took this, deliver that".
 - **Answer**: a message from the hub to a portal: "pay this to that address".
+- **Keeper**: a program that asks the gateway to hand the hub's messages to the
+  transport. Anyone can run one. It can only send what the hub decided.
+- **Deferred message**: a message of the hub that left its queue, because the transport
+  charged more for it than was paid. It stays in the hub until someone sends it.
 - **tUSD**: the dollar on Bittensor. One tUSD exists for each dollar of stablecoin that a
   vault holds.
 - **Canonical TAO**: a token on a spoke. One token is one TAO in the hub's reserve.
@@ -157,11 +161,14 @@ empty before and after each order.
 
 An order fails as a whole, and stays with the transport for a new attempt, only if the
 hub is paused, the portal is unknown, its bridge is disabled, the order is out of
-sequence, or the hub could not queue the order's answer: the queue of the bridge is
-full, or the account of the bridge does not hold the reserve for one more message (see
-"Who pays for a message"). The gateway adds one case: the transport itself fails when
-the gateway hands it the answers of the bridge. In each case what the payer locked
-stays on the spoke.
+sequence, or the hub could not queue the order's answer: too many messages of the
+bridge have not left, or the account of the bridge does not hold the reserve for one
+more message (see "Who pays for a message"). In each case what the payer locked stays
+on the spoke.
+
+Nothing that happens to an answer on its way out can fail an order. The gateway
+settles an order in one transaction, and hands answers to the transport in others (see
+"The outbox").
 
 **What an order can deliver.**
 
@@ -218,15 +225,34 @@ has one market for ever. If the netuid is registered again for another subnet, t
 market still only winds down, and the new subnet cannot have a market.
 
 **The outbox.** The hub cannot call a contract. It puts each message for a spoke in a
-queue. Each bridge has its own queue, first in first out. The gateway takes the head
-of a queue, pays the transport and hands it the message, in one transaction. If the
-transport refuses the message, the whole step is undone. The gateway does this for the
-queue of a bridge after each order of that bridge. Anyone can also ask it to:
-`Gateway.flush(bridge, limit)` has no access control. A queue holds at most 1,024
-messages.
+queue. Each bridge has its own queue. The messages leave when someone calls
+`Gateway.flush(bridge, limit)`. A keeper does this, and anyone can: the call has no
+access control, and it sends only what the hub decided. The gateway takes the message
+at the head of the queue out of the hub, pays the transport and hands it the message,
+in one transaction. Then it takes the next one. A bridge has at most 1,024 messages
+that have not left.
 
-A message that cannot leave waits at the head of its queue. It holds only the messages
-to the same spoke. The messages to other spokes are in other queues.
+Orders and answers never share a transaction. The transaction that settles an order
+hands nothing to the transport. So a transport that fails on the way out, or that
+charges more than is paid, cannot undo an order or hold it up.
+
+**A deferred message.** If the transport charges more for a message than the hub pays
+and the caller adds (see "Who pays for a message"), the gateway defers the message
+(`Rails.defer_outbound`). The message leaves the queue, and the messages behind it go
+on. It stays in the hub, and its reserve stays in the account of the bridge. Anyone
+can call `Gateway.send(bridge, nonce)` to hand it to the transport later: when the hub
+pays more, when the charge falls, or with the difference paid by the caller. A keeper
+does that when the hub pays the whole charge. The hub never drops a message.
+
+The spoke takes the hub's messages in any order. Each message is carried out one
+time. A payment of an alpha token waits for the message that creates the token. An
+alpha token keeps the rate that the newest message reported.
+
+**A message that the transport refuses.** If the transport refuses a message, the
+whole call fails, and the message stays at the head of its queue. It holds only the
+messages to the same spoke: the messages to other spokes are in other queues. Orders
+of that bridge still settle. The message leaves when the transport takes it again.
+Root can also defer it (`Rails.defer_outbound`), so that the messages behind it go on.
 
 **From Bittensor.** An account on Bittensor pays TAO or tUSD with `Rails.bridge_out`
 and receives the stablecoin, canonical TAO or an alpha token on a spoke. The call
@@ -248,23 +274,25 @@ sets the TAO for a message aside before it takes the order:
   the hub pays for one message. It is at least the reserve. A bridge takes no order
   before these are set.
 - **Before a message is queued**, the account of the bridge must hold the reserve for
-  each message in its queue, and for the new one. If it does not, the hub does not
-  take the next order of the bridge. The order stays with the transport and is
-  delivered again later. Its funds stay locked on the spoke. So the hub never settles
-  an order whose answer it could not pay for.
+  each message of the bridge that has not left, in the queue or deferred, and for the
+  new one. If it does not, the hub does not take the next order of the bridge. The
+  order stays with the transport and is delivered again later. Its funds stay locked
+  on the spoke. So the hub never settles an order whose answer it could not pay for.
 - **When a message leaves**, the gateway tells the hub what the transport charges for
   it. The hub moves that amount from the account of the bridge to the gateway. The
   gateway pays the transport with it in the same transaction. What the message does
   not use of its reserve stays in the account.
 - **If the transport charges more than the reserve**, the hub pays the difference
-  from what the account holds beyond the reserves of the queue, up to the ceiling. It
-  never uses the reserve of another message. So a queue that a higher charge holds up
-  drains when the account has TAO to spare, and anyone can pay TAO in. The ceiling
-  bounds what a wrong price from the transport can take for one message.
+  from what the account holds beyond the reserves of the messages that have not left,
+  up to the ceiling. It never uses the reserve of another message. So messages that a
+  higher charge holds up leave when the account has TAO to spare, and anyone can pay
+  TAO in. The ceiling bounds what a wrong price from the transport can take for one
+  message.
 - **If the hub does not pay the whole charge**, because the account has nothing to
-  spare or the charge is above the ceiling, the message waits. Anyone can call
-  `Gateway.flush` and pay the difference with the call. An order of the bridge still
-  settles in that time. Only the answers wait.
+  spare or the charge is above the ceiling, the caller of `Gateway.flush` or
+  `Gateway.send` can pay the difference with the call. What the caller sent and was
+  not needed comes back. If nobody pays the difference, the message is deferred. An
+  order of the bridge still settles in that time.
 - **An order on a spoke** pays the portal's **answer fee**, in the spoke's coin, on top
   of the transport's fee for the order. The owner sets it. The fees collect in the
   portal, and anyone can send them on to the fee recipient: the operator that pays
@@ -281,9 +309,10 @@ spoke.
 
 An example with a reserve of 0.001 TAO and a ceiling of 0.003 TAO. Three messages wait,
 and the account holds 0.003 TAO: the three reserves. The transport's charge rises to
-0.002 TAO. The first message cannot leave: its reserve is 0.001 TAO, and the account
-has nothing to spare. Someone pays 0.003 TAO into the account. Now each message leaves
-at 0.002 TAO: 0.001 TAO from its reserve and 0.001 TAO from what was paid in.
+0.002 TAO. A keeper calls `flush`. No message is paid for: its reserve is 0.001 TAO,
+and the account has nothing to spare. The three messages are deferred. Someone pays
+0.003 TAO into the account. Now the keeper sends each message at 0.002 TAO: 0.001 TAO
+from its reserve and 0.001 TAO from what was paid in.
 
 **The registry.** `Rails.Tokens` lists, for each bridge and asset, the address, the
 name and the symbol of the canonical token. Wallets and integrators read it to tell
@@ -372,8 +401,10 @@ decide. Only the gateway passes them.
 | Function | Use |
 | --- | --- |
 | `execute(origin, sender, order)` | settle an order, and learn its bridge. Gateway only |
-| `ackOutbound(bridge, nonce, paid)` | take a message out of the queue of a bridge. The hub moves `paid` from the account of that bridge to the gateway: at most the limit that `nextOutbound` returns. Gateway only |
+| `ackOutbound(bridge, nonce, paid)` | take a message out of the hub: the head of the queue of a bridge, or a deferred message. The hub moves `paid` from the account of that bridge to the gateway: at most the limit that `nextOutbound` and `outbound` return. Gateway only |
+| `deferOutbound(bridge, nonce)` | defer the head of the queue of a bridge. Gateway only |
 | `nextOutbound(bridge)` | the head of the queue of a bridge, encoded for the portal, and the most that the hub pays for it now |
+| `outbound(bridge, nonce)` | one message that the gateway can take now, the head of the queue or a deferred message, encoded for the portal, and the most that the hub pays for it now |
 | `quote(bridge, order)` | what an order would deliver now, or why it would be refunded |
 | `receipt(bridge, nonce)` | what the hub did with an order |
 | `nextOrder(bridge)` | the next nonce the hub takes |
@@ -387,10 +418,10 @@ block.
 
 **On Bittensor's EVM**
 
-- `Gateway` (UUPS, upgradeable). It passes what the transport delivers to the hub,
-  and the hub's answers to the transport. It decides nothing. It emits
-  `CreditsPurchased`. It holds no TAO between transactions: the hub hands it what it
-  pays the transport for each message.
+- `Gateway` (UUPS, upgradeable). It passes what the transport delivers to the hub
+  (`handle`), and the hub's messages to the transport (`flush`, `send`). It decides
+  nothing. It emits `CreditsPurchased`. It holds no TAO between transactions: the hub
+  hands it what it pays the transport for each message.
 
 **On each spoke**
 
@@ -416,13 +447,14 @@ only to the address that is owed. The same holds while the vault is stopped: the
 stays on record.
 
 **No call fails in silence.** The gateway and the portal never catch a failed call.
-If the transport fails when the gateway hands it a message, or the stablecoin refuses
-a payment, the whole transaction fails, and the transport delivers the message again
-later. A contract that caught such a failure would succeed with too little gas. A
-relayer that estimates gas would then send transactions that do only half the work.
-Where a step can wait without a fault, the contracts decide that in code: a charge
-above what the hub pays leaves the message in its queue, and a payment above the
-vault's allowance leaves a debt on record.
+If the transport fails when the gateway hands it a message, the whole call fails, and
+the message stays in the hub. If the stablecoin refuses a payment, the whole
+transaction fails, and the transport delivers the hub's message again later. A
+contract that caught such a failure would succeed with too little gas. A relayer that
+estimates gas would then send transactions that do only half the work, and a caller
+could choose the gas so that a step fails. Where a step can wait without a fault, the
+contracts decide that in code: a message that is not paid for is deferred, and a
+payment above the vault's allowance leaves a debt on record.
 
 **Token names.** When root lists a market, the hub reads the subnet's identity from
 the chain and sends the name and the symbol to the portal. The symbol is the first run
@@ -469,7 +501,8 @@ The first word is a version. The Rust and the Solidity tests share golden vector
    calls the precompile.
 5. The hub mints tUSD, swaps it for TAO in the canonical pool, stakes the TAO at the
    subnet's index hotkey, counts the new shares, and queues the answer.
-6. The gateway sends the answer in the same transaction.
+6. A keeper calls `Gateway.flush` for the bridge. The gateway pays the transport from
+   the account of the bridge and hands it the answer.
 7. The portal mints the alpha token to the payer.
 
 On the local rig this takes about 10 seconds.
@@ -498,8 +531,16 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 1. An account calls `Rails.bridge_out` with tUSD or TAO. It also pays the reserve for
    one message into the account of the bridge.
 2. The hub settles the route and queues the answer.
-3. The answer leaves with the next order of that bridge, or when anyone calls
-   `Gateway.flush` for the bridge.
+3. The answer leaves when a keeper, or anyone, calls `Gateway.flush` for the bridge.
+
+### A message that is not paid for
+
+1. The transport charges more for a message than the hub pays for one.
+2. A keeper calls `Gateway.flush`. The gateway defers the message. The messages behind
+   it leave, if they are paid for.
+3. Someone pays into the account of the bridge, or root raises the ceiling. Or the
+   charge falls. Then a keeper calls `Gateway.send` for the message, and it leaves.
+4. Or anyone calls `Gateway.send` for the message and pays the difference.
 
 ### A payment larger than the vault's allowance
 
@@ -524,7 +565,7 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 | Message reserve and ceiling of a bridge (hub) | not set: the bridge takes no order | root |
 | Route of a bridge (hub) | set when the bridge is added | nobody, after that |
 | TAO in the message account of a bridge (hub) | none until someone pays in | anyone pays in |
-| Queue of a bridge | 1,024 messages | runtime constant |
+| Messages of a bridge that have not left | 1,024, in the queue or deferred | runtime constant |
 
 | Switch | Who turns it off | Who turns it on |
 | --- | --- | --- |
@@ -584,8 +625,8 @@ Jacob holds the multisig and the guardian keys at the start.
 10. **One market for each netuid for ever** in version 1.
 11. **Virtual shares** of 0.001 against the first-depositor attack.
 12. **Typed orders, strict order nonces on the hub, once-only answers on the spoke.**
-13. **The outbox is pulled.** The gateway sends the answers. `flush` is open to all.
-    Each bridge has its own queue.
+13. **The outbox is pulled.** The gateway sends the hub's messages when it is asked
+    to. `flush` and `send` are open to all. Each bridge has its own queue.
 14. **Refunded, rejected, skipped.** An order that claims to have burned more than
     the hub let the spoke mint is rejected with no refund: it shows a broken spoke.
     Root can skip an order that cannot be decoded, so that later orders can settle.
@@ -606,7 +647,7 @@ Jacob holds the multisig and the guardian keys at the start.
 23. **Each payment pays for its message, and the hub sets the TAO for a message aside
     before it takes the order.** An order pays an answer fee on the spoke. An exit
     pays the reserve on the hub. Each bridge has its own account on the hub, which
-    always holds the reserve for each queued message. The hub pays the transport's
+    always holds the reserve for each message that has not left. The hub pays the transport's
     charge from it. Without this, refunds could use up the TAO that pays for the
     answers of other payers and other bridges, and a settled order could wait for
     someone to pay for its answer.
@@ -619,13 +660,11 @@ Jacob holds the multisig and the guardian keys at the start.
     The other choice was to refuse a deposit that could later exceed the limit. But
     the hub cannot know at deposit time what a later sale will pay.
 27. **The answer fee has no default at deployment.** The deployer must decide it.
-28. **No contract catches a failed call.** The first build caught a failed hand-over
-    of answers, so that the order still settled. But a transaction with too little
-    gas for the hand-over then succeeds, and a relayer that estimates gas sends such
-    transactions. Now the gateway decides in code what may wait: a message for which
-    the transport charges more than the hub pays stays in its queue, and the order
-    settles. A failure of the transport itself fails the order's transaction, and the
-    transport delivers the order again.
+28. **No contract catches a failed call.** The first build sent the answers in the
+    order's transaction, and caught a failed hand-over so that the order still
+    settled. But a transaction with too little gas for the hand-over then succeeds,
+    and a relayer that estimates gas sends such transactions. See decision 33 for
+    what the gateway does now.
 29. **The gateway holds no TAO.** The second build kept the TAO for messages in the
     gateway's account. A new gateway would then start with none of it. Now accounts
     of the hub hold it, and the hub hands the gateway what it pays the transport,
@@ -634,17 +673,33 @@ Jacob holds the multisig and the guardian keys at the start.
 30. **The hub pays at most the ceiling for a message, and above the reserve only from
     spare TAO.** Each message has its reserve. If the transport charges more, the hub
     adds the difference from what the bridge's account holds beyond the reserves of
-    its queue, up to the ceiling. So a queue that a higher charge holds up drains by
-    itself while the account has TAO to spare, and a wrong price from the transport
-    cannot take more than the ceiling for a message, nor the reserve of another
-    message. Above that, whoever asks the gateway to send the message pays the
-    difference, or the message waits.
+    the messages that have not left, up to the ceiling. So messages that a higher
+    charge holds up leave while the account has TAO to spare, and a wrong price from
+    the transport cannot take more than the ceiling for a message, nor the reserve of
+    another message. Above that, whoever asks the gateway to send the message pays
+    the difference, or the message is deferred (decision 34).
 31. **An exit pays the reserve, not the charge.** The hub cannot know the charge when
     the exit is made. What is not used stays in the account of the bridge.
 32. **The route of a bridge is fixed.** The first build let root change the portal of
     a bridge. But the stablecoin behind the bridge's tUSD is in the vault of the old
     portal, and the answers in the bridge's queue are for the old portal. So a bridge
     keeps its route for ever. A new portal is a new bridge.
+33. **Orders and answers do not share a transaction.** Earlier builds sent the
+    answers of a bridge in the transaction that settled an order of that bridge. Then
+    a transport that failed on the way out also failed the order. Now `handle` only
+    settles, and a keeper calls `flush`. The cost is that an answer needs a keeper.
+    Exits and token registrations start on Bittensor and always needed one. Anyone
+    can be a keeper: `btcli bridge flush` is one call.
+34. **A message that is not paid for is deferred, not held.** Earlier builds kept such
+    a message at the head of its queue, and the messages behind it waited. Now it
+    leaves the queue and keeps its reserve, and anyone can send it later. Only the
+    gateway defers, and only a message that the hub and the caller do not pay for. A
+    message that the transport refuses is not deferred by the gateway: the gateway
+    would have to catch the failure (decision 28). Root can defer it.
+35. **The spoke takes the hub's messages in any order.** The transport gives no order,
+    and a deferred message can arrive late. Each message is carried out once. An
+    alpha token keeps the rate of the newest message that reported one, and counts
+    new tokens at the rate that came with them.
 
 ## 9. Room for what is not built
 
@@ -686,6 +741,8 @@ just rails-contracts # the contracts' unit, fuzz and invariant tests
 - Check the route of each bridge before it is added. It cannot change.
 - Send the gateway's account the existential deposit before root names it as the
   gateway.
-- Run a flusher and the oracle feed. Pay the answer fees into the account of their
+- Run a keeper and the oracle feed. Without a keeper no message leaves the hub: the
+  keeper calls `Gateway.flush` when messages wait, and `Gateway.send` for a deferred
+  message when the hub pays for it. Pay the answer fees into the account of their
   bridge (`Rails.fund_messages`). Do not send TAO to the gateway contract: it pays for
   no message.
