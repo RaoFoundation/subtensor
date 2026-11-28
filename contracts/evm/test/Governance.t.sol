@@ -136,11 +136,15 @@ contract GovernanceTest is Fixture {
 
     function test_ThePortalIsInitializedOnceAndItsLogicNever() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        portal.initialize(alice, alice, IMailbox(address(mailbox)), 1, bytes32(0), vault);
+        portal.initialize(
+            alice, alice, IMailbox(address(mailbox)), 1, bytes32(0), vault, 0, address(0)
+        );
 
         Portal logic = new Portal();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        logic.initialize(alice, alice, IMailbox(address(mailbox)), 1, bytes32(0), vault);
+        logic.initialize(
+            alice, alice, IMailbox(address(mailbox)), 1, bytes32(0), vault, 0, address(0)
+        );
     }
 
     function test_OwnershipMovesInTwoSteps() public {

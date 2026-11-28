@@ -86,20 +86,26 @@ library Wire {
     }
 
     error NotAnAddress(bytes32 recipient);
+    error NoRecipient();
     error UnknownDestination(uint8 kind);
     error UnusedField();
 
-    /// @notice Reverts unless `destination` is one the hub can decode: the hub accepts an
-    /// order in exactly one encoding, with every unused field zero.
+    /// @notice Reverts unless `destination` is one the hub can decode and the spoke can pay:
+    /// the hub accepts an order in exactly one encoding, with every unused field zero, and
+    /// nothing can be paid to the zero address. An order to the zero address would settle on
+    /// the hub and then never pay out: a token cannot be minted to it.
     function check(Destination calldata destination) internal pure {
         bool isAddress = destination.kind <= TO_ALPHA;
         if (destination.kind > TO_NATIVE_TAO) revert UnknownDestination(destination.kind);
+        if (destination.recipient == bytes32(0)) revert NoRecipient();
         if (isAddress && uint256(destination.recipient) >> 160 != 0) {
             revert NotAnAddress(destination.recipient);
         }
         bool hasNetuid = destination.kind == TO_ALPHA || destination.kind == TO_CREDITS;
         if (!hasNetuid && destination.netuid != 0) revert UnusedField();
-        if (destination.kind != TO_CREDITS && destination.beneficiary != address(0)) {
+        if (destination.kind == TO_CREDITS) {
+            if (destination.beneficiary == address(0)) revert NoRecipient();
+        } else if (destination.beneficiary != address(0)) {
             revert UnusedField();
         }
     }

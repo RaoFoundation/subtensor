@@ -62,7 +62,16 @@ abstract contract Fixture is Test {
                     address(implementation),
                     abi.encodeCall(
                         Portal.initialize,
-                        (address(timelock), guardian, mailbox, HUB_DOMAIN, GATEWAY, vault)
+                        (
+                            address(timelock),
+                            guardian,
+                            mailbox,
+                            HUB_DOMAIN,
+                            GATEWAY,
+                            vault,
+                            0,
+                            address(0)
+                        )
                     )
                 )
             )

@@ -159,6 +159,19 @@ contract WireTest is Test {
         wire.check(Wire.Destination(Wire.TO_NATIVE_TUSD, 0, someone, address(0xB0B)));
     }
 
+    /// The hub would settle such an order, and the spoke could never pay it out.
+    function test_NothingIsOrderedForTheZeroAddress() public {
+        for (uint8 kind = Wire.TO_STABLE; kind <= Wire.TO_NATIVE_TAO; ++kind) {
+            uint16 netuid = kind == Wire.TO_ALPHA || kind == Wire.TO_CREDITS ? 64 : 0;
+            address beneficiary = kind == Wire.TO_CREDITS ? address(0xB0B) : address(0);
+            vm.expectRevert(Wire.NoRecipient.selector);
+            wire.check(Wire.Destination(kind, netuid, bytes32(0), beneficiary));
+        }
+        // Credits for nobody.
+        vm.expectRevert(Wire.NoRecipient.selector);
+        wire.check(Wire.Destination(Wire.TO_CREDITS, 51, keccak256("service"), address(0)));
+    }
+
     function testFuzz_AnOrderRoundTrips(Wire.Order memory order) public view {
         Wire.Order memory decoded = wire.decodeOrder(Wire.encode(order));
         assertEq(abi.encode(decoded), abi.encode(order));

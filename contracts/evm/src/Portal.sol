@@ -81,6 +81,15 @@ contract Portal is
     /// @notice The hub's messages that were carried out, by nonce.
     BitMaps.BitMap private _processed;
 
+    /// @notice What a payer pays with each order for the hub's answer, in this chain's coin,
+    /// on top of the transport's fee for the order. Every order has an answer, a refund
+    /// too, and the gateway on Bittensor pays the transport for it. This fee makes each
+    /// order pay for its own answer, so that no payer's orders or refunds are sent at the
+    /// cost of what the gateway holds for the others.
+    uint256 public answerFee;
+    /// @notice Who receives the answer fees: the operator that keeps the gateway funded.
+    address public feeRecipient;
+
     event OrderSent(
         uint64 indexed nonce,
         address indexed payer,
@@ -110,6 +119,8 @@ contract Portal is
     event GatewaySet(bytes32 gateway);
     event InterchainSecurityModuleSet(address module);
     event GuardianSet(address guardian);
+    event AnswerFeeSet(uint256 fee, address recipient);
+    event FeesSwept(address indexed recipient, uint256 amount);
 
     error OnlyMailbox();
     error OnlyVault();
@@ -125,6 +136,7 @@ contract Portal is
     error SameAsset();
     error FeeNotPaid(uint256 fee, uint256 paid);
     error UnsupportedDecimals(uint8 decimals);
+    error NoFeeRecipient();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -133,13 +145,17 @@ contract Portal is
 
     /// @param owner_ The timelock.
     /// @param vault_ The vault, deployed for this proxy's address.
+    /// @param answerFee_ What each order pays for the hub's answer. See `answerFee`.
+    /// @param feeRecipient_ Who receives the answer fees.
     function initialize(
         address owner_,
         address guardian_,
         IMailbox mailbox_,
         uint32 hubDomain_,
         bytes32 gateway_,
-        Vault vault_
+        Vault vault_,
+        uint256 answerFee_,
+        address feeRecipient_
     ) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();
@@ -150,6 +166,7 @@ contract Portal is
         gateway = gateway_;
         guardian = guardian_;
         vault = vault_;
+        _setAnswerFee(answerFee_, feeRecipient_);
         uint8 decimals = IERC20Metadata(address(vault_.stable())).decimals();
         if (decimals > 9) revert UnsupportedDecimals(decimals);
         stableScale = 10 ** (9 - decimals);
@@ -191,11 +208,12 @@ contract Portal is
         return _send(payer, Wire.ASSET_ALPHA, netuid, amount, destination, minOut, deadline);
     }
 
-    /// @notice What the transport charges to carry an order now. A payer sends at least
-    /// this as `msg.value` with a deposit or a sale.
+    /// @notice What an order costs now, on top of what it pays with: the transport's fee
+    /// to carry it, and the answer fee. A payer sends at least this as `msg.value` with a
+    /// deposit or a sale.
     function orderFee() external view returns (uint256) {
         Wire.Order memory order;
-        return mailbox.quoteDispatch(hubDomain, gateway, Wire.encode(order));
+        return mailbox.quoteDispatch(hubDomain, gateway, Wire.encode(order)) + answerFee;
     }
 
     function _send(
@@ -232,14 +250,26 @@ contract Portal is
                 deadline: deadline
             })
         );
-        uint256 fee = mailbox.quoteDispatch(hubDomain, gateway, body);
+        uint256 transport = mailbox.quoteDispatch(hubDomain, gateway, body);
+        // The answer fee stays here until `sweepFees` pays it out.
+        uint256 fee = transport + answerFee;
         if (msg.value < fee) revert FeeNotPaid(fee, msg.value);
-        bytes32 messageId = mailbox.dispatch{value: fee}(hubDomain, gateway, body);
+        bytes32 messageId = mailbox.dispatch{value: transport}(hubDomain, gateway, body);
         emit OrderSent(
             nonce, payer, source, sourceNetuid, amount, destination, minOut, deadline, messageId
         );
         // Last, after every effect: the payer may be a contract.
         if (msg.value > fee) Address.sendValue(payable(payer), msg.value - fee);
+    }
+
+    /// @notice Pays the answer fees that orders left here to `feeRecipient`. Anyone may
+    /// call this: the fees can go nowhere else.
+    function sweepFees() external {
+        address recipient = feeRecipient;
+        if (recipient == address(0)) revert NoFeeRecipient();
+        uint256 amount = address(this).balance;
+        emit FeesSwept(recipient, amount);
+        Address.sendValue(payable(recipient), amount);
     }
 
     // ---------------------------------------------------------------- answers of the hub
@@ -342,6 +372,19 @@ contract Portal is
     function setGuardian(address guardian_) external onlyOwner {
         guardian = guardian_;
         emit GuardianSet(guardian_);
+    }
+
+    /// @notice Sets what each order pays for the hub's answer, and who receives it. Set
+    /// the fee to at least what the transport charges the gateway for one message.
+    function setAnswerFee(uint256 fee, address recipient) external onlyOwner {
+        _setAnswerFee(fee, recipient);
+    }
+
+    function _setAnswerFee(uint256 fee, address recipient) private {
+        if (fee != 0 && recipient == address(0)) revert NoFeeRecipient();
+        answerFee = fee;
+        feeRecipient = recipient;
+        emit AnswerFeeSet(fee, recipient);
     }
 
     /// @notice Stops orders and the hub's messages. The guardian or the owner.

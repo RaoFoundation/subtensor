@@ -45,6 +45,7 @@ contract PortalTest is Fixture {
     );
     event TokenCreated(uint16 indexed netuid, address token, string name, string symbol);
     event RegistryMismatch(uint16 indexed netuid, address listed, address token);
+    event FeesSwept(address indexed recipient, uint256 amount);
 
     // ---------------------------------------------------------------- orders
 
@@ -152,6 +153,60 @@ contract PortalTest is Fixture {
         assertEq(address(mailbox).balance, 0.01 ether);
         assertEq(address(portal).balance, 0);
         assertEq(address(vault).balance, 0);
+    }
+
+    function test_AnOrderPaysForItsAnswerAndTheFeesGoToTheirRecipient() public {
+        mailbox.setFee(0.01 ether);
+        timelocked(address(portal), abi.encodeCall(portal.setAnswerFee, (0.002 ether, bob)));
+        assertEq(portal.orderFee(), 0.012 ether);
+        stable.mint(alice, 100 * USDC);
+        vm.deal(alice, 1 ether);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 100 * USDC);
+
+        // The transport's fee alone is not enough.
+        vm.expectRevert(abi.encodeWithSelector(Portal.FeeNotPaid.selector, 0.012 ether, 0.01 ether));
+        vault.deposit{value: 0.01 ether}(50 * USDC, toTao(alice), 0, type(uint64).max);
+
+        vault.deposit{value: 0.3 ether}(50 * USDC, toTao(alice), 0, type(uint64).max);
+        vault.deposit{value: 0.012 ether}(50 * USDC, toTao(alice), 0, type(uint64).max);
+        vm.stopPrank();
+
+        // The transport got its fee, the payer the change, and the answer fees wait.
+        assertEq(alice.balance, 1 ether - 2 * 0.012 ether);
+        assertEq(address(mailbox).balance, 0.02 ether);
+        assertEq(address(portal).balance, 0.004 ether);
+
+        // Anyone sends them on, and only to the recipient.
+        vm.expectEmit(address(portal));
+        emit FeesSwept(bob, 0.004 ether);
+        vm.prank(stranger);
+        portal.sweepFees();
+        assertEq(bob.balance, 0.004 ether);
+        assertEq(address(portal).balance, 0);
+    }
+
+    function test_AnAnswerFeeNeedsARecipient() public {
+        // No recipient was set: nothing can be swept, and no fee can be set without one.
+        vm.expectRevert(Portal.NoFeeRecipient.selector);
+        portal.sweepFees();
+        vm.prank(address(timelock));
+        vm.expectRevert(Portal.NoFeeRecipient.selector);
+        portal.setAnswerFee(1, address(0));
+
+        vm.prank(stranger);
+        vm.expectRevert();
+        portal.setAnswerFee(1, stranger);
+    }
+
+    function test_AnOrderForTheZeroAddressIsRefused() public {
+        stable.mint(alice, 100 * USDC);
+        vm.startPrank(alice);
+        stable.approve(address(vault), 100 * USDC);
+        vm.expectRevert(Wire.NoRecipient.selector);
+        vault.deposit(100 * USDC, toTao(address(0)), 0, type(uint64).max);
+        vm.stopPrank();
+        assertEq(stable.balanceOf(alice), 100 * USDC);
     }
 
     function test_AContractThatPaysGetsItsChangeToo() public {

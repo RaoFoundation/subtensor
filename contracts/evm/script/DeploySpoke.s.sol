@@ -24,6 +24,9 @@ import {MockStable} from "../src/mocks/MockStable.sol";
 /// - `TIMELOCK_DELAY`: seconds. Defaults to 48 hours.
 /// - `RELEASE_LIMIT`, `RELEASE_PERIOD`: the vault's allowance, in the stablecoin's units
 ///   and in seconds.
+/// - `ANSWER_FEE`: what each order pays for the hub's answer, in wei. Set it to at least
+///   what the transport charges the gateway for one message. Defaults to 0.
+/// - `FEE_RECIPIENT`: who receives the answer fees. Defaults to `MULTISIG`.
 /// - `OUTPUT`: where to write the addresses, under `deployments/`.
 contract DeploySpoke is Script {
     function run() external {
@@ -80,7 +83,9 @@ contract DeploySpoke is Script {
                 IMailbox(vm.envAddress("MAILBOX")),
                 uint32(vm.envUint("HUB_DOMAIN")),
                 bytes32(uint256(uint160(vm.envAddress("GATEWAY")))),
-                vault
+                vault,
+                vm.envOr("ANSWER_FEE", uint256(0)),
+                vm.envOr("FEE_RECIPIENT", vm.envAddress("MULTISIG"))
             )
         );
         return Portal(address(new ERC1967Proxy(address(implementation), initialize)));
