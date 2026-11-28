@@ -137,6 +137,14 @@ export async function quote(
   return ok ? {ok: true, amountOut} : {ok: false, reason};
 }
 
+/**
+ * What an order costs now in the spoke's coin, on top of what it pays with: the
+ * transport's fee and the portal's answer fee.
+ */
+export async function orderFee(rails: Rails): Promise<bigint> {
+  return rails.portal.orderFee();
+}
+
 /** The order that a transaction sent, from its receipt. */
 function orderOf(logs: readonly {topics: readonly string[]; data: string}[]): bigint {
   for (const log of logs) {
@@ -172,7 +180,7 @@ export async function deposit(
   ttlSeconds: number,
 ): Promise<Sent> {
   const vault = new Contract(rails.config.contracts!.vault, VAULT_ABI, signer);
-  const fee: bigint = await rails.portal.orderFee();
+  const fee = await orderFee(rails);
   const sent = await vault.deposit(amount, destinationOf(target), minOut, deadline(ttlSeconds), {
     value: fee,
   });
@@ -191,7 +199,7 @@ export async function sell(
   ttlSeconds: number,
 ): Promise<Sent> {
   const contract = new Contract(token.address, TOKEN_ABI, signer);
-  const fee: bigint = await rails.portal.orderFee();
+  const fee = await orderFee(rails);
   const sent = await contract.sell(amount, destinationOf(target), minOut, deadline(ttlSeconds), {
     value: fee,
   });

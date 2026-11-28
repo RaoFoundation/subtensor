@@ -104,6 +104,7 @@ export function explainRefusal(reason: string): string {
     AmountTooLow: 'The amount is too small to settle.',
     SlippageExceeded: 'The price moved past your limit.',
     SlippageTooHigh: 'The amount is too large for the subnet pool right now.',
+    InvalidRoute: 'This order cannot be made: check the address that receives.',
     MarketCapExceeded: 'This token is at its cap for now.',
     TaoCapExceeded: 'Canonical TAO on this chain is at its cap for now.',
     MarketClosed: 'This subnet was dissolved. Its token can be sold, not bought.',

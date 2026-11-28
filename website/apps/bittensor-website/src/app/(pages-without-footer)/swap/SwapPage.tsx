@@ -16,6 +16,7 @@ import {
 import {
   useElapsed,
   useOrder,
+  useOrderFee,
   usePortfolio,
   useQuote,
   useTokens,
@@ -68,6 +69,7 @@ export default function SwapPage() {
   const tokens = useTokens(rails);
   const portfolio = usePortfolio(rails, wallet.account, tokens);
   const order = useOrder(rails, portfolio.refresh);
+  const fee = useOrderFee(rails);
 
   const [mode, setMode] = useState<Mode>('token');
   const [side, setSide] = useState<Side>('buy');
@@ -360,7 +362,13 @@ export default function SwapPage() {
               </span>
             </span>
           </label>
-          <QuoteBox trade={trade} quote={quote} exceeds={exceeds} amountText={amountText} />
+          <QuoteBox
+            trade={trade}
+            quote={quote}
+            exceeds={exceeds}
+            amountText={amountText}
+            fee={fee}
+          />
           <button
             className={styles.primary}
             onClick={submit}
@@ -586,11 +594,14 @@ function QuoteBox({
   quote,
   exceeds,
   amountText,
+  fee,
 }: {
   trade: Trade | null;
   quote: QuoteState;
   exceeds: boolean;
   amountText: string;
+  /** What the order costs in the spoke's coin: the transport and the hub's answer. */
+  fee: bigint | null;
 }) {
   if (!trade) {
     return (
@@ -624,6 +635,13 @@ function QuoteBox({
             {minimum} {trade.receiveUnit}
           </Row>
           <Row label='Route'>{trade.route}</Row>
+          <Row label='Network fee'>
+            {fee === null
+              ? '…'
+              : `${formatAmount(fee, railsConfig.spoke.nativeCurrency.decimals, 6)} ${
+                  railsConfig.spoke.nativeCurrency.symbol
+                }`}
+          </Row>
           <p className={styles.note}>
             If the price moves past the minimum, the order is undone and you get back exactly what
             you paid.

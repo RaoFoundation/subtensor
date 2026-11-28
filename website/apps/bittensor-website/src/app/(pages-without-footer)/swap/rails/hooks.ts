@@ -6,6 +6,7 @@ import {
   findAnswer,
   loadHolding,
   loadTokens,
+  orderFee,
   orderStatus,
   quote,
   stableBalance,
@@ -44,6 +45,26 @@ export function useTokens(rails: Rails | null): Token[] | null {
     };
   }, [rails]);
   return tokens;
+}
+
+/** What an order costs now in the spoke's coin. `null` while it loads. */
+export function useOrderFee(rails: Rails | null): bigint | null {
+  const [fee, setFee] = useState<bigint | null>(null);
+  useEffect(() => {
+    if (!rails) return;
+    let cancelled = false;
+    const load = () =>
+      orderFee(rails)
+        .then((loaded) => !cancelled && setFee(loaded))
+        .catch(() => undefined);
+    load();
+    const timer = setInterval(load, 5 * REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [rails]);
+  return fee;
 }
 
 export type Portfolio = {
