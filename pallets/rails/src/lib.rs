@@ -52,22 +52,26 @@
 //! fills ([`Pallet::fund_messages`]), and the messages to a bridge's spoke are paid for
 //! from its account alone:
 //!
-//! - The admin sets the bridge's reserve ([`MessageReserve`]): the most the hub pays for
-//!   one message. Until then the bridge takes no order.
+//! - The admin sets two amounts for the bridge. The reserve ([`MessageReserve`]) is what
+//!   the hub sets aside for each message. The ceiling ([`MessageCeiling`]) is the most it
+//!   pays for one. Until they are set the bridge takes no order.
 //! - The account always holds the reserve for every message in the bridge's queue. The
 //!   hub queues a message only if that still holds with the new message. With less, the
 //!   hub does not take the bridge's next order: it stays with the transport.
 //! - An account that pays through [`Pallet::bridge_out`] first pays the reserve into the
 //!   bridge's account itself.
 //! - When the gateway takes a message out, it says what the transport charges for it. The
-//!   hub moves that much, and never more than the reserve, from the bridge's account to
-//!   the gateway ([`Pallet::ack_outbound`]), which pays the transport in the same
-//!   transaction. What the transport charges beyond the reserve is for whoever asks the
-//!   gateway to send the message.
+//!   hub moves that much from the bridge's account to the gateway
+//!   ([`Pallet::ack_outbound`]), which pays the transport in the same transaction. Up to
+//!   the reserve, the message has its own TAO. Above the reserve and up to the ceiling,
+//!   the hub pays from what the account holds beyond the reserves of the queue: never
+//!   from the reserve of another message. What the transport charges beyond that is for
+//!   whoever asks the gateway to send the message.
 //!
 //! So a message that the hub queued can always leave at a charge up to the reserve,
-//! whatever the messages before it cost. The gateway holds no TAO between transactions,
-//! and the messages of one bridge never use what was paid in for another.
+//! whatever the messages before it cost, and a queue that a higher charge holds up drains
+//! as soon as the account holds enough to spare. The gateway holds no TAO between
+//! transactions, and the messages of one bridge never use what was paid in for another.
 //!
 //! ## Invariants
 //!
@@ -79,7 +83,7 @@
 //! 5. The account of a bridge holds, on top of the existential deposit, at least the
 //!    bridge's reserve for each message in its queue. TAO leaves that account only when a
 //!    message of the bridge leaves its queue: what the gateway says the transport
-//!    charges, at most the reserve.
+//!    charges, at most the bridge's ceiling.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -227,13 +231,20 @@ pub mod pallet {
     pub type Outbox<T> =
         StorageDoubleMap<_, Twox64Concat, BridgeId, Twox64Concat, u64, Message, OptionQuery>;
 
-    /// MAP ( bridge ) --> TAO | The most the hub pays the transport for one message to the
-    /// bridge's spoke, as the admin set it. The bridge's account holds this much for each
-    /// message in the bridge's queue, and an exit pays it in. Set it above what the
-    /// transport charges: what a message does not use stays in the account. While it is
-    /// not set, the hub takes no order from the bridge and no payment to it.
+    /// MAP ( bridge ) --> TAO | What the hub sets aside for each message to the bridge's
+    /// spoke, as the admin set it. The bridge's account holds this much for each message
+    /// in the bridge's queue, and an exit pays it in. Set it above what the transport
+    /// charges: what a message does not use stays in the account. While it is not set, the
+    /// hub takes no order from the bridge and no payment to it.
     #[pallet::storage]
     pub type MessageReserve<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, OptionQuery>;
+
+    /// MAP ( bridge ) --> TAO | The most the hub pays the transport for one message to the
+    /// bridge's spoke, as the admin set it: at least the reserve. What a message costs
+    /// above the reserve comes from what the bridge's account holds beyond the reserves
+    /// of its queue.
+    #[pallet::storage]
+    pub type MessageCeiling<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, ValueQuery>;
 
     /// DMAP ( bridge, asset ) --> TokenInfo | The canonical tokens: the one registry of
     /// which contract on which chain stands for which asset.
@@ -344,10 +355,12 @@ pub mod pallet {
         },
         /// The cap on canonical TAO on a spoke was set.
         TaoCapSet { bridge: BridgeId, cap: TaoBalance },
-        /// The most the hub pays for one message to a bridge's spoke was set.
+        /// What the hub sets aside for a message to a bridge's spoke, and the most it pays
+        /// for one, were set.
         MessageReserveSet {
             bridge: BridgeId,
             reserve: TaoBalance,
+            ceiling: TaoBalance,
         },
         /// `who` paid `amount` into the account of `bridge`, for the transport of messages
         /// to the bridge's spoke.
@@ -414,8 +427,13 @@ pub mod pallet {
         /// The bridge's reserve for a message is not set, or the bridge's account does not
         /// hold the reserve for every message in its queue and one more.
         MessagesNotFunded,
-        /// The gateway asked for more than the bridge's reserve for one message.
-        FeeAboveReserve,
+        /// The gateway asked for more than the hub pays for the message: more than the
+        /// bridge's ceiling, or more than its reserve while the bridge's account has
+        /// nothing to spare.
+        FeeAboveLimit,
+        /// The most the hub pays for a message cannot be less than what it sets aside
+        /// for one.
+        CeilingBelowReserve,
         /// The account does not hold the existential deposit, so it could not hold what
         /// the hub hands the gateway for the transport.
         GatewayNotFunded,
@@ -497,9 +515,9 @@ pub mod pallet {
         /// transaction in which it pays the transport and hands it the message: if that
         /// fails, this is undone with it.
         ///
-        /// Fails if `paid` is more than the bridge's reserve: the hub pays no more for one
-        /// message. The bridge's account holds the reserve for every queued message, so a
-        /// charge up to the reserve can always be paid.
+        /// Fails if `paid` is more than the hub pays for this message
+        /// ([`Pallet::message_limit`]). The bridge's account holds the reserve for every
+        /// queued message, so a charge up to the reserve can always be paid.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::ack_outbound())]
         pub fn ack_outbound(
@@ -515,8 +533,8 @@ pub mod pallet {
                 Error::<T>::NotOutboxHead
             );
             ensure!(
-                paid <= MessageReserve::<T>::get(bridge).unwrap_or_default(),
-                Error::<T>::FeeAboveReserve
+                paid <= Self::message_limit(bridge),
+                Error::<T>::FeeAboveLimit
             );
             if !paid.is_zero() {
                 CurrencyOf::<T>::transfer(
@@ -765,27 +783,40 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Sets the most the hub pays the transport for one message to the spoke of
-        /// `bridge`. Set it above what the transport charges. A bridge takes no order
-        /// before this is set; zero says that the hub pays nothing.
+        /// Sets what the hub pays the transport for one message to the spoke of `bridge`.
         ///
-        /// Fails if the bridge's account does not hold the new reserve for every message
-        /// in its queue: pay in first ([`Pallet::fund_messages`]).
+        /// - `reserve`: what the hub sets aside for each queued message. Set it above what
+        ///   the transport charges. Zero says that the hub sets nothing aside.
+        /// - `ceiling`: the most the hub pays for one message, at least `reserve`. What a
+        ///   message costs above the reserve comes from what the bridge's account holds
+        ///   beyond the reserves of its queue. It is the bound on what a wrong price from
+        ///   the transport can take for one message.
+        ///
+        /// A bridge takes no order before this is set. Fails if the bridge's account does
+        /// not hold the new reserve for every message in its queue: pay in first
+        /// ([`Pallet::fund_messages`]).
         #[pallet::call_index(12)]
         #[pallet::weight(<T as Config>::WeightInfo::set_message_reserve())]
         pub fn set_message_reserve(
             origin: OriginFor<T>,
             bridge: BridgeId,
             reserve: TaoBalance,
+            ceiling: TaoBalance,
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
             Self::ensure_bridge_known(bridge)?;
+            ensure!(ceiling >= reserve, Error::<T>::CeilingBelowReserve);
             ensure!(
                 Self::holds_reserve(bridge, reserve, Self::queued(bridge)),
                 Error::<T>::MessagesNotFunded
             );
             MessageReserve::<T>::insert(bridge, reserve);
-            Self::deposit_event(Event::MessageReserveSet { bridge, reserve });
+            MessageCeiling::<T>::insert(bridge, ceiling);
+            Self::deposit_event(Event::MessageReserveSet {
+                bridge,
+                reserve,
+                ceiling,
+            });
             Ok(())
         }
 
@@ -855,6 +886,22 @@ impl<T: Config> Pallet<T> {
             Preservation::Preserve,
             Fortitude::Polite,
         )
+    }
+
+    /// The most the hub pays the transport for the message at the head of the queue of
+    /// `bridge` now: the bridge's reserve, and above it what the account holds beyond the
+    /// reserves of the queue, up to the bridge's ceiling.
+    pub fn message_limit(bridge: BridgeId) -> TaoBalance {
+        let reserve = MessageReserve::<T>::get(bridge)
+            .unwrap_or_default()
+            .to_u64();
+        let reserved = u128::from(reserve).saturating_mul(u128::from(Self::queued(bridge)));
+        let spare = u128::from(Self::message_budget(bridge).to_u64()).saturating_sub(reserved);
+        let ceiling = MessageCeiling::<T>::get(bridge).to_u64().max(reserve);
+        u64::try_from(u128::from(reserve).saturating_add(spare))
+            .unwrap_or(u64::MAX)
+            .min(ceiling)
+            .into()
     }
 
     /// The message at the head of the queue of `bridge`, and where the gateway sends it:

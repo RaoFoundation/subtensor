@@ -22,9 +22,10 @@ interface IRails {
     /// @notice Removes message `nonce`, the head of the hub's queue for `bridge`, and
     /// moves `paid` from the bridge's account on the hub to the caller. The hub takes this
     /// call only from the gateway contract, which makes it in the transaction that pays
-    /// the transport and hands it the message. Reverts if `paid` is more than the
-    /// bridge's reserve. The bridge's account holds the reserve for every queued message,
-    /// and pays for the messages of that bridge alone.
+    /// the transport and hands it the message. Reverts if `paid` is more than the hub
+    /// pays for the message: the limit that `nextOutbound` returns. The bridge's account
+    /// holds a reserve for every queued message, and pays for the messages of that
+    /// bridge alone.
     /// @param paid What the gateway pays the transport for the message from the hub's TAO,
     /// in wei. The hub counts it in its own unit, rounded up.
     function ackOutbound(uint32 bridge, uint64 nonce, uint256 paid) external;
@@ -36,8 +37,9 @@ interface IRails {
     /// @return domain The transport domain of the portal it goes to.
     /// @return recipient That portal.
     /// @return body The message, as the portal decodes it.
-    /// @return reserve The most the hub pays the transport for the message, in wei: the
-    /// bridge's reserve.
+    /// @return limit The most the hub pays the transport for the message now, in wei:
+    /// the bridge's reserve for one message, and above it what the bridge's account can
+    /// spare, up to the bridge's ceiling.
     function nextOutbound(
         uint32 bridge
     )
@@ -49,7 +51,7 @@ interface IRails {
             uint32 domain,
             bytes32 recipient,
             bytes memory body,
-            uint256 reserve
+            uint256 limit
         );
 
     /// @notice What `order`, sent now from the spoke of `bridge`, would deliver. The

@@ -388,6 +388,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
             assert_ok!(Rails::set_message_reserve(
                 RuntimeOrigin::root(),
                 bridge,
+                0.into(),
                 0.into()
             ));
         }

@@ -46,11 +46,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(38_u64))
 			.saturating_add(T::DbWeight::get().writes(26_u64))
 	}
-	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, MessageReserve, Outbox}`,
-	/// `System::Account` x2 (r:7 w:4)
+	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, MessageReserve,
+	/// MessageCeiling, Outbox}`, `System::Account` x2 (r:8 w:4)
 	fn ack_outbound() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
 	/// A payment into the bridge's account, a pool swap, a tUSD burn and a queued message.
@@ -112,12 +112,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
-	/// Storage: `Tusd::Bridges`, `Rails::{NextMessage, NextOutbound, MessageReserve}`,
-	/// `System::Account` (r:4 w:1)
+	/// Storage: `Tusd::Bridges`, `Rails::{NextMessage, NextOutbound, MessageReserve,
+	/// MessageCeiling}`, `System::Account` (r:4 w:2)
 	fn set_message_reserve() -> Weight {
 		Weight::from_parts(40_000_000, 6_000)
 			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `Tusd::Bridges`, `System::Account` x2 (r:3 w:2)
 	fn fund_messages() -> Weight {
@@ -136,7 +136,7 @@ impl WeightInfo for () {
 	}
 	fn ack_outbound() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
 	fn bridge_out() -> Weight {
@@ -190,7 +190,7 @@ impl WeightInfo for () {
 	fn set_message_reserve() -> Weight {
 		Weight::from_parts(40_000_000, 6_000)
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	fn fund_messages() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)

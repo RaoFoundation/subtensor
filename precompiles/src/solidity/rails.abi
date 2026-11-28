@@ -98,7 +98,7 @@
 			},
 			{
 				"internalType": "uint256",
-				"name": "reserve",
+				"name": "limit",
 				"type": "uint256"
 			}
 		],

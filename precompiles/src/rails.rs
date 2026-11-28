@@ -7,7 +7,7 @@
 //! gateway then reads the hub's answers for that bridge with `nextOutbound`, and for each
 //! one tells the hub what the transport charges (`ackOutbound`), pays the transport and
 //! hands it the message. The hub moves that charge from the account of the bridge to the
-//! gateway, and refuses a charge above the bridge's reserve.
+//! gateway, and refuses a charge above what it pays for the message.
 //!
 //! The views let a client quote an order, follow it, and read the rate of an alpha token
 //! and the credits of an address through an Ethereum RPC. The precompile emits no logs:
@@ -131,8 +131,8 @@ where
     /// transport for the message from the hub's TAO, in the EVM's unit, with 18 decimals.
     /// The hub counts it in its own unit, rounded up. Signed by the caller: the hub takes
     /// it only from the gateway, which calls this in the transaction that pays the
-    /// transport and hands it the message. Fails if `paid` is more than the bridge's
-    /// reserve.
+    /// transport and hands it the message. Fails if `paid` is more than the hub pays for
+    /// the message: the limit that `nextOutbound` returns.
     #[precompile::public("ackOutbound(uint32,uint64,uint256)")]
     fn ack_outbound(
         handle: &mut impl PrecompileHandle,
@@ -151,15 +151,14 @@ where
 
     /// The message at the head of the hub's queue for `bridge`: whether there is one, its
     /// nonce, the transport domain and portal it goes to, its body as the portal reads
-    /// it, and the bridge's reserve: the most the hub pays the transport for it, in the
-    /// EVM's unit.
+    /// it, and the most the hub pays the transport for it now, in the EVM's unit.
     #[precompile::public("nextOutbound(uint32)")]
     #[precompile::view]
     fn next_outbound(
         handle: &mut impl PrecompileHandle,
         bridge: u32,
     ) -> EvmResult<(bool, u64, u32, H256, UnboundedBytes, U256)> {
-        handle.record_db_reads::<R>(6)?;
+        handle.record_db_reads::<R>(8)?;
         Ok(match pallet_rails::Pallet::<R>::next_outbound(bridge) {
             Some((domain, portal, outbound)) => (
                 true,
@@ -167,7 +166,7 @@ where
                 domain,
                 portal,
                 rails_wire::encode_message(&outbound).into(),
-                reserve_of::<R>(bridge)?,
+                limit_of::<R>(bridge)?,
             ),
             None => (
                 false,
@@ -282,15 +281,16 @@ where
     })
 }
 
-/// The reserve of `bridge` for one message, in the EVM's unit of TAO.
-fn reserve_of<R: pallet_evm::Config + pallet_rails::Config>(bridge: u32) -> EvmResult<U256> {
-    let reserve = pallet_rails::MessageReserve::<R>::get(bridge).unwrap_or_default();
+/// The most the hub pays for the message at the head of the queue of `bridge` now, in the
+/// EVM's unit of TAO.
+fn limit_of<R: pallet_evm::Config + pallet_rails::Config>(bridge: u32) -> EvmResult<U256> {
+    let limit = pallet_rails::Pallet::<R>::message_limit(bridge);
     <R as pallet_evm::Config>::BalanceConverter::into_evm_balance(SubstrateBalance::from(
-        u64::from(reserve),
+        u64::from(limit),
     ))
     .map(EvmBalance::into_u256)
     .ok_or(PrecompileFailure::Error {
-        exit_status: ExitError::Other("the reserve does not fit the EVM's unit".into()),
+        exit_status: ExitError::Other("the limit does not fit the EVM's unit".into()),
     })
 }
 
@@ -466,6 +466,7 @@ mod tests {
             assert_ok!(Rails::set_message_reserve(
                 RuntimeOrigin::root(),
                 BASE,
+                RESERVE.into(),
                 RESERVE.into()
             ));
             fund_account(&account(0x12), UNIT);
@@ -669,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn the_hub_hands_the_gateway_what_the_transport_charges_up_to_the_reserve() {
+    fn the_hub_hands_the_gateway_what_the_transport_charges_up_to_its_limit() {
         rails_ext().execute_with(|| {
             // Listing the market queued the token's registration.
             let (nonce, _) = next_outbound().unwrap();
@@ -678,24 +679,53 @@ mod tests {
             let held = Balances::free_balance(&gateway_account);
             let budget = Rails::message_budget(BASE);
             let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            // The sixth word that `nextOutbound` returns: the most the hub pays now.
+            let limit = || {
+                let output = execute_precompile(
+                    &precompiles::<RailsPrecompile<Runtime>>(),
+                    rails(),
+                    stranger(),
+                    next_outbound_input(),
+                    U256::zero(),
+                )
+                .unwrap()
+                .unwrap()
+                .output;
+                U256::from_big_endian(&output[5 * 32..6 * 32])
+            };
 
-            // The transport charges more than the reserve, by the smallest amount: the hub
-            // pays nothing, and the message stays.
+            // The hub pays no more than the reserve for a message. The transport charges
+            // more, by the smallest amount: the hub pays nothing, and the message stays.
+            assert_eq!(limit(), wei(RESERVE));
             assert!(!ack_paying(gateway(), nonce, wei(RESERVE) + U256::one()));
             assert!(!ack_paying(gateway(), nonce, U256::MAX));
             assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
             assert_eq!(next_outbound().unwrap().0, nonce);
 
-            // It charges the reserve: the hub moves that much from Base's account to the
-            // gateway, which pays the transport with it, and the message leaves.
-            assert!(ack_paying(gateway(), nonce, wei(RESERVE)));
+            // The admin lets the hub pay up to two reserves, from what Base's account can
+            // spare. The gateway reads the new limit, and the message leaves at it: the
+            // hub moves that much from Base's account to the gateway, which pays the
+            // transport with it.
+            assert_ok!(Rails::set_message_reserve(
+                RuntimeOrigin::root(),
+                BASE,
+                RESERVE.into(),
+                (2 * RESERVE).into()
+            ));
+            assert_eq!(limit(), wei(2 * RESERVE));
+            assert!(!ack_paying(
+                gateway(),
+                nonce,
+                wei(2 * RESERVE) + U256::one()
+            ));
+            assert!(ack_paying(gateway(), nonce, wei(2 * RESERVE)));
             assert_eq!(
                 Balances::free_balance(&gateway_account),
-                held + TaoBalance::from(RESERVE)
+                held + TaoBalance::from(2 * RESERVE)
             );
             assert_eq!(
                 Rails::message_budget(BASE),
-                budget - TaoBalance::from(RESERVE)
+                budget - TaoBalance::from(2 * RESERVE)
             );
             assert_eq!(next_outbound(), None);
         });

@@ -11,9 +11,10 @@ use sp_runtime::DispatchError;
 use subtensor_runtime_common::{NetUid, TaoBalance, TusdBalance, rails::OriginChain};
 
 use crate::{
-    AlphaSupply, Destination, Error, Event, Gateway, Markets, Message, MessageReserve, NativeAsset,
-    NextMessage, NextOrder, NextOutbound, Order, Outbound, Outbox, Outcome, Paused, RailsStaking,
-    Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, TokenInfo, Tokens,
+    AlphaSupply, Destination, Error, Event, Gateway, Markets, Message, MessageCeiling,
+    MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outbound, Outbox,
+    Outcome, Paused, RailsStaking, Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply,
+    TokenInfo, Tokens,
     mock::*,
     router::{RATE_SCALE, VIRTUAL, alpha_for_shares, rate, shares_for_alpha},
 };
@@ -400,7 +401,7 @@ fn settings_are_admin_only() {
             DispatchError::BadOrigin
         );
         assert_noop!(
-            Rails::set_message_reserve(signed(), BASE, TaoBalance::from(1)),
+            Rails::set_message_reserve(signed(), BASE, TaoBalance::from(1), TaoBalance::from(1)),
             DispatchError::BadOrigin
         );
         assert_noop!(
@@ -923,12 +924,24 @@ fn open_message_accounts() {
     }
 }
 
-fn set_reserve(bridge: u32, reserve: u64) {
+/// The hub sets `reserve` aside for each message to the spoke of `bridge`, and pays at
+/// most `ceiling` for one.
+fn set_terms(bridge: u32, reserve: u64, ceiling: u64) {
     assert_ok!(Rails::set_message_reserve(
         RuntimeOrigin::root(),
         bridge,
-        reserve.into()
+        reserve.into(),
+        ceiling.into()
     ));
+}
+
+/// The hub sets `reserve` aside for each message, and pays no more than that for one.
+fn set_reserve(bridge: u32, reserve: u64) {
+    set_terms(bridge, reserve, reserve);
+}
+
+fn limit(bridge: u32) -> u64 {
+    Rails::message_limit(bridge).into()
 }
 
 /// Alice pays `amount` into the account of `bridge`.
@@ -1003,14 +1016,20 @@ fn a_bridge_takes_no_order_before_its_reserve_is_set() {
             Event::MessageReserveSet {
                 bridge: BASE,
                 reserve: 0.into(),
+                ceiling: 0.into(),
             }
             .into(),
         );
         assert_ok!(execute(to_account));
         // Only for a bridge that exists.
         assert_noop!(
-            Rails::set_message_reserve(RuntimeOrigin::root(), 7, 0.into()),
+            Rails::set_message_reserve(RuntimeOrigin::root(), 7, 0.into(), 0.into()),
             Error::<Test>::BridgeDisabled
+        );
+        // The most the hub pays for a message is not less than what it sets aside for one.
+        assert_noop!(
+            Rails::set_message_reserve(RuntimeOrigin::root(), BASE, 2.into(), 1.into()),
+            Error::<Test>::CeilingBelowReserve
         );
     });
 }
@@ -1172,11 +1191,75 @@ fn the_hub_pays_what_the_transport_charges_up_to_the_reserve() {
         // It charges more than the reserve. The account holds that much, but the hub pays
         // no more than the reserve for one message: nothing changes, and the message
         // waits for a lower charge or for someone who pays the difference.
-        assert_noop!(send_head(BASE, RESERVE + 1), Error::<Test>::FeeAboveReserve);
+        assert_noop!(send_head(BASE, RESERVE + 1), Error::<Test>::FeeAboveLimit);
         assert_eq!(Rails::next_outbound(BASE).unwrap().2.nonce, 1);
         assert_ok!(send_head(BASE, RESERVE));
         assert_eq!(budget(BASE), 3);
         assert_eq!(Rails::next_outbound(BASE), None);
+        assert_invariants();
+    });
+}
+
+#[test]
+fn a_charge_above_the_reserve_is_paid_from_what_the_account_can_spare() {
+    new_test_ext().execute_with(|| {
+        open_message_accounts();
+        // The hub sets one reserve aside for a message, and pays up to three for one.
+        set_terms(BASE, RESERVE, 3 * RESERVE);
+        fund(BASE, 3 * RESERVE);
+        for _ in 0..3 {
+            assert_ok!(execute(to_canonical_tao()));
+        }
+
+        // The transport's charge rises to two reserves. The account holds the reserves of
+        // the three messages and nothing to spare: the first message waits, and the queue
+        // with it. Nothing changes.
+        assert_eq!(limit(BASE), RESERVE);
+        assert_noop!(send_head(BASE, 2 * RESERVE), Error::<Test>::FeeAboveLimit);
+
+        // Anyone pays in. The whole queue drains at the higher charge: each message uses
+        // its own reserve, and the rest comes from what the account can spare.
+        fund(BASE, 3 * RESERVE);
+        assert_eq!(limit(BASE), 3 * RESERVE);
+        for left in [2, 1, 0] {
+            assert_ok!(send_head(BASE, 2 * RESERVE));
+            assert_eq!(budget(BASE), left * 2 * RESERVE);
+            assert_invariants();
+        }
+        assert_eq!(Rails::next_outbound(BASE), None);
+    });
+}
+
+#[test]
+fn a_dear_message_never_takes_the_reserve_of_another() {
+    new_test_ext().execute_with(|| {
+        open_message_accounts();
+        set_terms(BASE, RESERVE, 3 * RESERVE);
+        // Two reserves for two messages, and half a reserve to spare.
+        fund(BASE, 2 * RESERVE + RESERVE / 2);
+        assert_ok!(execute(to_canonical_tao()));
+        assert_ok!(execute(to_canonical_tao()));
+
+        // The first message can cost its reserve and what is spare, and no more.
+        assert_eq!(limit(BASE), RESERVE + RESERVE / 2);
+        assert_noop!(
+            send_head(BASE, RESERVE + RESERVE / 2 + 1),
+            Error::<Test>::FeeAboveLimit
+        );
+        assert_ok!(send_head(BASE, RESERVE + RESERVE / 2));
+        // The second still has its whole reserve.
+        assert_eq!(limit(BASE), RESERVE);
+        assert_ok!(send_head(BASE, RESERVE));
+
+        // Above the ceiling the hub pays nothing, whatever the account can spare.
+        fund(BASE, 100 * RESERVE);
+        assert_ok!(execute(to_canonical_tao()));
+        assert_eq!(limit(BASE), 3 * RESERVE);
+        assert_noop!(
+            send_head(BASE, 3 * RESERVE + 1),
+            Error::<Test>::FeeAboveLimit
+        );
+        assert_ok!(send_head(BASE, 3 * RESERVE));
         assert_invariants();
     });
 }
@@ -1193,7 +1276,12 @@ fn the_reserve_rises_only_if_the_account_covers_the_queue() {
         // Two messages wait, each with one reserve behind it. A higher reserve would
         // promise more for them than the account holds.
         assert_noop!(
-            Rails::set_message_reserve(RuntimeOrigin::root(), BASE, (RESERVE + 1).into()),
+            Rails::set_message_reserve(
+                RuntimeOrigin::root(),
+                BASE,
+                (RESERVE + 1).into(),
+                (RESERVE + 1).into()
+            ),
             Error::<Test>::MessagesNotFunded
         );
         fund(BASE, 2);
@@ -1365,11 +1453,13 @@ fn a_new_gateway_is_paid_from_the_same_accounts() {
     });
 }
 
-/// Random orders, exits, payments into the bridges' accounts and changes of the reserve on
-/// two bridges, and a gateway that pays a transport that charges what it likes. After
-/// every step each account can pay what a separate count says: what was paid in for that
-/// bridge, less what the transport charged for that bridge's messages. Each account holds
-/// the reserve for every message in its queue, and the gateway holds nothing.
+/// Random orders, exits, payments into the bridges' accounts and changes of the reserve
+/// and the ceiling on two bridges, and a gateway that pays a transport that charges what
+/// it likes. After every step each account can pay what a separate count says: what was
+/// paid in for that bridge, less what the transport charged for that bridge's messages.
+/// Each account holds the reserve for every message in its queue, a message leaves
+/// exactly when its charge is within what the hub pays for it, and the gateway holds
+/// nothing.
 #[test]
 fn message_accounts_hold_under_random_operations() {
     new_test_ext().execute_with(|| {
@@ -1399,9 +1489,10 @@ fn message_accounts_hold_under_random_operations() {
         };
         // What each account must be able to pay.
         let mut expected = [0u64; 2];
-        // Messages queued, messages refused for lack of the reserve, messages sent, and
-        // messages held because the transport charged more than the reserve.
-        let mut seen = [0u32; 4];
+        // Messages queued, messages refused for lack of the reserve, messages sent,
+        // messages held because the transport charged more than the hub pays, and
+        // messages sent at a charge above the reserve.
+        let mut seen = [0u32; 5];
 
         for _ in 0..4_000 {
             let index = next(2) as usize;
@@ -1425,11 +1516,18 @@ fn message_accounts_hold_under_random_operations() {
                     fund(bridge, amount);
                     expected[index] += amount;
                 }
-                // The admin changes the reserve: only to what the account covers.
+                // The admin changes the reserve and the ceiling: only to a reserve that the
+                // account covers.
                 1 => {
                     let reserve = next(2 * RESERVE);
+                    let ceiling = reserve + next(3) * next(2 * RESERVE);
                     let change = || {
-                        Rails::set_message_reserve(RuntimeOrigin::root(), bridge, reserve.into())
+                        Rails::set_message_reserve(
+                            RuntimeOrigin::root(),
+                            bridge,
+                            reserve.into(),
+                            ceiling.into(),
+                        )
                     };
                     if budget(bridge) >= reserve * queued {
                         assert_ok!(change());
@@ -1488,14 +1586,20 @@ fn message_accounts_hold_under_random_operations() {
                 // The gateway takes the head of the queue and pays the transport, which now
                 // and then charges more than the reserve.
                 _ if queued > 0 => {
-                    let charge = next(reserve + 1 + reserve / 4);
-                    if charge <= reserve {
-                        // The account holds the reserve for the message: it always leaves.
+                    let charge = next(2 * reserve + 2);
+                    // The message has its reserve. Above it the hub pays from what the
+                    // account holds beyond the reserves of the queue, up to the ceiling.
+                    let ceiling: u64 = MessageCeiling::<Test>::get(bridge).into();
+                    let spare = budget(bridge) - reserve * queued;
+                    let pays = (reserve + spare).min(ceiling);
+                    assert_eq!(limit(bridge), pays);
+                    if charge <= pays {
                         assert_ok!(send_head(bridge, charge));
                         expected[index] -= charge;
                         seen[2] += 1;
+                        seen[4] += u32::from(charge > reserve);
                     } else {
-                        assert_noop!(send_head(bridge, charge), Error::<Test>::FeeAboveReserve);
+                        assert_noop!(send_head(bridge, charge), Error::<Test>::FeeAboveLimit);
                         seen[3] += 1;
                     }
                 }

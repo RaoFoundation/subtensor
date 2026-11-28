@@ -20,8 +20,9 @@ use subtensor_runtime_common::{
 
 use crate::{
     Call, Config, CurrencyOf, Destination, Gateway, Guardian, Market, Markets, Message,
-    MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outcome, Pallet,
-    Paused, RailsStaking, Receipt, Receipts, SpokeAsset, TaoCap, TaoSupply, Tokens,
+    MessageCeiling, MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order,
+    Outcome, Pallet, Paused, RailsStaking, Receipt, Receipts, SpokeAsset, TaoCap, TaoSupply,
+    Tokens,
 };
 
 const UNIT: u64 = 1_000_000_000;
@@ -72,6 +73,7 @@ fn rails<T: Config>() -> Result<T::AccountId, BenchmarkError> {
     // A message costs something, so that the benchmarks check and use the bridge's account
     // as production does.
     MessageReserve::<T>::insert(BRIDGE, TaoBalance::from(MESSAGE_RESERVE));
+    MessageCeiling::<T>::insert(BRIDGE, TaoBalance::from(2 * MESSAGE_RESERVE));
     CurrencyOf::<T>::set_balance(
         &Pallet::<T>::message_account(BRIDGE),
         TaoBalance::from(UNIT),
@@ -315,11 +317,16 @@ mod benchmarks {
             admin::<T>()? as T::RuntimeOrigin,
             BRIDGE,
             TaoBalance::from(2 * MESSAGE_RESERVE),
+            TaoBalance::from(4 * MESSAGE_RESERVE),
         );
 
         assert_eq!(
             MessageReserve::<T>::get(BRIDGE),
             Some(TaoBalance::from(2 * MESSAGE_RESERVE))
+        );
+        assert_eq!(
+            MessageCeiling::<T>::get(BRIDGE),
+            TaoBalance::from(4 * MESSAGE_RESERVE)
         );
         Ok(())
     }

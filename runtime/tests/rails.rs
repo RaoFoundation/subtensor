@@ -102,6 +102,7 @@ fn rails_ext() -> sp_io::TestExternalities {
         assert_ok!(Rails::set_message_reserve(
             RuntimeOrigin::root(),
             BASE,
+            (UNIT / 1_000).into(),
             (UNIT / 1_000).into()
         ));
         fund(&account(0x12), UNIT);
