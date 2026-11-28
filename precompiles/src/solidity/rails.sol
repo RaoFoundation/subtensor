@@ -11,29 +11,38 @@ interface IRails {
     /// @param order The order, as the portal encoded it: twelve ABI words.
     /// @return status 1 settled, 2 refunded, 3 rejected.
     /// @return amountOut What the order delivered, if it was settled.
+    /// @return bridge The hub's id of the portal's bridge: the queue that holds the
+    /// answer to the order.
     function execute(
         uint32 domain,
         bytes32 sender,
         bytes calldata order
-    ) external returns (uint8 status, uint64 amountOut);
+    ) external returns (uint8 status, uint64 amountOut, uint32 bridge);
 
-    /// @notice Removes the message at `position`, the head of the hub's outbox. The hub
-    /// takes this call only from the gateway contract, which makes it in the transaction
-    /// that hands the message to the transport.
-    function ackOutbound(uint64 position) external;
+    /// @notice Removes message `nonce`, the head of the hub's queue for `bridge`, and
+    /// takes `paid` from the bridge's budget on the hub. The hub takes this call only from
+    /// the gateway contract, which makes it in the transaction that pays the transport
+    /// and hands it the message. Reverts if the bridge's budget holds less than `paid`:
+    /// the messages of a bridge are paid for from that bridge's budget alone.
+    /// @param paid What the transport charges the gateway for the message, in wei. The hub
+    /// counts it in its own unit, rounded up.
+    function ackOutbound(uint32 bridge, uint64 nonce, uint256 paid) external;
 
-    /// @notice The message at the head of the hub's outbox.
+    /// @notice The message at the head of the hub's queue for `bridge`. Each bridge has
+    /// its own queue, first in first out.
     /// @return pending Whether there is a message.
-    /// @return position Its position, to pass to `ackOutbound`.
+    /// @return nonce Its nonce, to pass to `ackOutbound`.
     /// @return domain The transport domain of the portal it goes to.
     /// @return recipient That portal.
     /// @return body The message, as the portal decodes it.
-    function nextOutbound()
+    function nextOutbound(
+        uint32 bridge
+    )
         external
         view
         returns (
             bool pending,
-            uint64 position,
+            uint64 nonce,
             uint32 domain,
             bytes32 recipient,
             bytes memory body

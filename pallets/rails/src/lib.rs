@@ -40,6 +40,32 @@
 //! Only a message that cannot be taken at all makes `execute` fail: then the transport
 //! tries again later, and what the payer locked stays locked on the spoke.
 //!
+//! ## How an answer leaves, and who pays for it
+//!
+//! The hub cannot call a contract. It puts each message for a spoke in that bridge's
+//! queue ([`Outbox`]), and the gateway takes the messages out in order and hands them to
+//! the transport. Each bridge has its own queue: a message that cannot leave holds only
+//! the messages to the same spoke.
+//!
+//! The gateway pays the transport for each message, from the TAO in its account. That
+//! TAO is divided between the bridges. Each bridge has a budget ([`MessageBudget`]),
+//! which anyone fills with [`Pallet::fund_messages`], and the messages to a bridge's
+//! spoke are paid for from its budget alone:
+//!
+//! - The admin sets what the hub counts for one message to the spoke ([`MessageCost`]).
+//!   Until then the bridge takes no order.
+//! - The hub queues a message only while the budget covers every message in the bridge's
+//!   queue at that cost. With less, the hub does not take the bridge's next order: it
+//!   stays with the transport.
+//! - An account that pays through [`Pallet::bridge_out`] first pays that cost into the
+//!   budget itself.
+//! - When the gateway takes a message out, it says what the transport charges for it,
+//!   and the hub takes exactly that from the budget ([`Pallet::ack_outbound`]). If the
+//!   budget cannot pay, the message waits.
+//!
+//! So the messages of one bridge never use what was paid in for another, whatever the
+//! transport charges and however many orders must be refunded.
+//!
 //! ## Invariants
 //!
 //! 1. [`Pallet::reserve_account`] holds at least the sum of [`TaoSupply`].
@@ -47,6 +73,9 @@
 //! 3. The hub tells a spoke to mint a canonical token only when it added as much to that
 //!    spoke's supply, and takes a burned token only up to that supply.
 //! 4. An order nonce is settled at most once, and a message nonce is issued at most once.
+//! 5. A message leaves its queue only when its bridge's budget pays what the gateway
+//!    says the transport charges for it. No call other than that one lowers a budget, and
+//!    every call that raises one moves as much TAO to the gateway account.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -143,7 +172,7 @@ pub mod pallet {
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
-        /// The most messages that may wait for the gateway.
+        /// The most messages that may wait for the gateway in the queue of one bridge.
         #[pallet::constant]
         type MaxOutbox: Get<u32>;
 
@@ -178,18 +207,35 @@ pub mod pallet {
     pub type Receipts<T> =
         StorageDoubleMap<_, Twox64Concat, BridgeId, Twox64Concat, u64, Receipt, OptionQuery>;
 
-    /// MAP ( bridge ) --> nonce | The nonce of the next message to the bridge.
+    /// MAP ( bridge ) --> nonce | The nonce of the next message to the bridge: the tail of
+    /// its queue.
     #[pallet::storage]
     pub type NextMessage<T> = StorageMap<_, Twox64Concat, BridgeId, u64, ValueQuery>;
 
-    /// MAP ( position ) --> Outbound | Messages waiting for the gateway, first in first out.
+    /// MAP ( bridge ) --> nonce | The nonce of the bridge's first message that the gateway
+    /// has not taken: the head of its queue.
     #[pallet::storage]
-    pub type Outbox<T> = StorageMap<_, Twox64Concat, u64, Outbound, OptionQuery>;
+    pub type NextOutbound<T> = StorageMap<_, Twox64Concat, BridgeId, u64, ValueQuery>;
 
-    /// ITEM --> ( head, tail ) | The positions of the outbox: `head` is handed over next and
-    /// `tail` is filled next.
+    /// DMAP ( bridge, nonce ) --> Message | Messages waiting for the gateway: one queue for
+    /// each bridge, first in first out.
     #[pallet::storage]
-    pub type OutboxBounds<T> = StorageValue<_, (u64, u64), ValueQuery>;
+    pub type Outbox<T> =
+        StorageDoubleMap<_, Twox64Concat, BridgeId, Twox64Concat, u64, Message, OptionQuery>;
+
+    /// MAP ( bridge ) --> TAO | What the hub counts for one message to the bridge's spoke,
+    /// as the admin set it: at least what the transport charges the gateway for one. The
+    /// budget must cover the bridge's queue at this cost, and an exit pays it. While it is
+    /// not set, the hub takes no order from the bridge and no payment to it: the cost of a
+    /// message is decided before the first one.
+    #[pallet::storage]
+    pub type MessageCost<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, OptionQuery>;
+
+    /// MAP ( bridge ) --> TAO | The part of the gateway account's TAO that pays the
+    /// transport for messages to the bridge's spoke: what was paid in for the bridge, less
+    /// what the gateway paid the transport for its messages.
+    #[pallet::storage]
+    pub type MessageBudget<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, ValueQuery>;
 
     /// DMAP ( bridge, asset ) --> TokenInfo | The canonical tokens: the one registry of
     /// which contract on which chain stands for which asset.
@@ -211,13 +257,6 @@ pub mod pallet {
     /// MAP ( bridge ) --> TAO | The most canonical TAO the bridge's spoke may have.
     #[pallet::storage]
     pub type TaoCap<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, ValueQuery>;
-
-    /// ITEM --> TAO | What an account pays the gateway for each payment through
-    /// [`Pallet::bridge_out`], on top of what it sends. The gateway pays the transport for
-    /// the message from it, so that exits are not sent at the cost of what the gateway
-    /// holds for the answers of other payers.
-    #[pallet::storage]
-    pub type ExitFee<T> = StorageValue<_, TaoBalance, ValueQuery>;
 
     /// MAP ( netuid ) --> Market | The subnets with an alpha token.
     #[pallet::storage]
@@ -274,7 +313,7 @@ pub mod pallet {
             gamma: GammaBalance,
         },
         /// An account on Bittensor paid for something delivered on a spoke, and paid `fee`
-        /// to the gateway for the message.
+        /// into the bridge's budget for the message.
         BridgedOut {
             who: T::AccountId,
             bridge: BridgeId,
@@ -284,14 +323,15 @@ pub mod pallet {
             amount_out: u64,
             fee: TaoBalance,
         },
-        /// A message was queued for the gateway at `position`.
-        MessageQueued {
-            position: u64,
+        /// Message `nonce` was queued for the gateway in the queue of `bridge`.
+        MessageQueued { bridge: BridgeId, nonce: u64 },
+        /// The gateway took message `nonce` of `bridge` to hand it to the transport, and
+        /// the bridge's budget paid `paid` for it.
+        MessageDispatched {
             bridge: BridgeId,
             nonce: u64,
+            paid: TaoBalance,
         },
-        /// The gateway took the message at `position` to hand it to the transport.
-        MessageDispatched { position: u64 },
         /// The gateway account was set.
         GatewaySet { gateway: Option<T::AccountId> },
         /// The guardian account was set.
@@ -306,8 +346,15 @@ pub mod pallet {
         },
         /// The cap on canonical TAO on a spoke was set.
         TaoCapSet { bridge: BridgeId, cap: TaoBalance },
-        /// The fee of a payment through `bridge_out` was set.
-        ExitFeeSet { fee: TaoBalance },
+        /// What the hub counts for one message to a bridge's spoke was set.
+        MessageCostSet { bridge: BridgeId, cost: TaoBalance },
+        /// `who` paid `amount` into the budget of `bridge`: to the gateway account, for the
+        /// transport of messages to the bridge's spoke.
+        MessagesFunded {
+            who: T::AccountId,
+            bridge: BridgeId,
+            amount: TaoBalance,
+        },
         /// A subnet's market was opened.
         MarketOpened { netuid: NetUid, generation: u64 },
         /// The cap on a market's vault was set.
@@ -357,12 +404,16 @@ pub mod pallet {
         SubnetUnknown,
         /// The pool has no time-weighted price yet to value credits with.
         TwapUnavailable,
-        /// Too many messages wait for the gateway.
+        /// Too many messages wait for the gateway in the bridge's queue.
         OutboxFull,
-        /// The position is not the head of the outbox.
+        /// The message is not the head of its bridge's queue.
         NotOutboxHead,
         /// Arithmetic overflowed.
         Overflow,
+        /// The cost of a message to the bridge's spoke is not set, or the bridge's budget
+        /// does not cover its queue and one more message, or does not cover what the
+        /// transport charges for the message at the head of its queue.
+        MessagesNotFunded,
     }
 
     #[pallet::hooks]
@@ -403,8 +454,9 @@ pub mod pallet {
         ///
         /// Fails, and so leaves the order with the transport to deliver again, only if the
         /// hub is paused, the portal or its bridge is not live, the order is out of
-        /// sequence, or the answer cannot be queued. An order that cannot be settled for
-        /// any other reason is taken and refunded.
+        /// sequence, or the answer cannot be queued: the bridge's queue is full, or its
+        /// budget does not cover one more message. An order that cannot be settled for any
+        /// other reason is taken and refunded.
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::execute().saturating_add(T::Staking::weight()))]
         pub fn execute(
@@ -418,6 +470,9 @@ pub mod pallet {
             let bridge = pallet_tusd::Pallet::<T>::bridge_of(domain, sender)
                 .ok_or(Error::<T>::UnknownPortal)?;
             Self::ensure_bridge_enabled(bridge)?;
+            // Every order has an answer, if only its refund: refuse the order now if the
+            // answer could not be queued.
+            Self::ensure_room(bridge)?;
             ensure!(
                 order.nonce == NextOrder::<T>::get(bridge),
                 Error::<T>::OrderOutOfSequence
@@ -428,26 +483,50 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Takes the message at `position`, the head of the outbox, out of it. Only the
-        /// gateway may call this, in the transaction in which it hands the message to the
-        /// transport: if that fails, this is undone with it.
+        /// Takes message `nonce`, the head of the queue of `bridge`, out of it, and takes
+        /// `paid`, what the transport charges the gateway for the message, from the
+        /// bridge's budget. Only the gateway may call this, in the transaction in which it
+        /// pays the transport and hands it the message: if that fails, this is undone with
+        /// it.
+        ///
+        /// Fails if the budget holds less than `paid`. The message then waits at the head
+        /// of its queue until the budget is filled.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::ack_outbound())]
-        pub fn ack_outbound(origin: OriginFor<T>, position: u64) -> DispatchResult {
+        pub fn ack_outbound(
+            origin: OriginFor<T>,
+            bridge: BridgeId,
+            nonce: u64,
+            paid: TaoBalance,
+        ) -> DispatchResult {
             Self::ensure_gateway(origin)?;
             ensure!(!Paused::<T>::get(), Error::<T>::Paused);
-            let (head, tail) = OutboxBounds::<T>::get();
-            ensure!(position == head && head < tail, Error::<T>::NotOutboxHead);
-            Outbox::<T>::remove(position);
-            OutboxBounds::<T>::put((head.saturating_add(1), tail));
-            Self::deposit_event(Event::MessageDispatched { position });
+            ensure!(
+                nonce == NextOutbound::<T>::get(bridge) && nonce < NextMessage::<T>::get(bridge),
+                Error::<T>::NotOutboxHead
+            );
+            MessageBudget::<T>::try_mutate(bridge, |budget| {
+                *budget = budget
+                    .to_u64()
+                    .checked_sub(paid.to_u64())
+                    .ok_or(Error::<T>::MessagesNotFunded)?
+                    .into();
+                Ok::<(), Error<T>>(())
+            })?;
+            Outbox::<T>::remove(bridge, nonce);
+            NextOutbound::<T>::insert(bridge, nonce.saturating_add(1));
+            Self::deposit_event(Event::MessageDispatched {
+                bridge,
+                nonce,
+                paid,
+            });
             Ok(())
         }
 
         /// Pays `amount` of the signer's TAO or tUSD for `destination`, delivered on the
         /// spoke of `bridge`: the stablecoin, canonical TAO or an alpha token. Fails as a
-        /// whole if it would deliver less than `min_out`. The signer also pays
-        /// [`ExitFee`] in TAO to the gateway, which sends the message.
+        /// whole if it would deliver less than `min_out`. The signer also pays the
+        /// bridge's [`MessageCost`] in TAO into the bridge's budget, for the message.
         #[pallet::call_index(2)]
         #[pallet::weight(<T as Config>::WeightInfo::bridge_out().saturating_add(T::Staking::weight()))]
         pub fn bridge_out(
@@ -461,9 +540,9 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
             ensure!(!Paused::<T>::get(), Error::<T>::Paused);
             Self::ensure_bridge_enabled(bridge)?;
+            let fee = MessageCost::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
             let amount_out =
                 Self::route_native(&who, bridge, source, amount, &destination, min_out)?;
-            let fee = Self::charge_exit_fee(&who)?;
             Self::deposit_event(Event::BridgedOut {
                 who,
                 bridge,
@@ -664,15 +743,40 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Sets what a payment through [`Pallet::bridge_out`] pays the gateway for its
-        /// message. Set it to at least what the transport charges the gateway for one.
+        /// Sets what the hub counts for one message to the spoke of `bridge`. Set it to at
+        /// least what the transport charges the gateway for one: the bridge's budget must
+        /// cover its queue at this cost, and an exit pays it. A bridge takes no order
+        /// before this is set; zero says that the transport is free.
         #[pallet::call_index(12)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_exit_fee())]
-        pub fn set_exit_fee(origin: OriginFor<T>, fee: TaoBalance) -> DispatchResult {
+        #[pallet::weight(<T as Config>::WeightInfo::set_message_cost())]
+        pub fn set_message_cost(
+            origin: OriginFor<T>,
+            bridge: BridgeId,
+            cost: TaoBalance,
+        ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
-            ExitFee::<T>::put(fee);
-            Self::deposit_event(Event::ExitFeeSet { fee });
+            MessageCost::<T>::insert(bridge, cost);
+            Self::deposit_event(Event::MessageCostSet { bridge, cost });
             Ok(())
+        }
+
+        /// Pays `amount` of the signer's TAO into the budget of `bridge`: to the gateway
+        /// account, for the transport of messages to the bridge's spoke. Anyone may pay.
+        /// The operator of a spoke pays in what the spoke's portal collected as answer
+        /// fees. What is paid in is spent on messages and cannot be taken back.
+        #[pallet::call_index(13)]
+        #[pallet::weight(<T as Config>::WeightInfo::fund_messages())]
+        pub fn fund_messages(
+            origin: OriginFor<T>,
+            bridge: BridgeId,
+            amount: TaoBalance,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            ensure!(
+                pallet_tusd::Bridges::<T>::contains_key(bridge),
+                Error::<T>::BridgeDisabled
+            );
+            Self::pay_into_budget(&who, bridge, amount)
         }
 
         /// Passes over the next order of `bridge` without reading it, so that the orders
@@ -711,16 +815,21 @@ impl<T: Config> Pallet<T> {
         <T as Config>::PalletId::get().into_sub_account_truncating((*b"vlt/", netuid))
     }
 
-    /// The message at the head of the outbox, with its position and where the gateway sends
-    /// it: the transport domain and portal of its bridge.
-    pub fn next_outbound() -> Option<(u64, u32, H256, Outbound)> {
-        let (head, tail) = OutboxBounds::<T>::get();
-        if head >= tail || Paused::<T>::get() {
+    /// The message at the head of the queue of `bridge`, and where the gateway sends it:
+    /// the transport domain and portal of the bridge.
+    pub fn next_outbound(bridge: BridgeId) -> Option<(u32, H256, Outbound)> {
+        let nonce = NextOutbound::<T>::get(bridge);
+        if nonce >= NextMessage::<T>::get(bridge) || Paused::<T>::get() {
             return None;
         }
-        let outbound = Outbox::<T>::get(head)?;
-        let route = pallet_tusd::Bridges::<T>::get(outbound.bridge)?.route;
-        Some((head, route.domain, route.portal, outbound))
+        let message = Outbox::<T>::get(bridge, nonce)?;
+        let route = pallet_tusd::Bridges::<T>::get(bridge)?.route;
+        let outbound = Outbound {
+            bridge,
+            nonce,
+            message,
+        };
+        Some((route.domain, route.portal, outbound))
     }
 
     /// What an order from the spoke of `bridge` would deliver now, or why it would be
@@ -794,22 +903,14 @@ impl<T: Config> Pallet<T> {
                 "a market's shares differ from what its spokes have outstanding"
             );
         }
-        let (head, tail) = OutboxBounds::<T>::get();
-        ensure!(
-            head <= tail && tail.saturating_sub(head) <= u64::from(T::MaxOutbox::get()),
-            "the outbox is out of bounds"
-        );
-        Ok(())
-    }
-
-    /// Takes [`ExitFee`] from `who` for the gateway account, and returns it.
-    fn charge_exit_fee(who: &T::AccountId) -> Result<TaoBalance, DispatchError> {
-        let fee = ExitFee::<T>::get();
-        if !fee.is_zero() {
-            let gateway = Gateway::<T>::get().ok_or(Error::<T>::NotGateway)?;
-            CurrencyOf::<T>::transfer(who, &gateway, fee, Preservation::Expendable)?;
+        for (bridge, tail) in NextMessage::<T>::iter() {
+            let head = NextOutbound::<T>::get(bridge);
+            ensure!(
+                head <= tail && tail.saturating_sub(head) <= u64::from(T::MaxOutbox::get()),
+                "a bridge's queue is out of bounds"
+            );
         }
-        Ok(fee)
+        Ok(())
     }
 
     fn ensure_gateway(origin: OriginFor<T>) -> DispatchResult {
@@ -888,28 +989,57 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Queues `message` for the portal of `bridge` under the bridge's next nonce.
+    /// Queues `message` for the portal of `bridge` under the bridge's next nonce, if the
+    /// queue has room for it ([`Pallet::ensure_room`]).
     pub(crate) fn enqueue(bridge: BridgeId, message: Message) -> DispatchResult {
-        let (head, tail) = OutboxBounds::<T>::get();
-        ensure!(
-            tail.saturating_sub(head) < u64::from(T::MaxOutbox::get()),
-            Error::<T>::OutboxFull
-        );
+        Self::ensure_room(bridge)?;
         let nonce = NextMessage::<T>::get(bridge);
         NextMessage::<T>::insert(bridge, nonce.saturating_add(1));
-        Outbox::<T>::insert(
-            tail,
-            Outbound {
-                bridge,
-                nonce,
-                message,
-            },
+        Outbox::<T>::insert(bridge, nonce, message);
+        Self::deposit_event(Event::MessageQueued { bridge, nonce });
+        Ok(())
+    }
+
+    /// Passes only if the queue of `bridge` can take one more message: it holds fewer than
+    /// [`Config::MaxOutbox`], and the bridge's budget covers every message in it, and one
+    /// more, at the bridge's [`MessageCost`]. The hub queues nothing that the gateway could
+    /// not pay the transport for.
+    pub(crate) fn ensure_room(bridge: BridgeId) -> DispatchResult {
+        let queued = NextMessage::<T>::get(bridge).saturating_sub(NextOutbound::<T>::get(bridge));
+        ensure!(
+            queued < u64::from(T::MaxOutbox::get()),
+            Error::<T>::OutboxFull
         );
-        OutboxBounds::<T>::put((head, tail.saturating_add(1)));
-        Self::deposit_event(Event::MessageQueued {
-            position: tail,
+        let cost = MessageCost::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
+        let needed = u128::from(cost.to_u64()).saturating_mul(u128::from(queued).saturating_add(1));
+        ensure!(
+            u128::from(MessageBudget::<T>::get(bridge).to_u64()) >= needed,
+            Error::<T>::MessagesNotFunded
+        );
+        Ok(())
+    }
+
+    /// Moves `amount` of `who`'s TAO to the gateway account and adds it to the budget of
+    /// `bridge`. The only way a budget grows.
+    pub(crate) fn pay_into_budget(
+        who: &T::AccountId,
+        bridge: BridgeId,
+        amount: TaoBalance,
+    ) -> DispatchResult {
+        let gateway = Gateway::<T>::get().ok_or(Error::<T>::NotGateway)?;
+        CurrencyOf::<T>::transfer(who, &gateway, amount, Preservation::Expendable)?;
+        MessageBudget::<T>::try_mutate(bridge, |budget| {
+            *budget = budget
+                .to_u64()
+                .checked_add(amount.to_u64())
+                .ok_or(Error::<T>::Overflow)?
+                .into();
+            Ok::<(), Error<T>>(())
+        })?;
+        Self::deposit_event(Event::MessagesFunded {
+            who: who.clone(),
             bridge,
-            nonce,
+            amount,
         });
         Ok(())
     }

@@ -11,9 +11,9 @@ use sp_runtime::DispatchError;
 use subtensor_runtime_common::{NetUid, TaoBalance, TusdBalance, rails::OriginChain};
 
 use crate::{
-    AlphaSupply, Destination, Error, Event, ExitFee, Gateway, Markets, Message, NativeAsset,
-    NextMessage, NextOrder, Order, Outbound, Outbox, OutboxBounds, Outcome, Paused, RailsStaking,
-    Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, TokenInfo, Tokens,
+    AlphaSupply, Destination, Error, Event, Gateway, Markets, Message, MessageBudget, MessageCost,
+    NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outbound, Outbox, Outcome, Paused,
+    RailsStaking, Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, TokenInfo, Tokens,
     mock::*,
     router::{RATE_SCALE, VIRTUAL, alpha_for_shares, rate, shares_for_alpha},
 };
@@ -96,24 +96,40 @@ fn refunded(source: SpokeAsset, amount: u64, destination: Destination<AccountId>
     error
 }
 
-/// The messages waiting for the gateway, oldest first.
+/// The bridges of the mock whose spokes receive messages.
+const SPOKES: [u32; 2] = [BASE, ETHEREUM];
+
+/// Every message that waits for the gateway, bridge by bridge, each queue in order.
 fn outbox() -> Vec<Outbound> {
-    let (head, tail) = OutboxBounds::<Test>::get();
-    (head..tail)
-        .map(|position| Outbox::<Test>::get(position).unwrap())
+    SPOKES
+        .into_iter()
+        .flat_map(|bridge| {
+            (NextOutbound::<Test>::get(bridge)..NextMessage::<Test>::get(bridge)).map(
+                move |nonce| Outbound {
+                    bridge,
+                    nonce,
+                    message: Outbox::<Test>::get(bridge, nonce).unwrap(),
+                },
+            )
+        })
         .collect()
 }
 
-/// The gateway hands every waiting message to the transport.
+/// The gateway hands every waiting message to a transport that charges nothing.
 fn flush() -> Vec<Outbound> {
     let mut sent = Vec::new();
-    while let Some((position, domain, sender, outbound)) = Rails::next_outbound() {
-        assert_eq!((domain, sender), (outbound.bridge, portal(outbound.bridge)));
-        assert_ok!(Rails::ack_outbound(
-            RuntimeOrigin::signed(GATEWAY),
-            position
-        ));
-        sent.push(outbound);
+    for bridge in SPOKES {
+        while let Some((domain, sender, outbound)) = Rails::next_outbound(bridge) {
+            assert_eq!((domain, sender), (bridge, portal(bridge)));
+            assert_eq!(outbound.bridge, bridge);
+            assert_ok!(Rails::ack_outbound(
+                RuntimeOrigin::signed(GATEWAY),
+                bridge,
+                outbound.nonce,
+                0.into()
+            ));
+            sent.push(outbound);
+        }
     }
     sent
 }
@@ -383,7 +399,14 @@ fn settings_are_admin_only() {
             Rails::skip_order(signed(), BASE, 0),
             DispatchError::BadOrigin
         );
-        assert_noop!(Rails::ack_outbound(signed(), 0), Error::<Test>::NotGateway);
+        assert_noop!(
+            Rails::set_message_cost(signed(), BASE, TaoBalance::from(1)),
+            DispatchError::BadOrigin
+        );
+        assert_noop!(
+            Rails::ack_outbound(signed(), BASE, 0, 0.into()),
+            Error::<Test>::NotGateway
+        );
     });
 }
 
@@ -877,8 +900,284 @@ fn the_stablecoin_minimum_counts_what_the_spoke_can_pay() {
     });
 }
 
+// ---------------------------------------------------------------- who pays for a message
+
+/// What the hub counts for one message to Base in these tests.
+const COST: u64 = UNIT / 100;
+
+fn budget(bridge: u32) -> u64 {
+    MessageBudget::<Test>::get(bridge).into()
+}
+
+fn gateway_tao() -> u64 {
+    Balances::free_balance(GATEWAY).into()
+}
+
+fn set_cost(bridge: u32, cost: u64) {
+    assert_ok!(Rails::set_message_cost(
+        RuntimeOrigin::root(),
+        bridge,
+        cost.into()
+    ));
+}
+
+/// Alice pays `amount` into the budget of `bridge`.
+fn fund(bridge: u32, amount: u64) {
+    // More than she pays in, so that her account stays alive.
+    fund_tao(ALICE, amount + UNIT);
+    assert_ok!(Rails::fund_messages(
+        RuntimeOrigin::signed(ALICE),
+        bridge,
+        amount.into()
+    ));
+}
+
+/// The gateway takes the head of the queue of `bridge` and pays the transport `paid` for
+/// it, as the gateway contract does in one transaction.
+fn send_head(bridge: u32, paid: u64) -> sp_runtime::DispatchResult {
+    let (_, _, outbound) = Rails::next_outbound(bridge).expect("a message waits");
+    Rails::ack_outbound(
+        RuntimeOrigin::signed(GATEWAY),
+        bridge,
+        outbound.nonce,
+        paid.into(),
+    )?;
+    assert_ok!(Balances::burn(
+        RuntimeOrigin::signed(GATEWAY),
+        paid.into(),
+        false
+    ));
+    Ok(())
+}
+
+/// The gateway account holds what the bridges' budgets say it holds for them.
+fn assert_budgets_backed() {
+    assert!(gateway_tao() >= budget(BASE) + budget(ETHEREUM));
+}
+
+fn to_canonical_tao() -> Order<AccountId> {
+    order(
+        SpokeAsset::Stable,
+        400 * UNIT,
+        Destination::Tao { to: wallet() },
+    )
+}
+
 #[test]
-fn an_exit_pays_the_gateway_for_its_message() {
+fn a_bridge_takes_no_order_before_the_cost_of_its_messages_is_set() {
+    new_test_ext().execute_with(|| {
+        MessageCost::<Test>::remove(BASE);
+        let to_account = order(
+            SpokeAsset::Stable,
+            100 * UNIT,
+            Destination::NativeTusd { to: ALICE },
+        );
+        // Not even an order that needs no answer if it settles: the cost is decided first.
+        assert_noop!(
+            execute(to_account.clone()),
+            Error::<Test>::MessagesNotFunded
+        );
+        fund_tao(ALICE, 10 * UNIT);
+        assert_noop!(
+            Rails::bridge_out(
+                RuntimeOrigin::signed(ALICE),
+                BASE,
+                NativeAsset::Tao,
+                UNIT,
+                Destination::Tao { to: wallet() },
+                0
+            ),
+            Error::<Test>::MessagesNotFunded
+        );
+
+        // Zero is a decision too: this transport is free.
+        set_cost(BASE, 0);
+        System::assert_last_event(
+            Event::MessageCostSet {
+                bridge: BASE,
+                cost: 0.into(),
+            }
+            .into(),
+        );
+        assert_ok!(execute(to_account));
+    });
+}
+
+#[test]
+fn anyone_pays_into_a_bridges_budget() {
+    new_test_ext().execute_with(|| {
+        fund_tao(ALICE, 10 * UNIT);
+        let gateway_before = gateway_tao();
+
+        // The TAO goes to the gateway account, which pays the transport.
+        assert_ok!(Rails::fund_messages(
+            RuntimeOrigin::signed(ALICE),
+            BASE,
+            (2 * COST).into()
+        ));
+        System::assert_last_event(
+            Event::MessagesFunded {
+                who: ALICE,
+                bridge: BASE,
+                amount: (2 * COST).into(),
+            }
+            .into(),
+        );
+        assert_eq!(budget(BASE), 2 * COST);
+        assert_eq!(budget(ETHEREUM), 0);
+        assert_eq!(gateway_tao(), gateway_before + 2 * COST);
+        assert_eq!(
+            Balances::free_balance(ALICE),
+            TaoBalance::from(10 * UNIT - 2 * COST)
+        );
+
+        // Not for a bridge that does not exist: nothing could ever use it.
+        assert_noop!(
+            Rails::fund_messages(RuntimeOrigin::signed(ALICE), 7, COST.into()),
+            Error::<Test>::BridgeDisabled
+        );
+        // Not more than the payer has.
+        assert_noop!(
+            Rails::fund_messages(RuntimeOrigin::signed(BOB), BASE, COST.into()),
+            sp_runtime::TokenError::FundsUnavailable
+        );
+        // With no gateway account there is nobody to pay.
+        Gateway::<Test>::kill();
+        assert_noop!(
+            Rails::fund_messages(RuntimeOrigin::signed(ALICE), BASE, COST.into()),
+            Error::<Test>::NotGateway
+        );
+    });
+}
+
+#[test]
+fn a_bridges_budget_must_cover_its_queue() {
+    new_test_ext().execute_with(|| {
+        set_cost(BASE, COST);
+        fund(BASE, 2 * COST);
+
+        // An order that settles with an answer and one that is refunded: two messages
+        // wait. Nothing is taken from the budget until a message leaves.
+        assert_ok!(execute(to_canonical_tao()));
+        let mut refund = to_canonical_tao();
+        refund.min_out = u64::MAX;
+        assert_ok!(execute(refund));
+        assert_eq!(outbox().len(), 2);
+        assert_eq!(budget(BASE), 2 * COST);
+
+        // The budget does not cover a third message. Neither a settlement nor a refund is
+        // taken: nothing changes, the order's nonce stays the next one, and the transport
+        // delivers the order again later.
+        let third = to_canonical_tao();
+        assert_noop!(execute(third.clone()), Error::<Test>::MessagesNotFunded);
+        let mut refund = third.clone();
+        refund.min_out = u64::MAX;
+        assert_noop!(execute(refund), Error::<Test>::MessagesNotFunded);
+        // Every order has an answer if it fails, so the rule is the same for all.
+        assert_noop!(
+            execute(order(
+                SpokeAsset::Stable,
+                100 * UNIT,
+                Destination::NativeTusd { to: ALICE },
+            )),
+            Error::<Test>::MessagesNotFunded
+        );
+        assert_eq!(NextOrder::<Test>::get(BASE), third.nonce);
+
+        // One unit short is short.
+        fund(BASE, COST - 1);
+        assert_noop!(execute(third.clone()), Error::<Test>::MessagesNotFunded);
+        fund(BASE, 1);
+        assert_ok!(execute(third));
+        assert_eq!(outbox().len(), 3);
+        assert_budgets_backed();
+        assert_invariants();
+    });
+}
+
+#[test]
+fn a_message_takes_from_the_budget_what_the_transport_charges() {
+    new_test_ext().execute_with(|| {
+        set_cost(BASE, COST);
+        fund(BASE, 2 * COST);
+        assert_ok!(execute(to_canonical_tao()));
+        assert_ok!(execute(to_canonical_tao()));
+
+        // The transport charges less than the hub counted: the rest stays in the budget.
+        assert_ok!(send_head(BASE, COST - 3));
+        System::assert_has_event(
+            Event::MessageDispatched {
+                bridge: BASE,
+                nonce: 0,
+                paid: (COST - 3).into(),
+            }
+            .into(),
+        );
+        assert_eq!(budget(BASE), COST + 3);
+        assert_budgets_backed();
+
+        // It charges more than the budget holds: the message waits, and nothing changes.
+        assert_noop!(send_head(BASE, COST + 4), Error::<Test>::MessagesNotFunded);
+        assert_eq!(Rails::next_outbound(BASE).unwrap().2.nonce, 1);
+        // Until someone fills the budget.
+        fund(BASE, 1);
+        assert_ok!(send_head(BASE, COST + 4));
+        assert_eq!(budget(BASE), 0);
+        assert_eq!(Rails::next_outbound(BASE), None);
+        assert_budgets_backed();
+    });
+}
+
+#[test]
+fn one_bridge_never_spends_what_was_paid_in_for_another() {
+    new_test_ext().execute_with(|| {
+        // Base's messages cost something and nobody paid for them. Ethereum's are funded.
+        set_cost(BASE, COST);
+        set_cost(ETHEREUM, COST);
+        fund(ETHEREUM, 3 * COST);
+        let on_ethereum = |order: Order<AccountId>| {
+            Rails::execute(
+                RuntimeOrigin::signed(GATEWAY),
+                ETHEREUM,
+                portal(ETHEREUM),
+                order,
+            )
+        };
+
+        // Base takes no order, though the gateway account holds enough TAO for its answer.
+        assert!(gateway_tao() >= COST);
+        let mut refund_on_base = to_canonical_tao();
+        refund_on_base.min_out = u64::MAX;
+        assert_noop!(execute(refund_on_base), Error::<Test>::MessagesNotFunded);
+
+        // Ethereum's orders settle, and their answers are queued for Ethereum alone.
+        let mut refund = to_canonical_tao();
+        refund.nonce = NextOrder::<Test>::get(ETHEREUM);
+        refund.min_out = u64::MAX;
+        assert_ok!(on_ethereum(refund));
+        let waiting = outbox();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].bridge, ETHEREUM);
+        assert_eq!(Rails::next_outbound(BASE), None);
+
+        // Base gets a budget of its own and queues an answer. The transport then charges
+        // more for it than Base's budget holds: the gateway cannot take the difference
+        // from Ethereum's.
+        fund(BASE, COST);
+        assert_ok!(execute(to_canonical_tao()));
+        assert_noop!(send_head(BASE, COST + 1), Error::<Test>::MessagesNotFunded);
+        assert_eq!(budget(ETHEREUM), 3 * COST);
+        // Ethereum's message leaves without regard to Base's queue.
+        assert_ok!(send_head(ETHEREUM, COST));
+        assert_eq!(budget(ETHEREUM), 2 * COST);
+        assert_eq!(budget(BASE), COST);
+        assert_eq!(Rails::next_outbound(BASE).unwrap().2.nonce, 0);
+        assert_budgets_backed();
+    });
+}
+
+#[test]
+fn an_exit_pays_for_its_message() {
     new_test_ext().execute_with(|| {
         settled(
             SpokeAsset::Stable,
@@ -886,30 +1185,29 @@ fn an_exit_pays_the_gateway_for_its_message() {
             Destination::NativeTusd { to: ALICE },
         );
         fund_tao(ALICE, 10 * UNIT);
-        let fee = TaoBalance::from(UNIT / 100);
-        assert_noop!(
-            Rails::set_exit_fee(RuntimeOrigin::signed(ALICE), fee),
-            DispatchError::BadOrigin
-        );
-        assert_ok!(Rails::set_exit_fee(RuntimeOrigin::root(), fee));
-        let gateway_before = Balances::free_balance(GATEWAY);
+        set_cost(BASE, COST);
+        let gateway_before = gateway_tao();
+        let exit = |who: AccountId, amount: u64| {
+            Rails::bridge_out(
+                RuntimeOrigin::signed(who),
+                BASE,
+                NativeAsset::Tusd,
+                amount,
+                Destination::Stable { to: wallet() },
+                0,
+            )
+        };
 
-        assert_ok!(Rails::bridge_out(
-            RuntimeOrigin::signed(ALICE),
-            BASE,
-            NativeAsset::Tusd,
-            100 * UNIT,
-            Destination::Stable { to: wallet() },
-            0
-        ));
-
-        // The fee is on top of what was sent, and it is the gateway's.
+        // The budget is empty: the exit pays the cost of its message into it, on top of
+        // what it sends.
+        assert_ok!(exit(ALICE, 100 * UNIT));
         assert_eq!(Tusd::balance(&ALICE), TusdBalance::from(400 * UNIT));
         assert_eq!(
             Balances::free_balance(ALICE),
-            TaoBalance::from(10 * UNIT) - fee
+            TaoBalance::from(10 * UNIT - COST)
         );
-        assert_eq!(Balances::free_balance(GATEWAY), gateway_before + fee);
+        assert_eq!(gateway_tao(), gateway_before + COST);
+        assert_eq!(budget(BASE), COST);
         System::assert_has_event(
             Event::BridgedOut {
                 who: ALICE,
@@ -918,43 +1216,39 @@ fn an_exit_pays_the_gateway_for_its_message() {
                 amount: 100 * UNIT,
                 destination: Destination::Stable { to: wallet() },
                 amount_out: 100 * UNIT,
-                fee,
+                fee: COST.into(),
             }
             .into(),
         );
+        assert_eq!(outbox().len(), 1);
 
-        // An account that cannot pay the fee does not exit, and keeps what it has.
+        // An account that cannot pay the cost does not exit, and keeps what it has.
         assert_ok!(Tusd::transfer(
             RuntimeOrigin::signed(ALICE),
             BOB,
             TusdBalance::from(50 * UNIT)
         ));
         assert_noop!(
-            Rails::bridge_out(
-                RuntimeOrigin::signed(BOB),
-                BASE,
-                NativeAsset::Tusd,
-                50 * UNIT,
-                Destination::Stable { to: wallet() },
-                0
-            ),
+            exit(BOB, 50 * UNIT),
             sp_runtime::TokenError::FundsUnavailable
         );
 
-        // With a fee and no gateway, there is nobody to pay and nobody to send.
+        // The admin raises the cost while the first exit's message waits. The budget must
+        // cover the queue at the new cost, so an exit that pays only for itself waits.
+        set_cost(BASE, 2 * COST);
+        assert_noop!(exit(ALICE, 100 * UNIT), Error::<Test>::MessagesNotFunded);
+        fund(BASE, COST);
+        assert_ok!(exit(ALICE, 100 * UNIT));
+        assert_eq!(budget(BASE), 4 * COST);
+        assert_eq!(outbox().len(), 2);
+        assert_ok!(send_head(BASE, 2 * COST));
+        assert_ok!(send_head(BASE, 2 * COST));
+        assert_eq!(budget(BASE), 0);
+        assert_budgets_backed();
+
+        // With no gateway account, there is nobody to pay and nobody to send.
         Gateway::<Test>::kill();
-        assert_noop!(
-            Rails::bridge_out(
-                RuntimeOrigin::signed(ALICE),
-                BASE,
-                NativeAsset::Tusd,
-                50 * UNIT,
-                Destination::Stable { to: wallet() },
-                0
-            ),
-            Error::<Test>::NotGateway
-        );
-        assert_eq!(ExitFee::<Test>::get(), fee);
+        assert_noop!(exit(ALICE, 50 * UNIT), Error::<Test>::NotGateway);
     });
 }
 
@@ -1564,9 +1858,9 @@ fn late_and_pointless_orders_are_refunded() {
 // ---------------------------------------------------------------- outbox and receipts
 
 #[test]
-fn the_gateway_takes_messages_first_in_first_out() {
+fn the_gateway_takes_a_bridges_messages_first_in_first_out() {
     new_test_ext().execute_with(|| {
-        assert_eq!(Rails::next_outbound(), None);
+        assert_eq!(Rails::next_outbound(BASE), None);
         for _ in 0..3 {
             settled(
                 SpokeAsset::Stable,
@@ -1574,51 +1868,68 @@ fn the_gateway_takes_messages_first_in_first_out() {
                 Destination::Tao { to: wallet() },
             );
         }
-        assert_eq!(OutboxBounds::<Test>::get(), (0, 3));
+        assert_eq!(NextOutbound::<Test>::get(BASE), 0);
         assert_eq!(NextMessage::<Test>::get(BASE), 3);
 
-        let (position, domain, sender, outbound) = Rails::next_outbound().unwrap();
+        let (domain, sender, outbound) = Rails::next_outbound(BASE).unwrap();
         assert_eq!(
-            (position, domain, sender, outbound.nonce),
-            (0, BASE, portal(BASE), 0)
+            (domain, sender, outbound.bridge, outbound.nonce),
+            (BASE, portal(BASE), BASE, 0)
         );
         // Only the head leaves, and only through the gateway.
         assert_noop!(
-            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), 1),
+            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), BASE, 1, 0.into()),
             Error::<Test>::NotOutboxHead
         );
         assert_noop!(
-            Rails::ack_outbound(RuntimeOrigin::signed(ALICE), 0),
+            Rails::ack_outbound(RuntimeOrigin::signed(ALICE), BASE, 0, 0.into()),
             Error::<Test>::NotGateway
         );
-        assert_ok!(Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), 0));
-        System::assert_last_event(Event::MessageDispatched { position: 0 }.into());
+        // Another bridge's queue is empty: nothing of Base's leaves through it.
         assert_noop!(
-            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), 0),
+            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), ETHEREUM, 0, 0.into()),
+            Error::<Test>::NotOutboxHead
+        );
+        assert_ok!(Rails::ack_outbound(
+            RuntimeOrigin::signed(GATEWAY),
+            BASE,
+            0,
+            0.into()
+        ));
+        System::assert_last_event(
+            Event::MessageDispatched {
+                bridge: BASE,
+                nonce: 0,
+                paid: 0.into(),
+            }
+            .into(),
+        );
+        assert_noop!(
+            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), BASE, 0, 0.into()),
             Error::<Test>::NotOutboxHead
         );
 
         // A paused hub shows and hands over nothing.
         assert_ok!(Rails::set_paused(RuntimeOrigin::signed(GUARDIAN), true));
-        assert_eq!(Rails::next_outbound(), None);
+        assert_eq!(Rails::next_outbound(BASE), None);
         assert_noop!(
-            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), 1),
+            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), BASE, 1, 0.into()),
             Error::<Test>::Paused
         );
         assert_ok!(Rails::set_paused(RuntimeOrigin::root(), false));
 
         let sent: Vec<u64> = flush().into_iter().map(|outbound| outbound.nonce).collect();
         assert_eq!(sent, vec![1, 2]);
-        assert_eq!(Rails::next_outbound(), None);
+        assert_eq!(Rails::next_outbound(BASE), None);
         assert_noop!(
-            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), 3),
+            Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), BASE, 3, 0.into()),
             Error::<Test>::NotOutboxHead
         );
     });
 }
 
 #[test]
-fn an_order_waits_while_the_outbox_is_full() {
+fn an_order_waits_while_its_bridges_queue_is_full() {
     new_test_ext().execute_with(|| {
         for _ in 0..MAX_OUTBOX {
             settled(
@@ -1638,12 +1949,30 @@ fn an_order_waits_while_the_outbox_is_full() {
         let mut refunds = settles.clone();
         refunds.min_out = u64::MAX;
         assert_noop!(execute(refunds), Error::<Test>::OutboxFull);
-        // An order that needs no answer still goes through.
-        settled(
+        // Every order has an answer if it fails, so the rule is the same for all.
+        assert_noop!(
+            execute(order(
+                SpokeAsset::Stable,
+                40 * UNIT,
+                Destination::NativeTusd { to: ALICE },
+            )),
+            Error::<Test>::OutboxFull
+        );
+        // An order of another bridge goes through: its queue is its own.
+        let mut on_ethereum = order(
             SpokeAsset::Stable,
             40 * UNIT,
-            Destination::NativeTusd { to: ALICE },
+            Destination::NativeTao { to: ALICE },
         );
+        on_ethereum.nonce = NextOrder::<Test>::get(ETHEREUM);
+        on_ethereum.min_out = u64::MAX;
+        assert_ok!(Rails::execute(
+            RuntimeOrigin::signed(GATEWAY),
+            ETHEREUM,
+            portal(ETHEREUM),
+            on_ethereum
+        ));
+        assert_eq!(NextMessage::<Test>::get(ETHEREUM), 1);
 
         flush();
         let mut again = settles;

@@ -95,6 +95,19 @@ fn rails_ext() -> sp_io::TestExternalities {
             RuntimeOrigin::root(),
             Some(mapped(gateway()))
         ));
+        // A message to Base costs the gateway a thousandth of a TAO, and a hundred are
+        // paid for.
+        assert_ok!(Rails::set_message_cost(
+            RuntimeOrigin::root(),
+            BASE,
+            (UNIT / 1_000).into()
+        ));
+        fund(&account(0x12), UNIT);
+        assert_ok!(Rails::fund_messages(
+            RuntimeOrigin::signed(account(0x12)),
+            BASE,
+            (UNIT / 10).into()
+        ));
 
         let netuid = NetUid::from(NETUID);
         SubtensorModule::init_new_network(netuid, 100);
@@ -210,8 +223,8 @@ fn deliver(order: &Order<AccountId>) -> (u8, u64, u64) {
         .expect("the order is delivered")
         .output;
     (
-        U256::from_big_endian(&output[..32]).as_u64() as u8,
-        U256::from_big_endian(&output[32..]).as_u64(),
+        U256::from_big_endian(&output[..32]).low_u64() as u8,
+        U256::from_big_endian(&output[32..64]).low_u64(),
         handle.gas_used,
     )
 }

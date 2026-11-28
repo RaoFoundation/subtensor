@@ -28,6 +28,11 @@
 				"internalType": "uint64",
 				"name": "amountOut",
 				"type": "uint64"
+			},
+			{
+				"internalType": "uint32",
+				"name": "bridge",
+				"type": "uint32"
 			}
 		],
 		"stateMutability": "nonpayable",
@@ -36,9 +41,19 @@
 	{
 		"inputs": [
 			{
+				"internalType": "uint32",
+				"name": "bridge",
+				"type": "uint32"
+			},
+			{
 				"internalType": "uint64",
-				"name": "position",
+				"name": "nonce",
 				"type": "uint64"
+			},
+			{
+				"internalType": "uint256",
+				"name": "paid",
+				"type": "uint256"
 			}
 		],
 		"name": "ackOutbound",
@@ -47,7 +62,13 @@
 		"type": "function"
 	},
 	{
-		"inputs": [],
+		"inputs": [
+			{
+				"internalType": "uint32",
+				"name": "bridge",
+				"type": "uint32"
+			}
+		],
 		"name": "nextOutbound",
 		"outputs": [
 			{
@@ -57,7 +78,7 @@
 			},
 			{
 				"internalType": "uint64",
-				"name": "position",
+				"name": "nonce",
 				"type": "uint64"
 			},
 			{

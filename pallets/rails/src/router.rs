@@ -41,15 +41,15 @@ use frame_support::{
 };
 use sp_arithmetic::{Rounding, helpers_128bit::multiply_by_rational_with_rounding};
 use sp_core::H160;
-use sp_runtime::{DispatchError, DispatchResult};
+use sp_runtime::{DispatchError, DispatchResult, traits::Zero};
 use subtensor_runtime_common::{
     NetUid, TaoBalance, Token, TusdBalance,
     rails::{BridgeId, BridgedPayment, Payer},
 };
 
 use crate::{
-    AlphaSupply, Config, CurrencyOf, Destination, Error, Event, Markets, Message, NativeAsset,
-    Order, Pallet, RailsStaking, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, Tokens,
+    AlphaSupply, Config, CurrencyOf, Destination, Error, Event, Markets, Message, MessageCost,
+    NativeAsset, Order, Pallet, RailsStaking, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, Tokens,
 };
 
 /// The virtual alpha and the virtual shares of every vault: a thousandth of a unit of each.
@@ -156,7 +156,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Runs a payment by `who`, an account on Bittensor, to a destination on the spoke of
-    /// `bridge`. Returns what it delivered.
+    /// `bridge`. Returns what it delivered. On top of `amount`, `who` pays the bridge's
+    /// [`MessageCost`] into the bridge's budget: an exit pays for its own message.
     pub(crate) fn route_native(
         who: &T::AccountId,
         bridge: BridgeId,
@@ -174,6 +175,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidRoute
         );
         Self::ensure_payable(destination)?;
+        let cost = MessageCost::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
+        if !cost.is_zero() {
+            Self::pay_into_budget(who, bridge, cost)?;
+        }
         let hub = Self::hub_account();
         let funds = match source {
             NativeAsset::Tusd => {

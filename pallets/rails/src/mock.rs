@@ -379,6 +379,15 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         open_bridge(FAUCET, OriginChain::Bittensor);
         assert_ok!(Rails::set_gateway(RuntimeOrigin::root(), Some(GATEWAY)));
         assert_ok!(Rails::set_guardian(RuntimeOrigin::root(), Some(GUARDIAN)));
+        // A transport that carries the hub's messages for nothing. The tests of the
+        // answers' funding set a cost.
+        for bridge in [BASE, ETHEREUM] {
+            assert_ok!(Rails::set_message_cost(
+                RuntimeOrigin::root(),
+                bridge,
+                0.into()
+            ));
+        }
 
         assert_ok!(Pool::set_enabled(RuntimeOrigin::root(), true));
         assert_ok!(Pool::set_swap_caps(

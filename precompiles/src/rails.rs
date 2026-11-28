@@ -4,8 +4,10 @@
 //! The gateway receives a portal's order from the transport and hands it to `execute`,
 //! which dispatches `Rails::execute` signed by the caller. The hub takes the call only from
 //! the gateway's account, so `execute` is safe to expose: any other caller is refused. The
-//! gateway then reads the hub's answers with `nextOutbound`, hands each to the transport
-//! and removes it with `ackOutbound`.
+//! gateway then reads the hub's answers for that bridge with `nextOutbound`, and for each
+//! one tells the hub what the transport charges (`ackOutbound`), pays the transport and
+//! hands it the message. The hub takes that charge from the budget of the bridge, and
+//! refuses if the budget cannot pay.
 //!
 //! The views let a client quote an order, follow it, and read the rate of an alpha token
 //! and the credits of an address through an Ethereum RPC. The precompile emits no logs:
@@ -19,7 +21,9 @@ use frame_support::{
     traits::IsSubType,
 };
 use frame_system::RawOrigin;
-use pallet_evm::{AddressMapping, GasWeightMapping, PrecompileHandle};
+use pallet_evm::{
+    AddressMapping, BalanceConverter, EvmBalance, GasWeightMapping, PrecompileHandle,
+};
 use pallet_rails::{Outcome, RailsStaking, WeightInfo};
 use precompile_utils::{
     EvmResult,
@@ -27,7 +31,7 @@ use precompile_utils::{
 };
 use sp_core::{ByteArray, ConstU32, H256, U256};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
-use subtensor_runtime_common::{NetUid, rails::Payer};
+use subtensor_runtime_common::{NetUid, TaoBalance, rails::Payer};
 
 use crate::{PrecompileExt, PrecompileHandleExt, rails_wire};
 
@@ -95,14 +99,15 @@ where
     /// Settles the order that the portal `sender` on transport domain `domain` sent.
     /// Signed by the caller: the hub takes it only from the gateway.
     ///
-    /// Returns what became of the order and what it delivered.
+    /// Returns what became of the order, what it delivered, and the bridge of its portal:
+    /// the queue that holds the hub's answer.
     #[precompile::public("execute(uint32,bytes32,bytes)")]
     fn execute(
         handle: &mut impl PrecompileHandle,
         domain: u32,
         sender: H256,
         order: Order,
-    ) -> EvmResult<(u8, u64)> {
+    ) -> EvmResult<(u8, u64, u32)> {
         let gateway = handle.caller_account_id::<R>()?;
         let order = decode_order::<R>(&order)?;
         let nonce = order.nonce;
@@ -117,31 +122,44 @@ where
         handle.record_db_reads::<R>(2)?;
         let bridge = pallet_tusd::Pallet::<R>::bridge_of(domain, sender).unwrap_or_default();
         let (status, amount_out, _) = receipt_of::<R>(bridge, nonce);
-        Ok((status, amount_out))
+        Ok((status, amount_out, bridge))
     }
 
-    /// Removes the message at `position`, the head of the hub's outbox. Signed by the
-    /// caller: the hub takes it only from the gateway, which calls this in the
-    /// transaction that hands the message to the transport.
-    #[precompile::public("ackOutbound(uint64)")]
-    fn ack_outbound(handle: &mut impl PrecompileHandle, position: u64) -> EvmResult<()> {
+    /// Removes message `nonce`, the head of the hub's queue for `bridge`, and takes `paid`
+    /// from the bridge's budget: what the transport charges the caller for the message,
+    /// in the EVM's unit of TAO, with 18 decimals. Signed by the caller: the hub takes it
+    /// only from the gateway, which calls this in the transaction that pays the transport
+    /// and hands it the message. Fails if the budget holds less.
+    #[precompile::public("ackOutbound(uint32,uint64,uint256)")]
+    fn ack_outbound(
+        handle: &mut impl PrecompileHandle,
+        bridge: u32,
+        nonce: u64,
+        paid: U256,
+    ) -> EvmResult<()> {
         let gateway = handle.caller_account_id::<R>()?;
-        let call = pallet_rails::Call::<R>::ack_outbound { position };
+        let call = pallet_rails::Call::<R>::ack_outbound {
+            bridge,
+            nonce,
+            paid: tao_rounded_up::<R>(paid)?,
+        };
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(gateway))
     }
 
-    /// The message at the head of the hub's outbox: whether there is one, its position,
-    /// the transport domain and portal it goes to, and its body as the portal reads it.
-    #[precompile::public("nextOutbound()")]
+    /// The message at the head of the hub's queue for `bridge`: whether there is one, its
+    /// nonce, the transport domain and portal it goes to, and its body as the portal
+    /// reads it.
+    #[precompile::public("nextOutbound(uint32)")]
     #[precompile::view]
     fn next_outbound(
         handle: &mut impl PrecompileHandle,
+        bridge: u32,
     ) -> EvmResult<(bool, u64, u32, H256, UnboundedBytes)> {
-        handle.record_db_reads::<R>(4)?;
-        Ok(match pallet_rails::Pallet::<R>::next_outbound() {
-            Some((position, domain, portal, outbound)) => (
+        handle.record_db_reads::<R>(5)?;
+        Ok(match pallet_rails::Pallet::<R>::next_outbound(bridge) {
+            Some((domain, portal, outbound)) => (
                 true,
-                position,
+                outbound.nonce,
                 domain,
                 portal,
                 rails_wire::encode_message(&outbound).into(),
@@ -252,6 +270,23 @@ where
     })
 }
 
+/// An amount in the EVM's unit of TAO, in the hub's unit, rounded up: the hub never counts
+/// less than the gateway paid.
+fn tao_rounded_up<R: pallet_evm::Config>(amount: U256) -> EvmResult<TaoBalance> {
+    let whole = <R as pallet_evm::Config>::BalanceConverter::into_substrate_balance(
+        EvmBalance::new(amount),
+    )
+    .ok_or(PrecompileFailure::Error {
+        exit_status: ExitError::Other("the amount paid is too large".into()),
+    })?;
+    let exact = <R as pallet_evm::Config>::BalanceConverter::into_evm_balance(whole)
+        .is_some_and(|back| back.into_u256() == amount);
+    Ok(whole
+        .into_u64_saturating()
+        .saturating_add(u64::from(!exact))
+        .into())
+}
+
 /// The status, amount delivered and block of an order's receipt.
 fn receipt_of<R: pallet_rails::Config>(bridge: u32, nonce: u64) -> (u8, u64, u32) {
     match pallet_rails::Receipts::<R>::get(bridge, nonce) {
@@ -283,7 +318,7 @@ mod tests {
         new_test_ext, precompiles, selector_u32,
     };
     use frame_support::{BoundedVec, assert_ok};
-    use pallet_rails::{Destination, Message, Outbound, SpokeAsset};
+    use pallet_rails::{Destination, Message, MessageBudget, Outbound, SpokeAsset};
     use precompile_utils::{solidity::encode_with_selector, testing::PrecompileTesterExt};
     use sp_core::H160;
     use sp_runtime::Permill;
@@ -365,9 +400,11 @@ mod tests {
         .unwrap()
         .unwrap()
         .output;
+        // The third word names the bridge of the order's portal.
+        assert_eq!(U256::from_big_endian(&output[64..96]).low_u32(), BASE);
         (
-            U256::from_big_endian(&output[..32]).as_u64() as u8,
-            U256::from_big_endian(&output[32..]).as_u64(),
+            U256::from_big_endian(&output[..32]).low_u64() as u8,
+            U256::from_big_endian(&output[32..64]).low_u64(),
         )
     }
 
@@ -395,6 +432,19 @@ mod tests {
             assert_ok!(Rails::set_gateway(
                 RuntimeOrigin::root(),
                 Some(mapped_account(gateway()))
+            ));
+            // A message to Base costs the gateway a thousandth of a TAO, and a hundred are
+            // paid for.
+            assert_ok!(Rails::set_message_cost(
+                RuntimeOrigin::root(),
+                BASE,
+                (UNIT / 1_000).into()
+            ));
+            fund_account(&account(0x12), UNIT);
+            assert_ok!(Rails::fund_messages(
+                RuntimeOrigin::signed(account(0x12)),
+                BASE,
+                (UNIT / 10).into()
             ));
 
             // A subnet with a deep pool, gamma and a listed service.
@@ -482,17 +532,37 @@ mod tests {
         ext
     }
 
+    /// The head of Base's queue: its nonce and its body as the portal reads it.
     fn next_outbound() -> Option<(u64, Vec<u8>)> {
-        Rails::next_outbound()
-            .map(|(position, _, _, outbound)| (position, rails_wire::encode_message(&outbound)))
+        Rails::next_outbound(BASE)
+            .map(|(_, _, outbound)| (outbound.nonce, rails_wire::encode_message(&outbound)))
     }
 
-    fn ack(caller: H160, position: u64) -> bool {
+    fn next_outbound_input() -> Vec<u8> {
+        encode_with_selector(selector_u32("nextOutbound(uint32)"), (BASE,))
+    }
+
+    /// What the transport charges for one message in these tests, in the EVM's unit: a
+    /// little less than the hub counts, and not a whole number of the hub's unit.
+    const CHARGE_WEI: u128 = 900_000_000_000_001;
+    /// That charge in the hub's unit, rounded up.
+    const CHARGE: u64 = 900_001;
+
+    /// The gateway takes message `nonce` of Base's queue, for which the transport charges
+    /// `CHARGE_WEI`.
+    fn ack(caller: H160, nonce: u64) -> bool {
+        ack_paying(caller, nonce, U256::from(CHARGE_WEI))
+    }
+
+    fn ack_paying(caller: H160, nonce: u64, paid: U256) -> bool {
         execute_precompile(
             &precompiles::<RailsPrecompile<Runtime>>(),
             rails(),
             caller,
-            encode_with_selector(selector_u32("ackOutbound(uint64)"), (position,)),
+            encode_with_selector(
+                selector_u32("ackOutbound(uint32,uint64,uint256)"),
+                (BASE, nonce, paid),
+            ),
             U256::zero(),
         )
         .unwrap()
@@ -571,6 +641,28 @@ mod tests {
     }
 
     #[test]
+    fn a_message_leaves_only_if_its_bridges_budget_pays_the_transport() {
+        rails_ext().execute_with(|| {
+            // Listing the market queued the token's registration.
+            let (nonce, _) = next_outbound().unwrap();
+            let funded = u64::from(MessageBudget::<Runtime>::get(BASE));
+            let wei = |tao: u64| U256::from(tao) * U256::from(1_000_000_000u64);
+            let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+
+            // The transport charges more than the budget holds: the message stays.
+            assert!(!ack_paying(gateway(), nonce, wei(funded) + U256::one()));
+            assert!(!ack_paying(gateway(), nonce, U256::MAX));
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+            assert_eq!(next_outbound().unwrap().0, nonce);
+
+            // It charges all the budget holds: the message leaves and the budget is empty.
+            assert!(ack_paying(gateway(), nonce, wei(funded)));
+            assert_eq!(MessageBudget::<Runtime>::get(BASE), TaoBalance::from(0));
+            assert_eq!(next_outbound(), None);
+        });
+    }
+
+    #[test]
     fn bytes_that_are_not_an_order_are_refused() {
         rails_ext().execute_with(|| {
             let mut body = rails_wire::encode_order(&order(
@@ -608,17 +700,20 @@ mod tests {
     fn the_gateway_reads_the_outbox_and_drains_it_in_order() {
         rails_ext().execute_with(|| {
             // Listing the market queued the token's registration.
-            let (position, body) = next_outbound().unwrap();
-            assert_eq!(position, 0);
+            let (nonce, body) = next_outbound().unwrap();
+            assert_eq!(nonce, 0);
             precompiles::<RailsPrecompile<Runtime>>()
-                .prepare_test(
-                    stranger(),
-                    rails(),
-                    encode_with_selector(selector_u32("nextOutbound()"), ()),
-                )
+                .prepare_test(stranger(), rails(), next_outbound_input())
                 .with_static_call(true)
                 .execute_returns((true, 0u64, BASE, portal(), UnboundedBytes::from(body)));
+            let funded = MessageBudget::<Runtime>::get(BASE);
             assert!(ack(gateway(), 0));
+            // The bridge's budget paid what the transport charged, rounded up to the hub's
+            // unit.
+            assert_eq!(
+                MessageBudget::<Runtime>::get(BASE),
+                funded - TaoBalance::from(CHARGE)
+            );
 
             // An order for canonical TAO queues a credit.
             let bought = deliver(&order(
@@ -629,7 +724,7 @@ mod tests {
             ));
             assert_eq!(bought.0, STATUS_SETTLED);
             assert_eq!(
-                Rails::next_outbound().unwrap().3,
+                Rails::next_outbound(BASE).unwrap().2,
                 Outbound {
                     bridge: BASE,
                     nonce: 1,
@@ -651,11 +746,7 @@ mod tests {
             assert!(!ack(gateway(), 2));
             assert!(ack(gateway(), 1));
             precompiles::<RailsPrecompile<Runtime>>()
-                .prepare_test(
-                    stranger(),
-                    rails(),
-                    encode_with_selector(selector_u32("nextOutbound()"), ()),
-                )
+                .prepare_test(stranger(), rails(), next_outbound_input())
                 .with_static_call(true)
                 .execute_returns((
                     false,
@@ -738,7 +829,7 @@ mod tests {
             precompiles::<RailsPrecompile<Runtime>>()
                 .prepare_test(gateway(), rails(), execute_input(&order))
                 .expect_no_logs()
-                .execute_returns((STATUS_SETTLED, gamma));
+                .execute_returns((STATUS_SETTLED, gamma, BASE));
 
             // The service reads the total of the address.
             precompiles::<RailsPrecompile<Runtime>>()
@@ -753,7 +844,7 @@ mod tests {
                 .with_static_call(true)
                 .execute_returns(gamma);
             // Nothing is paid out for credits, and nothing is left in the hub.
-            assert_eq!(pallet_rails::OutboxBounds::<Runtime>::get(), (0, 1));
+            assert_eq!(pallet_rails::NextMessage::<Runtime>::get(BASE), 1);
             assert_ok!(Rails::do_try_state());
         });
     }
@@ -789,7 +880,7 @@ mod tests {
             .unwrap()
             .output;
             assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
-            let quoted = U256::from_big_endian(&output[32..64]).as_u64();
+            let quoted = U256::from_big_endian(&output[32..64]).low_u64();
             assert_eq!(U256::from_big_endian(&output[..32]), U256::one());
             assert_eq!(deliver(&buy), (STATUS_SETTLED, quoted));
 
@@ -849,7 +940,7 @@ mod tests {
             // The refund follows the token's registration in the outbox.
             assert!(ack(gateway(), 0));
             assert_eq!(
-                Rails::next_outbound().unwrap().3.message,
+                Rails::next_outbound(BASE).unwrap().2.message,
                 Message::Credit {
                     asset: SpokeAsset::Stable,
                     to: order.payer,
