@@ -12,14 +12,14 @@ answer.
 
 | Part | Files | Lines |
 | --- | --- | --- |
-| tUSD | `pallets/tusd/src/lib.rs` | 460 |
+| tUSD | `pallets/tusd/src/lib.rs` | 470 |
 | Canonical pool | `pallets/canonical-pool/src/{lib,math}.rs` | 1,010 |
-| Hub | `pallets/rails/src/{lib,router,types}.rs` | 1,940 |
+| Hub | `pallets/rails/src/{lib,router,types}.rs` | 1,980 |
 | Index hotkey | `pallets/subtensor/src/staking/index_hotkey.rs` | 230 |
 | Staking for the hub | `pallets/subtensor/src/staking/rails.rs` | 120 |
 | Credits for a bridged payer | `do_spend_tao_at_service` in `pallets/subtensor/src/subnets/gamma.rs` | 50 |
 | Shared types | `common/src/rails.rs` | 385 |
-| Precompile and wire format | `precompiles/src/{rails,rails_wire}.rs` | 1,630 |
+| Precompile and wire format | `precompiles/src/{rails,rails_wire}.rs` | 1,660 |
 | Runtime wiring | `runtime/src/lib.rs`, `runtime/src/proxy_filters/` | small |
 | Contracts | `contracts/evm/src/**` | 1,300 |
 
@@ -96,9 +96,9 @@ canonical token that it let each spoke mint, and takes a burn only up to that co
 
 | Party | Can | Cannot |
 | --- | --- | --- |
-| Root | Add a bridge and set its portal, mint cap and mint window (`Tusd.set_bridge`). Enable a bridge. Set the gateway account and the guardian. Enable the pool. Set the pool's fee from 0.05% to 1%, and its swap limits. Open and list markets, set the caps. Set the message reserve of a bridge. Register and correct registry entries. Skip an order. Pause and resume. | Mint tUSD without a bridge. Move user balances by a call of these pallets. |
+| Root | Add a bridge with its route, and change its mint cap and mint window (`Tusd.set_bridge`). Enable a bridge. Set the gateway account and the guardian. Enable the pool. Set the pool's fee from 0.05% to 1%, and its swap limits. Open and list markets, set the caps. Set the message reserve and ceiling of a bridge. Register and correct registry entries. Skip an order. Pause and resume. | Mint tUSD without a bridge. Move user balances by a call of these pallets. Change the route of a bridge: its chain, transport domain, portal and stablecoin are fixed when it is added. |
 | Guardian (one account, named by root) | Pause the hub. Disable a bridge. Disable the pool. | Resume anything. Change any setting. Move funds. |
-| Gateway account (the mapped account of the gateway contract) | Call `Rails.execute` and `Rails.ack_outbound`. Say what the transport charges for the message at the head of a queue, and receive that much from the account of the message's bridge. | Choose the bridge of an order: the hub derives it from the transport's origin and sender. Settle an order out of sequence, or a second time. Receive more than the reserve of a bridge for one message, or anything without taking a message out of a queue. |
+| Gateway account (the mapped account of the gateway contract) | Call `Rails.execute` and `Rails.ack_outbound`. Say what the transport charges for the message at the head of a queue, and receive that much from the account of the message's bridge. | Choose the bridge of an order: the hub derives it from the transport's origin and sender. Settle an order out of sequence, or a second time. Receive more for a message than the hub's limit: the reserve of the bridge and what its account can spare, up to the ceiling. Receive anything without taking a message out of a queue. |
 | TAO/USD oracle (one account, named by root) | Feed the TAO price. | Raise the accepted price faster than about 2% per hour. |
 | Anyone | Swap, add and remove liquidity in the pool. Transfer tUSD. Pay through `Rails.bridge_out`. Pay TAO into the message account of a bridge (`Rails.fund_messages`). | Take TAO out of such an account. |
 
@@ -112,16 +112,17 @@ that bridge's cap. The cap and the window are the bound.
 | Owner (timelock) | Upgrade the contract. Set the security module, the guardian, the flush limit. Resume. | Act in less than 48 hours. |
 | Guardian | Pause. | Resume. Change a setting. |
 | The transport's Mailbox | Deliver a message to `handle`. | |
-| Anyone | Call `flush`: send what the hub queued for one bridge, and pay what the transport charges above the reserve. Send TAO to the contract: it pays for no message. | Change what is sent, or where. Spend the hub's TAO beyond the reserve for a message. |
+| Anyone | Call `flush`: send what the hub queued for one bridge, and pay what the transport charges above what the hub pays. Send TAO to the contract: it pays for no message. | Change what is sent, or where. Spend the hub's TAO beyond the hub's limit for a message. |
 
 An upgrade of the gateway can call `Rails.execute` with any order from a registered
 portal's address. This is the largest power in the system on the hub side. Its bounds
 are the hub's caps (section 5).
 
 The gateway holds no TAO between transactions. The TAO that pays the transport is in
-the hub's accounts, one for each bridge. An upgraded gateway could ask the hub for the
-full reserve of each queued message and keep it. The bound is one reserve for each
-message in the queues. That TAO pays for messages. It is not payers' money.
+the hub's accounts, one for each bridge. An upgraded gateway could ask the hub for its
+limit for each queued message and keep the TAO. The bound is one ceiling for each
+message in the queues, and never more than the accounts hold. That TAO pays for
+messages. It is not payers' money.
 
 ### 4.3 On a spoke: `Portal`, `Vault`, tokens
 
@@ -159,8 +160,9 @@ owner is a timelock and why the guardian exists.
 | The canonical pool is pushed before an order | A worse price for the payer | The order's minimum. The swap limits make a large push take many blocks |
 | A person sends many orders that must be refunded, or many small exits | The message account of that bridge pays the transport for their answers | Each order pays the answer fee on the spoke, and each exit pays the reserve on the hub. The hub takes an order only if the account holds the reserve for its answer. An order that is not taken waits at the transport, and its funds stay locked on the spoke. No other bridge is touched |
 | The message account of a bridge runs low | That bridge takes no new order. Every message that is queued already still leaves: its reserve is in the account | Anyone pays in (`Rails.fund_messages`). The other bridges go on |
-| The transport charges more for a message than the reserve of its bridge | The messages of that bridge wait. Its orders still settle while the account holds reserves for their answers | Anyone calls `Gateway.flush` and pays the difference. Root raises the reserve. The hub never pays more than the reserve for one message |
+| The transport charges more for a message than the reserve of its bridge | The hub pays the difference from what the bridge's account can spare, up to the ceiling. If the account has nothing to spare, or the charge is above the ceiling, the messages of that bridge wait. Its orders still settle while the account holds reserves for their answers | Anyone pays into the account (`Rails.fund_messages`), and the queue drains. Anyone calls `Gateway.flush` and pays the difference. Root raises the ceiling. The hub never pays more than the ceiling for one message, and never uses the reserve of another message |
 | Root names a new gateway account | Nothing | The TAO for messages is in the hub's accounts. A new gateway is paid from them as the old one was |
+| A spoke is to move to a new portal | Nothing | The route of a bridge cannot change, so its tUSD stays backed by the vault of its portal and its queued answers go to that portal. The new portal is a new bridge with its own cap |
 | A sale or a refund pays more USDC than the vault's allowance | The payee gets a part now and waits for the rest | The portal records the debt and pays it in parts (`Portal.claim`). The release limit still bounds what a forged answer can take in a period |
 
 ## 6. Invariants
@@ -175,6 +177,10 @@ Each invariant names where the code keeps it and where a test checks it.
   allows. `Pallet::mint`.
 - **I3.** A bridge burns at most what it has outstanding. `Pallet::burn`.
 - **I4.** An account holds zero or at least the minimum balance. `credit`, `debit`.
+- **I34.** The route of a bridge never changes after the bridge is added
+  (`set_bridge`). So what a bridge has outstanding stays backed by the vault of its
+  portal, and the answers in its queue go to that portal. Test
+  `the_route_of_a_bridge_is_set_once`.
 
 Across the chains: the vault of a bridge holds at least that bridge's outstanding
 tUSD, in the stablecoin's units. The hub mints only for a deposit that the portal
@@ -213,18 +219,20 @@ reported, and tells the vault to release only what it burned. Checked end to end
 - **I29.** The message account of a bridge holds, on top of the existential deposit, at
   least the bridge's reserve for each message in its queue. `do_try_state` checks it.
   Three places keep it: a message is queued only if it still holds (`ensure_room`), a
-  message that leaves takes at most the reserve (`ack_outbound`), and the reserve
-  rises only if the account covers the queue at the new reserve
-  (`set_message_reserve`). The hub checks it before it takes an order, because every
+  message that leaves takes at most its reserve and what the account holds beyond
+  the reserves of the queue (`message_limit`, `ack_outbound`), and the reserve rises
+  only if the account covers the queue at the new reserve (`set_message_reserve`). The hub checks it before it takes an order, because every
   order has an answer if it fails. Tests
-  `a_bridges_account_holds_the_reserve_for_each_queued_message` and
+  `a_bridges_account_holds_the_reserve_for_each_queued_message`,
+  `a_dear_message_never_takes_the_reserve_of_another` and
   `the_reserve_rises_only_if_the_account_covers_the_queue`.
 - **I30.** TAO leaves the message account of a bridge only when the gateway takes the
   head of that bridge's queue: what the gateway says the transport charges, at most
-  the reserve (`ack_outbound`). So one bridge never spends what was paid in for
-  another, and the hub pays a bounded price for each message. Tests
+  the bridge's ceiling (`ack_outbound`). So one bridge never spends what was paid in
+  for another, and the hub pays a bounded price for each message. Tests
   `one_bridge_never_spends_what_was_paid_in_for_another`,
   `the_hub_pays_what_the_transport_charges_up_to_the_reserve`,
+  `a_charge_above_the_reserve_is_paid_from_what_the_account_can_spare`,
   `a_new_gateway_is_paid_from_the_same_accounts` and
   `message_accounts_hold_under_random_operations`: 4,000 random steps on two bridges
   against a separate count of what each account can pay. The e2e checks on real
@@ -270,7 +278,7 @@ reported, and tells the vault to release only what it burned. Checked end to end
   `invariant_WhatIsOwedIsOwedToSomeone` and `invariant_TheVaultCoversEveryDollarOwed`,
   and the fuzz test `testFuzz_APaymentInPartsAddsUpToThePayment`.
 - **I32.** For each message, the gateway reads the transport's charge, has the hub
-  hand it that charge up to the reserve, takes the rest from the caller, and pays the
+  hand it that charge up to the hub's limit, takes the rest from the caller, and pays the
   transport, in one transaction (`_flush`). It spends nothing else: it ends each
   transaction with what it began with, and TAO that is sent to it stays there. (The
   hub rounds a charge up to its own unit, so less than one rao for a message can stay
@@ -279,7 +287,7 @@ reported, and tells the vault to release only what it burned. Checked end to end
   or whose payment is refused, fails as a whole. So a caller that estimates gas gets
   a true estimate, and no order or payment is half done. Where a step may wait
   without a fault, the code decides it and records it: a message whose charge is
-  above the reserve stays in its queue (`MessageHeld`), and a payment above the
+  above what the hub pays stays in its queue (`MessageHeld`), and a payment above the
   vault's allowance leaves a debt (`owed`).
 - **I25.** The supply of each canonical token equals what the hub counted, less burns
   that the hub has not read, plus mints that the portal has not carried out.
@@ -332,11 +340,12 @@ reported, and tells the vault to release only what it burned. Checked end to end
    record. Other payments go on: the portal carries answers out in any order. The hub
    has settled the order, so the stablecoin stays in the vault until the block ends or
    the owner acts.
-7. **The reserve is a bound, and root sets it.** If the transport charges more than the
-   reserve, the messages of that bridge wait until someone pays the difference with
-   `Gateway.flush`, the charge falls, or root raises the reserve. If root sets the
-   reserve far above the charge, the account of the bridge must hold more TAO for the
-   same queue, and an exit pays more.
+7. **The reserve and the ceiling are root's to set.** With a reserve below the
+   transport's charge, every message needs TAO to spare from the account of its bridge.
+   With a ceiling below the charge, the messages of the bridge wait until someone pays
+   the difference with `Gateway.flush`, the charge falls, or root raises the ceiling.
+   With a reserve far above the charge, the account must hold more TAO for the same
+   queue, and an exit pays more.
 8. **TAO that is sent to the gateway contract stays there.** It pays for no message, and
    it cannot be taken out in version 1. The same holds for what is left in the message
    account of a bridge that is retired. Pay in only with `Rails.fund_messages`. The
@@ -345,10 +354,11 @@ reported, and tells the vault to release only what it burned. Checked end to end
    wei: a charge that is not a whole number of rao leaves less than one rao in the
    gateway.
 9. **The gateway reports the charge.** The hub hands the gateway the amount that the
-   gateway contract names, up to the reserve. The contract reads it from the transport
-   in the same call in which it pays. A gateway that is upgraded with wrong code could
-   name the full reserve for each queued message and keep the difference. The bound is
-   one reserve for each queued message.
+   gateway contract names, up to the hub's limit for the message. The contract reads it
+   from the transport in the same call in which it pays. A gateway that is upgraded with
+   wrong code could name the limit for each queued message and keep the difference. The
+   bound is one ceiling for each queued message, and never more than the accounts of the
+   bridges hold.
 10. **A debt on record outlives a pause.** If the security module on a spoke accepts a
     forged answer, the portal can record a debt to the forger that is larger than the
     vault's allowance. The vault's limit still bounds what leaves in a period, and the
@@ -364,60 +374,66 @@ reported, and tells the vault to release only what it burned. Checked end to end
     will charge when the exit is made. An exit pays the reserve of its bridge into the
     bridge's message account. What the transport does not charge stays there and pays
     for later messages. It does not go back to the account that exits.
-13. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
+13. **The route of a bridge is fixed.** A move to a new portal, or to a transport that
+    names the spoke with another domain, needs a new bridge with a new id. The old
+    bridge then winds down by its own means: while it is enabled, its tokens sell and
+    its tUSD redeems through the old portal. Nothing moves what one bridge owes to
+    another bridge. A route that is wrong when the bridge is added stays wrong: add the
+    bridge again under another id, and never enable the first.
+14. **Sandwiching.** An order settles at the hub's prices when it arrives, some blocks
     after the payer signed. The order's minimum bounds the loss. btcli defaults to 5%
     and the swap page to 1%. The pool's swap limits make a large push slow.
-14. **Credits are final.** They cannot be sold, moved or refunded. They belong to one
+15. **Credits are final.** They cannot be sold, moved or refunded. They belong to one
     address at one service on one subnet. A subnet that is dissolved clears them.
-15. **Credits can be fewer than the dollars paid.** They count the alpha at the lower of
+16. **Credits can be fewer than the dollars paid.** They count the alpha at the lower of
     the slow price and the spot price, after two pool fees. The quote shows the number
     before the payer signs.
-16. **The time-weighted price needs history.** Credits orders are refunded until the
+17. **The time-weighted price needs history.** Credits orders are refunded until the
     pool has 300 blocks of history, and whenever the oracle feed is older than 300
     blocks.
-17. **The time-weighted price can be moved by a party that holds the pool's price for a
+18. **The time-weighted price can be moved by a party that holds the pool's price for a
     long time.** The party pays the pool's fee and the arbitrage against it for the
     whole period. Only a lower price matters, and a lower price gives fewer credits, not
     more.
-18. **An index hotkey earns on less than all of its stake if fewer than 4 validators
+19. **An index hotkey earns on less than all of its stake if fewer than 4 validators
     qualify.** Each child gets at most 25%.
-19. **The index rule can be gamed at its edges.** A validator earns a place among the 8
+20. **The index rule can be gamed at its edges.** A validator earns a place among the 8
     by its dividend of the last epoch. A validator at the edge can change its behaviour
     around the refresh. The place moves stake weight, never the stake.
-20. **A child keeps its childkey take** of what it earns on the index's stake. The rule
+21. **A child keeps its childkey take** of what it earns on the index's stake. The rule
     skips children whose take is above the highest delegate take.
-21. **A market is for ever.** A netuid has one market. After the subnet is dissolved the
+22. **A market is for ever.** A netuid has one market. After the subnet is dissolved the
     token only redeems TAO. If the netuid is registered again, the new subnet cannot
     have a token in version 1.
-22. **Dissolution pays in TAO at the chain's terms.** Holders of the alpha token share
+23. **Dissolution pays in TAO at the chain's terms.** Holders of the alpha token share
     what the vault received. They do not choose the time.
-23. **Virtual shares keep a trace of the earnings.** `V / (shares + V)` of a vault's
+24. **Virtual shares keep a trace of the earnings.** `V / (shares + V)` of a vault's
     earnings stay in the vault without an owner. For a vault of 1,000 alpha that is one
     millionth.
-24. **Dust.** The vault account keeps the existential deposit from its first stake. The
+25. **Dust.** The vault account keeps the existential deposit from its first stake. The
     stablecoin has 6 decimals and the hub 9: the part of a release below one millionth
     of a dollar stays in the vault. A sale of canonical TAO that would leave the reserve
     account between zero and the existential deposit is refunded.
-25. **Gifts.** Anyone can send TAO to the hub account, the reserve account or a vault
+26. **Gifts.** Anyone can send TAO to the hub account, the reserve account or a vault
     account, and can transfer stake to a vault. No order reads those balances, except
     two: the reserve check (a gift only helps) and the wind-down of a dissolved market
     (a gift goes to the holders). Stake that is given to a vault raises the rate for all
     holders and counts toward the market's cap, so a gift can make purchases fail until
     root raises the cap.
-26. **A wrong address in the registry.** Root passes the token's address when it lists a
+27. **A wrong address in the registry.** Root passes the token's address when it lists a
     market. The portal creates the token at its own CREATE2 address in any case and
     emits `RegistryMismatch` if the two differ. Root corrects the registry with
     `Rails.register_token`. Until then the registry names a wrong address.
-27. **Token names are fixed at creation.** A subnet that changes its name keeps the old
+28. **Token names are fixed at creation.** A subnet that changes its name keeps the old
     token name and symbol. Two subnets can have the same symbol: the registry and the
     netuid tell them apart.
-28. **Unpause is slow by design.** Only the owner resumes a contract, through the
+29. **Unpause is slow by design.** Only the owner resumes a contract, through the
     48-hour timelock.
-29. **The rig is not a security model.** It uses one validator, a threshold of one, a
+30. **The rig is not a security model.** It uses one validator, a threshold of one, a
     timelock of zero seconds and public development keys.
-30. **The fee baselines of the runtime do not cover the new calls**, and `spec_version`
+31. **The fee baselines of the runtime do not cover the new calls**, and `spec_version`
     is not raised in this change. Both are release steps.
-31. **MEV shield.** btcli sends `swap_pool` and `bridge_out` through the MEV shield by
+32. **MEV shield.** btcli sends `swap_pool` and `bridge_out` through the MEV shield by
     default. A payment from a spoke cannot be shielded: it is public on the spoke before
     it arrives.
 
@@ -425,15 +441,15 @@ reported, and tells the vault to release only what it burned. Checked end to end
 
 | What | Where | Run |
 | --- | --- | --- |
-| tUSD: 17 unit tests, benchmarks as tests | `pallets/tusd/src/tests.rs` | `cargo test -p pallet-tusd --all-features` |
+| tUSD: 18 unit tests, benchmarks as tests | `pallets/tusd/src/tests.rs` | `cargo test -p pallet-tusd --all-features` |
 | Pool: 34 unit tests, benchmarks as tests | `pallets/canonical-pool/src/tests.rs` | `cargo test -p pallet-canonical-pool --all-features` |
-| Hub: 57 unit tests, 14 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
+| Hub: 59 unit tests, 14 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
 | Index hotkey: 22 tests on the real pallet | `pallets/subtensor/src/tests/index_hotkey.rs` | `cargo test -p pallet-subtensor --all-features index_hotkey` |
 | Credits for a bridged payer: 7 tests | `pallets/subtensor/src/tests/gamma_credits.rs` | `cargo test -p pallet-subtensor --all-features gamma_credits` |
 | Staking for the hub, with a real dissolution: 8 tests | `pallets/subtensor/src/tests/rails_staking.rs` | `cargo test -p pallet-subtensor --all-features rails_staking` |
 | The production runtime through the precompile: 5 tests | `runtime/tests/rails.rs` | `cargo test -p node-subtensor-runtime --all-features --test rails` |
 | Precompile and wire format, with golden vectors | `precompiles/src/{rails,rails_wire}.rs` | `cargo test -p subtensor-precompiles --all-features rails` |
-| Contracts: 89 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
+| Contracts: 91 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
 | Both chains and the transport, end to end | `scripts/rails/e2e.py`, `scripts/rails/e2e_cli.py` | `just rails-up && just rails-e2e` |
 
 The unit tests of the hub call `try_state` of the three pallets after each operation.

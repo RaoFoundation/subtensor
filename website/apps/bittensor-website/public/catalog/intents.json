@@ -711,9 +711,9 @@
         "pallet": "Rails",
         "call": "bridge_out",
         "path": "pallets/rails/src/lib.rs",
-        "line": 545,
-        "end_line": 569,
-        "url": "/code/pallets/rails/src/lib.rs#L543-L569",
+        "line": 563,
+        "end_line": 587,
+        "url": "/code/pallets/rails/src/lib.rs#L561-L587",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -6579,9 +6579,9 @@
         "pallet": "Tusd",
         "call": "transfer",
         "path": "pallets/tusd/src/lib.rs",
-        "line": 213,
-        "end_line": 221,
-        "url": "/code/pallets/tusd/src/lib.rs#L211-L221",
+        "line": 215,
+        "end_line": 223,
+        "url": "/code/pallets/tusd/src/lib.rs#L213-L223",
         "raw_url": "/code/raw/pallets/tusd/src/lib.rs"
       }
     ]

@@ -103,6 +103,12 @@ EVM, and it does not leave Bittensor.
   stablecoin of another bridge.
 - Root adds a bridge and sets its terms. A new bridge starts disabled. Root or the
   guardian disables a bridge. Only root enables it.
+- The route of a bridge is set one time: its chain, its transport domain, its portal
+  and its stablecoin. Root can change the mint cap and the mint window later, and
+  nothing else. What a bridge has outstanding is in the vault of its portal, and what
+  the hub still has to pay out for it is paid by that portal. Another portal could do
+  neither. A portal is upgraded in place, at the same address. A new portal with a
+  new vault is a new bridge, with a new id.
 - An account holds zero or at least 0.01 tUSD.
 
 Many bridges can mint tUSD. A bridge that is compromised can mint at most its own cap,
@@ -236,22 +242,28 @@ sets the TAO for a message aside before it takes the order:
   bridge has its own account on the hub (`Rails.message_account(bridge)`). Anyone pays
   into it with `Rails.fund_messages(bridge, amount)`. Nothing takes TAO back out of
   it. The gateway contract holds no TAO between transactions.
-- **The reserve.** Root sets `Rails.MessageReserve(bridge)`: the most that the hub pays
-  the transport for one message to that spoke. Set it above what the transport
-  charges. A bridge takes no order before the reserve is set.
+- **The reserve and the ceiling.** Root sets two amounts for a bridge with
+  `Rails.set_message_reserve`. The reserve is what the hub sets aside for each message
+  to that spoke. Set it above what the transport charges. The ceiling is the most that
+  the hub pays for one message. It is at least the reserve. A bridge takes no order
+  before these are set.
 - **Before a message is queued**, the account of the bridge must hold the reserve for
   each message in its queue, and for the new one. If it does not, the hub does not
   take the next order of the bridge. The order stays with the transport and is
   delivered again later. Its funds stay locked on the spoke. So the hub never settles
   an order whose answer it could not pay for.
 - **When a message leaves**, the gateway tells the hub what the transport charges for
-  it. The hub moves that amount, and at most the reserve, from the account of the
-  bridge to the gateway. The gateway pays the transport with it in the same
-  transaction. What the message does not use of its reserve stays in the account.
-- **If the transport charges more than the reserve**, the hub does not pay more, and
-  the message waits. There are two ways on. Anyone can call `Gateway.flush` and pay
-  the difference with the call. Or root raises the reserve, which needs the account
-  to hold the new reserve for each queued message. An order of the bridge still
+  it. The hub moves that amount from the account of the bridge to the gateway. The
+  gateway pays the transport with it in the same transaction. What the message does
+  not use of its reserve stays in the account.
+- **If the transport charges more than the reserve**, the hub pays the difference
+  from what the account holds beyond the reserves of the queue, up to the ceiling. It
+  never uses the reserve of another message. So a queue that a higher charge holds up
+  drains when the account has TAO to spare, and anyone can pay TAO in. The ceiling
+  bounds what a wrong price from the transport can take for one message.
+- **If the hub does not pay the whole charge**, because the account has nothing to
+  spare or the charge is above the ceiling, the message waits. Anyone can call
+  `Gateway.flush` and pay the difference with the call. An order of the bridge still
   settles in that time. Only the answers wait.
 - **An order on a spoke** pays the portal's **answer fee**, in the spoke's coin, on top
   of the transport's fee for the order. The owner sets it. The fees collect in the
@@ -266,6 +278,12 @@ whatever the messages before it cost. A shortage of one bridge stops only the ne
 orders of that bridge. It cannot stop the payments of another bridge, and it cannot
 take the funds of a payer: an order that the hub does not take stays whole on the
 spoke.
+
+An example with a reserve of 0.001 TAO and a ceiling of 0.003 TAO. Three messages wait,
+and the account holds 0.003 TAO: the three reserves. The transport's charge rises to
+0.002 TAO. The first message cannot leave: its reserve is 0.001 TAO, and the account
+has nothing to spare. Someone pays 0.003 TAO into the account. Now each message leaves
+at 0.002 TAO: 0.001 TAO from its reserve and 0.001 TAO from what was paid in.
 
 **The registry.** `Rails.Tokens` lists, for each bridge and asset, the address, the
 name and the symbol of the canonical token. Wallets and integrators read it to tell
@@ -354,8 +372,8 @@ decide. Only the gateway passes them.
 | Function | Use |
 | --- | --- |
 | `execute(origin, sender, order)` | settle an order, and learn its bridge. Gateway only |
-| `ackOutbound(bridge, nonce, paid)` | take a message out of the queue of a bridge. The hub moves `paid`, at most the reserve, from the account of that bridge to the gateway. Gateway only |
-| `nextOutbound(bridge)` | the head of the queue of a bridge, encoded for the portal, and the reserve of the bridge |
+| `ackOutbound(bridge, nonce, paid)` | take a message out of the queue of a bridge. The hub moves `paid` from the account of that bridge to the gateway: at most the limit that `nextOutbound` returns. Gateway only |
+| `nextOutbound(bridge)` | the head of the queue of a bridge, encoded for the portal, and the most that the hub pays for it now |
 | `quote(bridge, order)` | what an order would deliver now, or why it would be refunded |
 | `receipt(bridge, nonce)` | what the hub did with an order |
 | `nextOrder(bridge)` | the next nonce the hub takes |
@@ -403,8 +421,8 @@ a payment, the whole transaction fails, and the transport delivers the message a
 later. A contract that caught such a failure would succeed with too little gas. A
 relayer that estimates gas would then send transactions that do only half the work.
 Where a step can wait without a fault, the contracts decide that in code: a charge
-above the reserve leaves the message in its queue, and a payment above the vault's
-allowance leaves a debt on record.
+above what the hub pays leaves the message in its queue, and a payment above the
+vault's allowance leaves a debt on record.
 
 **Token names.** When root lists a market, the hub reads the subnet's identity from
 the chain and sends the name and the symbol to the portal. The symbol is the first run
@@ -503,7 +521,8 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 | Pool flow limit | 20% of the reserve per 300 blocks | root |
 | Vault release limit (spoke) | set at deployment | the timelock |
 | Answer fee of an order (spoke) | set at deployment, no default | the timelock |
-| Message reserve of a bridge (hub) | not set: the bridge takes no order | root |
+| Message reserve and ceiling of a bridge (hub) | not set: the bridge takes no order | root |
+| Route of a bridge (hub) | set when the bridge is added | nobody, after that |
 | TAO in the message account of a bridge (hub) | none until someone pays in | anyone pays in |
 | Queue of a bridge | 1,024 messages | runtime constant |
 
@@ -588,8 +607,8 @@ Jacob holds the multisig and the guardian keys at the start.
     before it takes the order.** An order pays an answer fee on the spoke. An exit
     pays the reserve on the hub. Each bridge has its own account on the hub, which
     always holds the reserve for each queued message. The hub pays the transport's
-    charge up to the reserve. Without this, refunds could use up the TAO that pays for
-    the answers of other payers and other bridges, and a settled order could wait for
+    charge from it. Without this, refunds could use up the TAO that pays for the
+    answers of other payers and other bridges, and a settled order could wait for
     someone to pay for its answer.
 24. **Nothing is ordered for the zero address.** The portal refuses, and the hub
     refunds.
@@ -604,7 +623,7 @@ Jacob holds the multisig and the guardian keys at the start.
     of answers, so that the order still settled. But a transaction with too little
     gas for the hand-over then succeeds, and a relayer that estimates gas sends such
     transactions. Now the gateway decides in code what may wait: a message for which
-    the transport charges more than the reserve stays in its queue, and the order
+    the transport charges more than the hub pays stays in its queue, and the order
     settles. A failure of the transport itself fails the order's transaction, and the
     transport delivers the order again.
 29. **The gateway holds no TAO.** The second build kept the TAO for messages in the
@@ -612,12 +631,20 @@ Jacob holds the multisig and the guardian keys at the start.
     of the hub hold it, and the hub hands the gateway what it pays the transport,
     message by message. A change of the gateway moves nothing. The gateway's account
     must hold the existential deposit before root names it.
-30. **The hub pays at most the reserve for a message.** What the transport charges
-    above it is paid by whoever asks the gateway to send the message, or the message
-    waits. So a wrong price from the transport cannot empty the account of a bridge
-    faster than one reserve for each message.
+30. **The hub pays at most the ceiling for a message, and above the reserve only from
+    spare TAO.** Each message has its reserve. If the transport charges more, the hub
+    adds the difference from what the bridge's account holds beyond the reserves of
+    its queue, up to the ceiling. So a queue that a higher charge holds up drains by
+    itself while the account has TAO to spare, and a wrong price from the transport
+    cannot take more than the ceiling for a message, nor the reserve of another
+    message. Above that, whoever asks the gateway to send the message pays the
+    difference, or the message waits.
 31. **An exit pays the reserve, not the charge.** The hub cannot know the charge when
     the exit is made. What is not used stays in the account of the bridge.
+32. **The route of a bridge is fixed.** The first build let root change the portal of
+    a bridge. But the stablecoin behind the bridge's tUSD is in the vault of the old
+    portal, and the answers in the bridge's queue are for the old portal. So a bridge
+    keeps its route for ever. A new portal is a new bridge.
 
 ## 9. Room for what is not built
 
@@ -652,8 +679,11 @@ just rails-contracts # the contracts' unit, fuzz and invariant tests
   a plain account.
 - Set the caps low at the start. Enable the bridge, then the pool.
 - For each bridge, set the reserve on the hub above the transport's charge for one
-  message, and the answer fee on the spoke to at least the worth of that charge. Pay
-  into the account of the bridge before the bridge is enabled.
+  message, the ceiling above the highest charge that the hub should pay without
+  anyone's decision, and the answer fee on the spoke to at least the worth of the
+  charge. Pay into the account of the bridge before the bridge is enabled: the
+  reserves for the queue, and TAO to spare for charges above the reserve.
+- Check the route of each bridge before it is added. It cannot change.
 - Send the gateway's account the existential deposit before root names it as the
   gateway.
 - Run a flusher and the oracle feed. Pay the answer fees into the account of their

@@ -110,9 +110,9 @@ btcli bridge exit --bridge 8453 --pay-with tusd --amount 100 --receive alpha --n
 ```
 
 The coldkey also pays the bridge's reserve for one message, in TAO, on top of the
-amount. The reserve is the most that the hub pays to send a message to the other
-chain. The preview shows it. What the message does not use stays in the bridge's
-account on the hub and pays for later messages.
+amount. The reserve is what the hub sets aside to send a message to the other chain.
+The preview shows it. What the message does not use stays in the bridge's account on
+the hub and pays for later messages.
 
 The hub queues the payment. Each bridge has its own queue. The queue is sent each time
 an order arrives from that chain. To send it now, with an EVM key that holds TAO for
@@ -122,16 +122,17 @@ gas:
 btcli bridge flush --bridge 8453
 ```
 
-The hub pays to send each message, up to the bridge's reserve. If sending costs more
-than that, the messages wait. Anyone can pay the difference. What is not needed comes
-back:
+The hub pays to send each message. Each message has the bridge's reserve. If sending
+costs more than the reserve, the hub pays the difference from what the bridge's
+account can spare, up to the bridge's ceiling. If that is not enough, the messages
+wait. Anyone can pay the difference. What is not needed comes back:
 
 ```bash
 btcli bridge flush --bridge 8453 --pay-up-to 0.01
 ```
 
-`btcli bridge list` shows the reserve of each bridge, what its account can pay, and
-how many messages wait.
+`btcli bridge list` shows the reserve and the ceiling of each bridge, what its account
+can pay, and how many messages wait.
 
 ## tUSD
 

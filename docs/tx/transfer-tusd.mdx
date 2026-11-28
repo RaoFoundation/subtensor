@@ -12,7 +12,7 @@ than that on either side fails: send the whole balance instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Tusd | [`Tusd.transfer`](/code/pallets/tusd/src/lib.rs#L211-L221) |
+| `coldkey` | signed account (pallet role may apply) | Tusd | [`Tusd.transfer`](/code/pallets/tusd/src/lib.rs#L213-L223) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("transfer_tusd", {...}, wallet)
 
 ## On-chain implementation
 
-`Tusd.transfer` — [`pallets/tusd/src/lib.rs#L213`](/code/pallets/tusd/src/lib.rs#L211-L221):
+`Tusd.transfer` — [`pallets/tusd/src/lib.rs#L215`](/code/pallets/tusd/src/lib.rs#L213-L223):
 
 ```rust
 #[pallet::call_index(0)]
@@ -80,6 +80,6 @@ pub fn transfer(
 }
 ```
 
-Delegates to [`do_transfer`](/code/pallets/tusd/src/lib.rs#L301).
+Delegates to [`do_transfer`](/code/pallets/tusd/src/lib.rs#L309).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
