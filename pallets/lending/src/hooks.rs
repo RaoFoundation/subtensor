@@ -15,8 +15,10 @@ use sp_runtime::traits::AccountIdConversion;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
 use crate::{
-    Config, Custody, DissolvingSubnets, Due, Event, HolderPositions, InterestRetry,
-    LendingPoolInterface, LongLiftedTao, Pallet, Positions, SwappedOutAt, WeightInfo,
+    Config, Custody, DissolutionSettlements, DissolvingSubnets, Due, Event, HolderPositions,
+    InterestRetry, LendingPoolInterface, LongLiftedTao, Pallet, Positions, PositionsByNetuid,
+    SettlementRetry, SwappedOutAt, WeightInfo,
+    dissolution::SettlementStage,
     types::{PositionId, Side},
 };
 
@@ -66,18 +68,24 @@ pub trait LendingInterface<AccountId> {
     /// else may stake to it, register it or name it as a child.
     fn pallet_hotkey() -> Option<AccountId>;
     /// Called once when a subnet is flagged for dissolution, with the pool's TAO at that moment
-    /// (`T_flag`). Records the subnet's lending values for the settlement and the refund.
+    /// (`T_flag`). Records the subnet's lending values for the settlement and the refund. From
+    /// here until [`Self::on_dissolve_done`] no short of the subnet opens, grows, closes or takes
+    /// collateral.
     fn on_dissolve_flag(netuid: NetUid, pool_tao: TaoBalance);
-    /// Called once per dissolved subnet, before any of its pot is distributed: settles every
-    /// short of the subnet at the dereg rate (`dissolution`). The hook takes the weight it uses
-    /// from `meter` itself; the caller accounts for none of it.
-    fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter);
-    /// The TAO the shorts settled into the pot at `on_dissolve`, in rao. The caller pays it to the
-    /// stakers and takes it out of the pool reserve before the owner refund reads the pot.
-    /// Zero for a subnet with no lending.
+    /// One step of the settlement of the subnet's shorts at the dereg rate (`dissolution`),
+    /// called by the cleanup of a dissolved subnet before any of its pot is distributed, once
+    /// per cleanup step until it returns `true`. A step settles as many shorts as `meter` and
+    /// the per-step bound allow and keeps its place for the next one. It returns `true` once
+    /// every short of the subnet is settled, and `false` while shorts are left to walk or to
+    /// try again; the caller must not distribute the pot before it has returned `true`. The
+    /// hook takes the weight it uses from `meter` itself; the caller accounts for none of it.
+    fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool;
+    /// The TAO the shorts settled into the pot at `on_dissolve`, in rao; final once
+    /// `on_dissolve` has returned `true`. The caller pays it to the stakers and takes it out of
+    /// the pool reserve before the owner refund reads the pot. Zero for a subnet with no lending.
     fn dissolution_settled_tao(netuid: NetUid) -> TaoBalance;
     /// Called once the owner refund of a dissolved subnet has read its pot: drops the subnet's
-    /// lending record. A subnet with no lending has none, so this does nothing.
+    /// lending record and its settlement progress.
     fn on_dissolve_done(netuid: NetUid);
     /// Alpha added to the conviction bar a challenger must clear to take ownership of `netuid`.
     fn conviction_bar_extra(netuid: NetUid) -> AlphaBalance;
@@ -126,7 +134,9 @@ impl<AccountId> LendingInterface<AccountId> for () {
 
     fn on_dissolve_flag(_netuid: NetUid, _pool_tao: TaoBalance) {}
 
-    fn on_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) {}
+    fn on_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) -> bool {
+        true
+    }
 
     fn dissolution_settled_tao(_netuid: NetUid) -> TaoBalance {
         TaoBalance::from(0u64)
@@ -199,6 +209,12 @@ impl<T: Config> Pallet<T> {
     /// The custody account stays the one the position was opened with, recorded in `Custody`
     /// under the new key, so the swap moves no TAO and no alpha and cannot strand any.
     ///
+    /// The key in the per-subnet index moves with the position. If the settlement of a
+    /// dissolving subnet is walking that index, the new key may lie behind its cursor, so the
+    /// short is queued in `SettlementRetry` under the new key (with the attempts of the old
+    /// one): the walk or the retry pass settles it, whichever reaches it first, and it is
+    /// settled once.
+    ///
     /// If a moved position was opened in this block, `old` opens nothing more in this block
     /// (`SwappedOutAt`): the open would derive the custody account the moved position uses.
     ///
@@ -243,6 +259,16 @@ impl<T: Config> Pallet<T> {
             }
             opened_now |= pos.opened_at == now;
             Positions::<T>::insert(&to, pos);
+            PositionsByNetuid::<T>::remove((netuid, side, old.clone()));
+            PositionsByNetuid::<T>::insert((netuid, side, new.clone()), ());
+            if side == Side::Short {
+                let attempts = SettlementRetry::<T>::take(netuid, old);
+                let walking = DissolutionSettlements::<T>::get(netuid)
+                    .is_some_and(|settlement| settlement.stage != SettlementStage::Done);
+                if walking || attempts.is_some() {
+                    SettlementRetry::<T>::insert(netuid, new, attempts.unwrap_or(0));
+                }
+            }
             Self::deposit_event(Event::PositionRekeyed {
                 old: old.clone(),
                 new: new.clone(),
@@ -259,7 +285,16 @@ impl<T: Config> Pallet<T> {
             !Positions::<T>::iter_keys().any(|(who, _, _)| who == *old),
             "a coldkey swap left a lending position with the old key"
         );
-        T::WeightInfo::rekey_positions(moved)
+        T::WeightInfo::rekey_positions(moved).saturating_add(Self::rekey_settlement_weight(moved))
+    }
+
+    /// The settlement records a re-key of `moved` positions may move on top of the measured
+    /// re-key, which runs on subnets that are not being dissolved: per position the settlement
+    /// progress read and the retry entry taken and written.
+    fn rekey_settlement_weight(moved: u32) -> Weight {
+        T::DbWeight::get()
+            .reads_writes(2, 2)
+            .saturating_mul(u64::from(moved))
     }
 }
 
@@ -308,6 +343,7 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
     fn coldkey_swap_weight() -> Weight {
         Self::coldkey_swap_admission_weight()
             .saturating_add(T::WeightInfo::rekey_positions(MAX_POSITIONS_PER_HOLDER))
+            .saturating_add(Self::rekey_settlement_weight(MAX_POSITIONS_PER_HOLDER))
     }
 
     fn pallet_hotkey() -> Option<T::AccountId> {
@@ -318,13 +354,14 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
         Self::record_dissolve_flag(netuid, pool_tao);
     }
 
-    /// Settles the shorts (`dissolution::settle_shorts_at_dissolution`) and clears the subnet's
-    /// `ResidualAlpha`, whose alpha stays in the pool's issuance. Longs are not touched.
+    /// One step of the shorts' settlement (`dissolution::settle_shorts_at_dissolution`). The
+    /// step that finishes it clears the subnet's `ResidualAlpha`, whose alpha stays in the
+    /// pool's issuance. Longs are not touched.
     // TODO(longs dissolution): a long of a dissolved subnet keeps its position, its custody and
     // its `LongLockedAlpha`/`LongLiftedTao` books. Longs were out of scope of the shorts
     // settlement (Jacob, Nov 27); their dissolution is not implemented.
-    fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter) {
-        Self::settle_shorts_at_dissolution(netuid, meter);
+    fn on_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool {
+        Self::settle_shorts_at_dissolution(netuid, meter)
     }
 
     fn dissolution_settled_tao(netuid: NetUid) -> TaoBalance {
@@ -333,6 +370,7 @@ impl<T: Config> LendingInterface<T::AccountId> for Pallet<T> {
 
     fn on_dissolve_done(netuid: NetUid) {
         DissolvingSubnets::<T>::remove(netuid);
+        DissolutionSettlements::<T>::remove(netuid);
     }
 
     // HOLD(2.6): pending spec decision

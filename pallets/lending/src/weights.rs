@@ -57,7 +57,6 @@ pub trait WeightInfo {
 	fn on_dissolve_flag() -> Weight;
 	fn on_subnet_registered() -> Weight;
 	fn on_dissolve(c: u32, ) -> Weight;
-	fn on_dissolve_scan(p: u32, ) -> Weight;
 	fn migrate_to_v1(s: u32, ) -> Weight;
 }
 
@@ -66,6 +65,8 @@ pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `Lending::Enabled` (r:1 w:0)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
 	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::ShortParamsStore` (r:1 w:0)
@@ -146,22 +147,26 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Lending::TotalPositions` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Due` (r:0 w:1)
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:1)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
 	/// The range of component `s` is `[32, 128]`.
 	fn open_short(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `14220 + s * (107 ±0)`
-		//  Estimated: `25383 + s * (2541 ±21)`
-		// Minimum execution time: 1_320_592_000 picoseconds.
-		Weight::from_parts(836_942_945, 25383)
-			// Standard Error: 34_967
-			.saturating_add(Weight::from_parts(15_465_877, 0).saturating_mul(s.into()))
-			.saturating_add(T::DbWeight::get().reads(37_u64))
+		//  Measured:  `14253 + s * (107 ±0)`
+		//  Estimated: `25416 + s * (2541 ±21)`
+		// Minimum execution time: 1_364_253_000 picoseconds.
+		Weight::from_parts(931_948_902, 25416)
+			// Standard Error: 34_665
+			.saturating_add(Weight::from_parts(14_638_028, 0).saturating_mul(s.into()))
+			.saturating_add(T::DbWeight::get().reads(38_u64))
 			.saturating_add(T::DbWeight::get().reads((8_u64).saturating_mul(s.into())))
-			.saturating_add(T::DbWeight::get().writes(17_u64))
+			.saturating_add(T::DbWeight::get().writes(18_u64))
 			.saturating_add(Weight::from_parts(0, 2541).saturating_mul(s.into()))
 	}
 	/// Storage: `Lending::Enabled` (r:1 w:0)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
 	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::ShortParamsStore` (r:1 w:0)
@@ -235,17 +240,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `s` is `[1, 128]`.
 	fn increase_short(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `5811 + s * (90 ±0)`
-		//  Estimated: `11259 + s * (2570 ±0)`
-		// Minimum execution time: 783_887_000 picoseconds.
-		Weight::from_parts(862_470_786, 11259)
-			// Standard Error: 28_456
-			.saturating_add(Weight::from_parts(15_707_983, 0).saturating_mul(s.into()))
-			.saturating_add(T::DbWeight::get().reads(32_u64))
+		//  Measured:  `5844 + s * (90 ±0)`
+		//  Estimated: `11292 + s * (2570 ±0)`
+		// Minimum execution time: 791_667_000 picoseconds.
+		Weight::from_parts(872_462_281, 11292)
+			// Standard Error: 31_069
+			.saturating_add(Weight::from_parts(15_203_604, 0).saturating_mul(s.into()))
+			.saturating_add(T::DbWeight::get().reads(33_u64))
 			.saturating_add(T::DbWeight::get().reads((8_u64).saturating_mul(s.into())))
 			.saturating_add(T::DbWeight::get().writes(12_u64))
 			.saturating_add(Weight::from_parts(0, 2570).saturating_mul(s.into()))
 	}
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:1 w:1)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -314,15 +321,21 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Due` (r:0 w:1)
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:1)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::SettlementRetry` (r:0 w:1)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
 	fn close_short() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `9354`
-		//  Estimated: `12819`
-		// Minimum execution time: 888_908_000 picoseconds.
-		Weight::from_parts(899_289_000, 12819)
-			.saturating_add(T::DbWeight::get().reads(33_u64))
-			.saturating_add(T::DbWeight::get().writes(20_u64))
+		//  Measured:  `9387`
+		//  Estimated: `12852`
+		// Minimum execution time: 924_388_000 picoseconds.
+		Weight::from_parts(931_339_000, 12852)
+			.saturating_add(T::DbWeight::get().reads(34_u64))
+			.saturating_add(T::DbWeight::get().writes(22_u64))
 	}
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:1 w:1)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -381,13 +394,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Lending::BlockNetMinted` (`max_values`: None, `max_size`: Some(22), added: 2497, mode: `MaxEncodedLen`)
 	fn close_short_partial() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `3482`
+		//  Measured:  `3515`
 		//  Estimated: `8727`
-		// Minimum execution time: 1_054_880_000 picoseconds.
-		Weight::from_parts(1_063_400_000, 8727)
-			.saturating_add(T::DbWeight::get().reads(30_u64))
+		// Minimum execution time: 1_073_120_000 picoseconds.
+		Weight::from_parts(1_080_540_000, 8727)
+			.saturating_add(T::DbWeight::get().reads(31_u64))
 			.saturating_add(T::DbWeight::get().writes(13_u64))
 	}
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:1 w:1)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -434,11 +449,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Lending::InterestTotals` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
 	fn add_collateral() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `3178`
-		//  Estimated: `6643`
-		// Minimum execution time: 158_082_000 picoseconds.
-		Weight::from_parts(161_292_000, 6643)
-			.saturating_add(T::DbWeight::get().reads(23_u64))
+		//  Measured:  `3219`
+		//  Estimated: `6684`
+		// Minimum execution time: 159_741_000 picoseconds.
+		Weight::from_parts(161_411_000, 6684)
+			.saturating_add(T::DbWeight::get().reads(24_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 	/// Storage: `Lending::Enabled` (r:1 w:1)
@@ -464,10 +479,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1051 + s * (32 ±0)`
 		//  Estimated: `6987 + s * (2507 ±0)`
-		// Minimum execution time: 32_811_000 picoseconds.
-		Weight::from_parts(44_085_188, 6987)
-			// Standard Error: 11_671
-			.saturating_add(Weight::from_parts(8_537_770, 0).saturating_mul(s.into()))
+		// Minimum execution time: 32_981_000 picoseconds.
+		Weight::from_parts(46_937_848, 6987)
+			// Standard Error: 13_170
+			.saturating_add(Weight::from_parts(8_505_429, 0).saturating_mul(s.into()))
 			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(s.into())))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
@@ -480,8 +495,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 3_380_000 picoseconds.
-		Weight::from_parts(3_690_000, 0)
+		// Minimum execution time: 3_530_000 picoseconds.
+		Weight::from_parts(3_740_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -492,8 +507,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `265`
 		//  Estimated: `1534`
-		// Minimum execution time: 8_190_000 picoseconds.
-		Weight::from_parts(8_600_000, 1534)
+		// Minimum execution time: 8_460_000 picoseconds.
+		Weight::from_parts(8_770_000, 1534)
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
@@ -503,8 +518,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_790_000 picoseconds.
-		Weight::from_parts(1_880_000, 0)
+		// Minimum execution time: 1_770_000 picoseconds.
+		Weight::from_parts(1_920_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Lending::PendingLongParams` (r:0 w:1)
@@ -513,8 +528,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_840_000 picoseconds.
-		Weight::from_parts(1_940_000, 0)
+		// Minimum execution time: 1_740_000 picoseconds.
+		Weight::from_parts(1_960_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Lending::PendingDeregParams` (r:0 w:1)
@@ -523,8 +538,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_680_000 picoseconds.
-		Weight::from_parts(1_900_000, 0)
+		// Minimum execution time: 1_720_000 picoseconds.
+		Weight::from_parts(1_970_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:130 w:0)
@@ -552,10 +567,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1033 + s * (34 ±0)`
 		//  Estimated: `7109 + s * (2507 ±0)`
-		// Minimum execution time: 27_190_000 picoseconds.
-		Weight::from_parts(38_009_525, 7109)
-			// Standard Error: 8_500
-			.saturating_add(Weight::from_parts(5_134_474, 0).saturating_mul(s.into()))
+		// Minimum execution time: 26_950_000 picoseconds.
+		Weight::from_parts(37_837_239, 7109)
+			// Standard Error: 9_434
+			.saturating_add(Weight::from_parts(5_085_323, 0).saturating_mul(s.into()))
 			.saturating_add(T::DbWeight::get().reads(9_u64))
 			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(s.into())))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(s.into())))
@@ -598,10 +613,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1225 + s * (2099 ±0)`
 		//  Estimated: `7152 + s * (4574 ±0)`
-		// Minimum execution time: 52_200_000 picoseconds.
-		Weight::from_parts(54_634_123, 7152)
-			// Standard Error: 18_654
-			.saturating_add(Weight::from_parts(20_529_599, 0).saturating_mul(s.into()))
+		// Minimum execution time: 52_110_000 picoseconds.
+		Weight::from_parts(53_933_277, 7152)
+			// Standard Error: 19_221
+			.saturating_add(Weight::from_parts(20_275_155, 0).saturating_mul(s.into()))
 			.saturating_add(T::DbWeight::get().reads(9_u64))
 			.saturating_add(T::DbWeight::get().reads((8_u64).saturating_mul(s.into())))
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(s.into())))
@@ -638,10 +653,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `550 + s * (1186 ±0)`
 		//  Estimated: `1538 + s * (3635 ±0)`
-		// Minimum execution time: 37_491_000 picoseconds.
-		Weight::from_parts(36_344_432, 1538)
-			// Standard Error: 6_077
-			.saturating_add(Weight::from_parts(7_924_472, 0).saturating_mul(s.into()))
+		// Minimum execution time: 36_810_000 picoseconds.
+		Weight::from_parts(35_290_601, 1538)
+			// Standard Error: 6_482
+			.saturating_add(Weight::from_parts(7_940_737, 0).saturating_mul(s.into()))
 			.saturating_add(T::DbWeight::get().reads(9_u64))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(s.into())))
 			.saturating_add(T::DbWeight::get().writes(9_u64))
@@ -656,6 +671,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:64 w:64)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolvingSubnets` (r:64 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::TwapRing` (r:64 w:0)
 	/// Proof: `Lending::TwapRing` (`max_values`: None, `max_size`: Some(1160), added: 3635, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::RankRingGeneration` (r:64 w:0)
@@ -696,19 +713,23 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::InterestRetry` (r:0 w:64)
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:64)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::SettlementRetry` (r:0 w:64)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
 	/// The range of component `c` is `[0, 64]`.
 	fn collect_due(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1445 + c * (1863 ±0)`
+		//  Measured:  `1694 + c * (1864 ±0)`
 		//  Estimated: `3631 + c * (5158 ±0)`
-		// Minimum execution time: 5_320_000 picoseconds.
-		Weight::from_parts(23_384_900, 3631)
-			// Standard Error: 69_640
-			.saturating_add(Weight::from_parts(162_297_458, 0).saturating_mul(c.into()))
+		// Minimum execution time: 5_510_000 picoseconds.
+		Weight::from_parts(16_004_031, 3631)
+			// Standard Error: 81_345
+			.saturating_add(Weight::from_parts(172_928_162, 0).saturating_mul(c.into()))
 			.saturating_add(T::DbWeight::get().reads(7_u64))
-			.saturating_add(T::DbWeight::get().reads((18_u64).saturating_mul(c.into())))
+			.saturating_add(T::DbWeight::get().reads((19_u64).saturating_mul(c.into())))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
-			.saturating_add(T::DbWeight::get().writes((13_u64).saturating_mul(c.into())))
+			.saturating_add(T::DbWeight::get().writes((15_u64).saturating_mul(c.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(c.into()))
 	}
 	/// Storage: `Lending::NextDue` (r:1 w:1)
@@ -724,10 +745,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `315`
 		//  Estimated: `1534 + b * (2538 ±0)`
-		// Minimum execution time: 10_160_000 picoseconds.
-		Weight::from_parts(7_675_524, 1534)
-			// Standard Error: 2_412
-			.saturating_add(Weight::from_parts(2_903_698, 0).saturating_mul(b.into()))
+		// Minimum execution time: 10_410_000 picoseconds.
+		Weight::from_parts(8_358_336, 1534)
+			// Standard Error: 2_269
+			.saturating_add(Weight::from_parts(2_953_201, 0).saturating_mul(b.into()))
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(b.into())))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
@@ -743,48 +764,52 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::InterestRetry` (r:32 w:64)
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::SettlementRetry` (r:32 w:0)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolutionSettlements` (r:32 w:0)
+	/// Proof: `Lending::DissolutionSettlements` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:64)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::SwappedOutAt` (r:0 w:1)
 	/// Proof: `Lending::SwappedOutAt` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
 	/// The range of component `p` is `[1, 32]`.
 	fn rekey_positions(p: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `513 + p * (339 ±0)`
+		//  Measured:  `602 + p * (340 ±0)`
 		//  Estimated: `6230 + p * (2595 ±0)`
-		// Minimum execution time: 40_601_000 picoseconds.
-		Weight::from_parts(13_675_394, 6230)
-			// Standard Error: 23_153
-			.saturating_add(Weight::from_parts(24_482_382, 0).saturating_mul(p.into()))
+		// Minimum execution time: 51_911_000 picoseconds.
+		Weight::from_parts(22_740_864, 6230)
+			// Standard Error: 24_799
+			.saturating_add(Weight::from_parts(32_698_298, 0).saturating_mul(p.into()))
 			.saturating_add(T::DbWeight::get().reads(2_u64))
-			.saturating_add(T::DbWeight::get().reads((4_u64).saturating_mul(p.into())))
+			.saturating_add(T::DbWeight::get().reads((6_u64).saturating_mul(p.into())))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
-			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(p.into())))
+			.saturating_add(T::DbWeight::get().writes((10_u64).saturating_mul(p.into())))
 			.saturating_add(Weight::from_parts(0, 2595).saturating_mul(p.into()))
 	}
 	/// Storage: `Lending::HolderPositions` (r:2 w:0)
 	/// Proof: `Lending::HolderPositions` (`max_values`: None, `max_size`: Some(145), added: 2620, mode: `MaxEncodedLen`)
 	fn coldkey_swap_destination_ok() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `562`
+		//  Measured:  `595`
 		//  Estimated: `6230`
-		// Minimum execution time: 10_510_000 picoseconds.
-		Weight::from_parts(10_940_000, 6230)
+		// Minimum execution time: 10_690_000 picoseconds.
+		Weight::from_parts(11_150_000, 6230)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 	}
 	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:0)
 	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::ResidualAlpha` (r:1 w:0)
 	/// Proof: `Lending::ResidualAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::PositionCount` (r:1 w:0)
-	/// Proof: `Lending::PositionCount` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::DissolvingSubnets` (r:0 w:1)
 	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	fn on_dissolve_flag() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `463`
+		//  Measured:  `502`
 		//  Estimated: `3475`
-		// Minimum execution time: 11_231_000 picoseconds.
-		Weight::from_parts(11_610_000, 3475)
-			.saturating_add(T::DbWeight::get().reads(3_u64))
+		// Minimum execution time: 11_220_000 picoseconds.
+		Weight::from_parts(11_650_000, 3475)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetMechanism` (r:1 w:0)
@@ -815,25 +840,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1089`
 		//  Estimated: `4554`
-		// Minimum execution time: 37_830_000 picoseconds.
-		Weight::from_parts(39_040_000, 4554)
+		// Minimum execution time: 37_320_000 picoseconds.
+		Weight::from_parts(38_340_000, 4554)
 			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().writes(5_u64))
 	}
+	/// Storage: `Lending::DissolutionSettlements` (r:1 w:1)
+	/// Proof: `Lending::DissolutionSettlements` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::DissolvingSubnets` (r:1 w:1)
 	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:1)
-	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::ResidualAlpha` (r:1 w:1)
-	/// Proof: `Lending::ResidualAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::PositionCount` (r:1 w:1)
-	/// Proof: `Lending::PositionCount` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Positions` (r:257 w:256)
-	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::TotalPositions` (r:1 w:1)
-	/// Proof: `Lending::TotalPositions` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
-	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::TwapRing` (r:1 w:0)
 	/// Proof: `Lending::TwapRing` (`max_values`: None, `max_size`: Some(1160), added: 3635, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::RankRingGeneration` (r:1 w:0)
@@ -850,57 +865,52 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:1 w:0)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Custody` (r:256 w:256)
+	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
+	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:65 w:64)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::Positions` (r:64 w:64)
+	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::Custody` (r:64 w:64)
 	/// Proof: `Lending::Custody` (`max_values`: None, `max_size`: Some(83), added: 2558, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:513 w:513)
+	/// Storage: `System::Account` (r:129 w:129)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::InterestTotals` (r:1 w:1)
 	/// Proof: `Lending::InterestTotals` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Swap::BalancerAlphaReservoir` (r:1 w:0)
-	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::PoolTaoEma` (r:1 w:0)
-	/// Proof: `Lending::PoolTaoEma` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::HolderPositions` (r:256 w:256)
+	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:1)
+	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionCount` (r:1 w:1)
+	/// Proof: `Lending::PositionCount` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::TotalPositions` (r:1 w:1)
+	/// Proof: `Lending::TotalPositions` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::HolderPositions` (r:64 w:64)
 	/// Proof: `Lending::HolderPositions` (`max_values`: None, `max_size`: Some(145), added: 2620, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:256)
+	/// Storage: `Lending::SettlementRetry` (r:1 w:64)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:64)
 	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::InterestRetry` (r:0 w:256)
+	/// Storage: `Lending::InterestRetry` (r:0 w:64)
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Due` (r:0 w:256)
+	/// Storage: `Lending::Due` (r:0 w:64)
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
-	/// The range of component `c` is `[1, 256]`.
+	/// Storage: `Lending::ResidualAlpha` (r:0 w:1)
+	/// Proof: `Lending::ResidualAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
+	/// The range of component `c` is `[1, 64]`.
 	fn on_dissolve(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `2489 + c * (497 ±0)`
-		//  Estimated: `5976 + c * (5158 ±0)`
-		// Minimum execution time: 212_932_000 picoseconds.
-		Weight::from_parts(216_102_000, 5976)
-			// Standard Error: 81_361
-			.saturating_add(Weight::from_parts(137_939_254, 0).saturating_mul(c.into()))
-			.saturating_add(T::DbWeight::get().reads(21_u64))
-			.saturating_add(T::DbWeight::get().reads((5_u64).saturating_mul(c.into())))
-			.saturating_add(T::DbWeight::get().writes(8_u64))
-			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(c.into())))
+		//  Measured:  `2798 + c * (546 ±0)`
+		//  Estimated: `6279 + c * (5158 ±0)`
+		// Minimum execution time: 227_092_000 picoseconds.
+		Weight::from_parts(64_600_772, 6279)
+			// Standard Error: 148_444
+			.saturating_add(Weight::from_parts(150_051_107, 0).saturating_mul(c.into()))
+			.saturating_add(T::DbWeight::get().reads(19_u64))
+			.saturating_add(T::DbWeight::get().reads((6_u64).saturating_mul(c.into())))
+			.saturating_add(T::DbWeight::get().writes(9_u64))
+			.saturating_add(T::DbWeight::get().writes((10_u64).saturating_mul(c.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(c.into()))
-	}
-	/// Storage: `Lending::Positions` (r:1025 w:0)
-	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
-	/// The range of component `p` is `[0, 1024]`.
-	fn on_dissolve_scan(p: u32, ) -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `569 + p * (128 ±0)`
-		//  Estimated: `3585 + p * (2595 ±0)`
-		// Minimum execution time: 4_560_000 picoseconds.
-		Weight::from_parts(4_660_000, 3585)
-			// Standard Error: 1_312
-			.saturating_add(Weight::from_parts(3_630_620, 0).saturating_mul(p.into()))
-			.saturating_add(T::DbWeight::get().reads(1_u64))
-			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 2595).saturating_mul(p.into()))
 	}
 	/// Storage: `Lending::HasMigrationRun` (r:1 w:1)
 	/// Proof: `Lending::HasMigrationRun` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
@@ -949,10 +959,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1899 + s * (78 ±0)`
 		//  Estimated: `7828 + s * (2554 ±0)`
-		// Minimum execution time: 65_480_000 picoseconds.
-		Weight::from_parts(77_223_131, 7828)
-			// Standard Error: 21_888
-			.saturating_add(Weight::from_parts(19_293_247, 0).saturating_mul(s.into()))
+		// Minimum execution time: 67_031_000 picoseconds.
+		Weight::from_parts(77_908_882, 7828)
+			// Standard Error: 21_417
+			.saturating_add(Weight::from_parts(19_413_690, 0).saturating_mul(s.into()))
 			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().reads((6_u64).saturating_mul(s.into())))
 			.saturating_add(T::DbWeight::get().writes(8_u64))
@@ -965,6 +975,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 impl WeightInfo for () {
 	/// Storage: `Lending::Enabled` (r:1 w:0)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
 	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::ShortParamsStore` (r:1 w:0)
@@ -1045,22 +1057,26 @@ impl WeightInfo for () {
 	/// Proof: `Lending::TotalPositions` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Due` (r:0 w:1)
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:1)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
 	/// The range of component `s` is `[32, 128]`.
 	fn open_short(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `14220 + s * (107 ±0)`
-		//  Estimated: `25383 + s * (2541 ±21)`
-		// Minimum execution time: 1_320_592_000 picoseconds.
-		Weight::from_parts(836_942_945, 25383)
-			// Standard Error: 34_967
-			.saturating_add(Weight::from_parts(15_465_877, 0).saturating_mul(s.into()))
-			.saturating_add(RocksDbWeight::get().reads(37_u64))
+		//  Measured:  `14253 + s * (107 ±0)`
+		//  Estimated: `25416 + s * (2541 ±21)`
+		// Minimum execution time: 1_364_253_000 picoseconds.
+		Weight::from_parts(931_948_902, 25416)
+			// Standard Error: 34_665
+			.saturating_add(Weight::from_parts(14_638_028, 0).saturating_mul(s.into()))
+			.saturating_add(RocksDbWeight::get().reads(38_u64))
 			.saturating_add(RocksDbWeight::get().reads((8_u64).saturating_mul(s.into())))
-			.saturating_add(RocksDbWeight::get().writes(17_u64))
+			.saturating_add(RocksDbWeight::get().writes(18_u64))
 			.saturating_add(Weight::from_parts(0, 2541).saturating_mul(s.into()))
 	}
 	/// Storage: `Lending::Enabled` (r:1 w:0)
 	/// Proof: `Lending::Enabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
 	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::ShortParamsStore` (r:1 w:0)
@@ -1134,17 +1150,19 @@ impl WeightInfo for () {
 	/// The range of component `s` is `[1, 128]`.
 	fn increase_short(s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `5811 + s * (90 ±0)`
-		//  Estimated: `11259 + s * (2570 ±0)`
-		// Minimum execution time: 783_887_000 picoseconds.
-		Weight::from_parts(862_470_786, 11259)
-			// Standard Error: 28_456
-			.saturating_add(Weight::from_parts(15_707_983, 0).saturating_mul(s.into()))
-			.saturating_add(RocksDbWeight::get().reads(32_u64))
+		//  Measured:  `5844 + s * (90 ±0)`
+		//  Estimated: `11292 + s * (2570 ±0)`
+		// Minimum execution time: 791_667_000 picoseconds.
+		Weight::from_parts(872_462_281, 11292)
+			// Standard Error: 31_069
+			.saturating_add(Weight::from_parts(15_203_604, 0).saturating_mul(s.into()))
+			.saturating_add(RocksDbWeight::get().reads(33_u64))
 			.saturating_add(RocksDbWeight::get().reads((8_u64).saturating_mul(s.into())))
 			.saturating_add(RocksDbWeight::get().writes(12_u64))
 			.saturating_add(Weight::from_parts(0, 2570).saturating_mul(s.into()))
 	}
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:1 w:1)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -1213,15 +1231,21 @@ impl WeightInfo for () {
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Due` (r:0 w:1)
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:1)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::SettlementRetry` (r:0 w:1)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
 	fn close_short() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `9354`
-		//  Estimated: `12819`
-		// Minimum execution time: 888_908_000 picoseconds.
-		Weight::from_parts(899_289_000, 12819)
-			.saturating_add(RocksDbWeight::get().reads(33_u64))
-			.saturating_add(RocksDbWeight::get().writes(20_u64))
+		//  Measured:  `9387`
+		//  Estimated: `12852`
+		// Minimum execution time: 924_388_000 picoseconds.
+		Weight::from_parts(931_339_000, 12852)
+			.saturating_add(RocksDbWeight::get().reads(34_u64))
+			.saturating_add(RocksDbWeight::get().writes(22_u64))
 	}
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:1 w:1)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -1280,13 +1304,15 @@ impl WeightInfo for () {
 	/// Proof: `Lending::BlockNetMinted` (`max_values`: None, `max_size`: Some(22), added: 2497, mode: `MaxEncodedLen`)
 	fn close_short_partial() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `3482`
+		//  Measured:  `3515`
 		//  Estimated: `8727`
-		// Minimum execution time: 1_054_880_000 picoseconds.
-		Weight::from_parts(1_063_400_000, 8727)
-			.saturating_add(RocksDbWeight::get().reads(30_u64))
+		// Minimum execution time: 1_073_120_000 picoseconds.
+		Weight::from_parts(1_080_540_000, 8727)
+			.saturating_add(RocksDbWeight::get().reads(31_u64))
 			.saturating_add(RocksDbWeight::get().writes(13_u64))
 	}
+	/// Storage: `Lending::DissolvingSubnets` (r:1 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:1 w:1)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -1333,11 +1359,11 @@ impl WeightInfo for () {
 	/// Proof: `Lending::InterestTotals` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
 	fn add_collateral() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `3178`
-		//  Estimated: `6643`
-		// Minimum execution time: 158_082_000 picoseconds.
-		Weight::from_parts(161_292_000, 6643)
-			.saturating_add(RocksDbWeight::get().reads(23_u64))
+		//  Measured:  `3219`
+		//  Estimated: `6684`
+		// Minimum execution time: 159_741_000 picoseconds.
+		Weight::from_parts(161_411_000, 6684)
+			.saturating_add(RocksDbWeight::get().reads(24_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 	/// Storage: `Lending::Enabled` (r:1 w:1)
@@ -1363,10 +1389,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `1051 + s * (32 ±0)`
 		//  Estimated: `6987 + s * (2507 ±0)`
-		// Minimum execution time: 32_811_000 picoseconds.
-		Weight::from_parts(44_085_188, 6987)
-			// Standard Error: 11_671
-			.saturating_add(Weight::from_parts(8_537_770, 0).saturating_mul(s.into()))
+		// Minimum execution time: 32_981_000 picoseconds.
+		Weight::from_parts(46_937_848, 6987)
+			// Standard Error: 13_170
+			.saturating_add(Weight::from_parts(8_505_429, 0).saturating_mul(s.into()))
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().reads((3_u64).saturating_mul(s.into())))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
@@ -1379,8 +1405,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 3_380_000 picoseconds.
-		Weight::from_parts(3_690_000, 0)
+		// Minimum execution time: 3_530_000 picoseconds.
+		Weight::from_parts(3_740_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
@@ -1391,8 +1417,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `265`
 		//  Estimated: `1534`
-		// Minimum execution time: 8_190_000 picoseconds.
-		Weight::from_parts(8_600_000, 1534)
+		// Minimum execution time: 8_460_000 picoseconds.
+		Weight::from_parts(8_770_000, 1534)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
@@ -1402,8 +1428,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_790_000 picoseconds.
-		Weight::from_parts(1_880_000, 0)
+		// Minimum execution time: 1_770_000 picoseconds.
+		Weight::from_parts(1_920_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Lending::PendingLongParams` (r:0 w:1)
@@ -1412,8 +1438,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_840_000 picoseconds.
-		Weight::from_parts(1_940_000, 0)
+		// Minimum execution time: 1_740_000 picoseconds.
+		Weight::from_parts(1_960_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Lending::PendingDeregParams` (r:0 w:1)
@@ -1422,8 +1448,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_680_000 picoseconds.
-		Weight::from_parts(1_900_000, 0)
+		// Minimum execution time: 1_720_000 picoseconds.
+		Weight::from_parts(1_970_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:130 w:0)
@@ -1451,10 +1477,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `1033 + s * (34 ±0)`
 		//  Estimated: `7109 + s * (2507 ±0)`
-		// Minimum execution time: 27_190_000 picoseconds.
-		Weight::from_parts(38_009_525, 7109)
-			// Standard Error: 8_500
-			.saturating_add(Weight::from_parts(5_134_474, 0).saturating_mul(s.into()))
+		// Minimum execution time: 26_950_000 picoseconds.
+		Weight::from_parts(37_837_239, 7109)
+			// Standard Error: 9_434
+			.saturating_add(Weight::from_parts(5_085_323, 0).saturating_mul(s.into()))
 			.saturating_add(RocksDbWeight::get().reads(9_u64))
 			.saturating_add(RocksDbWeight::get().reads((3_u64).saturating_mul(s.into())))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(s.into())))
@@ -1497,10 +1523,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `1225 + s * (2099 ±0)`
 		//  Estimated: `7152 + s * (4574 ±0)`
-		// Minimum execution time: 52_200_000 picoseconds.
-		Weight::from_parts(54_634_123, 7152)
-			// Standard Error: 18_654
-			.saturating_add(Weight::from_parts(20_529_599, 0).saturating_mul(s.into()))
+		// Minimum execution time: 52_110_000 picoseconds.
+		Weight::from_parts(53_933_277, 7152)
+			// Standard Error: 19_221
+			.saturating_add(Weight::from_parts(20_275_155, 0).saturating_mul(s.into()))
 			.saturating_add(RocksDbWeight::get().reads(9_u64))
 			.saturating_add(RocksDbWeight::get().reads((8_u64).saturating_mul(s.into())))
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(s.into())))
@@ -1537,10 +1563,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `550 + s * (1186 ±0)`
 		//  Estimated: `1538 + s * (3635 ±0)`
-		// Minimum execution time: 37_491_000 picoseconds.
-		Weight::from_parts(36_344_432, 1538)
-			// Standard Error: 6_077
-			.saturating_add(Weight::from_parts(7_924_472, 0).saturating_mul(s.into()))
+		// Minimum execution time: 36_810_000 picoseconds.
+		Weight::from_parts(35_290_601, 1538)
+			// Standard Error: 6_482
+			.saturating_add(Weight::from_parts(7_940_737, 0).saturating_mul(s.into()))
 			.saturating_add(RocksDbWeight::get().reads(9_u64))
 			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(s.into())))
 			.saturating_add(RocksDbWeight::get().writes(9_u64))
@@ -1555,6 +1581,8 @@ impl WeightInfo for () {
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::Positions` (r:64 w:64)
 	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolvingSubnets` (r:64 w:0)
+	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::TwapRing` (r:64 w:0)
 	/// Proof: `Lending::TwapRing` (`max_values`: None, `max_size`: Some(1160), added: 3635, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::RankRingGeneration` (r:64 w:0)
@@ -1595,19 +1623,23 @@ impl WeightInfo for () {
 	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::InterestRetry` (r:0 w:64)
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:64)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::SettlementRetry` (r:0 w:64)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
 	/// The range of component `c` is `[0, 64]`.
 	fn collect_due(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1445 + c * (1863 ±0)`
+		//  Measured:  `1694 + c * (1864 ±0)`
 		//  Estimated: `3631 + c * (5158 ±0)`
-		// Minimum execution time: 5_320_000 picoseconds.
-		Weight::from_parts(23_384_900, 3631)
-			// Standard Error: 69_640
-			.saturating_add(Weight::from_parts(162_297_458, 0).saturating_mul(c.into()))
+		// Minimum execution time: 5_510_000 picoseconds.
+		Weight::from_parts(16_004_031, 3631)
+			// Standard Error: 81_345
+			.saturating_add(Weight::from_parts(172_928_162, 0).saturating_mul(c.into()))
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
-			.saturating_add(RocksDbWeight::get().reads((18_u64).saturating_mul(c.into())))
+			.saturating_add(RocksDbWeight::get().reads((19_u64).saturating_mul(c.into())))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
-			.saturating_add(RocksDbWeight::get().writes((13_u64).saturating_mul(c.into())))
+			.saturating_add(RocksDbWeight::get().writes((15_u64).saturating_mul(c.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(c.into()))
 	}
 	/// Storage: `Lending::NextDue` (r:1 w:1)
@@ -1623,10 +1655,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `315`
 		//  Estimated: `1534 + b * (2538 ±0)`
-		// Minimum execution time: 10_160_000 picoseconds.
-		Weight::from_parts(7_675_524, 1534)
-			// Standard Error: 2_412
-			.saturating_add(Weight::from_parts(2_903_698, 0).saturating_mul(b.into()))
+		// Minimum execution time: 10_410_000 picoseconds.
+		Weight::from_parts(8_358_336, 1534)
+			// Standard Error: 2_269
+			.saturating_add(Weight::from_parts(2_953_201, 0).saturating_mul(b.into()))
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(b.into())))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
@@ -1642,48 +1674,52 @@ impl WeightInfo for () {
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::InterestRetry` (r:32 w:64)
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::SettlementRetry` (r:32 w:0)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::DissolutionSettlements` (r:32 w:0)
+	/// Proof: `Lending::DissolutionSettlements` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:0 w:64)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::SwappedOutAt` (r:0 w:1)
 	/// Proof: `Lending::SwappedOutAt` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
 	/// The range of component `p` is `[1, 32]`.
 	fn rekey_positions(p: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `513 + p * (339 ±0)`
+		//  Measured:  `602 + p * (340 ±0)`
 		//  Estimated: `6230 + p * (2595 ±0)`
-		// Minimum execution time: 40_601_000 picoseconds.
-		Weight::from_parts(13_675_394, 6230)
-			// Standard Error: 23_153
-			.saturating_add(Weight::from_parts(24_482_382, 0).saturating_mul(p.into()))
+		// Minimum execution time: 51_911_000 picoseconds.
+		Weight::from_parts(22_740_864, 6230)
+			// Standard Error: 24_799
+			.saturating_add(Weight::from_parts(32_698_298, 0).saturating_mul(p.into()))
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
-			.saturating_add(RocksDbWeight::get().reads((4_u64).saturating_mul(p.into())))
+			.saturating_add(RocksDbWeight::get().reads((6_u64).saturating_mul(p.into())))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
-			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(p.into())))
+			.saturating_add(RocksDbWeight::get().writes((10_u64).saturating_mul(p.into())))
 			.saturating_add(Weight::from_parts(0, 2595).saturating_mul(p.into()))
 	}
 	/// Storage: `Lending::HolderPositions` (r:2 w:0)
 	/// Proof: `Lending::HolderPositions` (`max_values`: None, `max_size`: Some(145), added: 2620, mode: `MaxEncodedLen`)
 	fn coldkey_swap_destination_ok() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `562`
+		//  Measured:  `595`
 		//  Estimated: `6230`
-		// Minimum execution time: 10_510_000 picoseconds.
-		Weight::from_parts(10_940_000, 6230)
+		// Minimum execution time: 10_690_000 picoseconds.
+		Weight::from_parts(11_150_000, 6230)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 	}
 	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:0)
 	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::ResidualAlpha` (r:1 w:0)
 	/// Proof: `Lending::ResidualAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::PositionCount` (r:1 w:0)
-	/// Proof: `Lending::PositionCount` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::DissolvingSubnets` (r:0 w:1)
 	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
 	fn on_dissolve_flag() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `463`
+		//  Measured:  `502`
 		//  Estimated: `3475`
-		// Minimum execution time: 11_231_000 picoseconds.
-		Weight::from_parts(11_610_000, 3475)
-			.saturating_add(RocksDbWeight::get().reads(3_u64))
+		// Minimum execution time: 11_220_000 picoseconds.
+		Weight::from_parts(11_650_000, 3475)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetMechanism` (r:1 w:0)
@@ -1714,25 +1750,15 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `1089`
 		//  Estimated: `4554`
-		// Minimum execution time: 37_830_000 picoseconds.
-		Weight::from_parts(39_040_000, 4554)
+		// Minimum execution time: 37_320_000 picoseconds.
+		Weight::from_parts(38_340_000, 4554)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().writes(5_u64))
 	}
+	/// Storage: `Lending::DissolutionSettlements` (r:1 w:1)
+	/// Proof: `Lending::DissolutionSettlements` (`max_values`: None, `max_size`: Some(56), added: 2531, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::DissolvingSubnets` (r:1 w:1)
 	/// Proof: `Lending::DissolvingSubnets` (`max_values`: None, `max_size`: Some(26), added: 2501, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:1)
-	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::ResidualAlpha` (r:1 w:1)
-	/// Proof: `Lending::ResidualAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::PositionCount` (r:1 w:1)
-	/// Proof: `Lending::PositionCount` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Positions` (r:257 w:256)
-	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::TotalPositions` (r:1 w:1)
-	/// Proof: `Lending::TotalPositions` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
-	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::TwapRing` (r:1 w:0)
 	/// Proof: `Lending::TwapRing` (`max_values`: None, `max_size`: Some(1160), added: 3635, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::RankRingGeneration` (r:1 w:0)
@@ -1749,57 +1775,52 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:1 w:0)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Custody` (r:256 w:256)
+	/// Storage: `Lending::LendingParamsStore` (r:1 w:0)
+	/// Proof: `Lending::LendingParamsStore` (`max_values`: Some(1), `max_size`: Some(49), added: 544, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionsByNetuid` (r:65 w:64)
+	/// Proof: `Lending::PositionsByNetuid` (`max_values`: None, `max_size`: Some(51), added: 2526, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::Positions` (r:64 w:64)
+	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::Custody` (r:64 w:64)
 	/// Proof: `Lending::Custody` (`max_values`: None, `max_size`: Some(83), added: 2558, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:513 w:513)
+	/// Storage: `System::Account` (r:129 w:129)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `Lending::InterestTotals` (r:1 w:1)
 	/// Proof: `Lending::InterestTotals` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Swap::BalancerAlphaReservoir` (r:1 w:0)
-	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::PoolTaoEma` (r:1 w:0)
-	/// Proof: `Lending::PoolTaoEma` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::HolderPositions` (r:256 w:256)
+	/// Storage: `Lending::SyntheticOutstanding` (r:1 w:1)
+	/// Proof: `Lending::SyntheticOutstanding` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::PositionCount` (r:1 w:1)
+	/// Proof: `Lending::PositionCount` (`max_values`: None, `max_size`: Some(6), added: 2481, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::TotalPositions` (r:1 w:1)
+	/// Proof: `Lending::TotalPositions` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Lending::HolderPositions` (r:64 w:64)
 	/// Proof: `Lending::HolderPositions` (`max_values`: None, `max_size`: Some(145), added: 2620, mode: `MaxEncodedLen`)
-	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:256)
+	/// Storage: `Lending::SettlementRetry` (r:1 w:64)
+	/// Proof: `Lending::SettlementRetry` (`max_values`: None, `max_size`: Some(54), added: 2529, mode: `MaxEncodedLen`)
+	/// Storage: `LimitOrders::ApprovedOrders` (r:0 w:64)
 	/// Proof: `LimitOrders::ApprovedOrders` (`max_values`: None, `max_size`: Some(1034), added: 3509, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::InterestRetry` (r:0 w:256)
+	/// Storage: `Lending::InterestRetry` (r:0 w:64)
 	/// Proof: `Lending::InterestRetry` (`max_values`: None, `max_size`: Some(55), added: 2530, mode: `MaxEncodedLen`)
-	/// Storage: `Lending::Due` (r:0 w:256)
+	/// Storage: `Lending::Due` (r:0 w:64)
 	/// Proof: `Lending::Due` (`max_values`: None, `max_size`: Some(63), added: 2538, mode: `MaxEncodedLen`)
-	/// The range of component `c` is `[1, 256]`.
+	/// Storage: `Lending::ResidualAlpha` (r:0 w:1)
+	/// Proof: `Lending::ResidualAlpha` (`max_values`: None, `max_size`: Some(10), added: 2485, mode: `MaxEncodedLen`)
+	/// The range of component `c` is `[1, 64]`.
 	fn on_dissolve(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `2489 + c * (497 ±0)`
-		//  Estimated: `5976 + c * (5158 ±0)`
-		// Minimum execution time: 212_932_000 picoseconds.
-		Weight::from_parts(216_102_000, 5976)
-			// Standard Error: 81_361
-			.saturating_add(Weight::from_parts(137_939_254, 0).saturating_mul(c.into()))
-			.saturating_add(RocksDbWeight::get().reads(21_u64))
-			.saturating_add(RocksDbWeight::get().reads((5_u64).saturating_mul(c.into())))
-			.saturating_add(RocksDbWeight::get().writes(8_u64))
-			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(c.into())))
+		//  Measured:  `2798 + c * (546 ±0)`
+		//  Estimated: `6279 + c * (5158 ±0)`
+		// Minimum execution time: 227_092_000 picoseconds.
+		Weight::from_parts(64_600_772, 6279)
+			// Standard Error: 148_444
+			.saturating_add(Weight::from_parts(150_051_107, 0).saturating_mul(c.into()))
+			.saturating_add(RocksDbWeight::get().reads(19_u64))
+			.saturating_add(RocksDbWeight::get().reads((6_u64).saturating_mul(c.into())))
+			.saturating_add(RocksDbWeight::get().writes(9_u64))
+			.saturating_add(RocksDbWeight::get().writes((10_u64).saturating_mul(c.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(c.into()))
-	}
-	/// Storage: `Lending::Positions` (r:1025 w:0)
-	/// Proof: `Lending::Positions` (`max_values`: None, `max_size`: Some(120), added: 2595, mode: `MaxEncodedLen`)
-	/// The range of component `p` is `[0, 1024]`.
-	fn on_dissolve_scan(p: u32, ) -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `569 + p * (128 ±0)`
-		//  Estimated: `3585 + p * (2595 ±0)`
-		// Minimum execution time: 4_560_000 picoseconds.
-		Weight::from_parts(4_660_000, 3585)
-			// Standard Error: 1_312
-			.saturating_add(Weight::from_parts(3_630_620, 0).saturating_mul(p.into()))
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(p.into())))
-			.saturating_add(Weight::from_parts(0, 2595).saturating_mul(p.into()))
 	}
 	/// Storage: `Lending::HasMigrationRun` (r:1 w:1)
 	/// Proof: `Lending::HasMigrationRun` (`max_values`: None, `max_size`: Some(34), added: 2509, mode: `MaxEncodedLen`)
@@ -1848,10 +1869,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `1899 + s * (78 ±0)`
 		//  Estimated: `7828 + s * (2554 ±0)`
-		// Minimum execution time: 65_480_000 picoseconds.
-		Weight::from_parts(77_223_131, 7828)
-			// Standard Error: 21_888
-			.saturating_add(Weight::from_parts(19_293_247, 0).saturating_mul(s.into()))
+		// Minimum execution time: 67_031_000 picoseconds.
+		Weight::from_parts(77_908_882, 7828)
+			// Standard Error: 21_417
+			.saturating_add(Weight::from_parts(19_413_690, 0).saturating_mul(s.into()))
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().reads((6_u64).saturating_mul(s.into())))
 			.saturating_add(RocksDbWeight::get().writes(8_u64))

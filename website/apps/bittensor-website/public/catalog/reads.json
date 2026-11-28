@@ -1313,8 +1313,8 @@
         "container": "Lending",
         "name": "ResidualAlpha",
         "path": "pallets/lending/src/lib.rs",
-        "line": 232,
-        "url": "/code/pallets/lending/src/lib.rs#L232",
+        "line": 249,
+        "url": "/code/pallets/lending/src/lib.rs#L249",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {
@@ -1322,8 +1322,8 @@
         "container": "Lending",
         "name": "DissolvingSubnets",
         "path": "pallets/lending/src/lib.rs",
-        "line": 237,
-        "url": "/code/pallets/lending/src/lib.rs#L237",
+        "line": 254,
+        "url": "/code/pallets/lending/src/lib.rs#L254",
         "raw_url": "/code/raw/pallets/lending/src/lib.rs"
       },
       {

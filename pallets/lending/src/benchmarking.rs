@@ -30,15 +30,17 @@ use frame_system::{RawOrigin, pallet_prelude::BlockNumberFor};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    BenchmarkHelper, Call, Config, Custody, DeregParamsStore, DissolvingSubnets, Due, Enabled,
-    HasMigrationRun, HolderPositions, InterestRetry, InterestTotals, LendingInterface,
-    LendingParamsStore, LendingPoolInterface, LongParamsStore, LongsEnabled, NextDue, Pallet,
-    PendingDeregParams, PendingLendingParams, PendingLongParams, PendingShortParams, PoolTaoEma,
-    PositionCount, Positions, RankPrice, RankRing, ResidualAlpha, ShortParamsStore, SwappedOutAt,
-    SyntheticOutstanding, TotalPositions, TwapRing,
+    BenchmarkHelper, Call, Config, Custody, DeregParamsStore, DissolutionSettlements,
+    DissolvingSubnets, Due, Enabled, HasMigrationRun, HolderPositions, InterestRetry,
+    InterestTotals, LendingInterface, LendingParamsStore, LendingPoolInterface, LongParamsStore,
+    LongsEnabled, NextDue, Pallet, PendingDeregParams, PendingLendingParams, PendingLongParams,
+    PendingShortParams, PoolTaoEma, PositionCount, Positions, PositionsByNetuid, RankPrice,
+    RankRing, ResidualAlpha, ShortParamsStore, SwappedOutAt, SyntheticOutstanding, TotalPositions,
+    TwapRing,
+    dissolution::{MAX_SETTLEMENTS_PER_BLOCK, Settlement, SettlementStage},
     hooks::MAX_POSITIONS_PER_HOLDER,
     interest::MAX_DUE_BUCKETS_PER_BLOCK,
-    math::interest::BLOCKS_PER_DAY,
+    math::{dereg::rate, interest::BLOCKS_PER_DAY},
     migrations,
     params::{DeregParams, LendingParams, LongParams, MAX_RATE_CAP_BPS, RAO, ShortParams},
     prices::{MAX_RANK_DAYS, MAX_TWAP_SAMPLES, RANK_SAMPLES_PER_DAY},
@@ -71,13 +73,9 @@ const AGE_BLOCKS: u32 = 100;
 /// The highest exponent of the rate curve `LendingParams::validate` accepts.
 const MAX_RATE_K: u8 = 8;
 
-/// Most shorts of one subnet the dissolution benchmark settles.
-const MAX_DISSOLVED_SHORTS: u32 = 256;
 /// Free TAO of one holder of the dissolution benchmark: one short's collateral and deposit.
 /// Small, so that all of them fit under the TAO supply the runtime mints.
 const SETTLED_HOLDER_TAO: u64 = 2 * COLLATERAL;
-/// Most positions of other subnets the dissolution scan benchmark reads.
-const MAX_SCANNED_POSITIONS: u32 = 1_024;
 
 fn netuid_of(index: u32) -> NetUid {
     NetUid::from(u16::try_from(index).expect("benchmark netuids fit u16"))
@@ -710,16 +708,18 @@ mod benchmarks {
         assert!(PoolTaoEma::<T>::get(netuid).is_some());
     }
 
-    /// The settlement of a dissolved subnet's `c` shorts (`on_dissolve`), each of another
-    /// holder, with no position on any other subnet. Every short is the worst case: it accrues
-    /// at the stretched rate and pays the interest to the pool, then pays what it owes at the
-    /// dereg rate into the pot and gets the rest of its custody back, so both transfers run,
-    /// and the position is removed with its custody record, retry count, holder entry, counts
-    /// and `Due` entry. The subnet also clears a `ResidualAlpha` and rewrites its record. The
-    /// fit starts at one short: a subnet with none takes the early return, which the fit's
-    /// intercept covers.
+    /// One step of the settlement of a dissolved subnet's shorts (`on_dissolve`) that makes `c`
+    /// visits, up to the most a step makes ([`MAX_SETTLEMENTS_PER_BLOCK`]). Every visit is the
+    /// costliest kind: the walk is in its settling stage and reaches a short that is not
+    /// accrued yet, so the visit accrues it at the stretched rate and pays the interest to the
+    /// pool, then pays what it owes at the dereg rate into the pot and gives the rest of its
+    /// custody back, so both transfers run, and the position is removed with its index key,
+    /// custody record, retry count, holder entry, counts and `Due` entry. An accrual visit and
+    /// a retry visit do a part of that work. The step reads and rewrites the subnet's record
+    /// and progress, and with fewer shorts than the bound it also ends the walk and clears the
+    /// `ResidualAlpha`.
     #[benchmark]
-    fn on_dissolve(c: Linear<1, MAX_DISSOLVED_SHORTS>) {
+    fn on_dissolve(c: Linear<1, MAX_SETTLEMENTS_PER_BLOCK>) {
         let netuid = market::<T>(1)[0];
         let ids: Vec<_> = (0..c)
             .map(|index| {
@@ -735,8 +735,23 @@ mod benchmarks {
             strain::<T>(id, STRAINED_COLLATERAL);
         }
         ResidualAlpha::<T>::insert(netuid, SHORT_Q);
-        Pallet::<T>::record_dissolve_flag(netuid, T::Pool::pool_tao(netuid).into());
+        let pool_tao = T::Pool::pool_tao(netuid);
+        Pallet::<T>::record_dissolve_flag(netuid, pool_tao.into());
         age::<T>(AGE_BLOCKS);
+        DissolutionSettlements::<T>::insert(
+            netuid,
+            Settlement {
+                stage: SettlementStage::Settling,
+                at: now::<T>(),
+                rate: rate(
+                    pool_tao,
+                    u64::MAX,
+                    pool_tao,
+                    u128::from(T::Pool::alpha_issuance(netuid)),
+                ),
+                cursor: None,
+            },
+        );
         let mut meter = frame_support::weights::WeightMeter::new();
 
         #[block]
@@ -750,33 +765,14 @@ mod benchmarks {
             assert_interest_paid::<T>(netuid);
         }
         assert_eq!(SyntheticOutstanding::<T>::get(netuid), 0);
-        assert_eq!(ResidualAlpha::<T>::get(netuid), 0);
         assert_eq!(PositionCount::<T>::get(netuid), 0);
         assert_eq!(TotalPositions::<T>::get(), 0);
+        assert!(
+            PositionsByNetuid::<T>::iter_key_prefix((netuid, Side::Short))
+                .next()
+                .is_none()
+        );
         assert!(DissolvingSubnets::<T>::get(netuid).is_some_and(|record| record.settled_tao > 0));
-    }
-
-    /// What the settlement's scan of `Positions` costs for `p` positions of other subnets: the
-    /// map has no per-subnet index, so a dissolution reads every open position once
-    /// (`TotalPositions`) and keeps its own.
-    #[benchmark]
-    fn on_dissolve_scan(p: Linear<0, MAX_SCANNED_POSITIONS>) {
-        let netuids = market::<T>(2);
-        let (dissolved, other) = (netuids[0], netuids[1]);
-        let id = open::<T>(&holder::<T>(0), other);
-        let pos = Positions::<T>::take(&id).expect("position exists");
-        for index in 0..p {
-            let who: T::AccountId = account("scanned", index, 0);
-            Positions::<T>::insert((who, other, Side::Short), pos);
-        }
-        let found;
-
-        #[block]
-        {
-            found = Pallet::<T>::open_shorts(dissolved);
-        }
-
-        assert!(found.is_empty());
     }
 
     /// The v1 initialisation with `s` live subnets, each seeded with both rings and `T_ema`.

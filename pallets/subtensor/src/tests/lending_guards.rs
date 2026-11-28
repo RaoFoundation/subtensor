@@ -796,11 +796,12 @@ fn metered_dissolution_from(phase: DissolveCleanupPhase, open_short: bool) -> (W
 /// The dissolve hook meters its own work and nothing else. The phase that calls it meters its
 /// step, then the hook, then the rest of the cleanup: the driver started at the calling phase
 /// uses what the step uses alone, plus what the driver uses from the next phase, plus the hook.
-/// With no lending the hook is its read of the subnet's books (the measured `on_dissolve(0)`);
-/// with a short it also meters the short's settlement.
+/// With no lending the hook is one step that visits nothing, charged as one visit (the measured
+/// `on_dissolve(1)`, the least a step is charged); with a short it meters the short's accrual
+/// and settlement, two visits.
 #[test]
 fn dissolve_hook_meters_its_own_work_only() {
-    let scan = <<Test as pallet_lending::Config>::WeightInfo as pallet_lending::weights::WeightInfo>::on_dissolve(0);
+    let scan = <<Test as pallet_lending::Config>::WeightInfo as pallet_lending::weights::WeightInfo>::on_dissolve(1);
 
     let (_, bare_with_hook) =
         metered_dissolution_from(DissolveCleanupPhase::SubnetRootDividendsRootClaimed, false);

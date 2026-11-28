@@ -13,7 +13,7 @@ read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | Lending | [`Lending.set_long_params`](/code/pallets/lending/src/lib.rs#L726-L731), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | Lending | [`Lending.set_long_params`](/code/pallets/lending/src/lib.rs#L782-L787), `Sudo.sudo` |
 
 ## Verify
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("set_lending_long_params", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.set_long_params` — [`pallets/lending/src/lib.rs#L728`](/code/pallets/lending/src/lib.rs#L726-L731):
+`Lending.set_long_params` — [`pallets/lending/src/lib.rs#L784`](/code/pallets/lending/src/lib.rs#L782-L787):
 
 ```rust
 #[pallet::call_index(24)]

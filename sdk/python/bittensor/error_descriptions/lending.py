@@ -24,6 +24,14 @@ DESCRIPTIONS: dict[str, str] = {
         "collateral from `LendingRuntimeApi.quote_open_short` or `quote_increase_short` "
         "(`min_collateral`) and bring at least that much, or reduce `q`."
     ),
+    "DissolutionInProgress": (
+        "The subnet is being dissolved, so no short on it can be opened, increased, closed "
+        "or given collateral: from the moment the subnet is flagged until its cleanup ends, "
+        "the dissolution alone settles its shorts. An open short is settled at the "
+        "dissolution rate and what is left of its collateral, proceeds and deposit is "
+        "returned to the coldkey; no call is needed. `Lending.DissolvingSubnets` has an "
+        "entry for the subnet while this lasts."
+    ),
     "InsufficientFunds": (
         "The short's proceeds and collateral together cannot pay for buying back the alpha "
         "being closed. Compare `cost` from `LendingRuntimeApi.quote_close_short` with the "

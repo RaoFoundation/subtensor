@@ -49,7 +49,7 @@ pub mod pallet {
 
     use crate::{
         LendingPoolInterface, WeightInfo,
-        dissolution::Dissolving,
+        dissolution::{Dissolving, Settlement},
         long_weights,
         math::fixed::Price,
         migrations,
@@ -185,6 +185,23 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// The open positions by subnet and side: one key per entry of [`Positions`] and no other
+    /// (`try_state`). An open adds the key, a full close, a default and a dissolution settlement
+    /// remove it, and a coldkey swap moves it, each in the same step as the position. The
+    /// settlement of a dissolved subnet walks the `(netuid, Short)` prefix, so it reads that
+    /// subnet's shorts and no other position (`dissolution`).
+    #[pallet::storage]
+    pub type PositionsByNetuid<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,
+            NMapKey<Identity, Side>,
+            NMapKey<Blake2_128Concat, <T as frame_system::Config>::AccountId>,
+        ),
+        (),
+        OptionQuery,
+    >;
+
     /// The custody account of a position a coldkey swap moved to a new holder. A position
     /// without an entry keeps the account derived from its own key (`custody_of`).
     #[pallet::storage]
@@ -235,6 +252,34 @@ pub mod pallet {
     /// has read it (see [`crate::dissolution`]).
     #[pallet::storage]
     pub type DissolvingSubnets<T> = StorageMap<_, Identity, NetUid, Dissolving, OptionQuery>;
+
+    /// How far the settlement of a dissolving subnet's shorts has got: its stage, the block the
+    /// shorts are accrued to, the dereg rate once it is read and the cursor of the walk over
+    /// [`PositionsByNetuid`]. Written by the first settlement step and removed with the
+    /// subnet's record (`on_dissolve_done`).
+    #[pallet::storage]
+    pub type DissolutionSettlements<T: Config> = StorageMap<
+        _,
+        Identity,
+        NetUid,
+        Settlement<<T as frame_system::Config>::AccountId, BlockNumberFor<T>>,
+        OptionQuery,
+    >;
+
+    /// The shorts of a dissolving subnet that the settlement walk did not settle and a later
+    /// cleanup step tries again, with the number of failed attempts: a short whose accrual or
+    /// settlement failed (`ShortSettlementFailed`), and a short a coldkey swap re-keyed while
+    /// the walk was running (zero attempts). The entry leaves with the position.
+    #[pallet::storage]
+    pub type SettlementRetry<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        <T as frame_system::Config>::AccountId,
+        u32,
+        OptionQuery,
+    >;
 
     /// `LongLockedAlpha`: the alpha held in custody by all longs of the subnet (SPEC I12).
     #[pallet::storage]
@@ -399,6 +444,14 @@ pub mod pallet {
             price: Price,
             paid: u64,
         },
+        /// The settlement of a short at the dissolution of its subnet failed with `error`. The
+        /// short is as it was, with its custody, and is queued in `SettlementRetry`: every later
+        /// cleanup step of the subnet tries it again and reports it again if it fails again.
+        ShortSettlementFailed {
+            who: T::AccountId,
+            netuid: NetUid,
+            error: DispatchError,
+        },
     }
 
     #[pallet::error]
@@ -459,6 +512,9 @@ pub mod pallet {
         /// The subnet is not in the emission set: shorts open and grow only on a subnet that
         /// currently receives emission. Closing and adding collateral stay allowed.
         SubnetNotInEmission,
+        /// The subnet is being dissolved: from its dissolution flag on, its shorts are settled by
+        /// the dissolution alone (SPEC P12), so no short opens, grows, closes or takes collateral.
+        DissolutionInProgress,
     }
 
     /// Nothing to configure: a chain that starts with this pallet gets the state the runtime

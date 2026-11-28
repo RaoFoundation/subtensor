@@ -120,6 +120,7 @@
     "DescriptorMismatch",
     "Disabled",
     "DisabledTemporarily",
+    "DissolutionInProgress",
     "DrandConnectionFailure",
     "Duplicate",
     "DuplicateChild",

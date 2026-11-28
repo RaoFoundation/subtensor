@@ -822,14 +822,18 @@ impl<T: Config> Pallet<T> {
                 }
 
                 DissolveCleanupPhase::SubnetRootDividendsRootClaimed => {
-                    let done = Self::clean_up_root_claimed_for_subnet(netuid, weight_meter);
+                    // The lending hook runs here, before the first step of the pot
+                    // distribution: it settles the subnet's shorts at the dereg rate, a bounded
+                    // number per step, and takes their weight from the meter. It keeps its own
+                    // place between steps and reports `false` until every short is settled, so
+                    // the phase stays here (the claimed watermarks are already cleared, and
+                    // clearing them again is a no-op) and the next cleanup step calls it again.
+                    // The pot is not distributed before it is done: the TAO the shorts paid is
+                    // the stakers' (see `destroy_alpha_in_out_stakes_settle_stakes`).
+                    let done = Self::clean_up_root_claimed_for_subnet(netuid, weight_meter)
+                        && T::Lending::on_dissolve(netuid, weight_meter);
 
                     if done {
-                        // The lending hook runs once per dissolved subnet, here, before the first
-                        // step of the pot distribution: it settles the subnet's shorts at the
-                        // dereg rate and takes their weight from the meter. The TAO they paid is
-                        // the stakers' (see `destroy_alpha_in_out_stakes_settle_stakes`).
-                        T::Lending::on_dissolve(netuid, weight_meter);
                         status.set_phase(DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue);
                         status.last_key = None;
                     }

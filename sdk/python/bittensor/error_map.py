@@ -576,6 +576,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "SwappedOutThisBlock": _C.TOO_EARLY,
     # Shorts open and grow only on a subnet that currently receives emission.
     "SubnetNotInEmission": _C.POLICY_VIOLATION,
+    # From the dissolution flag to the end of the cleanup no short call runs on the subnet.
+    "DissolutionInProgress": _C.POLICY_VIOLATION,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

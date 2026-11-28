@@ -20,10 +20,11 @@ use sp_runtime::{
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    BlockNetLifted, BlockNetMinted, Config, Custody, DeregParamsStore, Enabled, Error, Event,
-    HolderPositions, LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha,
-    LongParamsStore, LongPositionCount, LongsEnabled, Pallet, PositionCount, Positions,
-    ShortParamsStore, SwappedOutAt, SyntheticOutstanding, TotalPositions,
+    BlockNetLifted, BlockNetMinted, Config, Custody, DeregParamsStore, DissolvingSubnets, Enabled,
+    Error, Event, HolderPositions, LendingParamsStore, LendingPoolInterface, LongLiftedTao,
+    LongLockedAlpha, LongParamsStore, LongPositionCount, LongsEnabled, Pallet, PositionCount,
+    Positions, PositionsByNetuid, SettlementRetry, ShortParamsStore, SwappedOutAt,
+    SyntheticOutstanding, TotalPositions,
     math::{
         PriceRefs,
         coverage::{long_need, short_need},
@@ -322,12 +323,17 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Removes every record of a position that is gone (a full close, a default): the
-    /// position, its custody record, its `Due` entry at `charge_at` with the retry count, the
-    /// counts and the holder's entry. Moves no funds and touches no book.
+    /// Removes every record of a position that is gone (a full close, a default, a dissolution
+    /// settlement): the position, its key in the per-subnet index, its custody record, its
+    /// `Due` entry at `charge_at` with the retry count, its settlement retry entry, the counts
+    /// and the holder's entry. Moves no funds and touches no book.
     pub(crate) fn forget_position(key: &PositionId<T::AccountId>, charge_at: BlockNumberFor<T>) {
         let (who, netuid, side) = key;
         Positions::<T>::remove(key);
+        PositionsByNetuid::<T>::remove((*netuid, *side, who.clone()));
+        if *side == Side::Short {
+            SettlementRetry::<T>::remove(netuid, who);
+        }
         Custody::<T>::remove(key);
         Self::unschedule_charge(key, charge_at);
         PositionCount::<T>::mutate_exists(netuid, |count| {
@@ -352,6 +358,26 @@ impl<T: Config> Pallet<T> {
         ensure!(
             T::Pool::is_in_emission_set(netuid),
             Error::<T>::SubnetNotInEmission
+        );
+        Ok(())
+    }
+
+    /// The dissolution gate (SPEC section 1 item 12, P12): from the dissolution flag of a subnet
+    /// until its lending record is dropped (`on_dissolve_done`), its shorts are settled by the
+    /// dissolution alone. `open_short`, `increase_short`, `close_short`, `add_collateral` and
+    /// the quotes of the first three refuse the subnet.
+    ///
+    /// A close is refused for the whole of that time, not only once the settlement has passed
+    /// the short: the flag has taken the subnet's pool out of `TotalStake` and frozen the
+    /// lending alpha the owner refund reads, and a buy-back would add its TAO back to
+    /// `TotalStake`, burn alpha under the frozen record and move the pool the dereg rate is read
+    /// from. So a short is settled exactly once (SPEC I8) and never also closed.
+    ///
+    /// Longs are on hold and are not gated here.
+    pub(crate) fn ensure_not_dissolving(netuid: NetUid, side: Side) -> DispatchResult {
+        ensure!(
+            side != Side::Short || !DissolvingSubnets::<T>::contains_key(netuid),
+            Error::<T>::DissolutionInProgress
         );
         Ok(())
     }
@@ -440,6 +466,7 @@ impl<T: Config> Pallet<T> {
             opening,
         } = grow;
         Self::ensure_side_enabled(side)?;
+        Self::ensure_not_dissolving(netuid, side)?;
         let key = (who.clone(), netuid, side);
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
@@ -573,6 +600,7 @@ impl<T: Config> Pallet<T> {
         if opening {
             // The first charge is one interval after the open (SPEC P15).
             Self::schedule_charge(&key, pos.charge_at);
+            PositionsByNetuid::<T>::insert((netuid, side, who.clone()), ());
             PositionCount::<T>::mutate(netuid, |count| *count = count.saturating_add(1));
             TotalPositions::<T>::mutate(|count| *count = count.saturating_add(1));
             HolderPositions::<T>::try_append(who, (netuid, side))
@@ -611,6 +639,7 @@ impl<T: Config> Pallet<T> {
         amount: u64,
         bound: u64,
     ) -> DispatchResult {
+        Self::ensure_not_dissolving(netuid, side)?;
         let key = (who.clone(), netuid, side);
         let held = Positions::<T>::get(&key).ok_or(Error::<T>::NoPosition)?;
         let alpha = amount.min(held.leg.alpha());
@@ -730,6 +759,7 @@ impl<T: Config> Pallet<T> {
         side: Side,
         amount: u64,
     ) -> DispatchResult {
+        Self::ensure_not_dissolving(netuid, side)?;
         let key = (who.clone(), netuid, side);
         let held = Positions::<T>::get(&key).ok_or(Error::<T>::NoPosition)?;
         ensure!(amount > 0, Error::<T>::InvalidAmount);

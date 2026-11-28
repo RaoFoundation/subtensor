@@ -207,6 +207,7 @@ impl<T: Config> Pallet<T> {
     ) -> Result<ShortGrowQuote, DispatchError> {
         let side = Side::Short;
         Self::ensure_side_enabled(side)?;
+        Self::ensure_not_dissolving(netuid, side)?;
         let now = frame_system::Pallet::<T>::block_number();
         let params = Self::params();
         ensure!(q > 0, Error::<T>::InvalidAmount);
@@ -260,6 +261,7 @@ impl<T: Config> Pallet<T> {
         alpha: u64,
     ) -> Result<ShortCloseQuote, DispatchError> {
         let side = Side::Short;
+        Self::ensure_not_dissolving(netuid, side)?;
         let held =
             Positions::<T>::get((who.clone(), netuid, side)).ok_or(Error::<T>::NoPosition)?;
         let alpha = alpha.min(held.leg.alpha());

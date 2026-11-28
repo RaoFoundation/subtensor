@@ -7,15 +7,16 @@ use sp_runtime::TryRuntimeError;
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    Config, DeregParamsStore, Due, HolderPositions, InterestRetry, InterestTotals,
-    LendingParamsStore, LendingPoolInterface, LongLiftedTao, LongLockedAlpha, LongParamsStore,
-    LongPositionCount, NextDue, Pallet, PendingDeregParams, PendingLendingParams,
-    PendingLongParams, PendingShortParams, PositionCount, Positions, RankGeneration, RankPrice,
-    RankRing, RankRingGeneration, ResidualAlpha, ShortParamsStore, SyntheticOutstanding,
-    TotalPositions, TwapRing,
+    Config, DeregParamsStore, DissolutionSettlements, DissolvingSubnets, Due, HolderPositions,
+    InterestRetry, InterestTotals, LendingParamsStore, LendingPoolInterface, LongLiftedTao,
+    LongLockedAlpha, LongParamsStore, LongPositionCount, NextDue, Pallet, PendingDeregParams,
+    PendingLendingParams, PendingLongParams, PendingShortParams, PositionCount, Positions,
+    PositionsByNetuid, RankGeneration, RankPrice, RankRing, RankRingGeneration, ResidualAlpha,
+    SettlementRetry, ShortParamsStore, SyntheticOutstanding, TotalPositions, TwapRing,
+    dissolution::SettlementStage,
     math::interest::ACCRUAL_DEN,
     positions::ALPHA_SUPPLY_CAP,
-    types::{Leg, Position},
+    types::{Leg, Position, Side},
 };
 
 /// One subnet's sums over its open positions, to compare with the stored books.
@@ -70,6 +71,8 @@ impl<T: Config> Pallet<T> {
         Self::check_i19_interest_to_pool()?;
         Self::check_position_counts()?;
         Self::check_holder_positions()?;
+        Self::check_position_index()?;
+        Self::check_i8_dissolution_settlement()?;
         Self::check_i21_supply_cap()
     }
 
@@ -373,6 +376,96 @@ impl<T: Config> Pallet<T> {
             listed == TotalPositions::<T>::get(),
             "HolderPositions does not list every open position"
         );
+        Ok(())
+    }
+
+    /// `PositionsByNetuid` holds exactly the keys of `Positions`: every open position has its
+    /// key in the index and the index has no other key, on every subnet and side. So the walk
+    /// of a subnet's shorts over the index sees each of them once and nothing stale.
+    fn check_position_index() -> Result<(), TryRuntimeError> {
+        let mut open = 0u32;
+        for (who, netuid, side) in Positions::<T>::iter_keys() {
+            ensure!(
+                PositionsByNetuid::<T>::contains_key((netuid, side, who)),
+                "PositionsByNetuid misses an open position"
+            );
+            open = open.saturating_add(1);
+        }
+        let mut indexed = 0u32;
+        for (netuid, side, who) in PositionsByNetuid::<T>::iter_keys() {
+            ensure!(
+                Positions::<T>::contains_key((who, netuid, side)),
+                "PositionsByNetuid has a key with no open position"
+            );
+            indexed = indexed.saturating_add(1);
+        }
+        ensure!(
+            indexed == open,
+            "PositionsByNetuid does not have one key per open position"
+        );
+        Ok(())
+    }
+
+    /// SPEC I8, the part storage can show: on a subnet being dissolved, every short still open
+    /// is still to be settled by the path the settlement is on, and nothing else is recorded.
+    ///
+    /// - Before the first settlement step and while the accrual walk runs, every short is ahead
+    ///   of the settling walk, which starts at the head of the index.
+    /// - While the settling walk runs, a short lies after the walk's cursor in the index, or is
+    ///   queued in `SettlementRetry`.
+    /// - In the retry pass every short left is queued in `SettlementRetry`.
+    /// - Once the settlement is done the subnet has no short, no queued retry and no
+    ///   `ResidualAlpha`.
+    ///
+    /// A queued retry is a short that is open, on a subnet whose settlement is running; a
+    /// settlement progress belongs to a subnet with a dissolution record.
+    fn check_i8_dissolution_settlement() -> Result<(), TryRuntimeError> {
+        for (netuid, progress) in DissolutionSettlements::<T>::iter() {
+            ensure!(
+                DissolvingSubnets::<T>::contains_key(netuid),
+                "I8: settlement progress without a dissolution record"
+            );
+            let passed = progress.cursor.as_ref().map(|last| {
+                PositionsByNetuid::<T>::hashed_key_for((netuid, Side::Short, last.clone()))
+            });
+            for who in PositionsByNetuid::<T>::iter_key_prefix((netuid, Side::Short)) {
+                let queued = SettlementRetry::<T>::contains_key(netuid, &who);
+                let pending = match progress.stage {
+                    SettlementStage::Accruing => true,
+                    SettlementStage::Settling => {
+                        let key = PositionsByNetuid::<T>::hashed_key_for((
+                            netuid,
+                            Side::Short,
+                            who.clone(),
+                        ));
+                        queued || passed.as_ref().is_none_or(|passed| key > *passed)
+                    }
+                    SettlementStage::Retrying => queued,
+                    SettlementStage::Done => false,
+                };
+                ensure!(
+                    pending,
+                    "I8: a short of a dissolving subnet is neither settled nor pending"
+                );
+            }
+            if progress.stage == SettlementStage::Done {
+                ensure!(
+                    !ResidualAlpha::<T>::contains_key(netuid),
+                    "I8: ResidualAlpha left after the settlement"
+                );
+            }
+        }
+        for (netuid, who, _) in SettlementRetry::<T>::iter() {
+            ensure!(
+                Positions::<T>::contains_key((who, netuid, Side::Short)),
+                "I8: settlement retry without an open short"
+            );
+            ensure!(
+                DissolutionSettlements::<T>::get(netuid)
+                    .is_some_and(|progress| progress.stage != SettlementStage::Done),
+                "I8: settlement retry on a subnet whose settlement is not running"
+            );
+        }
         Ok(())
     }
 

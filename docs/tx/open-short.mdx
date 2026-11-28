@@ -20,7 +20,7 @@ Fails rather than selling for less than the current quote less
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L531-L552) |
+| `coldkey` | signed account (pallet role may apply) | Lending | [`Lending.open_short`](/code/pallets/lending/src/lib.rs#L587-L608) |
 
 ## Parameters
 
@@ -76,7 +76,7 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Lending.open_short` — [`pallets/lending/src/lib.rs#L533`](/code/pallets/lending/src/lib.rs#L531-L552):
+`Lending.open_short` — [`pallets/lending/src/lib.rs#L589`](/code/pallets/lending/src/lib.rs#L587-L608):
 
 ```rust
 #[pallet::call_index(0)]
@@ -103,6 +103,6 @@ pub fn open_short(
 }
 ```
 
-Delegates to [`do_grow`](/code/pallets/lending/src/positions.rs#L433).
+Delegates to [`do_grow`](/code/pallets/lending/src/positions.rs#L459).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

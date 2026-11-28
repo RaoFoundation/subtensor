@@ -8,17 +8,19 @@
     clippy::unwrap_used
 )]
 
-use frame_support::assert_ok;
+use frame_support::{assert_noop, assert_ok};
 use pallet_lending::{
-    DissolvingSubnets, InterestTotals, PositionCount, ResidualAlpha, SyntheticOutstanding,
+    DissolutionSettlements, DissolvingSubnets, InterestTotals, PositionCount, PositionsByNetuid,
+    ResidualAlpha, SettlementRetry, SyntheticOutstanding, types::Side,
 };
 use sp_core::U256;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
-use super::lending_adapter::{RAO, alice, custody, lending_subnet, short};
+use super::lending_adapter::{RAO, alice, bob, custody, lending_subnet, short};
 use super::mock::*;
+use crate::subnets::dissolution::DissolveCleanupPhase;
 use crate::*;
 
 /// The owner's lock of the legacy subnets of these tests (rao): small, so that the owner's refund
@@ -146,7 +148,31 @@ fn assert_lending_books_empty(netuid: NetUid) {
     assert_eq!(SyntheticOutstanding::<Test>::get(netuid), 0);
     assert_eq!(ResidualAlpha::<Test>::get(netuid), 0);
     assert!(!DissolvingSubnets::<Test>::contains_key(netuid));
+    assert!(!DissolutionSettlements::<Test>::contains_key(netuid));
+    assert!(
+        SettlementRetry::<Test>::iter_prefix(netuid)
+            .next()
+            .is_none()
+    );
+    assert!(
+        PositionsByNetuid::<Test>::iter_key_prefix((netuid, Side::Short))
+            .next()
+            .is_none()
+    );
     assert!(!SubtensorModule::if_subnet_exist(netuid));
+}
+
+/// The `ShortSettlementFailed` events of the current block: the holders.
+fn failed_events() -> Vec<U256> {
+    System::events()
+        .into_iter()
+        .filter_map(|record| match record.event {
+            RuntimeEvent::Lending(pallet_lending::Event::ShortSettlementFailed { who, .. }) => {
+                Some(who)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -312,6 +338,129 @@ fn the_residual_alpha_is_cleared_by_the_cleanup() {
         // A defaulted short's alpha still in circulation.
         ResidualAlpha::<Test>::insert(netuid, 7 * RAO);
         dissolve_to_completion(netuid);
+        assert_lending_books_empty(netuid);
+        assert_ok!(pallet_lending::Pallet::<Test>::do_try_state());
+    });
+}
+
+#[test]
+fn no_short_call_runs_from_the_flag_to_the_end_of_the_cleanup() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, _) = legacy_lending_subnet();
+        open_short(netuid);
+        let custody_account = custody(alice(), netuid);
+        let holdings = balance(&custody_account);
+        let alice_before = balance(&alice());
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+
+        // From the flag on, the short cannot be closed, grown or topped up, and none opens: the
+        // dissolution alone settles it.
+        let closed = || pallet_lending::Error::<Test>::DissolutionInProgress;
+        assert_noop!(
+            Lending::close_short(RuntimeOrigin::signed(alice()), netuid, u64::MAX, u64::MAX),
+            closed()
+        );
+        assert_noop!(
+            Lending::increase_short(RuntimeOrigin::signed(alice()), netuid, RAO, RAO, 0),
+            closed()
+        );
+        assert_noop!(
+            Lending::add_collateral(RuntimeOrigin::signed(alice()), netuid, RAO),
+            closed()
+        );
+        assert_noop!(
+            Lending::open_short(
+                RuntimeOrigin::signed(bob()),
+                netuid,
+                2_000 * RAO,
+                5_000 * RAO,
+                0
+            ),
+            closed()
+        );
+        assert_eq!(balance(&alice()), alice_before);
+        assert_eq!(balance(&custody_account), holdings);
+
+        // The cleanup settles the short once, and that is the only payment the holder gets.
+        let mut settled = Vec::new();
+        for _ in 0..256 {
+            if CurrentDissolveCleanupStatus::<Test>::get().is_none()
+                && !DissolveCleanupQueue::<Test>::get().contains(&netuid)
+            {
+                break;
+            }
+            System::reset_events();
+            run_block_idle();
+            settled.extend(settled_events());
+        }
+        assert_eq!(settled.len(), 1);
+        let (who, _, paid) = settled[0];
+        assert_eq!(who, alice());
+        assert_eq!(balance(&alice()), alice_before + holdings - paid);
+        assert_eq!(balance(&custody_account), 0);
+        assert_lending_books_empty(netuid);
+        assert_ok!(pallet_lending::Pallet::<Test>::do_try_state());
+    });
+}
+
+#[test]
+fn a_short_that_fails_to_settle_holds_the_cleanup_until_it_settles() {
+    new_test_ext(1).execute_with(|| {
+        let (netuid, stakers) = legacy_lending_subnet();
+        open_short(netuid);
+        let custody_account = custody(alice(), netuid);
+        let holdings = balance(&custody_account);
+        let alice_before = balance(&alice());
+        let stakers_before: u64 = stakers.iter().map(balance).sum();
+        // The custody cannot pay what the position records.
+        remove_balance_from_coldkey_account(&custody_account, holdings.into());
+        assert_eq!(balance(&custody_account), 0);
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+
+        // Every cleanup step tries the short, reports the failure and keeps it queued. The
+        // cleanup does not go past the lending phase: the pot is not paid without the short.
+        for round in 1..=3u32 {
+            System::reset_events();
+            run_block_idle();
+            assert_eq!(failed_events(), vec![alice()], "round {round}");
+            assert!(settled_events().is_empty());
+            assert_eq!(SettlementRetry::<Test>::get(netuid, alice()), Some(round));
+            assert!(short(alice(), netuid).is_some());
+            let status = CurrentDissolveCleanupStatus::<Test>::get().expect("cleanup is held");
+            assert_eq!(status.netuid, netuid);
+            assert_eq!(
+                status.phase,
+                DissolveCleanupPhase::SubnetRootDividendsRootClaimed
+            );
+            assert_eq!(stakers.iter().map(balance).sum::<u64>(), stakers_before);
+            assert_eq!(
+                DissolvingSubnets::<Test>::get(netuid).map(|record| record.settled_tao),
+                Some(0)
+            );
+        }
+
+        // With the custody whole again the next step settles the short and the cleanup ends.
+        add_balance_to_coldkey_account(&custody_account, holdings.into());
+        let mut settled = Vec::new();
+        let mut failed = Vec::new();
+        for _ in 0..256 {
+            if CurrentDissolveCleanupStatus::<Test>::get().is_none()
+                && !DissolveCleanupQueue::<Test>::get().contains(&netuid)
+            {
+                break;
+            }
+            System::reset_events();
+            run_block_idle();
+            settled.extend(settled_events());
+            failed.extend(failed_events());
+        }
+        assert!(failed.is_empty());
+        assert_eq!(settled.len(), 1);
+        let (who, _, paid) = settled[0];
+        assert_eq!(who, alice());
+        assert_eq!(balance(&alice()), alice_before + holdings - paid);
+        assert_eq!(balance(&custody_account), 0);
+        assert!(stakers.iter().map(balance).sum::<u64>() > stakers_before + paid - 2 * DUST);
         assert_lending_books_empty(netuid);
         assert_ok!(pallet_lending::Pallet::<Test>::do_try_state());
     });

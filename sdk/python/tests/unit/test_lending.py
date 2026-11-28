@@ -397,6 +397,11 @@ class TestReads:
         assert isinstance(error, ChainError)
         assert error.name == "SubnetNotInEmission"
 
+    def test_a_short_call_on_a_dissolving_subnet_is_named(self):
+        error = chain_error_from_dispatch({"Module": {"index": 34, "error": "0x1a000000"}})
+        assert isinstance(error, ChainError)
+        assert error.name == "DissolutionInProgress"
+
     def test_quotes_are_in_tao(self):
         sub = FakeSubstrate()
         asked = []

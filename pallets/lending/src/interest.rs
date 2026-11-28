@@ -31,6 +31,9 @@
 //! model's touches charge `min(due, C)` and leave the rest due (`model/v21/core.py`), so a short
 //! a touch left with `C == 0` and interest due defaults at its next scheduled charge. There is
 //! no default of a long.
+//!
+//! A short of a subnet flagged for dissolution has no scheduled charge and no default until the
+//! dissolution settles it (see [`Pallet::charge_due`] and `dissolution`).
 
 use alloc::vec::Vec;
 use frame_support::{dispatch::DispatchResult, storage::with_storage_layer, traits::Get};
@@ -42,9 +45,9 @@ use sp_runtime::{
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    Config, Due, Error, Event, InterestRetry, InterestTotals, LendingParamsStore,
-    LendingPoolInterface, NextDue, Pallet, Positions, ResidualAlpha, SyntheticOutstanding,
-    TotalPositions,
+    Config, DissolvingSubnets, Due, Error, Event, InterestRetry, InterestTotals,
+    LendingParamsStore, LendingPoolInterface, NextDue, Pallet, Positions, ResidualAlpha,
+    SyntheticOutstanding, TotalPositions,
     math::{
         default::{ChargePolicy, Launch},
         interest::next_charge_block,
@@ -224,6 +227,12 @@ impl<T: Config> Pallet<T> {
     /// policy defaults the short removes it in the same storage layer (SPEC section 1 item 4).
     /// A charge or default that fails leaves the position as it was, counts in `InterestRetry`
     /// and is tried again [`RETRY_DELAY_BLOCKS`] after `now`.
+    ///
+    /// A short of a subnet being dissolved is neither charged nor defaulted: from the flag on,
+    /// the pool is out of `TotalStake`, which the pool credit of a charge or a default would add
+    /// to, and a default would move alpha into `ResidualAlpha` under the frozen record. Its
+    /// entry moves to the next grid block, so it keeps exactly one (SPEC I5), and the settlement
+    /// accrues the interest it owes through the dissolving credit.
     pub(crate) fn charge_due<P: ChargePolicy>(
         id: &PositionId<T::AccountId>,
         now: BlockNumberFor<T>,
@@ -232,6 +241,14 @@ impl<T: Config> Pallet<T> {
         let Some(pos) = Positions::<T>::get(id) else {
             return false;
         };
+        if id.2 == Side::Short && DissolvingSubnets::<T>::contains_key(id.1) {
+            // The dissolution settles this short and accrues its interest then (`dissolution`).
+            // The charge keeps its place on the grid and takes nothing.
+            let charge_at = Self::grid_block(pos.opened_at, now, lending.charge_interval_blocks);
+            Positions::<T>::insert(id, Position { charge_at, ..pos });
+            Self::schedule_charge(id, charge_at);
+            return false;
+        }
         let charged =
             with_storage_layer(|| Self::charge_position::<P>(id, pos, &lending.rate_curve(), now));
         let (pos, charge_at) = match charged {

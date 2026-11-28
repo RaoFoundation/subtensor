@@ -262,6 +262,29 @@ fn collateral_one_rao_short_of_the_charge_defaults() {
 }
 
 #[test]
+fn a_default_removes_the_short_from_the_per_subnet_index() {
+    live().execute_with(|| {
+        assert_ok!(open_short(ALICE));
+        assert_ok!(open_short(BOB));
+        settle_price_at_half();
+        leave_collateral(ALICE, interval_interest() - 1);
+        let indexed = || {
+            let mut holders: Vec<_> =
+                crate::PositionsByNetuid::<Test>::iter_key_prefix((sn1(), Side::Short)).collect();
+            holders.sort_unstable();
+            holders
+        };
+        assert_eq!(indexed(), vec![ALICE, BOB]);
+        run_to(open(ALICE).charge_at);
+        assert_eq!(defaults().len(), 1);
+        assert!(short(ALICE).is_none());
+        // The defaulted short's key is gone and the other short's stays.
+        assert_eq!(indexed(), vec![BOB]);
+        healthy();
+    });
+}
+
+#[test]
 fn the_last_default_clears_the_queue() {
     live().execute_with(|| {
         assert_ok!(open_short(ALICE));

@@ -106,6 +106,8 @@ thread_local! {
     static OUT_OF_EMISSION: RefCell<BTreeSet<u16>> = const { RefCell::new(BTreeSet::new()) };
     /// TAO burned through `burn_tao`.
     static BURNED: RefCell<u64> = const { RefCell::new(0) };
+    /// Accounts whose TAO cannot move: every debit of one fails (`set_tao_frozen`).
+    static FROZEN: RefCell<BTreeSet<AccountId>> = const { RefCell::new(BTreeSet::new()) };
     /// The `(coldkey, hotkey)` the pallet hotkey was registered with.
     static HOTKEY_OWNER: RefCell<Option<(AccountId, AccountId)>> = const { RefCell::new(None) };
 }
@@ -134,6 +136,9 @@ fn set_reserves(netuid: NetUid, pool: PoolState) {
 }
 
 fn debit(who: AccountId, amount: u64) -> DispatchResult {
+    if FROZEN.with_borrow(|frozen| frozen.contains(&who)) {
+        return Err(DispatchError::Other("mock: account frozen"));
+    }
     BALANCES.with_borrow_mut(|b| {
         let bal = b.entry(who).or_insert(0);
         *bal = bal
@@ -343,6 +348,19 @@ pub fn set_in_emission(netuid: u16, in_set: bool) {
     });
 }
 
+/// Freezes or thaws an account's TAO: while frozen, every debit of it fails before anything
+/// moves. The mock's balances are not part of the externalities, so a test that needs a
+/// failure a storage layer can undo freezes the account the failing call debits first.
+pub fn set_tao_frozen(who: AccountId, frozen: bool) {
+    FROZEN.with_borrow_mut(|set| {
+        if frozen {
+            set.insert(who);
+        } else {
+            set.remove(&who);
+        }
+    });
+}
+
 /// TAO burned through the pool's `burn_tao` since the externalities were built.
 pub fn burned_tao() -> u64 {
     BURNED.with_borrow(|burned| *burned)
@@ -372,6 +390,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     BALANCES.with_borrow_mut(BTreeMap::clear);
     HELD.with_borrow_mut(BTreeMap::clear);
     OUT_OF_EMISSION.with_borrow_mut(BTreeSet::clear);
+    FROZEN.with_borrow_mut(BTreeSet::clear);
     BURNED.with_borrow_mut(|burned| *burned = 0);
     HOTKEY_OWNER.with_borrow_mut(|owner| *owner = None);
     let storage = frame_system::GenesisConfig::<Test>::default()

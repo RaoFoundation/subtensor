@@ -7,15 +7,21 @@
     clippy::unwrap_used
 )]
 
-use frame_support::{assert_ok, weights::WeightMeter};
+use frame_support::{
+    assert_noop, assert_ok,
+    weights::{Weight, WeightMeter},
+};
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
 use super::mock::*;
 use crate::{
-    DissolvingSubnets, Due, Event, HolderPositions, InterestRetry, InterestTotals,
-    LendingInterface, LendingPoolInterface, PositionCount, Positions, ResidualAlpha,
-    SyntheticOutstanding, TotalPositions,
-    dissolution::{P16_ZONE_SETTLEMENT, settle_short_amount, settle_short_amount_with},
+    DissolutionSettlements, DissolvingSubnets, Due, Error, Event, HolderPositions, InterestRetry,
+    InterestTotals, LendingInterface, LendingPoolInterface, PositionCount, Positions,
+    PositionsByNetuid, ResidualAlpha, SettlementRetry, SyntheticOutstanding, TotalPositions,
+    dissolution::{
+        MAX_SETTLEMENTS_PER_BLOCK, P16_ZONE_SETTLEMENT, SettlementStage, settle_short_amount,
+        settle_short_amount_with,
+    },
     math::{
         dereg::{rate, short_owed},
         fixed::{Price, mul_price_floor, price},
@@ -80,11 +86,78 @@ fn ema_does_not_bind(netuid: NetUid) {
     crate::PoolTaoEma::<Test>::insert(netuid, u64::MAX);
 }
 
-/// The settlement of the cleanup's hook, metered on its own.
+/// One step of the cleanup's hook on `meter`: whether the settlement is done.
+fn settle_step(netuid: NetUid, meter: &mut WeightMeter) -> bool {
+    <Lending as LendingInterface<AccountId>>::on_dissolve(netuid, meter)
+}
+
+/// The settlement of the cleanup's hook in one step on a meter with no limit, which must
+/// finish it. Returns the meter.
 fn settle(netuid: NetUid) -> WeightMeter {
     let mut meter = WeightMeter::new();
-    <Lending as LendingInterface<AccountId>>::on_dissolve(netuid, &mut meter);
+    assert!(
+        settle_step(netuid, &mut meter),
+        "one unmetered step settles"
+    );
     meter
+}
+
+/// A meter that affords exactly `visits` visits of a settlement step.
+fn meter_for(visits: u32) -> WeightMeter {
+    WeightMeter::with_limit(Lending::dissolution_weight(visits))
+}
+
+/// The holders in the per-subnet index of `netuid`'s shorts, sorted.
+fn indexed_shorts(netuid: NetUid) -> Vec<AccountId> {
+    let mut holders: Vec<_> =
+        PositionsByNetuid::<Test>::iter_key_prefix((netuid, Side::Short)).collect();
+    holders.sort_unstable();
+    holders
+}
+
+/// The holders of `netuid`'s shorts by `Positions`, sorted.
+fn open_shorts(netuid: NetUid) -> Vec<AccountId> {
+    let mut holders: Vec<_> = Positions::<Test>::iter_keys()
+        .filter(|(_, on, side)| *on == netuid && *side == Side::Short)
+        .map(|(who, _, _)| who)
+        .collect();
+    holders.sort_unstable();
+    holders
+}
+
+/// Makes subnet 2 a pool like subnet 1's (5,000 TAO / 50,000 alpha) with slow prices at its
+/// spot, so shorts open on it as they do on subnet 1.
+fn second_pool() {
+    set_pool(SN2, 5_000 * RAO, 50_000 * RAO);
+    seed_slow_prices(SN2, px(1, 10));
+}
+
+/// The custody account of the open short of `who` on subnet 1.
+fn custody_of(who: AccountId) -> AccountId {
+    let pos = Positions::<Test>::get(short_of(who)).expect("the short is open");
+    Lending::position_custody(&short_of(who), pos.opened_at)
+}
+
+/// The `ShortSettlementFailed` events of the current block, as `(who, error)`.
+fn failed_events() -> Vec<(AccountId, sp_runtime::DispatchError)> {
+    lending_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ShortSettlementFailed { who, error, .. } => Some((who, error)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Everything TAO can be in the mock: free balances (holders and custody) and the pools.
+fn all_tao() -> u128 {
+    total_balances()
+        + u128::from(<FakePool as LendingPoolInterface<AccountId>>::pool_tao(
+            sn1(),
+        ))
+        + u128::from(<FakePool as LendingPoolInterface<AccountId>>::pool_tao(
+            sn2(),
+        ))
 }
 
 /// The `ShortSettledOnDissolution` events of the current block, as `(who, price, paid)`.
@@ -140,15 +213,26 @@ fn the_flag_records_the_pool_and_the_lending_alpha_of_a_subnet_with_shorts() {
 }
 
 #[test]
-fn a_subnet_with_no_lending_records_nothing_and_settles_nothing() {
+fn a_subnet_with_no_lending_is_flagged_and_settles_nothing() {
     live().execute_with(|| {
-        // Subnet 2 has no position, count, book or residual.
-        flag(sn2());
-        assert!(DissolvingSubnets::<Test>::get(sn2()).is_none());
-        let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
-        settle(sn2());
-        assert_eq!(before, sp_io::storage::root(sp_runtime::StateVersion::V1));
+        // Subnet 2 has no position, count, book or residual. The flag is recorded all the same:
+        // it is what closes the subnet to the short calls until the cleanup is done.
+        let pool = flag(sn2());
+        let record = DissolvingSubnets::<Test>::get(sn2()).expect("the flag records the subnet");
+        assert_eq!(
+            (record.t_flag, record.lending_alpha, record.settled_tao),
+            (pool, 0, 0)
+        );
+        let meter = settle(sn2());
+        assert_eq!(meter.consumed(), Lending::dissolution_weight(1));
         assert!(settled_events().is_empty());
+        assert!(failed_events().is_empty());
+        assert_eq!(DissolvingSubnets::<Test>::get(sn2()), Some(record));
+        assert_ok!(Lending::do_try_state());
+        // The end of the cleanup drops the flag and the progress.
+        <Lending as LendingInterface<AccountId>>::on_dissolve_done(sn2());
+        assert!(DissolvingSubnets::<Test>::get(sn2()).is_none());
+        assert!(DissolutionSettlements::<Test>::get(sn2()).is_none());
     });
 }
 
@@ -338,19 +422,22 @@ fn the_residual_alpha_is_cleared_and_counts_in_the_record() {
 }
 
 #[test]
-fn the_meter_is_charged_for_every_short_settled() {
+fn the_meter_is_charged_for_every_visit() {
     live().execute_with(|| {
         open_short(ALICE);
         open_short(BOB);
         set_issuance(SN1, 1_000_000 * RAO);
         flag(sn1());
         let meter = settle(sn1());
-        // The measured settlement of two shorts, with no other position on the pass, and more
-        // for two shorts than for one.
-        assert_eq!(meter.consumed(), Lending::dissolution_weight(2, 0));
+        // Two shorts are four visits: each is accrued and then settled. More visits cost more.
+        assert_eq!(meter.consumed(), Lending::dissolution_weight(4));
         assert!(
-            Lending::dissolution_weight(2, 0).ref_time()
-                > Lending::dissolution_weight(1, 0).ref_time()
+            Lending::dissolution_weight(4).ref_time() > Lending::dissolution_weight(2).ref_time()
+        );
+        // A step is charged for one visit at least.
+        assert_eq!(
+            Lending::dissolution_weight(0),
+            Lending::dissolution_weight(1)
         );
     });
 }
@@ -373,5 +460,549 @@ fn longs_are_left_as_they_are() {
         // The short is settled; the long keeps its position and custody.
         assert_no_short_left(ALICE, 1);
         assert!(Positions::<Test>::contains_key((CAROL, sn1(), Side::Long)));
+    });
+}
+
+// The per-subnet index.
+
+#[test]
+fn the_index_holds_exactly_the_open_positions() {
+    live().execute_with(|| {
+        second_pool();
+        assert!(indexed_shorts(sn1()).is_empty());
+        open_short(ALICE);
+        open_short(BOB);
+        assert_ok!(Lending::open_short(
+            RuntimeOrigin::signed(CAROL),
+            sn2(),
+            200 * RAO,
+            45 * RAO,
+            0
+        ));
+        assert_ok!(Lending::open_long(
+            RuntimeOrigin::signed(CAROL),
+            sn1(),
+            20 * RAO,
+            12 * RAO,
+            0
+        ));
+        assert_eq!(indexed_shorts(sn1()), vec![ALICE, BOB]);
+        assert_eq!(indexed_shorts(sn1()), open_shorts(sn1()));
+        assert_eq!(indexed_shorts(sn2()), vec![CAROL]);
+        // The long is indexed on its own side.
+        assert!(PositionsByNetuid::<Test>::contains_key((
+            sn1(),
+            Side::Long,
+            CAROL
+        )));
+        assert_eq!(PositionsByNetuid::<Test>::iter_keys().count(), 4);
+        assert_ok!(Lending::do_try_state());
+
+        // An increase keeps the one key; a partial close keeps it; a full close removes it.
+        assert_ok!(Lending::increase_short(
+            RuntimeOrigin::signed(ALICE),
+            sn1(),
+            10 * RAO,
+            5 * RAO,
+            0
+        ));
+        assert_ok!(Lending::close_short(
+            RuntimeOrigin::signed(ALICE),
+            sn1(),
+            10 * RAO,
+            u64::MAX
+        ));
+        assert_eq!(indexed_shorts(sn1()), vec![ALICE, BOB]);
+        assert_ok!(Lending::close_short(
+            RuntimeOrigin::signed(ALICE),
+            sn1(),
+            u64::MAX,
+            u64::MAX
+        ));
+        assert_eq!(indexed_shorts(sn1()), vec![BOB]);
+        assert_eq!(indexed_shorts(sn1()), open_shorts(sn1()));
+        assert_eq!(PositionsByNetuid::<Test>::iter_keys().count(), 3);
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+#[test]
+fn a_coldkey_swap_moves_the_index_key() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        open_short(BOB);
+        let dave: AccountId = 4;
+        assert!(
+            <Lending as LendingInterface<AccountId>>::coldkey_swap_destination_ok(&ALICE, &dave)
+        );
+        <Lending as LendingInterface<AccountId>>::on_coldkey_swap(&ALICE, &dave);
+        assert_eq!(indexed_shorts(sn1()), vec![BOB, dave]);
+        assert_eq!(indexed_shorts(sn1()), open_shorts(sn1()));
+        assert!(SettlementRetry::<Test>::iter().next().is_none());
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+#[test]
+fn a_subnet_is_settled_without_walking_another_subnets_shorts() {
+    live().execute_with(|| {
+        second_pool();
+        open_short(ALICE);
+        open_short(BOB);
+        // Three shorts on subnet 2, which is not dissolved.
+        for who in [ALICE, BOB, CAROL] {
+            assert_ok!(Lending::open_short(
+                RuntimeOrigin::signed(who),
+                sn2(),
+                200 * RAO,
+                45 * RAO,
+                0
+            ));
+            // The per-block open limit: one block per pair of opens.
+            next_block();
+        }
+        let others: Vec<_> = Positions::<Test>::iter()
+            .filter(|((_, netuid, _), _)| *netuid == sn2())
+            .collect();
+        set_issuance(SN1, 1_000_000 * RAO);
+        flag(sn1());
+        // The meter affords the four visits of subnet 1's two shorts and nothing more: the
+        // settlement finishes in it, so no visit went to subnet 2.
+        let mut meter = meter_for(4);
+        assert!(settle_step(sn1(), &mut meter));
+        assert_eq!(meter.consumed(), Lending::dissolution_weight(4));
+        assert_eq!(settled_events().len(), 2);
+        assert!(open_shorts(sn1()).is_empty());
+        assert!(indexed_shorts(sn1()).is_empty());
+        // Subnet 2's shorts are as they were, in the index too.
+        let after: Vec<_> = Positions::<Test>::iter()
+            .filter(|((_, netuid, _), _)| *netuid == sn2())
+            .collect();
+        assert_eq!(after, others);
+        assert_eq!(indexed_shorts(sn2()), vec![ALICE, BOB, CAROL]);
+        assert_eq!(PositionCount::<Test>::get(sn2()), 3);
+        assert_eq!(SyntheticOutstanding::<Test>::get(sn2()), 600 * RAO);
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+// The bounded, resumable walk.
+
+/// Funds `count` more holders and opens a short for each, one a block (the per-block open
+/// limit); returns all of them.
+fn open_shorts_for(count: u128) -> Vec<AccountId> {
+    let holders: Vec<AccountId> = (10..10 + count).collect();
+    for who in &holders {
+        set_balance(*who, 100 * RAO);
+        open_short(*who);
+        next_block();
+    }
+    holders
+}
+
+#[test]
+fn a_large_book_is_settled_over_several_steps() {
+    live().execute_with(|| {
+        let holders = open_shorts_for(5);
+        set_issuance(SN1, 1_000_000 * RAO);
+        flag(sn1());
+        run_to(System::block_number() + 20);
+        ema_does_not_bind(sn1());
+        let before = all_tao();
+        let at = System::block_number();
+
+        // Three visits a step: ten visits (five accruals, five settlements) take four steps.
+        let mut steps = 0u32;
+        let mut settled = Vec::new();
+        let mut rates = Vec::new();
+        loop {
+            steps += 1;
+            assert!(steps <= 10, "the settlement makes progress every step");
+            let mut meter = meter_for(3);
+            let done = settle_step(sn1(), &mut meter);
+            assert!(meter.consumed().all_lte(Lending::dissolution_weight(3)));
+            for (who, r, paid) in settled_events() {
+                settled.push((who, paid));
+                rates.push(r);
+            }
+            assert!(failed_events().is_empty());
+            assert_ok!(Lending::do_try_state());
+            let progress = DissolutionSettlements::<Test>::get(sn1()).expect("progress is kept");
+            // Every step accrues to the block of the first, whatever block it runs in.
+            assert_eq!(progress.at, at);
+            if done {
+                assert_eq!(progress.stage, SettlementStage::Done);
+                break;
+            }
+            assert_ne!(progress.stage, SettlementStage::Done);
+            // The shorts still open are exactly those not settled yet.
+            assert_eq!(open_shorts(sn1()).len(), holders.len() - settled.len());
+            assert_eq!(indexed_shorts(sn1()), open_shorts(sn1()));
+            next_block();
+        }
+        assert_eq!(steps, 4);
+
+        // Each short settled exactly once, all at the one rate.
+        let mut who: Vec<_> = settled.iter().map(|(who, _)| *who).collect();
+        who.sort_unstable();
+        assert_eq!(who, holders);
+        assert!(rates.iter().all(|r| *r == rates[0]));
+        let paid: u64 = settled.iter().map(|(_, paid)| *paid).sum();
+        assert!(paid > 0);
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(paid)
+        );
+        assert_eq!(SyntheticOutstanding::<Test>::get(sn1()), 0);
+        assert_eq!(TotalPositions::<Test>::get(), 0);
+        for who in &holders {
+            assert!(!Positions::<Test>::contains_key(short_of(*who)));
+        }
+        assert_eq!(all_tao(), before, "the settlement moves TAO and makes none");
+
+        // A step after the end settles nothing.
+        System::reset_events();
+        assert!(settle_step(sn1(), &mut meter_for(1)));
+        assert!(settled_events().is_empty());
+    });
+}
+
+#[test]
+fn a_step_never_visits_more_than_the_limit() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        set_issuance(SN1, 1_000_000 * RAO);
+        flag(sn1());
+        // A meter with no limit is still charged for at most the limit's visits.
+        let meter = settle(sn1());
+        assert!(
+            meter
+                .consumed()
+                .all_lte(Lending::dissolution_weight(MAX_SETTLEMENTS_PER_BLOCK))
+        );
+    });
+}
+
+#[test]
+fn a_meter_without_room_for_one_visit_changes_nothing() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        flag(sn1());
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        let mut meter = WeightMeter::with_limit(Weight::from_parts(1, 1));
+        assert!(!settle_step(sn1(), &mut meter));
+        assert_eq!(meter.consumed(), Weight::zero());
+        assert_eq!(root, sp_io::storage::root(sp_runtime::StateVersion::V1));
+        assert_eq!(open_shorts(sn1()), vec![ALICE]);
+    });
+}
+
+// The calls on a flagged subnet.
+
+#[test]
+fn no_short_call_runs_on_a_flagged_subnet() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        // Before the flag every call and quote works.
+        assert_ok!(Lending::quote_open_short(sn1(), 200 * RAO));
+        assert_ok!(Lending::quote_increase_short(&ALICE, sn1(), 10 * RAO));
+        assert_ok!(Lending::quote_close_short(&ALICE, sn1(), 10 * RAO));
+        flag(sn1());
+
+        let closed = || Error::<Test>::DissolutionInProgress;
+        assert_noop!(
+            Lending::open_short(RuntimeOrigin::signed(BOB), sn1(), 200 * RAO, 45 * RAO, 0),
+            closed()
+        );
+        assert_noop!(
+            Lending::increase_short(RuntimeOrigin::signed(ALICE), sn1(), 10 * RAO, 5 * RAO, 0),
+            closed()
+        );
+        assert_noop!(
+            Lending::add_collateral(RuntimeOrigin::signed(ALICE), sn1(), RAO),
+            closed()
+        );
+        assert_noop!(
+            Lending::close_short(RuntimeOrigin::signed(ALICE), sn1(), 10 * RAO, u64::MAX),
+            closed()
+        );
+        assert_noop!(
+            Lending::close_short(RuntimeOrigin::signed(ALICE), sn1(), u64::MAX, u64::MAX),
+            closed()
+        );
+        // The quotes report what the calls do.
+        assert_eq!(
+            Lending::quote_open_short(sn1(), 200 * RAO),
+            Err(closed().into())
+        );
+        assert_eq!(
+            Lending::quote_increase_short(&ALICE, sn1(), 10 * RAO),
+            Err(closed().into())
+        );
+        assert_eq!(
+            Lending::quote_close_short(&ALICE, sn1(), 10 * RAO),
+            Err(closed().into())
+        );
+        // Another subnet is not closed.
+        second_pool();
+        assert_ok!(Lending::open_short(
+            RuntimeOrigin::signed(BOB),
+            sn2(),
+            200 * RAO,
+            45 * RAO,
+            0
+        ));
+        assert_ok!(Lending::do_try_state());
+    });
+}
+
+#[test]
+fn the_calls_stay_closed_through_the_settlement_and_a_short_is_paid_once() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        open_short(BOB);
+        set_issuance(SN1, 1_000_000 * RAO);
+        let closed = || Error::<Test>::DissolutionInProgress;
+        let close = |who: AccountId| {
+            Lending::close_short(RuntimeOrigin::signed(who), sn1(), u64::MAX, u64::MAX)
+        };
+        let alice_before = tao_balance(ALICE);
+        let custody = custody_of(ALICE);
+        let custody_before = tao_balance(custody);
+        let before = all_tao();
+        flag(sn1());
+        ema_does_not_bind(sn1());
+        assert_noop!(close(ALICE), closed());
+
+        // Mid-settlement: the two shorts are accrued and one of them is settled.
+        assert!(!settle_step(sn1(), &mut meter_for(3)));
+        assert_eq!(settled_events().len(), 1);
+        for who in [ALICE, BOB] {
+            assert_noop!(close(who), closed());
+        }
+        assert!(settle_step(sn1(), &mut meter_for(3)));
+        // After the settlement the short is gone, and the subnet is closed until the cleanup
+        // ends: no close can pay the holder a second time.
+        for who in [ALICE, BOB] {
+            assert_noop!(close(who), closed());
+        }
+
+        // Alice was paid by exactly one path: the settlement's refund of her custody.
+        let paid_by_alice: Vec<u64> = lending_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::ShortSettledOnDissolution { who, paid, .. } if who == ALICE => Some(paid),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(paid_by_alice.len(), 1);
+        assert_eq!(
+            tao_balance(ALICE),
+            alice_before + custody_before - paid_by_alice[0]
+        );
+        assert_eq!(tao_balance(custody), 0);
+        assert_eq!(all_tao(), before);
+        assert_no_short_left(ALICE, 0);
+        assert!(indexed_shorts(sn1()).is_empty());
+    });
+}
+
+#[test]
+fn a_scheduled_charge_takes_nothing_on_a_flagged_subnet() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        set_issuance(SN1, 1_000_000 * RAO);
+        let pos = Positions::<Test>::get(short_of(ALICE)).expect("open");
+        // A short with no collateral left would default at its next charge.
+        let custody = custody_of(ALICE);
+        set_balance(custody, pos.leg.proceeds() + pos.deposit);
+        Positions::<Test>::insert(
+            short_of(ALICE),
+            crate::types::Position {
+                collateral: 0,
+                ..pos
+            },
+        );
+        flag(sn1());
+        let charged = interest_charged();
+        run_to(pos.charge_at + 1);
+
+        // No charge and no default: the short waits for the settlement, with one charge queued.
+        let waiting = Positions::<Test>::get(short_of(ALICE)).expect("still open");
+        assert_eq!(interest_charged(), charged);
+        assert_eq!(waiting.leg, pos.leg);
+        assert!(waiting.charge_at > pos.charge_at);
+        assert_eq!(
+            Due::<Test>::iter_keys()
+                .filter(|(_, key)| *key == short_of(ALICE))
+                .count(),
+            1
+        );
+        assert_eq!(ResidualAlpha::<Test>::get(sn1()), 0);
+        assert_ok!(Lending::do_try_state());
+        // The settlement then settles it.
+        ema_does_not_bind(sn1());
+        settle(sn1());
+        assert_eq!(settled_events().len(), 1);
+        assert_no_short_left(ALICE, 0);
+    });
+}
+
+// Failures.
+
+#[test]
+fn a_failed_settlement_is_reported_queued_and_tried_again() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        open_short(BOB);
+        set_issuance(SN1, 1_000_000 * RAO);
+        let alice_before = tao_balance(ALICE);
+        let custody = custody_of(ALICE);
+        let custody_before = tao_balance(custody);
+        let before = all_tao();
+        flag(sn1());
+        ema_does_not_bind(sn1());
+        // Alice's custody cannot pay: her settlement fails, Bob's does not.
+        set_tao_frozen(custody, true);
+
+        let mut meter = WeightMeter::new();
+        assert!(!settle_step(sn1(), &mut meter));
+        let failed = failed_events();
+        assert!(!failed.is_empty());
+        assert!(failed.iter().all(|(who, _)| *who == ALICE));
+        assert_eq!(
+            settled_events().iter().map(|e| e.0).collect::<Vec<_>>(),
+            vec![BOB]
+        );
+        // The failed short is as it was, and queued.
+        assert_eq!(open_shorts(sn1()), vec![ALICE]);
+        assert_eq!(indexed_shorts(sn1()), vec![ALICE]);
+        assert_eq!(tao_balance(custody), custody_before);
+        assert_eq!(SyntheticOutstanding::<Test>::get(sn1()), 200 * RAO);
+        let attempts = SettlementRetry::<Test>::get(sn1(), ALICE).expect("queued");
+        assert!(attempts >= 1);
+        assert_eq!(
+            DissolutionSettlements::<Test>::get(sn1()).map(|p| p.stage),
+            Some(SettlementStage::Retrying)
+        );
+        let bob_paid = settled_events()[0].2;
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(bob_paid)
+        );
+        assert_ok!(Lending::do_try_state());
+
+        // A later step tries it again and, while the cause stands, reports it again.
+        next_block();
+        assert!(!settle_step(sn1(), &mut WeightMeter::new()));
+        assert_eq!(failed_events().len(), 1);
+        assert!(settled_events().is_empty());
+        assert_eq!(
+            SettlementRetry::<Test>::get(sn1(), ALICE),
+            Some(attempts + 1)
+        );
+        assert_eq!(open_shorts(sn1()), vec![ALICE]);
+        assert_ok!(Lending::do_try_state());
+
+        // With the cause removed the next step settles it, once, at the rate read before.
+        set_tao_frozen(custody, false);
+        next_block();
+        assert!(settle_step(sn1(), &mut WeightMeter::new()));
+        assert!(failed_events().is_empty());
+        let events = settled_events();
+        assert_eq!(events.len(), 1);
+        let (who, r, alice_paid) = events[0];
+        assert_eq!(who, ALICE);
+        assert_eq!(
+            Some(r),
+            DissolutionSettlements::<Test>::get(sn1()).map(|p| p.rate)
+        );
+        assert!(SettlementRetry::<Test>::iter().next().is_none());
+        assert_eq!(tao_balance(custody), 0);
+        assert_eq!(
+            tao_balance(ALICE),
+            alice_before + custody_before - alice_paid
+        );
+        // I8: the pot got each short's payment once.
+        assert_eq!(
+            DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+            Some(bob_paid + alice_paid)
+        );
+        assert_eq!(all_tao(), before);
+        assert_no_short_left(ALICE, 0);
+
+        // Done stays done.
+        System::reset_events();
+        assert!(settle_step(sn1(), &mut WeightMeter::new()));
+        assert!(settled_events().is_empty());
+    });
+}
+
+#[test]
+fn a_short_that_cannot_settle_holds_the_settlement_open() {
+    live().execute_with(|| {
+        open_short(ALICE);
+        set_issuance(SN1, 1_000_000 * RAO);
+        flag(sn1());
+        // The terminal case: the custody can never pay.
+        set_tao_frozen(custody_of(ALICE), true);
+        for round in 1..=3u32 {
+            assert!(!settle_step(sn1(), &mut WeightMeter::new()));
+            assert_eq!(failed_events().len(), 1, "reported on every step");
+            assert_eq!(SettlementRetry::<Test>::get(sn1(), ALICE), Some(round));
+            assert_eq!(open_shorts(sn1()), vec![ALICE]);
+            assert_eq!(
+                DissolvingSubnets::<Test>::get(sn1()).map(|rec| rec.settled_tao),
+                Some(0)
+            );
+            assert_ok!(Lending::do_try_state());
+            next_block();
+        }
+    });
+}
+
+#[test]
+fn a_short_rekeyed_during_the_settlement_is_still_settled_once() {
+    live().execute_with(|| {
+        let holders = open_shorts_for(4);
+        set_issuance(SN1, 1_000_000 * RAO);
+        flag(sn1());
+        ema_does_not_bind(sn1());
+        // Part of the walk has run when one holder's coldkey is swapped.
+        assert!(!settle_step(sn1(), &mut meter_for(6)));
+        let left = open_shorts(sn1());
+        assert_eq!(left.len(), 2);
+        let (old, new): (AccountId, AccountId) = (left[0], 99);
+        assert!(<Lending as LendingInterface<AccountId>>::coldkey_swap_destination_ok(&old, &new));
+        <Lending as LendingInterface<AccountId>>::on_coldkey_swap(&old, &new);
+        // The moved short is queued, wherever its new key falls against the cursor.
+        assert_eq!(SettlementRetry::<Test>::get(sn1(), new), Some(0));
+        assert!(!SettlementRetry::<Test>::contains_key(sn1(), old));
+        assert_eq!(indexed_shorts(sn1()), open_shorts(sn1()));
+        assert_ok!(Lending::do_try_state());
+
+        let mut settled: Vec<AccountId> = Vec::new();
+        for _ in 0..4 {
+            System::reset_events();
+            let done = settle_step(sn1(), &mut WeightMeter::new());
+            settled.extend(settled_events().iter().map(|e| e.0));
+            assert!(failed_events().is_empty());
+            assert_ok!(Lending::do_try_state());
+            if done {
+                break;
+            }
+        }
+        settled.sort_unstable();
+        let mut expected = vec![left[1], new];
+        expected.sort_unstable();
+        assert_eq!(settled, expected);
+        assert!(open_shorts(sn1()).is_empty());
+        assert!(SettlementRetry::<Test>::iter().next().is_none());
+        assert_eq!(
+            DissolutionSettlements::<Test>::get(sn1()).map(|p| p.stage),
+            Some(SettlementStage::Done)
+        );
+        assert_eq!(holders.len(), 4);
+        assert_eq!(TotalPositions::<Test>::get(), 0);
     });
 }

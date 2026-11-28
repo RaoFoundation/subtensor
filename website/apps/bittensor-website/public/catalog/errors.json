@@ -357,8 +357,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 426,
-          "url": "/code/pallets/lending/src/lib.rs#L426",
+          "line": 479,
+          "url": "/code/pallets/lending/src/lib.rs#L479",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -789,8 +789,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 430,
-          "url": "/code/pallets/lending/src/lib.rs#L430",
+          "line": 483,
+          "url": "/code/pallets/lending/src/lib.rs#L483",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1221,8 +1221,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 449,
-          "url": "/code/pallets/lending/src/lib.rs#L449",
+          "line": 502,
+          "url": "/code/pallets/lending/src/lib.rs#L502",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1743,8 +1743,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 437,
-          "url": "/code/pallets/lending/src/lib.rs#L437",
+          "line": 490,
+          "url": "/code/pallets/lending/src/lib.rs#L490",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -1992,8 +1992,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 412,
-          "url": "/code/pallets/lending/src/lib.rs#L412",
+          "line": 465,
+          "url": "/code/pallets/lending/src/lib.rs#L465",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -2013,6 +2013,24 @@
           "line": 299,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L299",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "DissolutionInProgress": {
+      "code": "policy_violation",
+      "description": "The subnet is being dissolved, so no short on it can be opened, increased, closed or given collateral: from the moment the subnet is flagged until its cleanup ends, the dissolution alone settles its shorts. An open short is settled at the dissolution rate and what is left of its collateral, proceeds and deposit is returned to the coldkey; no call is needed. `Lending.DissolvingSubnets` has an entry for the subnet while this lasts.",
+      "docs_url": "/docs/errors/chain/DissolutionInProgress",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DissolutionInProgress/content.md",
+      "pallets": [
+        "Lending"
+      ],
+      "sources": [
+        {
+          "pallet": "Lending",
+          "path": "pallets/lending/src/lib.rs",
+          "line": 517,
+          "url": "/code/pallets/lending/src/lib.rs#L517",
+          "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
     },
@@ -3008,8 +3026,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 432,
-          "url": "/code/pallets/lending/src/lib.rs#L432",
+          "line": 485,
+          "url": "/code/pallets/lending/src/lib.rs#L485",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3026,8 +3044,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 447,
-          "url": "/code/pallets/lending/src/lib.rs#L447",
+          "line": 500,
+          "url": "/code/pallets/lending/src/lib.rs#L500",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3142,8 +3160,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 416,
-          "url": "/code/pallets/lending/src/lib.rs#L416",
+          "line": 469,
+          "url": "/code/pallets/lending/src/lib.rs#L469",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3511,8 +3529,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 407,
-          "url": "/code/pallets/lending/src/lib.rs#L407",
+          "line": 460,
+          "url": "/code/pallets/lending/src/lib.rs#L460",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -3997,8 +4015,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 441,
-          "url": "/code/pallets/lending/src/lib.rs#L441",
+          "line": 494,
+          "url": "/code/pallets/lending/src/lib.rs#L494",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4186,8 +4204,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 439,
-          "url": "/code/pallets/lending/src/lib.rs#L439",
+          "line": 492,
+          "url": "/code/pallets/lending/src/lib.rs#L492",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4204,8 +4222,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 443,
-          "url": "/code/pallets/lending/src/lib.rs#L443",
+          "line": 496,
+          "url": "/code/pallets/lending/src/lib.rs#L496",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4222,8 +4240,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 414,
-          "url": "/code/pallets/lending/src/lib.rs#L414",
+          "line": 467,
+          "url": "/code/pallets/lending/src/lib.rs#L467",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -4859,8 +4877,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 420,
-          "url": "/code/pallets/lending/src/lib.rs#L420",
+          "line": 473,
+          "url": "/code/pallets/lending/src/lib.rs#L473",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5347,8 +5365,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 428,
-          "url": "/code/pallets/lending/src/lib.rs#L428",
+          "line": 481,
+          "url": "/code/pallets/lending/src/lib.rs#L481",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5365,8 +5383,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 422,
-          "url": "/code/pallets/lending/src/lib.rs#L422",
+          "line": 475,
+          "url": "/code/pallets/lending/src/lib.rs#L475",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5597,8 +5615,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 451,
-          "url": "/code/pallets/lending/src/lib.rs#L451",
+          "line": 504,
+          "url": "/code/pallets/lending/src/lib.rs#L504",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5741,8 +5759,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 424,
-          "url": "/code/pallets/lending/src/lib.rs#L424",
+          "line": 477,
+          "url": "/code/pallets/lending/src/lib.rs#L477",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5759,8 +5777,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 418,
-          "url": "/code/pallets/lending/src/lib.rs#L418",
+          "line": 471,
+          "url": "/code/pallets/lending/src/lib.rs#L471",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5822,8 +5840,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 410,
-          "url": "/code/pallets/lending/src/lib.rs#L410",
+          "line": 463,
+          "url": "/code/pallets/lending/src/lib.rs#L463",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -5876,8 +5894,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 453,
-          "url": "/code/pallets/lending/src/lib.rs#L453",
+          "line": 506,
+          "url": "/code/pallets/lending/src/lib.rs#L506",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6398,8 +6416,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 435,
-          "url": "/code/pallets/lending/src/lib.rs#L435",
+          "line": 488,
+          "url": "/code/pallets/lending/src/lib.rs#L488",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6668,8 +6686,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 461,
-          "url": "/code/pallets/lending/src/lib.rs#L461",
+          "line": 514,
+          "url": "/code/pallets/lending/src/lib.rs#L514",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -6748,8 +6766,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 458,
-          "url": "/code/pallets/lending/src/lib.rs#L458",
+          "line": 511,
+          "url": "/code/pallets/lending/src/lib.rs#L511",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -7064,8 +7082,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 445,
-          "url": "/code/pallets/lending/src/lib.rs#L445",
+          "line": 498,
+          "url": "/code/pallets/lending/src/lib.rs#L498",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]
@@ -7100,8 +7118,8 @@
         {
           "pallet": "Lending",
           "path": "pallets/lending/src/lib.rs",
-          "line": 455,
-          "url": "/code/pallets/lending/src/lib.rs#L455",
+          "line": 508,
+          "url": "/code/pallets/lending/src/lib.rs#L508",
           "raw_url": "/code/raw/pallets/lending/src/lib.rs"
         }
       ]

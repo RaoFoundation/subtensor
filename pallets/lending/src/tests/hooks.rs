@@ -362,21 +362,28 @@ fn the_largest_rekey_moves_every_position_within_the_bound() {
     });
 }
 
-/// The dissolve hook changes nothing on a subnet with no lending on it (it only reads the subnet's
-/// books and charges its reads), and the conviction hook reads no lending state for it. Shorts
-/// of a dissolved subnet are settled by `tests::dissolution`.
+/// The dissolve hook settles nothing on a subnet with no lending on it: it reports that it is
+/// done in its first step, charges that step, and leaves only its own records, which the end of
+/// the cleanup drops. The conviction hook reads no lending state for it. Shorts of a dissolved
+/// subnet are settled by `tests::dissolution`.
 #[test]
-fn the_dissolve_hook_changes_nothing_on_a_subnet_without_lending() {
+fn the_dissolve_hook_leaves_nothing_on_a_subnet_without_lending() {
     live().execute_with(|| {
+        System::reset_events();
         let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
         let mut meter = WeightMeter::new();
         meter.consume(Weight::from_parts(7, 3));
-        <Lending as LendingInterface<AccountId>>::on_dissolve(sn1(), &mut meter);
+        assert!(<Lending as LendingInterface<AccountId>>::on_dissolve(
+            sn1(),
+            &mut meter
+        ));
         assert!(meter.consumed().ref_time() >= 7);
+        assert!(lending_events().is_empty());
         assert_eq!(
             <Lending as LendingInterface<AccountId>>::conviction_bar_extra(sn1()),
             AlphaBalance::from(0u64)
         );
+        <Lending as LendingInterface<AccountId>>::on_dissolve_done(sn1());
         assert_eq!(root, sp_io::storage::root(sp_runtime::StateVersion::V1));
     });
 }
