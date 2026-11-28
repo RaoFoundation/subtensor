@@ -67,6 +67,10 @@ Each command shows the hub's quote first. `--rate-tolerance` is how far below th
 quote the result may fall. If the hub cannot meet that minimum, the vault returns
 the stablecoin in full.
 
+An order also pays a fee in the other chain's coin: the transport's fee to carry the
+order, and the portal's answer fee, which pays for the hub's reply. btcli reads the
+amount from the portal and sends it with the order.
+
 Follow the order:
 
 ```bash
@@ -95,6 +99,9 @@ Pay TAO or tUSD and receive on the other chain:
 btcli bridge exit --bridge 8453 --pay-with tao --amount 1 --receive stable --to-address 0xYOUR_ADDRESS
 btcli bridge exit --bridge 8453 --pay-with tusd --amount 100 --receive alpha --netuid 64 --to-address 0xYOUR_ADDRESS
 ```
+
+The coldkey also pays the hub's exit fee in TAO, on top of the amount. The preview
+shows it. It pays for the message to the other chain.
 
 The hub queues the payment. The queue is sent each time an order arrives from the
 other chain. To send it now, with an EVM key that holds TAO for gas:

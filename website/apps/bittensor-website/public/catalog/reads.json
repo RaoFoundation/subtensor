@@ -390,8 +390,8 @@
         "container": "Rails",
         "name": "NextOrder",
         "path": "pallets/rails/src/lib.rs",
-        "line": 170,
-        "url": "/code/pallets/rails/src/lib.rs#L170",
+        "line": 174,
+        "url": "/code/pallets/rails/src/lib.rs#L174",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -399,8 +399,8 @@
         "container": "Rails",
         "name": "Receipts",
         "path": "pallets/rails/src/lib.rs",
-        "line": 174,
-        "url": "/code/pallets/rails/src/lib.rs#L174",
+        "line": 178,
+        "url": "/code/pallets/rails/src/lib.rs#L178",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -439,15 +439,6 @@
         "container": "Rails",
         "name": "TaoSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 205,
-        "url": "/code/pallets/rails/src/lib.rs#L205",
-        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
-      },
-      {
-        "kind": "storage",
-        "container": "Rails",
-        "name": "TaoCap",
-        "path": "pallets/rails/src/lib.rs",
         "line": 209,
         "url": "/code/pallets/rails/src/lib.rs#L209",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
@@ -455,10 +446,19 @@
       {
         "kind": "storage",
         "container": "Rails",
+        "name": "TaoCap",
+        "path": "pallets/rails/src/lib.rs",
+        "line": 213,
+        "url": "/code/pallets/rails/src/lib.rs#L213",
+        "raw_url": "/code/raw/pallets/rails/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Rails",
         "name": "NextOrder",
         "path": "pallets/rails/src/lib.rs",
-        "line": 170,
-        "url": "/code/pallets/rails/src/lib.rs#L170",
+        "line": 174,
+        "url": "/code/pallets/rails/src/lib.rs#L174",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]
@@ -2261,8 +2261,8 @@
         "container": "Rails",
         "name": "Tokens",
         "path": "pallets/rails/src/lib.rs",
-        "line": 193,
-        "url": "/code/pallets/rails/src/lib.rs#L193",
+        "line": 197,
+        "url": "/code/pallets/rails/src/lib.rs#L197",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {
@@ -2270,8 +2270,8 @@
         "container": "Rails",
         "name": "AlphaSupply",
         "path": "pallets/rails/src/lib.rs",
-        "line": 218,
-        "url": "/code/pallets/rails/src/lib.rs#L218",
+        "line": 229,
+        "url": "/code/pallets/rails/src/lib.rs#L229",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       },
       {

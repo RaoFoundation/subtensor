@@ -15,12 +15,15 @@ the way when the route needs it. The payment settles in this extrinsic or
 fails as a whole; the asset arrives on the other chain once the bridge has
 relayed the hub's message, usually within a minute. A bridge releases only
 the stablecoin it brought in. Fails rather than delivering less than the
-current quote less `rate_tolerance`. A plan's `preview` holds the quote
-as `receive` and `minimum`, in units of the delivered asset.
+current quote less `rate_tolerance`. The coldkey also pays the hub's exit
+fee in TAO, on top of the amount: it goes to the gateway, which pays the
+bridge for the message. A plan's `preview` holds the quote as `receive`
+and `minimum`, in units of the delivered asset, and the fee as
+`exit_fee_tao`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Rails | [`Rails.bridge_out`](/code/pallets/rails/src/lib.rs#L435-L459) |
+| `coldkey` | signed account (pallet role may apply) | Rails | [`Rails.bridge_out`](/code/pallets/rails/src/lib.rs#L451-L477) |
 
 ## Parameters
 
@@ -83,7 +86,7 @@ result = sub.execute_tool("bridge_out", {...}, wallet)
 
 ## On-chain implementation
 
-`Rails.bridge_out` — [`pallets/rails/src/lib.rs#L437`](/code/pallets/rails/src/lib.rs#L435-L459):
+`Rails.bridge_out` — [`pallets/rails/src/lib.rs#L453`](/code/pallets/rails/src/lib.rs#L451-L477):
 
 ```rust
 #[pallet::call_index(2)]
@@ -101,6 +104,7 @@ pub fn bridge_out(
     Self::ensure_bridge_enabled(bridge)?;
     let amount_out =
         Self::route_native(&who, bridge, source, amount, &destination, min_out)?;
+    let fee = Self::charge_exit_fee(&who)?;
     Self::deposit_event(Event::BridgedOut {
         who,
         bridge,
@@ -108,11 +112,12 @@ pub fn bridge_out(
         amount,
         destination,
         amount_out,
+        fee,
     });
     Ok(())
 }
 ```
 
-Delegates to [`route_native`](/code/pallets/rails/src/router.rs#L154).
+Delegates to [`route_native`](/code/pallets/rails/src/router.rs#L160).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

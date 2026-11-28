@@ -642,7 +642,7 @@
   {
     "name": "bridge_out",
     "summary": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.",
-    "description": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.\n\nPays `amount` of `pay_with` (`tusd` or `tao`) and has the bridge\ndeliver `receive` to `to_address` on its chain: `stable` (the\nstablecoin the bridge locked, one for one against tUSD), `tao`\n(canonical TAO, one for one against TAO the hub reserves) or `alpha` (the\nalpha token of `netuid`, a share of the stake the hub holds at the\nsubnet's index hotkey). TAO and tUSD trade through the canonical pool on\nthe way when the route needs it. The payment settles in this extrinsic or\nfails as a whole; the asset arrives on the other chain once the bridge has\nrelayed the hub's message, usually within a minute. A bridge releases only\nthe stablecoin it brought in. Fails rather than delivering less than the\ncurrent quote less `rate_tolerance`. A plan's `preview` holds the quote\nas `receive` and `minimum`, in units of the delivered asset.",
+    "description": "Pay TAO or tUSD on Bittensor for an asset delivered on another chain.\n\nPays `amount` of `pay_with` (`tusd` or `tao`) and has the bridge\ndeliver `receive` to `to_address` on its chain: `stable` (the\nstablecoin the bridge locked, one for one against tUSD), `tao`\n(canonical TAO, one for one against TAO the hub reserves) or `alpha` (the\nalpha token of `netuid`, a share of the stake the hub holds at the\nsubnet's index hotkey). TAO and tUSD trade through the canonical pool on\nthe way when the route needs it. The payment settles in this extrinsic or\nfails as a whole; the asset arrives on the other chain once the bridge has\nrelayed the hub's message, usually within a minute. A bridge releases only\nthe stablecoin it brought in. Fails rather than delivering less than the\ncurrent quote less `rate_tolerance`. The coldkey also pays the hub's exit\nfee in TAO, on top of the amount: it goes to the gateway, which pays the\nbridge for the message. A plan's `preview` holds the quote as `receive`\nand `minimum`, in units of the delivered asset, and the fee as\n`exit_fee_tao`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -711,9 +711,9 @@
         "pallet": "Rails",
         "call": "bridge_out",
         "path": "pallets/rails/src/lib.rs",
-        "line": 437,
-        "end_line": 459,
-        "url": "/code/pallets/rails/src/lib.rs#L435-L459",
+        "line": 453,
+        "end_line": 477,
+        "url": "/code/pallets/rails/src/lib.rs#L451-L477",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]

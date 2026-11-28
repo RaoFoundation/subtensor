@@ -94,7 +94,7 @@ canonical token that it let each spoke mint, and takes a burn only up to that co
 
 | Party | Can | Cannot |
 | --- | --- | --- |
-| Root | Add a bridge and set its portal, mint cap and mint window (`Tusd.set_bridge`). Enable a bridge. Set the gateway account and the guardian. Enable the pool. Set the pool's fee from 0.05% to 1%, and its swap limits. Open and list markets, set the caps. Register and correct registry entries. Skip an order. Pause and resume. | Mint tUSD without a bridge. Move user balances by a call of these pallets. |
+| Root | Add a bridge and set its portal, mint cap and mint window (`Tusd.set_bridge`). Enable a bridge. Set the gateway account and the guardian. Enable the pool. Set the pool's fee from 0.05% to 1%, and its swap limits. Open and list markets, set the caps. Set the exit fee. Register and correct registry entries. Skip an order. Pause and resume. | Mint tUSD without a bridge. Move user balances by a call of these pallets. |
 | Guardian (one account, named by root) | Pause the hub. Disable a bridge. Disable the pool. | Resume anything. Change any setting. Move funds. |
 | Gateway account (the mapped account of the gateway contract) | Call `Rails.execute` and `Rails.ack_outbound`. | Choose the bridge of an order: the hub derives it from the transport's origin and sender. Settle an order out of sequence, or a second time. |
 | TAO/USD oracle (one account, named by root) | Feed the TAO price. | Raise the accepted price faster than about 2% per hour. |
@@ -120,7 +120,8 @@ are the hub's caps (section 5).
 
 | Party | Can | Cannot |
 | --- | --- | --- |
-| Portal owner (timelock) | Upgrade the portal. Set the gateway address, the security module, the guardian. Resume. | Act in less than 48 hours. |
+| Portal owner (timelock) | Upgrade the portal. Set the gateway address, the security module, the guardian, the answer fee and its recipient. Resume. | Act in less than 48 hours. |
+| Fee recipient | Receive the answer fees when anyone calls `sweepFees`. | Anything else. |
 | Portal guardian | Pause the portal: no new orders and no answers. | Resume. |
 | Vault owner (timelock, fixed at deployment) | Set the release limit and the guardian. Resume releases. | Upgrade the vault. Withdraw. Change the portal or the stablecoin. |
 | Vault guardian | Stop releases. | Resume. Stop deposits: these follow the portal's pause. |
@@ -148,6 +149,7 @@ owner is a timelock and why the guardian exists.
 | The oracle feeds a wrong TAO price | Credits are valued wrong | The lower of the feed and the pool's time-weighted price counts. The feed can rise only about 2% per hour. Too few credits: the buyer's minimum refunds the order |
 | A subnet's pool is pushed up before a credits order | Fewer credits for the buyer | Alpha counts at the lower of the slow price and the spot price. The buyer's minimum refunds the order |
 | The canonical pool is pushed before an order | A worse price for the payer | The order's minimum. The swap limits make a large push take many blocks |
+| A person sends many orders that must be refunded, or many small exits | The gateway's balance of TAO pays the transport for their answers and runs out. Other payers' answers wait | Each order pays the answer fee on the spoke, and each exit the exit fee on the hub. With both at or above the transport's cost, the sender pays for what it causes |
 
 ## 6. Invariants
 
@@ -222,7 +224,8 @@ reported, and tells the vault to release only what it burned. Checked end to end
 - **I21.** The portal obeys only the Mailbox, and only messages whose origin is the
   hub's domain and whose sender is the gateway.
 - **I22.** The portal holds no stablecoin and no tokens. Invariant test
-  `invariant_ThePortalHoldsNothing`.
+  `invariant_ThePortalHoldsNothing`. It holds the answer fees, in the chain's coin,
+  and they can leave only to the fee recipient.
 - **I23.** Canonical tokens are minted only by the portal that created them. A token
   is burned only by its holder, in `sell`.
 - **I24.** The vault releases only on the portal's call, at most its allowance, and
@@ -231,6 +234,11 @@ reported, and tells the vault to release only what it burned. Checked end to end
 - **I25.** The supply of each canonical token equals what the hub counted, less burns
   that the hub has not read, plus mints that the portal has not carried out.
   Invariant test `invariant_TokensMatchTheHubsSupply`.
+- **I27.** Nothing is ordered for the zero address. The portal refuses the order
+  before it takes funds (`Wire.check`). The hub refuses it too and refunds the payer
+  (`ensure_payable`).
+- **I28.** A payout of the stablecoin is a whole number of the stablecoin's units, is
+  not zero, and is at least the order's minimum (`payable_stable`).
 - **I26.** An order has exactly one encoding. The hub decodes strictly: wrong length,
   a nonzero unused field or a value that does not fit its type is refused. Golden
   vectors are shared by `precompiles/src/rails_wire.rs` and
@@ -244,11 +252,21 @@ reported, and tells the vault to release only what it burned. Checked end to end
 2. **Liveness depends on keepers.** A relayer must deliver messages. The outbox is
    sent when an order arrives or when anyone calls `Gateway.flush`. An exit that
    starts on Bittensor waits until then. Funds are safe while they wait.
+   The gateway pays the transport for every answer from one balance of TAO. The
+   answer fees collect on the spoke, in the spoke's coin: the operator has to move
+   their value to the gateway. If the operator does not, or if a fee is set below
+   the transport's cost, the balance runs out and answers wait. The outbox is first
+   in, first out: an answer that the gateway cannot pay for holds the ones behind it.
 3. **Head-of-line blocking.** The hub takes the orders of a bridge in sequence. An
    order that the gateway cannot decode blocks the orders behind it until root skips
    it. The payer's funds of a skipped order stay on the spoke, and the owner has to
    return them by governance. A portal that follows `Wire.sol` cannot produce such an
    order.
+25. **A recipient that cannot receive.** The zero address is refused. Other addresses
+    are not checked: a release to an address that the stablecoin's issuer blocks
+    reverts each time the transport tries it. The hub has settled such an order, so
+    the stablecoin stays in the vault until the owner acts. It does not hold other
+    answers: the portal carries answers out in any order.
 4. **A release can wait.** If a release is larger than the vault's allowance, the
    answer reverts on the spoke and the transport tries again later. A release that is
    larger than the limit itself waits until the owner raises the limit. Set the limit

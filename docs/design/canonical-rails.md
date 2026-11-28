@@ -165,7 +165,18 @@ sequence, or the outbox is full.
 | TAO on Bittensor | transfers TAO to an account |
 
 **Refunds.** A refund returns the asset that the payer paid. A deposit of USDC returns
-as USDC. Burned tokens are minted back. A refund is whole: no fee is taken.
+as USDC. Burned tokens are minted back. A refund is whole: the hub takes nothing from
+it.
+
+**What cannot be paid is not settled.** An order for the zero address would settle on
+the hub and then never pay out, because a token cannot be minted to that address. The
+portal refuses such an order before it takes any funds. The hub refuses it too and
+refunds the payer.
+
+**The stablecoin is paid in whole units.** USDC has 6 decimals and the hub counts in 9.
+The hub tells the vault to release whole units of the stablecoin, and the order's
+minimum counts those units. The part of the tUSD below one unit is burned with the
+rest, and its stablecoin stays in the vault.
 
 **Minimum and deadline.** Each order carries `minOut` and `deadline`. If the route
 would deliver less than `minOut`, or the hub sees the order after `deadline`, the hub
@@ -206,6 +217,21 @@ holds at most 1,024 messages.
 **From Bittensor.** An account on Bittensor pays TAO or tUSD with `Rails.bridge_out`
 and receives the stablecoin, canonical TAO or an alpha token on a spoke. The call
 fails as a whole if it would deliver less than its minimum.
+
+**Each order pays for its answer.** The gateway pays the transport for every answer
+from one balance of TAO. An order that is refunded has an answer too. If answers were
+free, a person could send many orders that must be refunded, use up that balance, and
+make the answers of other payers wait. So each payment pays for its own message where
+it starts:
+
+- an order on a spoke pays the portal's **answer fee**, in the spoke's coin, on top of
+  the transport's fee for the order. The owner sets it. The fees collect in the
+  portal, and anyone can send them on to the fee recipient: the operator that keeps
+  the gateway funded;
+- a payment through `Rails.bridge_out` pays the **exit fee** in TAO, on top of what it
+  sends. Root sets it. It goes to the gateway account directly.
+
+Set each fee to at least what the transport charges the gateway for one message.
 
 **The registry.** `Rails.Tokens` lists, for each bridge and asset, the address, the
 name and the symbol of the canonical token. Wallets and integrators read it to tell
@@ -318,9 +344,10 @@ block.
 - `Vault` (not upgradeable). It holds the USDC. A payer deposits here, so an approval
   of USDC is only given to code that cannot change. The portal can do one thing at
   the vault: release USDC, inside a rate limit that only the owner changes.
-- `Portal` (UUPS, upgradeable). It holds no funds and takes no approvals. It numbers
-  the orders, sends them, and carries out the hub's answers. Each answer is carried
-  out one time.
+- `Portal` (UUPS, upgradeable). It holds no stablecoin and no tokens, and it takes no
+  approvals. It numbers the orders, sends them, and carries out the hub's answers.
+  Each answer is carried out one time. It holds only the answer fees, in the chain's
+  coin, until `sweepFees` sends them to their recipient.
 - `CanonicalTao` and `AlphaToken` (not upgradeable). Only the portal mints, when the
   hub says so. Only a holder burns, by calling `sell` on the token. The portal cannot
   take tokens from anyone.
@@ -414,6 +441,8 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 | Pool swap limit | 2% of the reserve | root |
 | Pool flow limit | 20% of the reserve per 300 blocks | root |
 | Vault release limit (spoke) | set at deployment | the timelock |
+| Answer fee of an order (spoke) | set at deployment | the timelock |
+| Exit fee of `bridge_out` (hub) | 0 until set | root |
 | Outbox length | 1,024 messages | runtime constant |
 
 | Switch | Who turns it off | Who turns it on |
@@ -492,6 +521,13 @@ Jacob holds the multisig and the guardian keys at the start.
 22. **The swap page** reads its addresses from a config file. It is not in the site's
     header until the rails are live. In local mode it has a faucet and a test
     account.
+23. **Each order pays for its answer**: an answer fee on the spoke, an exit fee on the
+    hub. Without them, refunds would be sent at the cost of the gateway's one
+    balance.
+24. **Nothing is ordered for the zero address.** The portal refuses, and the hub
+    refunds.
+25. **The stablecoin minimum counts whole units** of the stablecoin, not the hub's 9
+    decimals.
 
 ## 9. Room for what is not built
 
@@ -525,4 +561,5 @@ just rails-contracts # the contracts' unit, fuzz and invariant tests
 - Deploy the timelocks, the gateway, the vault and the portal, and transfer nothing to
   a plain account.
 - Set the caps low at the start. Enable the bridge, then the pool.
-- Run a flusher and the oracle feed.
+- Set the answer fee and the exit fee to at least the transport's cost of one message.
+- Run a flusher and the oracle feed. Keep the gateway funded from the answer fees.
