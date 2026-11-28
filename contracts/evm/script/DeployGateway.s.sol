@@ -15,8 +15,6 @@ import {IMailbox} from "../src/interfaces/IMailbox.sol";
 /// - `MULTISIG`: proposes and executes through the timelock.
 /// - `GUARDIAN`: may pause.
 /// - `TIMELOCK_DELAY`: seconds. Defaults to 48 hours.
-/// - `FLUSH_LIMIT`: the most answers handed to the transport after one order. Defaults
-///   to 8.
 /// - `OUTPUT`: where to write the addresses, under `deployments/`.
 contract DeployGateway is Script {
     function run() external {
@@ -24,7 +22,6 @@ contract DeployGateway is Script {
         address multisig = vm.envAddress("MULTISIG");
         address guardian = vm.envAddress("GUARDIAN");
         uint256 delay = vm.envOr("TIMELOCK_DELAY", uint256(48 hours));
-        uint256 flushLimit = vm.envOr("FLUSH_LIMIT", uint256(8));
 
         vm.startBroadcast();
         address[] memory holders = new address[](1);
@@ -34,9 +31,7 @@ contract DeployGateway is Script {
         address gateway = address(
             new ERC1967Proxy(
                 address(implementation),
-                abi.encodeCall(
-                    Gateway.initialize, (address(timelock), guardian, mailbox, flushLimit)
-                )
+                abi.encodeCall(Gateway.initialize, (address(timelock), guardian, mailbox))
             )
         );
         vm.stopBroadcast();

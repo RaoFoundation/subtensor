@@ -19,6 +19,8 @@ contract MockMailbox is IMailbox {
     uint256 public fee;
     /// @notice What `dispatch` charges on top of `fee` for a message to a destination.
     mapping(uint32 destination => uint256) public extraFee;
+    /// @notice What `dispatch` charges on top of that for each byte of a message.
+    uint256 public feePerByte;
     /// @notice Destinations that `dispatch` refuses.
     mapping(uint32 destination => bool) public blocked;
     Message[] public sent;
@@ -33,6 +35,10 @@ contract MockMailbox is IMailbox {
 
     function setExtraFee(uint32 destination, uint256 extraFee_) external {
         extraFee[destination] = extraFee_;
+    }
+
+    function setFeePerByte(uint256 feePerByte_) external {
+        feePerByte = feePerByte_;
     }
 
     function setBlocked(uint32 destination, bool blocked_) external {
@@ -52,18 +58,22 @@ contract MockMailbox is IMailbox {
         payable
         returns (bytes32)
     {
-        require(msg.value == fee + extraFee[destination], "MockMailbox: wrong fee");
+        require(msg.value == _charge(destination, body), "MockMailbox: wrong fee");
         require(!blocked[destination], "MockMailbox: destination blocked");
         sent.push(Message(destination, recipient, body, msg.value));
         return keccak256(abi.encode(sent.length, destination, recipient, body));
     }
 
-    function quoteDispatch(uint32 destination, bytes32, bytes calldata)
+    function quoteDispatch(uint32 destination, bytes32, bytes calldata body)
         external
         view
         returns (uint256)
     {
-        return fee + extraFee[destination];
+        return _charge(destination, body);
+    }
+
+    function _charge(uint32 destination, bytes calldata body) private view returns (uint256) {
+        return fee + extraFee[destination] + feePerByte * body.length;
     }
 
     /// @notice Delivers `body` to `recipient` as a message from `sender` on `origin`.

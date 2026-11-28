@@ -6,9 +6,10 @@ import {IRails} from "precompiles/rails.sol";
 /// @notice The hub's precompile for tests of the gateway: it records what it is asked and
 /// answers what a test set. It keeps the hub's rules for who pays the transport: each
 /// bridge has its own TAO, a reserve and a ceiling, a message is queued only if that TAO
-/// covers the reserve for every queued message, and the caller of `ackOutbound` is handed
-/// what it pays the transport, up to the reserve and what the bridge's TAO can spare
-/// above the reserves of its queue, and never more than the ceiling.
+/// covers the reserve for every message that has not left, and the caller of `ackOutbound`
+/// is handed what it pays the transport, up to the reserve and what the bridge's TAO can
+/// spare above the reserves of the waiting messages, and never more than the ceiling. The
+/// head of a queue can be deferred, and leaves later.
 contract MockRails is IRails {
     struct Outbound {
         uint32 domain;
@@ -27,6 +28,9 @@ contract MockRails is IRails {
     /// @notice The queue of each bridge, and how far the gateway has taken it.
     mapping(uint32 bridge => Outbound[]) public outbox;
     mapping(uint32 bridge => uint64) public head;
+    /// @notice The deferred messages: before the head, and not yet out of the hub.
+    mapping(uint32 bridge => mapping(uint64 nonce => bool)) public deferred;
+    mapping(uint32 bridge => uint256) public deferredCount;
     /// @notice What the account of each bridge holds for its messages, in wei. This
     /// contract holds it, as the hub's accounts do.
     mapping(uint32 bridge => uint256) public budget;
@@ -72,12 +76,17 @@ contract MockRails is IRails {
         ceiling[bridge] = ceiling_;
     }
 
-    /// @notice The most the hub pays for the message at the head of the queue of `bridge`
-    /// now, as `Rails.message_limit` computes it.
+    /// @notice The most the hub pays for one message of `bridge` now, as
+    /// `Rails.message_limit` computes it.
     function limit(uint32 bridge) public view returns (uint256) {
         uint256 spare = budget[bridge] - reserve[bridge] * _queued(bridge);
         uint256 pays = reserve[bridge] + spare;
         return pays < ceiling[bridge] ? pays : ceiling[bridge];
+    }
+
+    /// @notice The messages of `bridge` that have not left: in line, or deferred.
+    function waiting(uint32 bridge) external view returns (uint256) {
+        return _queued(bridge);
     }
 
     /// @notice Queues a message for `bridge`. In these tests a bridge's id is its domain.
@@ -86,7 +95,12 @@ contract MockRails is IRails {
     }
 
     function _queued(uint32 bridge) private view returns (uint256) {
-        return outbox[bridge].length - head[bridge];
+        return outbox[bridge].length - head[bridge] + deferredCount[bridge];
+    }
+
+    /// The gateway can take the head of the queue and the deferred messages.
+    function _canLeave(uint32 bridge, uint64 nonce) private view returns (bool) {
+        return nonce < outbox[bridge].length && (nonce == head[bridge] || deferred[bridge][nonce]);
     }
 
     /// The hub queues a message only if the bridge's account holds the reserve for every
@@ -117,17 +131,39 @@ contract MockRails is IRails {
     }
 
     function ackOutbound(uint32 bridge, uint64 nonce, uint256 paid) external {
-        require(
-            nonce == head[bridge] && nonce < outbox[bridge].length,
-            "dispatch execution failed: NotOutboxHead"
-        );
+        require(_canLeave(bridge, nonce), "dispatch execution failed: NotOutboxHead");
         require(paid <= limit(bridge), "dispatch execution failed: FeeAboveLimit");
         budget[bridge] -= paid;
-        head[bridge]++;
+        if (deferred[bridge][nonce]) {
+            deferred[bridge][nonce] = false;
+            deferredCount[bridge]--;
+        } else {
+            head[bridge]++;
+        }
         // The hub moves what the caller pays the transport from the bridge's account to
         // the caller.
         (bool handed,) = msg.sender.call{value: paid}("");
         require(handed, "MockRails: the caller takes no TAO");
+    }
+
+    function deferOutbound(uint32 bridge, uint64 nonce) external {
+        require(
+            nonce == head[bridge] && nonce < outbox[bridge].length,
+            "dispatch execution failed: NotOutboxHead"
+        );
+        head[bridge]++;
+        deferred[bridge][nonce] = true;
+        deferredCount[bridge]++;
+    }
+
+    function outbound(uint32 bridge, uint64 nonce)
+        external
+        view
+        returns (bool pending, uint32 domain, bytes32 recipient, bytes memory body, uint256 limit_)
+    {
+        if (!_canLeave(bridge, nonce)) return (false, 0, bytes32(0), "", 0);
+        Outbound storage message = outbox[bridge][nonce];
+        return (true, message.domain, message.recipient, message.body, limit(bridge));
     }
 
     function nextOutbound(uint32 bridge)
