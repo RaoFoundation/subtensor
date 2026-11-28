@@ -19,19 +19,46 @@ interface IRails {
         bytes calldata order
     ) external returns (uint8 status, uint64 amountOut, uint32 bridge);
 
-    /// @notice Removes message `nonce`, the head of the hub's queue for `bridge`, and
-    /// moves `paid` from the bridge's account on the hub to the caller. The hub takes this
-    /// call only from the gateway contract, which makes it in the transaction that pays
-    /// the transport and hands it the message. Reverts if `paid` is more than the hub
-    /// pays for the message: the limit that `nextOutbound` returns. The bridge's account
-    /// holds a reserve for every queued message, and pays for the messages of that
-    /// bridge alone.
+    /// @notice Removes message `nonce` of `bridge`, the head of the hub's queue or a
+    /// deferred message, and moves `paid` from the bridge's account on the hub to the
+    /// caller. The hub takes this call only from the gateway contract, which makes it in
+    /// the transaction that pays the transport and hands it the message. Reverts if `paid`
+    /// is more than the hub pays for the message: the limit that `nextOutbound` and
+    /// `outbound` return. The bridge's account holds a reserve for every message that has
+    /// not left, and pays for the messages of that bridge alone.
     /// @param paid What the gateway pays the transport for the message from the hub's TAO,
     /// in wei. The hub counts it in its own unit, rounded up.
     function ackOutbound(uint32 bridge, uint64 nonce, uint256 paid) external;
 
+    /// @notice Defers message `nonce`, the head of the hub's queue for `bridge`: takes it
+    /// out of the line, so that the messages behind it can leave. The message stays in the
+    /// hub, with its reserve, and `outbound` returns it. The hub takes this call only from
+    /// the gateway contract, which makes it for a message that is not paid for.
+    function deferOutbound(uint32 bridge, uint64 nonce) external;
+
+    /// @notice Message `nonce` of `bridge`, if the gateway can take it now: the head of
+    /// the hub's queue for the bridge, or a deferred message.
+    /// @return pending Whether the gateway can take it.
+    /// @return domain The transport domain of the portal it goes to.
+    /// @return recipient That portal.
+    /// @return body The message, as the portal decodes it.
+    /// @return limit The most the hub pays the transport for the message now, in wei.
+    function outbound(
+        uint32 bridge,
+        uint64 nonce
+    )
+        external
+        view
+        returns (
+            bool pending,
+            uint32 domain,
+            bytes32 recipient,
+            bytes memory body,
+            uint256 limit
+        );
+
     /// @notice The message at the head of the hub's queue for `bridge`. Each bridge has
-    /// its own queue, first in first out.
+    /// its own queue, and the gateway takes it in order.
     /// @return pending Whether there is a message.
     /// @return nonce Its nonce, to pass to `ackOutbound`.
     /// @return domain The transport domain of the portal it goes to.

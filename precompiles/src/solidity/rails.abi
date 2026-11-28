@@ -67,6 +67,68 @@
 				"internalType": "uint32",
 				"name": "bridge",
 				"type": "uint32"
+			},
+			{
+				"internalType": "uint64",
+				"name": "nonce",
+				"type": "uint64"
+			}
+		],
+		"name": "deferOutbound",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint32",
+				"name": "bridge",
+				"type": "uint32"
+			},
+			{
+				"internalType": "uint64",
+				"name": "nonce",
+				"type": "uint64"
+			}
+		],
+		"name": "outbound",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "pending",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint32",
+				"name": "domain",
+				"type": "uint32"
+			},
+			{
+				"internalType": "bytes32",
+				"name": "recipient",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "bytes",
+				"name": "body",
+				"type": "bytes"
+			},
+			{
+				"internalType": "uint256",
+				"name": "limit",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint32",
+				"name": "bridge",
+				"type": "uint32"
 			}
 		],
 		"name": "nextOutbound",

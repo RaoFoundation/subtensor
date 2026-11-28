@@ -3,11 +3,14 @@
 //!
 //! The gateway receives a portal's order from the transport and hands it to `execute`,
 //! which dispatches `Rails::execute` signed by the caller. The hub takes the call only from
-//! the gateway's account, so `execute` is safe to expose: any other caller is refused. The
-//! gateway then reads the hub's answers for that bridge with `nextOutbound`, and for each
-//! one tells the hub what the transport charges (`ackOutbound`), pays the transport and
-//! hands it the message. The hub moves that charge from the account of the bridge to the
-//! gateway, and refuses a charge above what it pays for the message.
+//! the gateway's account, so `execute` is safe to expose: any other caller is refused.
+//!
+//! In transactions of its own, the gateway reads the hub's messages for a bridge with
+//! `nextOutbound`, and for each one tells the hub what the transport charges
+//! (`ackOutbound`), pays the transport and hands it the message. The hub moves that charge
+//! from the account of the bridge to the gateway, and refuses a charge above what it pays
+//! for the message. The gateway defers a message that is not paid for (`deferOutbound`),
+//! and sends it later (`outbound`, `ackOutbound`).
 //!
 //! The views let a client quote an order, follow it, and read the rate of an alpha token
 //! and the credits of an address through an Ethereum RPC. The precompile emits no logs:
@@ -126,9 +129,10 @@ where
         Ok((status, amount_out, bridge))
     }
 
-    /// Removes message `nonce`, the head of the hub's queue for `bridge`, and moves `paid`
-    /// from the bridge's account on the hub to the caller: what the caller pays the
-    /// transport for the message from the hub's TAO, in the EVM's unit, with 18 decimals.
+    /// Removes message `nonce` of `bridge`, the head of the hub's queue or a deferred
+    /// message, and moves `paid` from the bridge's account on the hub to the caller:
+    /// what the caller pays the transport for the message from the hub's TAO, in the EVM's
+    /// unit, with 18 decimals.
     /// The hub counts it in its own unit, rounded up. Signed by the caller: the hub takes
     /// it only from the gateway, which calls this in the transaction that pays the
     /// transport and hands it the message. Fails if `paid` is more than the hub pays for
@@ -149,6 +153,52 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(gateway))
     }
 
+    /// Defers message `nonce`, the head of the hub's queue for `bridge`: takes it out of
+    /// the line, so that the messages behind it can leave. The message stays in the hub.
+    /// Signed by the caller: the hub takes it only from the gateway, which calls it for a
+    /// message that is not paid for.
+    #[precompile::public("deferOutbound(uint32,uint64)")]
+    fn defer_outbound(
+        handle: &mut impl PrecompileHandle,
+        bridge: u32,
+        nonce: u64,
+    ) -> EvmResult<()> {
+        let gateway = handle.caller_account_id::<R>()?;
+        let call = pallet_rails::Call::<R>::defer_outbound { bridge, nonce };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(gateway))
+    }
+
+    /// Message `nonce` of `bridge`, if the gateway can take it now: whether it can, the
+    /// transport domain and portal the message goes to, its body as the portal reads it,
+    /// and the most the hub pays the transport for it now, in the EVM's unit. The gateway
+    /// can take the head of the bridge's queue and the deferred messages.
+    #[precompile::public("outbound(uint32,uint64)")]
+    #[precompile::view]
+    fn outbound(
+        handle: &mut impl PrecompileHandle,
+        bridge: u32,
+        nonce: u64,
+    ) -> EvmResult<(bool, u32, H256, UnboundedBytes, U256)> {
+        // The message and its route: 4 reads. The hub's limit: 6.
+        handle.record_db_reads::<R>(10)?;
+        Ok(match pallet_rails::Pallet::<R>::outbound(bridge, nonce) {
+            Some((domain, portal, outbound)) => (
+                true,
+                domain,
+                portal,
+                rails_wire::encode_message(&outbound).into(),
+                limit_of::<R>(bridge)?,
+            ),
+            None => (
+                false,
+                0,
+                H256::zero(),
+                UnboundedBytes::from(&[][..]),
+                U256::zero(),
+            ),
+        })
+    }
+
     /// The message at the head of the hub's queue for `bridge`: whether there is one, its
     /// nonce, the transport domain and portal it goes to, its body as the portal reads
     /// it, and the most the hub pays the transport for it now, in the EVM's unit.
@@ -158,7 +208,8 @@ where
         handle: &mut impl PrecompileHandle,
         bridge: u32,
     ) -> EvmResult<(bool, u64, u32, H256, UnboundedBytes, U256)> {
-        handle.record_db_reads::<R>(8)?;
+        // The head of the queue: 2 reads. Then as `outbound`.
+        handle.record_db_reads::<R>(12)?;
         Ok(match pallet_rails::Pallet::<R>::next_outbound(bridge) {
             Some((domain, portal, outbound)) => (
                 true,
@@ -281,8 +332,7 @@ where
     })
 }
 
-/// The most the hub pays for the message at the head of the queue of `bridge` now, in the
-/// EVM's unit of TAO.
+/// The most the hub pays for one message of `bridge` now, in the EVM's unit of TAO.
 fn limit_of<R: pallet_evm::Config + pallet_rails::Config>(bridge: u32) -> EvmResult<U256> {
     let limit = pallet_rails::Pallet::<R>::message_limit(bridge);
     <R as pallet_evm::Config>::BalanceConverter::into_evm_balance(SubstrateBalance::from(
@@ -728,6 +778,93 @@ mod tests {
                 budget - TaoBalance::from(2 * RESERVE)
             );
             assert_eq!(next_outbound(), None);
+        });
+    }
+
+    #[test]
+    fn the_gateway_defers_a_message_and_sends_it_later() {
+        rails_ext().execute_with(|| {
+            // Listing the market queued the token's registration. An order queues a credit
+            // behind it.
+            let (first, registration) = next_outbound().unwrap();
+            let bought = deliver(&order(
+                0,
+                SpokeAsset::Stable,
+                4_000 * UNIT,
+                Destination::Tao { to: wallet() },
+            ));
+            assert_eq!(bought.0, STATUS_SETTLED);
+            let defer = |caller: H160, nonce: u64| {
+                execute_precompile(
+                    &precompiles::<RailsPrecompile<Runtime>>(),
+                    rails(),
+                    caller,
+                    encode_with_selector(
+                        selector_u32("deferOutbound(uint32,uint64)"),
+                        (BASE, nonce),
+                    ),
+                    U256::zero(),
+                )
+                .unwrap()
+                .is_ok()
+            };
+            let outbound_input = |nonce: u64| {
+                encode_with_selector(selector_u32("outbound(uint32,uint64)"), (BASE, nonce))
+            };
+            let nothing = (
+                false,
+                0u32,
+                H256::zero(),
+                UnboundedBytes::from(Vec::new()),
+                U256::zero(),
+            );
+            let limit = U256::from(RESERVE) * U256::from(1_000_000_000u64);
+
+            // The gateway can take the head, and no message behind it.
+            precompiles::<RailsPrecompile<Runtime>>()
+                .prepare_test(stranger(), rails(), outbound_input(first + 1))
+                .with_static_call(true)
+                .execute_returns(nothing.clone());
+
+            // Only the gateway defers a message, and only the head.
+            let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            assert!(!defer(stranger(), first));
+            assert!(!defer(gateway(), first + 1));
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+            assert!(defer(gateway(), first));
+
+            // The credit is the head now. The registration has not left: the gateway
+            // reads it by its nonce.
+            let (second, credit) = next_outbound().unwrap();
+            assert_eq!(second, first + 1);
+            precompiles::<RailsPrecompile<Runtime>>()
+                .prepare_test(stranger(), rails(), outbound_input(first))
+                .with_static_call(true)
+                .execute_returns((
+                    true,
+                    BASE,
+                    portal(),
+                    UnboundedBytes::from(registration),
+                    limit,
+                ));
+            precompiles::<RailsPrecompile<Runtime>>()
+                .prepare_test(stranger(), rails(), outbound_input(second))
+                .with_static_call(true)
+                .execute_returns((true, BASE, portal(), UnboundedBytes::from(credit), limit));
+
+            // The credit leaves first, and the registration after it. Each leaves once.
+            assert!(ack(gateway(), second));
+            assert!(!ack(stranger(), first));
+            assert!(ack(gateway(), first));
+            assert!(!ack(gateway(), first));
+            for nonce in [first, second] {
+                precompiles::<RailsPrecompile<Runtime>>()
+                    .prepare_test(stranger(), rails(), outbound_input(nonce))
+                    .with_static_call(true)
+                    .execute_returns(nothing.clone());
+            }
+            assert_eq!(next_outbound(), None);
+            assert_ok!(Rails::do_try_state());
         });
     }
 
