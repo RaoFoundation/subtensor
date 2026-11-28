@@ -509,14 +509,15 @@ class Rails(_ReadNamespace):
         stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
         and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-        The last four fields say who pays for the hub's messages to the bridge's
+        The last five fields say who pays for the hub's messages to the bridge's
         chain. `message_account` holds the TAO for them, and `message_budget` is
         what it can pay: its balance less the existential deposit. `message_reserve`
-        is the most the hub pays for one message, or None while it is not set.
-        `messages_waiting` is how many wait for the gateway. The hub takes an order
-        of the bridge only while the account holds the reserve for every waiting
-        message and one more. Anyone can pay into the account
-        (`Rails.fund_messages`).
+        is what the hub sets aside for each message, or None while it is not set,
+        and `message_ceiling` is the most the hub pays for one: above the reserve
+        it pays from what the account can spare. `messages_waiting` is how many
+        wait for the gateway. The hub takes an order of the bridge only while the
+        account holds the reserve for every waiting message and one more. Anyone
+        can pay into the account (`Rails.fund_messages`).
         """
 
     async def canonical_pool(self, *, block: Optional[int] = None) -> dict:

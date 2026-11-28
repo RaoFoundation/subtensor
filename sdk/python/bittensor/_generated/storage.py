@@ -578,6 +578,7 @@ class Rails:
     NextOutbound = Item('Rails', 'NextOutbound', 'u64')
     Outbox = Item('Rails', 'Outbox', 'Message')
     MessageReserve = Item('Rails', 'MessageReserve', 'TaoBalance')
+    MessageCeiling = Item('Rails', 'MessageCeiling', 'TaoBalance')
     Tokens = Item('Rails', 'Tokens', 'TokenInfo')
     TaoSupply = Item('Rails', 'TaoSupply', 'TaoBalance')
     TaoCap = Item('Rails', 'TaoCap', 'TaoBalance')

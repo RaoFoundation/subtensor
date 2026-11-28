@@ -468,7 +468,9 @@ def list_bridges(ctx: typer.Context):
             r["mint_cap_tusd"],
             str(r["tao_supply"]),
             r["next_order"],
-            "not set" if r["message_reserve"] is None else str(r["message_reserve"]),
+            "not set"
+            if r["message_reserve"] is None
+            else f"{r['message_reserve']} / {r['message_ceiling']}",
             str(r["message_budget"]),
             r["messages_waiting"],
             r["portal"],
@@ -485,7 +487,7 @@ def list_bridges(ctx: typer.Context):
             "cap",
             "canonical TAO",
             "orders",
-            "message reserve",
+            "message reserve / ceiling",
             "message budget",
             "waiting",
             "portal",
@@ -531,8 +533,8 @@ def flush(
     pay_up_to: Optional[str] = typer.Option(
         None,
         "--pay-up-to",
-        help="The most TAO to pay towards what the transport charges above the bridge's "
-        "reserve. What is not needed comes back.",
+        help="The most TAO to pay towards what the transport charges above what the hub "
+        "pays. What is not needed comes back.",
     ),
     key: Optional[str] = typer.Option(None, "--evm-key", help=EVM_KEY_HELP),
     rpc_url: Optional[str] = RPC_URL_OPTION,
@@ -547,9 +549,11 @@ def flush(
     now. Anyone may call it, and it can only send what the hub already decided.
     The EVM key pays the gas in TAO.
 
-    The hub pays the transport for each message, up to the bridge's reserve
-    (`btcli bridge list`). If the transport charges more, the messages wait
-    until somebody pays the difference: `--pay-up-to` does, from the EVM key.
+    The hub pays the transport for each message, up to a limit: the bridge's
+    reserve, and above it what the bridge's account can spare, up to the
+    bridge's ceiling (`btcli bridge list`). If the transport charges more, the
+    messages wait until somebody pays the difference: `--pay-up-to` does, from
+    the EVM key.
     """
     app_ctx = ctx_of(ctx)
     try:

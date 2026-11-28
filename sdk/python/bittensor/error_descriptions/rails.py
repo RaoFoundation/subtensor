@@ -31,6 +31,12 @@ DESCRIPTIONS: dict[str, str] = {
         "Another bridge already uses this portal address on this transport domain. Each portal "
         "belongs to one bridge; check `Tusd.BridgeByPortal`."
     ),
+    "RouteIsFixed": (
+        "The bridge exists, and its route (chain, transport domain, portal and stablecoin) "
+        "cannot change: what the bridge has outstanding is in the vault of its portal. "
+        "`Tusd.set_bridge` changes only the mint cap and the mint window of an existing "
+        "bridge. A new portal is a new bridge, with a new id."
+    ),
     # ── CanonicalPool ───────────────────────────────────────────────────
     "PoolDisabled": (
         "The tUSD/TAO pool is disabled: swaps and deposits wait until the admin origin enables "
@@ -164,10 +170,16 @@ DESCRIPTIONS: dict[str, str] = {
         "pay into the account with `Rails.fund_messages`; orders wait with the transport "
         "until then."
     ),
-    "FeeAboveReserve": (
-        "The gateway asked the hub for more than the bridge's reserve for one message "
-        "(`Rails.MessageReserve`). The hub pays no more: who calls the gateway's `flush` "
-        "pays the difference, or the admin raises the reserve. This call is not for accounts."
+    "FeeAboveLimit": (
+        "The gateway asked the hub for more than the hub pays for the message: more than the "
+        "bridge's ceiling (`Rails.MessageCeiling`), or more than its reserve "
+        "(`Rails.MessageReserve`) while the bridge's account has nothing to spare. Anyone can "
+        "pay into the account (`Rails.fund_messages`), who calls the gateway's `flush` can pay "
+        "the difference, or the admin raises the ceiling. This call is not for accounts."
+    ),
+    "CeilingBelowReserve": (
+        "The most the hub pays for one message of a bridge (the ceiling) cannot be less than "
+        "what it sets aside for one (the reserve). Give a ceiling at or above the reserve."
     ),
     "GatewayNotFunded": (
         "The account named as the gateway does not hold the existential deposit. Send it "

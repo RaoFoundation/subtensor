@@ -1992,7 +1992,7 @@ class Tusd:
 
     @staticmethod
     def set_bridge(id: 'u32', route: 'BridgeRoute', mint_cap: 'TusdBalance', window_limit: 'TusdBalance', window_period: 'u32') -> Call:
-        'Registers bridge `id`, or changes its terms. A new bridge starts disabled. A changed bridge keeps what it has outstanding, what its window has consumed and whether it is enabled.'
+        'Registers bridge `id`, or changes its mint cap and mint window. A new bridge starts disabled. A changed bridge keeps what it has outstanding, what its window has consumed and whether it is enabled.  The route of a bridge is set once. What a bridge has outstanding is backed by the stablecoin in the vault of its portal, and what it still has to pay out is paid by that portal: another portal could pay neither. A new portal is a new bridge.'
         return Call('Tusd', 'set_bridge', {'id': id, 'route': route, 'mint_cap': mint_cap, 'window_limit': window_limit, 'window_period': window_period})
 
     @staticmethod
@@ -2050,7 +2050,7 @@ class Rails:
 
     @staticmethod
     def ack_outbound(bridge: 'u32', nonce: 'u64', paid: 'TaoBalance') -> Call:
-        "Takes message `nonce`, the head of the queue of `bridge`, out of it, and moves `paid`, what the transport charges the gateway for the message, from the bridge's account to the gateway. Only the gateway may call this, in the transaction in which it pays the transport and hands it the message: if that fails, this is undone with it.  Fails if `paid` is more than the bridge's reserve: the hub pays no more for one message. The bridge's account holds the reserve for every queued message, so a charge up to the reserve can always be paid."
+        "Takes message `nonce`, the head of the queue of `bridge`, out of it, and moves `paid`, what the transport charges the gateway for the message, from the bridge's account to the gateway. Only the gateway may call this, in the transaction in which it pays the transport and hands it the message: if that fails, this is undone with it.  Fails if `paid` is more than the hub pays for this message ([`Pallet::message_limit`]). The bridge's account holds the reserve for every queued message, so a charge up to the reserve can always be paid."
         return Call('Rails', 'ack_outbound', {'bridge': bridge, 'nonce': nonce, 'paid': paid})
 
     @staticmethod
@@ -2099,9 +2099,9 @@ class Rails:
         return Call('Rails', 'set_market_cap', {'netuid': netuid, 'cap': cap})
 
     @staticmethod
-    def set_message_reserve(bridge: 'u32', reserve: 'TaoBalance') -> Call:
-        "Sets the most the hub pays the transport for one message to the spoke of `bridge`. Set it above what the transport charges. A bridge takes no order before this is set; zero says that the hub pays nothing.  Fails if the bridge's account does not hold the new reserve for every message in its queue: pay in first ([`Pallet::fund_messages`])."
-        return Call('Rails', 'set_message_reserve', {'bridge': bridge, 'reserve': reserve})
+    def set_message_reserve(bridge: 'u32', reserve: 'TaoBalance', ceiling: 'TaoBalance') -> Call:
+        "Sets what the hub pays the transport for one message to the spoke of `bridge`.  - `reserve`: what the hub sets aside for each queued message. Set it above what the transport charges. Zero says that the hub sets nothing aside. - `ceiling`: the most the hub pays for one message, at least `reserve`. What a message costs above the reserve comes from what the bridge's account holds beyond the reserves of its queue. It is the bound on what a wrong price from the transport can take for one message.  A bridge takes no order before this is set. Fails if the bridge's account does not hold the new reserve for every message in its queue: pay in first ([`Pallet::fund_messages`])."
+        return Call('Rails', 'set_message_reserve', {'bridge': bridge, 'reserve': reserve, 'ceiling': ceiling})
 
     @staticmethod
     def set_paused(paused: 'bool') -> Call:

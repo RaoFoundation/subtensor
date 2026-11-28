@@ -151,14 +151,15 @@ async def bridges(view) -> list[dict]:
     stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
     and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-    The last four fields say who pays for the hub's messages to the bridge's
+    The last five fields say who pays for the hub's messages to the bridge's
     chain. `message_account` holds the TAO for them, and `message_budget` is
     what it can pay: its balance less the existential deposit. `message_reserve`
-    is the most the hub pays for one message, or None while it is not set.
-    `messages_waiting` is how many wait for the gateway. The hub takes an order
-    of the bridge only while the account holds the reserve for every waiting
-    message and one more. Anyone can pay into the account
-    (`Rails.fund_messages`).
+    is what the hub sets aside for each message, or None while it is not set,
+    and `message_ceiling` is the most the hub pays for one: above the reserve
+    it pays from what the account can spare. `messages_waiting` is how many
+    wait for the gateway. The hub takes an order of the bridge only while the
+    account holds the reserve for every waiting message and one more. Anyone
+    can pay into the account (`Rails.fund_messages`).
     """
     view = await view.at()
     rows = await view.query_map(st.Tusd.Bridges)
@@ -171,6 +172,7 @@ async def bridges(view) -> list[dict]:
         tao_cap = await view.query(st.Rails.TaoCap, [bridge_id])
         next_order = await view.query(st.Rails.NextOrder, [bridge_id])
         reserve = await view.query(st.Rails.MessageReserve, [bridge_id])
+        ceiling = await view.query(st.Rails.MessageCeiling, [bridge_id])
         account = await view.runtime(api.RailsApi.message_account, [bridge_id])
         budget = await view.runtime(api.RailsApi.message_budget, [bridge_id])
         queued = await view.query(st.Rails.NextMessage, [bridge_id])
@@ -189,6 +191,7 @@ async def bridges(view) -> list[dict]:
                 "tao_cap": view.balance(int(tao_cap or 0), 0),
                 "next_order": int(next_order or 0),
                 "message_reserve": None if reserve is None else view.balance(int(reserve), 0),
+                "message_ceiling": view.balance(int(ceiling or 0), 0),
                 "message_account": str(account),
                 "message_budget": view.balance(int(budget or 0), 0),
                 "messages_waiting": int(queued or 0) - int(taken or 0),

@@ -493,6 +493,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (34, 5): ErrorInfo('Tusd', 'MintRateLimited', 'The bridge has minted as much as its window allows for now.'),
     (34, 6): ErrorInfo('Tusd', 'RedeemExceedsOutstanding', 'The bridge cannot burn more than it has outstanding.'),
     (34, 7): ErrorInfo('Tusd', 'PortalAlreadyRegistered', 'Another bridge already uses this portal.'),
+    (34, 8): ErrorInfo('Tusd', 'RouteIsFixed', 'The bridge exists, and its route cannot change.'),
     (35, 0): ErrorInfo('CanonicalPool', 'PoolDisabled', 'The pool is disabled.'),
     (35, 1): ErrorInfo('CanonicalPool', 'NoLiquidity', 'The pool has no liquidity.'),
     (35, 2): ErrorInfo('CanonicalPool', 'AmountTooLow', 'The amounts are too small to mint or redeem anything.'),
@@ -530,6 +531,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (36, 21): ErrorInfo('Rails', 'NotOutboxHead', "The message is not the head of its bridge's queue."),
     (36, 22): ErrorInfo('Rails', 'Overflow', 'Arithmetic overflowed.'),
     (36, 23): ErrorInfo('Rails', 'MessagesNotFunded', "The bridge's reserve for a message is not set, or the bridge's account does not hold the reserve for every message in its queue and one more."),
-    (36, 24): ErrorInfo('Rails', 'FeeAboveReserve', "The gateway asked for more than the bridge's reserve for one message."),
-    (36, 25): ErrorInfo('Rails', 'GatewayNotFunded', 'The account does not hold the existential deposit, so it could not hold what the hub hands the gateway for the transport.'),
+    (36, 24): ErrorInfo('Rails', 'FeeAboveLimit', "The gateway asked for more than the hub pays for the message: more than the bridge's ceiling, or more than its reserve while the bridge's account has nothing to spare."),
+    (36, 25): ErrorInfo('Rails', 'CeilingBelowReserve', 'The most the hub pays for a message cannot be less than what it sets aside for one.'),
+    (36, 26): ErrorInfo('Rails', 'GatewayNotFunded', 'The account does not hold the existential deposit, so it could not hold what the hub hands the gateway for the transport.'),
 }

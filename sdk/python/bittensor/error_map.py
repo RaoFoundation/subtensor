@@ -548,6 +548,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "MintRateLimited": _C.RATE_LIMITED,
     "RedeemExceedsOutstanding": _C.INSUFFICIENT_LIQUIDITY,
     "PortalAlreadyRegistered": _C.ALREADY_EXISTS,
+    "RouteIsFixed": _C.POLICY_VIOLATION,
     # ── CanonicalPool ───────────────────────────────────────────────────
     "PoolDisabled": _C.DISABLED,
     "NoLiquidity": _C.INSUFFICIENT_LIQUIDITY,
@@ -581,7 +582,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OutboxFull": _C.LIMIT_EXCEEDED,
     "NotOutboxHead": _C.INVALID_ARGUMENT,
     "MessagesNotFunded": _C.TOO_EARLY,
-    "FeeAboveReserve": _C.LIMIT_EXCEEDED,
+    "FeeAboveLimit": _C.LIMIT_EXCEEDED,
+    "CeilingBelowReserve": _C.INVALID_ARGUMENT,
     "GatewayNotFunded": _C.INSUFFICIENT_BALANCE,
 }
 
