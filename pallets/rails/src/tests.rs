@@ -11,7 +11,7 @@ use sp_runtime::DispatchError;
 use subtensor_runtime_common::{NetUid, TaoBalance, TusdBalance, rails::OriginChain};
 
 use crate::{
-    AlphaSupply, Destination, Error, Event, Gateway, Markets, Message, MessageCeiling,
+    AlphaSupply, Deferred, Destination, Error, Event, Gateway, Markets, Message, MessageCeiling,
     MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outbound, Outbox,
     Outcome, Paused, RailsStaking, Receipts, SpokeAsset, SubnetStatus, TaoCap, TaoSupply,
     TokenInfo, Tokens,
@@ -406,6 +406,10 @@ fn settings_are_admin_only() {
         );
         assert_noop!(
             Rails::ack_outbound(signed(), BASE, 0, 0.into()),
+            Error::<Test>::NotGateway
+        );
+        assert_noop!(
+            Rails::defer_outbound(signed(), BASE, 0),
             Error::<Test>::NotGateway
         );
     });
@@ -959,12 +963,13 @@ fn fund(bridge: u32, amount: u64) {
 /// it, as the gateway contract does in one transaction. The gateway keeps nothing.
 fn send_head(bridge: u32, charge: u64) -> sp_runtime::DispatchResult {
     let (_, _, outbound) = Rails::next_outbound(bridge).expect("a message waits");
-    Rails::ack_outbound(
-        RuntimeOrigin::signed(GATEWAY),
-        bridge,
-        outbound.nonce,
-        charge.into(),
-    )?;
+    send_message(bridge, outbound.nonce, charge)
+}
+
+/// The gateway takes message `nonce` of `bridge`, the head of the queue or a deferred
+/// one, and pays the transport `charge` for it.
+fn send_message(bridge: u32, nonce: u64, charge: u64) -> sp_runtime::DispatchResult {
+    Rails::ack_outbound(RuntimeOrigin::signed(GATEWAY), bridge, nonce, charge.into())?;
     assert_ok!(Balances::burn(
         RuntimeOrigin::signed(GATEWAY),
         charge.into(),
@@ -972,6 +977,17 @@ fn send_head(bridge: u32, charge: u64) -> sp_runtime::DispatchResult {
     ));
     assert_eq!(gateway_tao(), EXISTENTIAL_DEPOSIT);
     Ok(())
+}
+
+/// The gateway defers the head of the queue of `bridge`. Returns its nonce.
+fn defer_head(bridge: u32) -> u64 {
+    let (_, _, outbound) = Rails::next_outbound(bridge).expect("a message waits");
+    assert_ok!(Rails::defer_outbound(
+        RuntimeOrigin::signed(GATEWAY),
+        bridge,
+        outbound.nonce
+    ));
+    outbound.nonce
 }
 
 fn to_canonical_tao() -> Order<AccountId> {
@@ -1265,6 +1281,134 @@ fn a_dear_message_never_takes_the_reserve_of_another() {
 }
 
 #[test]
+fn a_deferred_message_keeps_its_reserve_and_the_ones_behind_it_leave() {
+    new_test_ext().execute_with(|| {
+        open_message_accounts();
+        set_reserve(BASE, RESERVE);
+        fund(BASE, 3 * RESERVE);
+        for _ in 0..3 {
+            assert_ok!(execute(to_canonical_tao()));
+        }
+
+        // Only the head is deferred, and only by the gateway or the admin.
+        assert_noop!(
+            Rails::defer_outbound(RuntimeOrigin::signed(GATEWAY), BASE, 1),
+            Error::<Test>::NotOutboxHead
+        );
+        assert_noop!(
+            Rails::defer_outbound(RuntimeOrigin::signed(ALICE), BASE, 0),
+            Error::<Test>::NotGateway
+        );
+
+        // The transport charges more for the first message than is paid: the gateway
+        // defers it. It has not left, and it keeps its reserve.
+        assert_eq!(defer_head(BASE), 0);
+        System::assert_last_event(
+            Event::MessageDeferred {
+                bridge: BASE,
+                nonce: 0,
+            }
+            .into(),
+        );
+        assert_eq!(Deferred::<Test>::get(BASE), 1);
+        assert_eq!(Rails::waiting(BASE), 3);
+        assert_eq!(budget(BASE), 3 * RESERVE);
+        assert!(Rails::outbound(BASE, 0).is_some());
+        assert_invariants();
+
+        // The messages behind it leave.
+        assert_eq!(Rails::next_outbound(BASE).unwrap().2.nonce, 1);
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_ok!(send_head(BASE, RESERVE));
+        assert_eq!(Rails::next_outbound(BASE), None);
+        assert_eq!(Rails::waiting(BASE), 1);
+
+        // Its reserve is its own: the bridge takes no new order on it.
+        assert_eq!(budget(BASE), RESERVE);
+        assert_noop!(
+            execute(to_canonical_tao()),
+            Error::<Test>::MessagesNotFunded
+        );
+
+        // The deferred message leaves when the gateway sends it: later than
+        // the ones behind it, and once.
+        assert_noop!(
+            send_message(BASE, 0, RESERVE + 1),
+            Error::<Test>::FeeAboveLimit
+        );
+        assert_ok!(send_message(BASE, 0, RESERVE));
+        assert_eq!(Deferred::<Test>::get(BASE), 0);
+        assert_eq!(Rails::waiting(BASE), 0);
+        assert_eq!(budget(BASE), 0);
+        assert_eq!(Rails::outbound(BASE, 0), None);
+        assert_noop!(send_message(BASE, 0, 0), Error::<Test>::NotOutboxHead);
+        assert_invariants();
+    });
+}
+
+#[test]
+fn the_admin_defers_a_message_that_the_transport_does_not_take() {
+    new_test_ext().execute_with(|| {
+        for _ in 0..2 {
+            settled(
+                SpokeAsset::Stable,
+                400 * UNIT,
+                Destination::Tao { to: wallet() },
+            );
+        }
+        // A paused hub moves no message.
+        assert_ok!(Rails::set_paused(RuntimeOrigin::signed(GUARDIAN), true));
+        assert_noop!(
+            Rails::defer_outbound(RuntimeOrigin::root(), BASE, 0),
+            Error::<Test>::Paused
+        );
+        assert_eq!(Rails::outbound(BASE, 0), None);
+        assert_ok!(Rails::set_paused(RuntimeOrigin::root(), false));
+
+        assert_ok!(Rails::defer_outbound(RuntimeOrigin::root(), BASE, 0));
+        // The message behind it is the gateway's next, and the first is still there.
+        assert_eq!(flush().len(), 1);
+        assert_eq!(Rails::outbound(BASE, 0).unwrap().2.nonce, 0);
+        assert_ok!(send_message(BASE, 0, 0));
+        assert_invariants();
+    });
+}
+
+#[test]
+fn deferred_messages_count_as_waiting() {
+    new_test_ext().execute_with(|| {
+        // As many messages as a bridge may have, all deferred: the line is empty.
+        for _ in 0..MAX_OUTBOX {
+            settled(
+                SpokeAsset::Stable,
+                40 * UNIT,
+                Destination::Tao { to: wallet() },
+            );
+            defer_head(BASE);
+        }
+        assert_eq!(Rails::next_outbound(BASE), None);
+        assert_eq!(Rails::waiting(BASE), u64::from(MAX_OUTBOX));
+
+        // The bridge takes no order until one of them has left.
+        assert_noop!(
+            execute(order(
+                SpokeAsset::Stable,
+                40 * UNIT,
+                Destination::Tao { to: wallet() },
+            )),
+            Error::<Test>::OutboxFull
+        );
+        assert_ok!(send_message(BASE, 3, 0));
+        settled(
+            SpokeAsset::Stable,
+            40 * UNIT,
+            Destination::Tao { to: wallet() },
+        );
+        assert_invariants();
+    });
+}
+
+#[test]
 fn the_reserve_rises_only_if_the_account_covers_the_queue() {
     new_test_ext().execute_with(|| {
         open_message_accounts();
@@ -1457,9 +1601,9 @@ fn a_new_gateway_is_paid_from_the_same_accounts() {
 /// and the ceiling on two bridges, and a gateway that pays a transport that charges what
 /// it likes. After every step each account can pay what a separate count says: what was
 /// paid in for that bridge, less what the transport charged for that bridge's messages.
-/// Each account holds the reserve for every message in its queue, a message leaves
-/// exactly when its charge is within what the hub pays for it, and the gateway holds
-/// nothing.
+/// Messages are deferred and leave later. Each account holds the reserve for every message
+/// that has not left, a message leaves exactly when its charge is within what the hub
+/// pays for it, and the gateway holds nothing.
 #[test]
 fn message_accounts_hold_under_random_operations() {
     new_test_ext().execute_with(|| {
@@ -1489,16 +1633,21 @@ fn message_accounts_hold_under_random_operations() {
         };
         // What each account must be able to pay.
         let mut expected = [0u64; 2];
+        // The deferred messages of each bridge that have not left.
+        let mut deferred: [Vec<u64>; 2] = [Vec::new(), Vec::new()];
         // Messages queued, messages refused for lack of the reserve, messages sent,
-        // messages held because the transport charged more than the hub pays, and
-        // messages sent at a charge above the reserve.
-        let mut seen = [0u32; 5];
+        // messages held because the transport charged more than the hub pays, messages
+        // sent at a charge above the reserve, and messages sent after they were deferred.
+        let mut seen = [0u32; 6];
 
-        for _ in 0..4_000 {
+        for _ in 0..6_000 {
             let index = next(2) as usize;
             let bridge = SPOKES[index];
             let reserve: u64 = MessageReserve::<Test>::get(bridge).unwrap().into();
-            let queued = NextMessage::<Test>::get(bridge) - NextOutbound::<Test>::get(bridge);
+            let in_line = NextMessage::<Test>::get(bridge) - NextOutbound::<Test>::get(bridge);
+            // Every message that has not left holds a reserve: in line or deferred.
+            let queued = in_line + deferred[index].len() as u64;
+            assert_eq!(Rails::waiting(bridge), queued);
             // What the hub must answer to one more message, given what the account holds.
             let room = |budget: u64| {
                 if queued >= u64::from(MAX_OUTBOX) {
@@ -1509,12 +1658,39 @@ fn message_accounts_hold_under_random_operations() {
                     Err(Error::<Test>::MessagesNotFunded)
                 }
             };
-            match next(8) {
+            // What the hub pays for one message now: its reserve, and above it what the
+            // account holds beyond the reserves of the waiting messages, up to the ceiling.
+            let pays = {
+                let ceiling: u64 = MessageCeiling::<Test>::get(bridge).into();
+                (reserve + budget(bridge) - reserve * queued).min(ceiling.max(reserve))
+            };
+            assert_eq!(limit(bridge), pays);
+            match next(10) {
                 // Someone pays in.
                 0 => {
                     let amount = next(4 * RESERVE);
                     fund(bridge, amount);
                     expected[index] += amount;
+                }
+                // The gateway defers the head of the queue.
+                8 if in_line > 0 => deferred[index].push(defer_head(bridge)),
+                // The gateway sends a deferred message, at a charge that may be
+                // more than the hub pays.
+                9 if !deferred[index].is_empty() => {
+                    let position = next(deferred[index].len() as u64) as usize;
+                    let nonce = deferred[index][position];
+                    let charge = next(2 * reserve + 2);
+                    if charge <= pays {
+                        assert_ok!(send_message(bridge, nonce, charge));
+                        expected[index] -= charge;
+                        deferred[index].remove(position);
+                        seen[5] += 1;
+                    } else {
+                        assert_noop!(
+                            send_message(bridge, nonce, charge),
+                            Error::<Test>::FeeAboveLimit
+                        );
+                    }
                 }
                 // The admin changes the reserve and the ceiling: only to a reserve that the
                 // account covers.
@@ -1585,14 +1761,8 @@ fn message_accounts_hold_under_random_operations() {
                 }
                 // The gateway takes the head of the queue and pays the transport, which now
                 // and then charges more than the reserve.
-                _ if queued > 0 => {
+                6 | 7 if in_line > 0 => {
                     let charge = next(2 * reserve + 2);
-                    // The message has its reserve. Above it the hub pays from what the
-                    // account holds beyond the reserves of the queue, up to the ceiling.
-                    let ceiling: u64 = MessageCeiling::<Test>::get(bridge).into();
-                    let spare = budget(bridge) - reserve * queued;
-                    let pays = (reserve + spare).min(ceiling);
-                    assert_eq!(limit(bridge), pays);
                     if charge <= pays {
                         assert_ok!(send_head(bridge, charge));
                         expected[index] -= charge;

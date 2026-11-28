@@ -43,9 +43,15 @@
 //! ## How an answer leaves, and who pays for it
 //!
 //! The hub cannot call a contract. It puts each message for a spoke in that bridge's
-//! queue ([`Outbox`]), and the gateway takes the messages out in order and hands them to
-//! the transport. Each bridge has its own queue: a message that cannot leave holds only
-//! the messages to the same spoke.
+//! queue ([`Outbox`]). Settling an order and handing over its answer are two steps: the
+//! gateway takes messages out when anyone asks it to, and hands them to the transport.
+//! So nothing that happens on the way out can undo an order.
+//!
+//! Each bridge has its own queue, and the gateway takes its messages in order. A message
+//! that cannot leave now, because the transport charges more for it than is paid, is
+//! deferred ([`Pallet::defer_outbound`]): it leaves the line and stays in the hub, with
+//! its reserve. Anyone can have the gateway send it later, and the messages behind it go
+//! on. The spoke takes the hub's messages in any order.
 //!
 //! The transport charges the gateway for each message. The TAO for that is the hub's, not
 //! the gateway's. Each bridge has an account ([`Pallet::message_account`]) that anyone
@@ -55,21 +61,22 @@
 //! - The admin sets two amounts for the bridge. The reserve ([`MessageReserve`]) is what
 //!   the hub sets aside for each message. The ceiling ([`MessageCeiling`]) is the most it
 //!   pays for one. Until they are set the bridge takes no order.
-//! - The account always holds the reserve for every message in the bridge's queue. The
-//!   hub queues a message only if that still holds with the new message. With less, the
-//!   hub does not take the bridge's next order: it stays with the transport.
+//! - The account always holds the reserve for every message of the bridge that has not
+//!   left: in line or deferred. The hub queues a message only if that still holds with
+//!   the new message. With less, the hub does not take the bridge's next order: it stays
+//!   with the transport.
 //! - An account that pays through [`Pallet::bridge_out`] first pays the reserve into the
 //!   bridge's account itself.
 //! - When the gateway takes a message out, it says what the transport charges for it. The
 //!   hub moves that much from the bridge's account to the gateway
 //!   ([`Pallet::ack_outbound`]), which pays the transport in the same transaction. Up to
 //!   the reserve, the message has its own TAO. Above the reserve and up to the ceiling,
-//!   the hub pays from what the account holds beyond the reserves of the queue: never
-//!   from the reserve of another message. What the transport charges beyond that is for
-//!   whoever asks the gateway to send the message.
+//!   the hub pays from what the account holds beyond the reserves of the waiting
+//!   messages: never from the reserve of another message. What the transport charges
+//!   beyond that is for whoever asks the gateway to send the message.
 //!
 //! So a message that the hub queued can always leave at a charge up to the reserve,
-//! whatever the messages before it cost, and a queue that a higher charge holds up drains
+//! whatever the messages before it cost, and messages that a higher charge defers leave
 //! as soon as the account holds enough to spare. The gateway holds no TAO between
 //! transactions, and the messages of one bridge never use what was paid in for another.
 //!
@@ -81,9 +88,11 @@
 //!    spoke's supply, and takes a burned token only up to that supply.
 //! 4. An order nonce is settled at most once, and a message nonce is issued at most once.
 //! 5. The account of a bridge holds, on top of the existential deposit, at least the
-//!    bridge's reserve for each message in its queue. TAO leaves that account only when a
-//!    message of the bridge leaves its queue: what the gateway says the transport
-//!    charges, at most the bridge's ceiling.
+//!    bridge's reserve for each message of the bridge that has not left. TAO leaves that
+//!    account only when a message of the bridge leaves the hub: what the gateway says
+//!    the transport charges, at most the bridge's ceiling.
+//! 6. A message leaves the hub only when the gateway takes it to hand it to the
+//!    transport. A deferred message stays in [`Outbox`], and [`Deferred`] counts it.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -180,7 +189,7 @@ pub mod pallet {
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
-        /// The most messages that may wait for the gateway in the queue of one bridge.
+        /// The most messages of one bridge that have not left: in its queue, or deferred.
         #[pallet::constant]
         type MaxOutbox: Get<u32>;
 
@@ -220,29 +229,36 @@ pub mod pallet {
     #[pallet::storage]
     pub type NextMessage<T> = StorageMap<_, Twox64Concat, BridgeId, u64, ValueQuery>;
 
-    /// MAP ( bridge ) --> nonce | The nonce of the bridge's first message that the gateway
-    /// has not taken: the head of its queue.
+    /// MAP ( bridge ) --> nonce | The nonce of the bridge's first message that waits in
+    /// line: the head of its queue. A message below it that is still in [`Outbox`] is
+    /// deferred.
     #[pallet::storage]
     pub type NextOutbound<T> = StorageMap<_, Twox64Concat, BridgeId, u64, ValueQuery>;
 
-    /// DMAP ( bridge, nonce ) --> Message | Messages waiting for the gateway: one queue for
-    /// each bridge, first in first out.
+    /// DMAP ( bridge, nonce ) --> Message | The messages that have not left: for each
+    /// bridge, those in line from the head on, and the deferred ones below the head.
     #[pallet::storage]
     pub type Outbox<T> =
         StorageDoubleMap<_, Twox64Concat, BridgeId, Twox64Concat, u64, Message, OptionQuery>;
 
+    /// MAP ( bridge ) --> count | How many of the bridge's messages are deferred: they
+    /// left the line and have not left the hub. Each keeps its reserve in the bridge's
+    /// account.
+    #[pallet::storage]
+    pub type Deferred<T> = StorageMap<_, Twox64Concat, BridgeId, u32, ValueQuery>;
+
     /// MAP ( bridge ) --> TAO | What the hub sets aside for each message to the bridge's
     /// spoke, as the admin set it. The bridge's account holds this much for each message
-    /// in the bridge's queue, and an exit pays it in. Set it above what the transport
-    /// charges: what a message does not use stays in the account. While it is not set, the
-    /// hub takes no order from the bridge and no payment to it.
+    /// of the bridge that has not left, and an exit pays it in. Set it above what the
+    /// transport charges: what a message does not use stays in the account. While it is
+    /// not set, the hub takes no order from the bridge and no payment to it.
     #[pallet::storage]
     pub type MessageReserve<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, OptionQuery>;
 
     /// MAP ( bridge ) --> TAO | The most the hub pays the transport for one message to the
     /// bridge's spoke, as the admin set it: at least the reserve. What a message costs
     /// above the reserve comes from what the bridge's account holds beyond the reserves
-    /// of its queue.
+    /// of the messages that have not left.
     #[pallet::storage]
     pub type MessageCeiling<T> = StorageMap<_, Twox64Concat, BridgeId, TaoBalance, ValueQuery>;
 
@@ -334,6 +350,10 @@ pub mod pallet {
         },
         /// Message `nonce` was queued for the gateway in the queue of `bridge`.
         MessageQueued { bridge: BridgeId, nonce: u64 },
+        /// Message `nonce` of `bridge` was deferred: it left the line, so that the messages
+        /// behind it can leave. It is still in the hub, and anyone can have the gateway
+        /// send it.
+        MessageDeferred { bridge: BridgeId, nonce: u64 },
         /// The gateway took message `nonce` of `bridge` to hand it to the transport, and
         /// the bridge's account paid the gateway `paid` for it.
         MessageDispatched {
@@ -418,14 +438,15 @@ pub mod pallet {
         SubnetUnknown,
         /// The pool has no time-weighted price yet to value credits with.
         TwapUnavailable,
-        /// Too many messages wait for the gateway in the bridge's queue.
+        /// Too many messages of the bridge have not left: in its queue, or deferred.
         OutboxFull,
-        /// The message is not the head of its bridge's queue.
+        /// The message is not the head of its bridge's queue, and, where a deferred
+        /// message will do, is not one of those either.
         NotOutboxHead,
         /// Arithmetic overflowed.
         Overflow,
         /// The bridge's reserve for a message is not set, or the bridge's account does not
-        /// hold the reserve for every message in its queue and one more.
+        /// hold the reserve for every message that has not left and one more.
         MessagesNotFunded,
         /// The gateway asked for more than the hub pays for the message: more than the
         /// bridge's ceiling, or more than its reserve while the bridge's account has
@@ -480,9 +501,9 @@ pub mod pallet {
         ///
         /// Fails, and so leaves the order with the transport to deliver again, only if the
         /// hub is paused, the portal or its bridge is not live, the order is out of
-        /// sequence, or the answer cannot be queued: the bridge's queue is full, or its
-        /// account does not hold the reserve for one more message. An order that cannot be
-        /// settled for any other reason is taken and refunded.
+        /// sequence, or the answer cannot be queued: too many messages of the bridge have
+        /// not left, or its account does not hold the reserve for one more message. An
+        /// order that cannot be settled for any other reason is taken and refunded.
         #[pallet::call_index(0)]
         #[pallet::weight(<T as Config>::WeightInfo::execute().saturating_add(T::Staking::weight()))]
         pub fn execute(
@@ -509,15 +530,15 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Takes message `nonce`, the head of the queue of `bridge`, out of it, and moves
-        /// `paid`, what the transport charges the gateway for the message, from the
-        /// bridge's account to the gateway. Only the gateway may call this, in the
-        /// transaction in which it pays the transport and hands it the message: if that
-        /// fails, this is undone with it.
+        /// Takes message `nonce` of `bridge` out of the hub, and moves `paid`, what the
+        /// transport charges the gateway for the message, from the bridge's account to the
+        /// gateway. The message is the head of the bridge's queue, or a deferred one. Only
+        /// the gateway may call this, in the transaction in which it pays the transport and
+        /// hands it the message: if that fails, this is undone with it.
         ///
-        /// Fails if `paid` is more than the hub pays for this message
+        /// Fails if `paid` is more than the hub pays for a message of the bridge now
         /// ([`Pallet::message_limit`]). The bridge's account holds the reserve for every
-        /// queued message, so a charge up to the reserve can always be paid.
+        /// message that has not left, so a charge up to the reserve can always be paid.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::ack_outbound())]
         pub fn ack_outbound(
@@ -528,8 +549,9 @@ pub mod pallet {
         ) -> DispatchResult {
             let gateway = Self::ensure_gateway(origin)?;
             ensure!(!Paused::<T>::get(), Error::<T>::Paused);
+            let head = NextOutbound::<T>::get(bridge);
             ensure!(
-                nonce == NextOutbound::<T>::get(bridge) && nonce < NextMessage::<T>::get(bridge),
+                nonce <= head && Outbox::<T>::contains_key(bridge, nonce),
                 Error::<T>::NotOutboxHead
             );
             ensure!(
@@ -545,12 +567,44 @@ pub mod pallet {
                 )?;
             }
             Outbox::<T>::remove(bridge, nonce);
-            NextOutbound::<T>::insert(bridge, nonce.saturating_add(1));
+            if nonce == head {
+                NextOutbound::<T>::insert(bridge, head.saturating_add(1));
+            } else {
+                Deferred::<T>::mutate(bridge, |deferred| *deferred = deferred.saturating_sub(1));
+            }
             Self::deposit_event(Event::MessageDispatched {
                 bridge,
                 nonce,
                 paid,
             });
+            Ok(())
+        }
+
+        /// Defers message `nonce`, the head of the queue of `bridge`: takes it out of the
+        /// line, so that the messages behind it can leave. The message stays in the hub
+        /// with its reserve, and the gateway can send it at any time.
+        ///
+        /// The gateway calls this for a message that is not paid for: the transport
+        /// charges more for it than the hub and the caller pay. The admin may call it for
+        /// a message that the transport does not take.
+        #[pallet::call_index(14)]
+        #[pallet::weight(<T as Config>::WeightInfo::defer_outbound())]
+        pub fn defer_outbound(
+            origin: OriginFor<T>,
+            bridge: BridgeId,
+            nonce: u64,
+        ) -> DispatchResult {
+            if <T as Config>::AdminOrigin::try_origin(origin.clone()).is_err() {
+                Self::ensure_gateway(origin)?;
+            }
+            ensure!(!Paused::<T>::get(), Error::<T>::Paused);
+            ensure!(
+                nonce == NextOutbound::<T>::get(bridge) && nonce < NextMessage::<T>::get(bridge),
+                Error::<T>::NotOutboxHead
+            );
+            NextOutbound::<T>::insert(bridge, nonce.saturating_add(1));
+            Deferred::<T>::mutate(bridge, |deferred| *deferred = deferred.saturating_add(1));
+            Self::deposit_event(Event::MessageDeferred { bridge, nonce });
             Ok(())
         }
 
@@ -785,15 +839,15 @@ pub mod pallet {
 
         /// Sets what the hub pays the transport for one message to the spoke of `bridge`.
         ///
-        /// - `reserve`: what the hub sets aside for each queued message. Set it above what
-        ///   the transport charges. Zero says that the hub sets nothing aside.
+        /// - `reserve`: what the hub sets aside for each message that has not left. Set it
+        ///   above what the transport charges. Zero says that the hub sets nothing aside.
         /// - `ceiling`: the most the hub pays for one message, at least `reserve`. What a
         ///   message costs above the reserve comes from what the bridge's account holds
-        ///   beyond the reserves of its queue. It is the bound on what a wrong price from
-        ///   the transport can take for one message.
+        ///   beyond the reserves of those messages. It is the bound on what a wrong price
+        ///   from the transport can take for one message.
         ///
         /// A bridge takes no order before this is set. Fails if the bridge's account does
-        /// not hold the new reserve for every message in its queue: pay in first
+        /// not hold the new reserve for every message that has not left: pay in first
         /// ([`Pallet::fund_messages`]).
         #[pallet::call_index(12)]
         #[pallet::weight(<T as Config>::WeightInfo::set_message_reserve())]
@@ -807,7 +861,7 @@ pub mod pallet {
             Self::ensure_bridge_known(bridge)?;
             ensure!(ceiling >= reserve, Error::<T>::CeilingBelowReserve);
             ensure!(
-                Self::holds_reserve(bridge, reserve, Self::queued(bridge)),
+                Self::holds_reserve(bridge, reserve, Self::waiting(bridge)),
                 Error::<T>::MessagesNotFunded
             );
             MessageReserve::<T>::insert(bridge, reserve);
@@ -888,14 +942,14 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// The most the hub pays the transport for the message at the head of the queue of
-    /// `bridge` now: the bridge's reserve, and above it what the account holds beyond the
-    /// reserves of the queue, up to the bridge's ceiling.
+    /// The most the hub pays the transport for one message of `bridge` now: the bridge's
+    /// reserve, and above it what the account holds beyond the reserves of the messages
+    /// that have not left, up to the bridge's ceiling.
     pub fn message_limit(bridge: BridgeId) -> TaoBalance {
         let reserve = MessageReserve::<T>::get(bridge)
             .unwrap_or_default()
             .to_u64();
-        let reserved = u128::from(reserve).saturating_mul(u128::from(Self::queued(bridge)));
+        let reserved = u128::from(reserve).saturating_mul(u128::from(Self::waiting(bridge)));
         let spare = u128::from(Self::message_budget(bridge).to_u64()).saturating_sub(reserved);
         let ceiling = MessageCeiling::<T>::get(bridge).to_u64().max(reserve);
         u64::try_from(u128::from(reserve).saturating_add(spare))
@@ -907,8 +961,17 @@ impl<T: Config> Pallet<T> {
     /// The message at the head of the queue of `bridge`, and where the gateway sends it:
     /// the transport domain and portal of the bridge.
     pub fn next_outbound(bridge: BridgeId) -> Option<(u32, H256, Outbound)> {
-        let nonce = NextOutbound::<T>::get(bridge);
-        if nonce >= NextMessage::<T>::get(bridge) || Paused::<T>::get() {
+        let head = NextOutbound::<T>::get(bridge);
+        (head < NextMessage::<T>::get(bridge))
+            .then(|| Self::outbound(bridge, head))
+            .flatten()
+    }
+
+    /// Message `nonce` of `bridge`, if the gateway can take it now, and where the gateway
+    /// sends it. The gateway can take the head of the bridge's queue and the deferred
+    /// messages.
+    pub fn outbound(bridge: BridgeId, nonce: u64) -> Option<(u32, H256, Outbound)> {
+        if nonce > NextOutbound::<T>::get(bridge) || Paused::<T>::get() {
             return None;
         }
         let message = Outbox::<T>::get(bridge, nonce)?;
@@ -994,17 +1057,35 @@ impl<T: Config> Pallet<T> {
         }
         for (bridge, tail) in NextMessage::<T>::iter() {
             let head = NextOutbound::<T>::get(bridge);
+            let waiting = Self::waiting(bridge);
             ensure!(
-                head <= tail && tail.saturating_sub(head) <= u64::from(T::MaxOutbox::get()),
+                head <= tail && waiting <= u64::from(T::MaxOutbox::get()),
                 "a bridge's queue is out of bounds"
+            );
+            // Every message from the head on is there, and the messages below the head
+            // that are there are the deferred ones.
+            let (in_line, deferred) = Outbox::<T>::iter_key_prefix(bridge).fold(
+                (0u64, 0u64),
+                |(in_line, deferred), nonce| {
+                    if nonce >= head {
+                        (in_line.saturating_add(1), deferred)
+                    } else {
+                        (in_line, deferred.saturating_add(1))
+                    }
+                },
+            );
+            ensure!(
+                in_line == tail.saturating_sub(head)
+                    && deferred == u64::from(Deferred::<T>::get(bridge)),
+                "a bridge's messages differ from the count of them"
             );
             ensure!(
                 Self::holds_reserve(
                     bridge,
                     MessageReserve::<T>::get(bridge).unwrap_or_default(),
-                    tail.saturating_sub(head)
+                    waiting
                 ),
-                "a bridge's account holds less than the reserve for each message in its queue"
+                "a bridge's account holds less than the reserve for each message that waits"
             );
         }
         Ok(())
@@ -1109,27 +1190,29 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Passes only if the queue of `bridge` can take one more message: it holds fewer than
-    /// [`Config::MaxOutbox`], and the bridge's account holds the bridge's
-    /// [`MessageReserve`] for every message in it and for one more. The hub queues nothing
+    /// Passes only if `bridge` can have one more message: fewer than [`Config::MaxOutbox`]
+    /// of its messages wait, and the bridge's account holds the bridge's
+    /// [`MessageReserve`] for every one of them and for one more. The hub queues nothing
     /// that it could not pay the transport for.
     pub(crate) fn ensure_room(bridge: BridgeId) -> DispatchResult {
-        let queued = Self::queued(bridge);
+        let waiting = Self::waiting(bridge);
         ensure!(
-            queued < u64::from(T::MaxOutbox::get()),
+            waiting < u64::from(T::MaxOutbox::get()),
             Error::<T>::OutboxFull
         );
         let reserve = MessageReserve::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
         ensure!(
-            Self::holds_reserve(bridge, reserve, queued.saturating_add(1)),
+            Self::holds_reserve(bridge, reserve, waiting.saturating_add(1)),
             Error::<T>::MessagesNotFunded
         );
         Ok(())
     }
 
-    /// How many messages wait in the queue of `bridge`.
-    fn queued(bridge: BridgeId) -> u64 {
-        NextMessage::<T>::get(bridge).saturating_sub(NextOutbound::<T>::get(bridge))
+    /// How many messages of `bridge` have not left: those in line and those deferred.
+    pub fn waiting(bridge: BridgeId) -> u64 {
+        NextMessage::<T>::get(bridge)
+            .saturating_sub(NextOutbound::<T>::get(bridge))
+            .saturating_add(u64::from(Deferred::<T>::get(bridge)))
     }
 
     /// Whether the account of `bridge` can pay `reserve` for each of `messages` messages.

@@ -34,6 +34,7 @@ pub trait WeightInfo {
 	fn skip_order() -> Weight;
 	fn set_message_reserve() -> Weight;
 	fn fund_messages() -> Weight;
+	fn defer_outbound() -> Weight;
 }
 
 /// Weights for `pallet_rails` using the Substrate node and recommended hardware.
@@ -46,11 +47,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(38_u64))
 			.saturating_add(T::DbWeight::get().writes(26_u64))
 	}
-	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, MessageReserve,
-	/// MessageCeiling, Outbox}`, `System::Account` x2 (r:8 w:4)
+	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, Deferred,
+	/// MessageReserve, MessageCeiling, Outbox}`, `System::Account` x2 (r:10 w:4)
 	fn ack_outbound() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
-			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().reads(10_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
 	/// A payment into the bridge's account, a pool swap, a tUSD burn and a queued message.
@@ -125,6 +126,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
+	/// Storage: `Rails::{Gateway, Paused, NextOutbound, NextMessage, Deferred}` (r:5 w:2)
+	fn defer_outbound() -> Weight {
+		Weight::from_parts(40_000_000, 6_000)
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -136,7 +143,7 @@ impl WeightInfo for () {
 	}
 	fn ack_outbound() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
-			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().reads(10_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
 	fn bridge_out() -> Weight {
@@ -195,6 +202,11 @@ impl WeightInfo for () {
 	fn fund_messages() -> Weight {
 		Weight::from_parts(60_000_000, 8_000)
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	fn defer_outbound() -> Weight {
+		Weight::from_parts(40_000_000, 6_000)
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 }

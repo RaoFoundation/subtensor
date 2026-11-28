@@ -19,7 +19,7 @@ use subtensor_runtime_common::{
 };
 
 use crate::{
-    Call, Config, CurrencyOf, Destination, Gateway, Guardian, Market, Markets, Message,
+    Call, Config, CurrencyOf, Deferred, Destination, Gateway, Guardian, Market, Markets, Message,
     MessageCeiling, MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order,
     Outcome, Pallet, Paused, RailsStaking, Receipt, Receipts, SpokeAsset, TaoCap, TaoSupply,
     Tokens,
@@ -147,6 +147,30 @@ mod benchmarks {
         );
 
         assert_eq!(NextOutbound::<T>::get(BRIDGE), head + 1);
+        Ok(())
+    }
+
+    #[benchmark]
+    fn defer_outbound() -> Result<(), BenchmarkError> {
+        let gateway = rails::<T>()?;
+        Pallet::<T>::enqueue(
+            BRIDGE,
+            Message::Credit {
+                asset: SpokeAsset::Tao,
+                to: wallet(),
+                amount: UNIT,
+                order: Some(0),
+                refund: false,
+                rate: 0,
+            },
+        )?;
+        let head = NextOutbound::<T>::get(BRIDGE);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(gateway), BRIDGE, head);
+
+        assert_eq!(NextOutbound::<T>::get(BRIDGE), head + 1);
+        assert_eq!(Deferred::<T>::get(BRIDGE), 1);
         Ok(())
     }
 
