@@ -72,7 +72,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::*;
 use sp_core::{H160, H256};
-use sp_runtime::traits::{AccountIdConversion, Zero};
+use sp_runtime::traits::AccountIdConversion;
 pub use subtensor_runtime_common::rails::{RailsStaking, SubnetStatus};
 use subtensor_runtime_common::{
     AlphaBalance, GammaBalance, NetUid, TaoBalance, Token,
