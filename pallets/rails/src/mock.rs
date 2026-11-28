@@ -377,12 +377,15 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         open_bridge(BASE, OriginChain::Evm(8453));
         open_bridge(ETHEREUM, OriginChain::Evm(1));
         open_bridge(FAUCET, OriginChain::Bittensor);
+        // The gateway account exists and holds nothing more: the hub hands it what it pays
+        // the transport.
+        fund_tao(GATEWAY, EXISTENTIAL_DEPOSIT);
         assert_ok!(Rails::set_gateway(RuntimeOrigin::root(), Some(GATEWAY)));
         assert_ok!(Rails::set_guardian(RuntimeOrigin::root(), Some(GUARDIAN)));
-        // A transport that carries the hub's messages for nothing. The tests of the
-        // answers' funding set a cost.
+        // A transport that carries the hub's messages for nothing. The tests of who pays
+        // for a message set a reserve.
         for bridge in [BASE, ETHEREUM] {
-            assert_ok!(Rails::set_message_cost(
+            assert_ok!(Rails::set_message_reserve(
                 RuntimeOrigin::root(),
                 bridge,
                 0.into()

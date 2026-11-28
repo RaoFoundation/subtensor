@@ -20,13 +20,13 @@ use subtensor_runtime_common::{
 
 use crate::{
     Call, Config, CurrencyOf, Destination, Gateway, Guardian, Market, Markets, Message,
-    MessageBudget, MessageCost, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outcome,
-    Pallet, Paused, RailsStaking, Receipt, Receipts, SpokeAsset, TaoCap, TaoSupply, Tokens,
+    MessageReserve, NativeAsset, NextMessage, NextOrder, NextOutbound, Order, Outcome, Pallet,
+    Paused, RailsStaking, Receipt, Receipts, SpokeAsset, TaoCap, TaoSupply, Tokens,
 };
 
 const UNIT: u64 = 1_000_000_000;
-/// What the hub counts for one message to the benchmarks' bridge.
-const MESSAGE_COST: u64 = UNIT / 1_000;
+/// The most the hub pays for one message to the benchmarks' bridge.
+const MESSAGE_RESERVE: u64 = UNIT / 1_000;
 /// A bridge that only the benchmarks use.
 const BRIDGE: BridgeId = 4_000_000_000;
 const DOMAIN: u32 = 4_000_000_000;
@@ -43,8 +43,8 @@ fn admin<T: Config>() -> Result<T::RuntimeOrigin, BenchmarkError> {
     <T as Config>::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)
 }
 
-/// A live bridge whose answers cost something and are funded, a gateway, canonical TAO on
-/// the bridge's spoke, and a pool to trade in. Returns the gateway.
+/// A live bridge whose messages cost something and are paid for, a gateway, canonical TAO
+/// on the bridge's spoke, and a pool to trade in. Returns the gateway.
 fn rails<T: Config>() -> Result<T::AccountId, BenchmarkError> {
     let origin = <T as pallet_tusd::Config>::AdminOrigin::try_successful_origin()
         .map_err(|_| BenchmarkError::Weightless)?;
@@ -68,11 +68,14 @@ fn rails<T: Config>() -> Result<T::AccountId, BenchmarkError> {
 
     let gateway: T::AccountId = account("gateway", 0, 0);
     Gateway::<T>::put(&gateway);
-    // A message costs something, so that the benchmarks check and use the budget as
-    // production does.
-    MessageCost::<T>::insert(BRIDGE, TaoBalance::from(MESSAGE_COST));
-    MessageBudget::<T>::insert(BRIDGE, TaoBalance::from(UNIT));
     CurrencyOf::<T>::set_balance(&gateway, TaoBalance::from(UNIT));
+    // A message costs something, so that the benchmarks check and use the bridge's account
+    // as production does.
+    MessageReserve::<T>::insert(BRIDGE, TaoBalance::from(MESSAGE_RESERVE));
+    CurrencyOf::<T>::set_balance(
+        &Pallet::<T>::message_account(BRIDGE),
+        TaoBalance::from(UNIT),
+    );
     Pallet::<T>::register_token(admin::<T>()?, BRIDGE, SpokeAsset::Tao, wallet())?;
     TaoCap::<T>::insert(BRIDGE, TaoBalance::from(u64::MAX / 2));
 
@@ -138,7 +141,7 @@ mod benchmarks {
             RawOrigin::Signed(gateway),
             BRIDGE,
             head,
-            TaoBalance::from(MESSAGE_COST),
+            TaoBalance::from(MESSAGE_RESERVE),
         );
 
         assert_eq!(NextOutbound::<T>::get(BRIDGE), head + 1);
@@ -172,6 +175,7 @@ mod benchmarks {
     #[benchmark]
     fn set_gateway() -> Result<(), BenchmarkError> {
         let gateway: T::AccountId = account("gateway", 0, 0);
+        CurrencyOf::<T>::set_balance(&gateway, TaoBalance::from(UNIT));
 
         #[extrinsic_call]
         _(admin::<T>()? as T::RuntimeOrigin, Some(gateway.clone()));
@@ -303,22 +307,27 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_message_cost() -> Result<(), BenchmarkError> {
+    fn set_message_reserve() -> Result<(), BenchmarkError> {
+        rails::<T>()?;
+
         #[extrinsic_call]
         _(
             admin::<T>()? as T::RuntimeOrigin,
             BRIDGE,
-            TaoBalance::from(UNIT),
+            TaoBalance::from(2 * MESSAGE_RESERVE),
         );
 
-        assert_eq!(MessageCost::<T>::get(BRIDGE), Some(TaoBalance::from(UNIT)));
+        assert_eq!(
+            MessageReserve::<T>::get(BRIDGE),
+            Some(TaoBalance::from(2 * MESSAGE_RESERVE))
+        );
         Ok(())
     }
 
     #[benchmark]
     fn fund_messages() -> Result<(), BenchmarkError> {
         rails::<T>()?;
-        let funded = MessageBudget::<T>::get(BRIDGE);
+        let funded = Pallet::<T>::message_budget(BRIDGE);
         let caller: T::AccountId = account("caller", 0, 0);
         CurrencyOf::<T>::set_balance(&caller, TaoBalance::from(10 * UNIT));
 
@@ -326,7 +335,7 @@ mod benchmarks {
         _(RawOrigin::Signed(caller), BRIDGE, TaoBalance::from(UNIT));
 
         assert_eq!(
-            MessageBudget::<T>::get(BRIDGE),
+            Pallet::<T>::message_budget(BRIDGE),
             funded + TaoBalance::from(UNIT)
         );
         Ok(())

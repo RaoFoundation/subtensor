@@ -20,12 +20,13 @@ interface IRails {
     ) external returns (uint8 status, uint64 amountOut, uint32 bridge);
 
     /// @notice Removes message `nonce`, the head of the hub's queue for `bridge`, and
-    /// takes `paid` from the bridge's budget on the hub. The hub takes this call only from
-    /// the gateway contract, which makes it in the transaction that pays the transport
-    /// and hands it the message. Reverts if the bridge's budget holds less than `paid`:
-    /// the messages of a bridge are paid for from that bridge's budget alone.
-    /// @param paid What the transport charges the gateway for the message, in wei. The hub
-    /// counts it in its own unit, rounded up.
+    /// moves `paid` from the bridge's account on the hub to the caller. The hub takes this
+    /// call only from the gateway contract, which makes it in the transaction that pays
+    /// the transport and hands it the message. Reverts if `paid` is more than the
+    /// bridge's reserve. The bridge's account holds the reserve for every queued message,
+    /// and pays for the messages of that bridge alone.
+    /// @param paid What the gateway pays the transport for the message from the hub's TAO,
+    /// in wei. The hub counts it in its own unit, rounded up.
     function ackOutbound(uint32 bridge, uint64 nonce, uint256 paid) external;
 
     /// @notice The message at the head of the hub's queue for `bridge`. Each bridge has
@@ -35,6 +36,8 @@ interface IRails {
     /// @return domain The transport domain of the portal it goes to.
     /// @return recipient That portal.
     /// @return body The message, as the portal decodes it.
+    /// @return reserve The most the hub pays the transport for the message, in wei: the
+    /// bridge's reserve.
     function nextOutbound(
         uint32 bridge
     )
@@ -45,7 +48,8 @@ interface IRails {
             uint64 nonce,
             uint32 domain,
             bytes32 recipient,
-            bytes memory body
+            bytes memory body,
+            uint256 reserve
         );
 
     /// @notice What `order`, sent now from the spoke of `bridge`, would deliver. The

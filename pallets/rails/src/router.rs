@@ -48,7 +48,7 @@ use subtensor_runtime_common::{
 };
 
 use crate::{
-    AlphaSupply, Config, CurrencyOf, Destination, Error, Event, Markets, Message, MessageCost,
+    AlphaSupply, Config, CurrencyOf, Destination, Error, Event, Markets, Message, MessageReserve,
     NativeAsset, Order, Pallet, RailsStaking, SpokeAsset, SubnetStatus, TaoCap, TaoSupply, Tokens,
 };
 
@@ -157,7 +157,8 @@ impl<T: Config> Pallet<T> {
 
     /// Runs a payment by `who`, an account on Bittensor, to a destination on the spoke of
     /// `bridge`. Returns what it delivered. On top of `amount`, `who` pays the bridge's
-    /// [`MessageCost`] into the bridge's budget: an exit pays for its own message.
+    /// [`MessageReserve`] into the bridge's account: an exit brings the reserve for its own
+    /// message. What the transport does not charge of it stays in the account.
     pub(crate) fn route_native(
         who: &T::AccountId,
         bridge: BridgeId,
@@ -175,9 +176,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidRoute
         );
         Self::ensure_payable(destination)?;
-        let cost = MessageCost::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
-        if !cost.is_zero() {
-            Self::pay_into_budget(who, bridge, cost)?;
+        let reserve = MessageReserve::<T>::get(bridge).ok_or(Error::<T>::MessagesNotFunded)?;
+        if !reserve.is_zero() {
+            Self::pay_for_messages(who, bridge, reserve)?;
         }
         let hub = Self::hub_account();
         let funds = match source {

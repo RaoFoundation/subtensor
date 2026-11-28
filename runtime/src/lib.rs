@@ -2994,6 +2994,14 @@ impl_runtime_apis! {
         fn alpha_rate(netuid: NetUid) -> Option<u128> {
             Rails::alpha_rate(netuid)
         }
+
+        fn message_account(bridge: subtensor_runtime_common::rails::BridgeId) -> AccountId {
+            Rails::message_account(bridge)
+        }
+
+        fn message_budget(bridge: subtensor_runtime_common::rails::BridgeId) -> TaoBalance {
+            Rails::message_budget(bridge)
+        }
     }
 
     impl pallet_subtensor_swap_runtime_api::SwapRuntimeApi<Block> for Runtime {

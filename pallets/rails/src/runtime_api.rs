@@ -1,7 +1,7 @@
 //! Read-only views of the hub for clients.
 
 use sp_runtime::DispatchError;
-use subtensor_runtime_common::{NetUid, rails::BridgeId};
+use subtensor_runtime_common::{NetUid, TaoBalance, rails::BridgeId};
 
 use crate::{Destination, NativeAsset, SpokeAsset};
 
@@ -29,5 +29,13 @@ sp_api::decl_runtime_apis! {
         /// The alpha that one share of the vault of `netuid` is worth now, times 1e18.
         /// `None` if the subnet has no market or its market only winds down.
         fn alpha_rate(netuid: NetUid) -> Option<u128>;
+
+        /// The account that holds the TAO for the transport of messages to the spoke of
+        /// `bridge`. Anyone pays into it with `Rails.fund_messages`.
+        fn message_account(bridge: BridgeId) -> AccountId;
+
+        /// What that account can pay the transport now: its balance less the existential
+        /// deposit, which it keeps.
+        fn message_budget(bridge: BridgeId) -> TaoBalance;
     }
 }

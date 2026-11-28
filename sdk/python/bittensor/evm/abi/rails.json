@@ -95,6 +95,11 @@
 				"internalType": "bytes",
 				"name": "body",
 				"type": "bytes"
+			},
+			{
+				"internalType": "uint256",
+				"name": "reserve",
+				"type": "uint256"
 			}
 		],
 		"stateMutability": "view",

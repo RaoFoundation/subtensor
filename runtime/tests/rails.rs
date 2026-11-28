@@ -9,8 +9,8 @@
 use fp_evm::Context;
 use frame_support::{BoundedVec, assert_noop, assert_ok, traits::PalletInfoAccess};
 use node_subtensor_runtime::{
-    Balances, BuildStorage, CanonicalPool, Rails, Runtime, RuntimeGenesisConfig, RuntimeOrigin,
-    SubtensorModule, System, Tusd,
+    Balances, BuildStorage, CanonicalPool, EXISTENTIAL_DEPOSIT, Rails, Runtime,
+    RuntimeGenesisConfig, RuntimeOrigin, SubtensorModule, System, Tusd,
 };
 use pallet_evm::{AddressMapping, PrecompileSet};
 use pallet_rails::{Destination, Order, SpokeAsset};
@@ -91,13 +91,15 @@ fn rails_ext() -> sp_io::TestExternalities {
             1,
         ));
         assert_ok!(Tusd::set_bridge_enabled(RuntimeOrigin::root(), BASE, true));
+        // The gateway's account exists, and holds nothing to pay the transport with.
+        fund(&mapped(gateway()), EXISTENTIAL_DEPOSIT);
         assert_ok!(Rails::set_gateway(
             RuntimeOrigin::root(),
             Some(mapped(gateway()))
         ));
-        // A message to Base costs the gateway a thousandth of a TAO, and a hundred are
-        // paid for.
-        assert_ok!(Rails::set_message_cost(
+        // The hub pays up to a thousandth of a TAO for a message to Base, and Base's
+        // account holds that for a hundred messages.
+        assert_ok!(Rails::set_message_reserve(
             RuntimeOrigin::root(),
             BASE,
             (UNIT / 1_000).into()
@@ -244,6 +246,8 @@ fn the_hub_keeps_its_funds_in_separate_accounts() {
         Rails::reserve_account(),
         Rails::vault_account(NetUid::from(1)),
         Rails::vault_account(NetUid::from(2)),
+        Rails::message_account(BASE),
+        Rails::message_account(1),
         CanonicalPool::account_id(),
         SubtensorModule::index_hotkey(NetUid::from(1)),
     ];
