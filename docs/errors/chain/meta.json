@@ -96,6 +96,7 @@
     "CommitRevealDisabled",
     "CommitRevealEnabled",
     "CommittingWeightsTooFast",
+    "Congested",
     "ContractNotFound",
     "ContractReverted",
     "ContractTrapped",

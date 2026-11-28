@@ -711,9 +711,9 @@
         "pallet": "Rails",
         "call": "bridge_out",
         "path": "pallets/rails/src/lib.rs",
-        "line": 617,
-        "end_line": 641,
-        "url": "/code/pallets/rails/src/lib.rs#L615-L641",
+        "line": 637,
+        "end_line": 661,
+        "url": "/code/pallets/rails/src/lib.rs#L635-L661",
         "raw_url": "/code/raw/pallets/rails/src/lib.rs"
       }
     ]

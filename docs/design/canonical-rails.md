@@ -72,6 +72,8 @@ are no tUSD/alpha pools.
   transport. Anyone can run one. It can only send what the hub decided.
 - **Deferred message**: a message of the hub that left its queue, because the transport
   charged more for it than was paid. It stays in the hub until someone sends it.
+- **Congested bridge**: a bridge with 256 or more deferred messages. The hub makes no
+  new payment on its spoke until some of them have left.
 - **tUSD**: the dollar on Bittensor. One tUSD exists for each dollar of stablecoin that a
   vault holds.
 - **Canonical TAO**: a token on a spoke. One token is one TAO in the hub's reserve.
@@ -161,10 +163,11 @@ empty before and after each order.
 
 An order fails as a whole, and stays with the transport for a new attempt, only if the
 hub is paused, the portal is unknown, its bridge is disabled, the order is out of
-sequence, or the hub could not queue the order's answer: too many messages of the
-bridge have not left, or the account of the bridge does not hold the reserve for one
-more message (see "Who pays for a message"). In each case what the payer locked stays
-on the spoke.
+sequence, or the hub could not queue the order's answer: the queue of the bridge is
+full, or the account of the bridge does not hold the reserve for one more message (see
+"Who pays for a message"). In each case what the payer locked stays on the spoke.
+Deferred messages do not fill the queue, so they never keep an order out (see "A
+congested bridge").
 
 Nothing that happens to an answer on its way out can fail an order. The gateway
 settles an order in one transaction, and hands answers to the transport in others (see
@@ -229,8 +232,8 @@ queue. Each bridge has its own queue. The messages leave when someone calls
 `Gateway.flush(bridge, limit)`. A keeper does this, and anyone can: the call has no
 access control, and it sends only what the hub decided. The gateway takes the message
 at the head of the queue out of the hub, pays the transport and hands it the message,
-in one transaction. Then it takes the next one. A bridge has at most 1,024 messages
-that have not left.
+in one transaction. Then it takes the next one. The queue of a bridge holds at most
+1,024 messages.
 
 Orders and answers never share a transaction. The transaction that settles an order
 hands nothing to the transport. So a transport that fails on the way out, or that
@@ -248,11 +251,35 @@ The spoke takes the hub's messages in any order. Each message is carried out one
 time. A payment of an alpha token waits for the message that creates the token. An
 alpha token keeps the rate that the newest message reported.
 
+**A congested bridge.** A deferred message takes no place in the queue. It holds its
+reserve in the account of the bridge, as every message does that has not left, and
+that is the bound on their number. So a bridge whose messages are deferred still takes
+orders. But the hub does not add payments to a backlog that nobody pays for. A bridge
+is congested from 256 deferred messages on. Then the hub makes no new payment on that
+spoke:
+
+- It takes an order that asks for a payment on the spoke, and refunds it. The receipt
+  gives the reason `Congested`. The refund is a message too, and it can be deferred as
+  the others are. The payer, or anyone, can send it and pay the difference.
+- It refuses a payment through `Rails.bridge_out`. The call fails as a whole, and the
+  account keeps its funds.
+- It settles an order that pays out on Bittensor. Such an order needs no message.
+- A quote for the spoke gives `Congested`, so a client can know before anyone pays.
+
+The bridge makes payments again when fewer than 256 of its messages are deferred.
+That happens when someone pays the differences (`Gateway.send`), or when someone pays
+into the account or root raises the ceiling and a keeper sends the messages.
+
 **A message that the transport refuses.** If the transport refuses a message, the
 whole call fails, and the message stays at the head of its queue. It holds only the
 messages to the same spoke: the messages to other spokes are in other queues. Orders
-of that bridge still settle. The message leaves when the transport takes it again.
-Root can also defer it (`Rails.defer_outbound`), so that the messages behind it go on.
+of that bridge still settle, until its queue is full. The message leaves when the
+transport takes it again. A keeper sees this state: its call of `flush` would fail.
+The rig's keeper raises an alert that names the message. Root can then defer the
+message (`Rails.defer_outbound(bridge, nonce)`), so that the messages behind it go on.
+The gateway does not defer such a message itself, because it would have to catch the
+failed call (see "No call fails in silence"). Section 11 of `AUDIT.md` lists what to
+watch and who acts.
 
 **From Bittensor.** An account on Bittensor pays TAO or tUSD with `Rails.bridge_out`
 and receives the stablecoin, canonical TAO or an alpha token on a spoke. The call
@@ -541,6 +568,9 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 3. Someone pays into the account of the bridge, or root raises the ceiling. Or the
    charge falls. Then a keeper calls `Gateway.send` for the message, and it leaves.
 4. Or anyone calls `Gateway.send` for the message and pays the difference.
+5. If nobody does any of this and 256 messages of the bridge are deferred, the bridge
+   is congested. The hub refunds the next orders for the spoke. It settles orders
+   again when deferred messages have left.
 
 ### A payment larger than the vault's allowance
 
@@ -565,7 +595,8 @@ refund. The vault releases the same USDC to the payer. The receipt names the rea
 | Message reserve and ceiling of a bridge (hub) | not set: the bridge takes no order | root |
 | Route of a bridge (hub) | set when the bridge is added | nobody, after that |
 | TAO in the message account of a bridge (hub) | none until someone pays in | anyone pays in |
-| Messages of a bridge that have not left | 1,024, in the queue or deferred | runtime constant |
+| Queue of a bridge | 1,024 messages. Deferred messages do not count | runtime constant |
+| Deferred messages from which a bridge is congested | 256 | runtime constant |
 
 | Switch | Who turns it off | Who turns it on |
 | --- | --- | --- |
@@ -700,6 +731,19 @@ Jacob holds the multisig and the guardian keys at the start.
     and a deferred message can arrive late. Each message is carried out once. An
     alpha token keeps the rate of the newest message that reported one, and counts
     new tokens at the rate that came with them.
+36. **Deferred messages fill no queue, and a congested bridge refunds.** An earlier
+    build counted deferred messages against the queue's 1,024 places. Then a backlog
+    that nobody paid for could keep every new order out, with its funds locked on the
+    spoke. Now only the messages in the queue count. A deferred message is bounded by
+    its reserve: the account of the bridge holds one for each. From 256 deferred
+    messages on, the hub adds no payment to the backlog. It takes an order and
+    refunds it, so the payer has a message that returns the funds, and can pay for it
+    to be sent. It refuses an exit, which costs the account nothing. The number 256 is
+    a quarter of the queue.
+37. **Root defers a message that the transport refuses. Nobody else can.** A caller
+    of the gateway cannot be given this, because a caller chooses the gas, and with
+    too little gas any hand-over fails. So the state is watched: a keeper raises an
+    alert, and root acts.
 
 ## 9. Room for what is not built
 
@@ -743,6 +787,8 @@ just rails-contracts # the contracts' unit, fuzz and invariant tests
   gateway.
 - Run a keeper and the oracle feed. Without a keeper no message leaves the hub: the
   keeper calls `Gateway.flush` when messages wait, and `Gateway.send` for a deferred
-  message when the hub pays for it. Pay the answer fees into the account of their
-  bridge (`Rails.fund_messages`). Do not send TAO to the gateway contract: it pays for
-  no message.
+  message when the hub pays for it. Watch what the keeper reports: deferred messages,
+  and a message that the gateway cannot hand over. Section 11 of `AUDIT.md` says who
+  acts on each. Pay the answer fees into the account of their bridge
+  (`Rails.fund_messages`). Do not send TAO to the gateway contract: it pays for no
+  message.

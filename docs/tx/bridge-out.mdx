@@ -24,7 +24,7 @@ reserve as `message_reserve_tao`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Rails | [`Rails.bridge_out`](/code/pallets/rails/src/lib.rs#L615-L641) |
+| `coldkey` | signed account (pallet role may apply) | Rails | [`Rails.bridge_out`](/code/pallets/rails/src/lib.rs#L635-L661) |
 
 ## Parameters
 
@@ -87,7 +87,7 @@ result = sub.execute_tool("bridge_out", {...}, wallet)
 
 ## On-chain implementation
 
-`Rails.bridge_out` — [`pallets/rails/src/lib.rs#L617`](/code/pallets/rails/src/lib.rs#L615-L641):
+`Rails.bridge_out` — [`pallets/rails/src/lib.rs#L637`](/code/pallets/rails/src/lib.rs#L635-L661):
 
 ```rust
 #[pallet::call_index(2)]
@@ -119,6 +119,6 @@ pub fn bridge_out(
 }
 ```
 
-Delegates to [`route_native`](/code/pallets/rails/src/router.rs#L162).
+Delegates to [`route_native`](/code/pallets/rails/src/router.rs#L167).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

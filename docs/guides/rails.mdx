@@ -140,8 +140,14 @@ number:
 btcli bridge flush --bridge 8453 --message 12 --pay-up-to 0.01
 ```
 
-`btcli bridge list` shows the reserve and the ceiling of each bridge, what its account
-can pay, how many messages have not left, and the numbers of the deferred ones.
+If many messages of a bridge are deferred, the bridge is congested. Bittensor then
+makes no new payment on that chain. An order from that chain is refunded, and
+`btcli bridge exit` fails and takes nothing. The bridge pays again when deferred
+messages have left.
+
+`btcli bridge list` shows the status of each bridge, its reserve and its ceiling, what
+its account can pay, how many messages have not left, and the numbers of the deferred
+ones.
 
 ## tUSD
 

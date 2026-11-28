@@ -165,8 +165,9 @@ owner is a timelock and why the guardian exists.
 | The canonical pool is pushed before an order | A worse price for the payer | The order's minimum. The swap limits make a large push take many blocks |
 | A person sends many orders that must be refunded, or many small exits | The message account of that bridge pays the transport for their answers | Each order pays the answer fee on the spoke, and each exit pays the reserve on the hub. The hub takes an order only if the account holds the reserve for its answer. An order that is not taken waits at the transport, and its funds stay locked on the spoke. No other bridge is touched |
 | The message account of a bridge runs low | That bridge takes no new order. Every message that the hub holds already can still leave: its reserve is in the account | Anyone pays in (`Rails.fund_messages`). The other bridges go on |
-| The transport charges more for a message than the reserve of its bridge | The hub pays the difference from what the bridge's account can spare, up to the ceiling. If the account has nothing to spare, or the charge is above the ceiling, the message is deferred: it stays in the hub with its reserve, and the messages behind it go on. The bridge's orders still settle while the account holds reserves for their answers and fewer than 1,024 of its messages have not left | Anyone pays into the account (`Rails.fund_messages`), and a keeper sends the deferred messages. Anyone calls `Gateway.send` and pays the difference. Root raises the ceiling. The hub never pays more than the ceiling for one message, and never uses the reserve of another message |
-| The transport refuses the messages to a spoke, or fails on the way out | The messages of that bridge wait in the hub. Its orders still settle, until 1,024 of its messages have not left. Then its orders wait at the transport, and their funds stay locked on the spoke | No order is undone: an order and its answer never share a transaction. The messages to other spokes are in other queues. Root can defer a message that the transport does not take, so that the ones behind it go on |
+| The transport charges more for a message than the reserve of its bridge | The hub pays the difference from what the bridge's account can spare, up to the ceiling. If the account has nothing to spare, or the charge is above the ceiling, the message is deferred: it stays in the hub with its reserve, and the messages behind it go on. Deferred messages take no place in the queue, so the bridge still takes orders | Anyone pays into the account (`Rails.fund_messages`), and a keeper sends the deferred messages. Anyone calls `Gateway.send` and pays the difference. Root raises the ceiling. The hub never pays more than the ceiling for one message, and never uses the reserve of another message |
+| Nobody pays the difference for a long time: 256 messages of a bridge are deferred | The bridge is congested. The hub settles no new order for that spoke: it takes each order and refunds it. It refuses exits to that spoke. The refunds are messages too, and wait as the others do. Each holds a reserve, so the account of the bridge must still be paid into: with an account that cannot hold one more reserve the bridge takes no order, as in the row "The message account of a bridge runs low" | The number of payments that wait unpaid stops growing at 256 and the messages in the queue. No order is left with the transport because of deferred messages. A payer can have its refund sent by paying the difference. The bridge settles again when fewer than 256 messages are deferred |
+| The transport refuses the messages to a spoke, or fails on the way out | The messages of that bridge wait in the hub. Its orders still settle, until its queue holds 1,024 messages. Then its orders wait at the transport, and their funds stay locked on the spoke | No order is undone: an order and its answer never share a transaction. The messages to other spokes are in other queues. A keeper sees the state and raises an alert. Root can defer a message that the transport does not take, so that the ones behind it go on (section 11) |
 | No keeper runs | No message leaves the hub: answers, exits and token registrations wait | The hub holds each message with its reserve. Anyone can be the keeper: `Gateway.flush` has no access control, and `btcli bridge flush` calls it |
 | Root names a new gateway account | Nothing | The TAO for messages is in the hub's accounts. A new gateway is paid from them as the old one was |
 | A spoke is to move to a new portal | Nothing | The route of a bridge cannot change, so its tUSD stays backed by the vault of its portal and its queued answers go to that portal. The new portal is a new bridge with its own cap |
@@ -254,11 +255,19 @@ reported, and tells the vault to release only what it burned. Checked end to end
   it. The gateway can take the head of a queue and the deferred messages, and nothing
   else. `do_try_state` checks that every message from the head of a queue on is
   there, that the messages below the head are as many as `Deferred` counts, and that
-  a bridge has at most `MaxOutbox` messages in all. Tests
+  a queue holds at most `MaxOutbox` messages. Tests
   `a_deferred_message_keeps_its_reserve_and_the_ones_behind_it_leave`,
-  `the_admin_defers_a_message_that_the_transport_does_not_take`,
-  `deferred_messages_count_as_waiting` and, through the precompile,
-  `the_gateway_defers_a_message_and_sends_it_later`.
+  `the_admin_defers_a_message_that_the_transport_does_not_take` and, through the
+  precompile, `the_gateway_defers_a_message_and_sends_it_later`.
+- **I38.** Deferred messages never keep an order out. Only the messages in a queue
+  count against `MaxOutbox` (`ensure_room`). A deferred message is bounded by its
+  reserve (I29). While `CongestedAt` or more messages of a bridge are deferred, the
+  hub makes no new payment to that bridge's spoke: `route_order` refunds an order
+  that asks for one, and `route_native` refuses an exit (`congested`). An order that
+  pays out on Bittensor settles. Tests `deferred_messages_take_no_place_in_the_queue`
+  and `a_congested_bridge_refunds_orders_and_refuses_exits`. The random test checks
+  on each step that a bridge refunds orders and refuses exits exactly while it is
+  congested. The e2e does the same on real chains.
 - **I14.** The alpha that a sale takes from a vault is never more than the vault
   holds, and both share formulas round against the trader (`alpha_for_shares`,
   `shares_for_alpha`).
@@ -354,7 +363,10 @@ reported, and tells the vault to release only what it burned. Checked end to end
    that the hub holds already can still leave. The gateway takes a queue in order. A
    message that the transport refuses holds the ones behind it in the same queue,
    until the transport takes it or root defers it. It holds no message of another
-   bridge. A message that is not paid for holds nothing: it is deferred.
+   bridge. Nobody but root can defer it: a caller of the gateway chooses the gas, and
+   with too little gas any hand-over fails, so the gateway cannot take a failure as
+   proof. A keeper raises the alert (section 11). A message that is not paid for
+   holds nothing: it is deferred.
 3. **Head-of-line blocking.** The hub takes the orders of a bridge in sequence. An order
    that the gateway cannot decode blocks the orders behind it until root skips it. The
    payer's funds of a skipped order stay on the spoke, and the owner has to return them
@@ -402,13 +414,13 @@ reported, and tells the vault to release only what it burned. Checked end to end
     it when the releases resume. The portal has no call that removes a debt. So before
     the owner resumes the vault after such a fault, the owner must upgrade the portal to
     clear the forged debts. Both steps go through the 48-hour timelock.
-11. **A bridge can have at most 1,024 messages that have not left**, in its queue or
-    deferred. A person can reach that number with small exits. Each exit pays the
-    reserve for its own message. At that number the bridge takes no order and no exit.
-    Anyone hands the queue to the transport with `Gateway.flush`, for gas only.
-    Deferred messages count too: if nobody pays what the transport charges for 1,024
-    messages of a bridge, the bridge takes no order until someone does (risk 7). The
-    messages of other bridges are not touched.
+11. **The queue of a bridge holds 1,024 messages.** A person can fill it with small
+    exits. Each exit pays the reserve for its own message. While the queue is full the
+    bridge takes no order and no exit. Anyone empties it with `Gateway.flush`, for gas
+    only: each message leaves, or is deferred. Deferred messages take no place in the
+    queue. Their number has no limit of its own. The bound is the TAO in the account
+    of the bridge, which holds one reserve for each. The queues of other bridges are
+    not touched.
 12. **An exit pays the reserve, not the charge.** The hub cannot know what the transport
     will charge when the exit is made. An exit pays the reserve of its bridge into the
     bridge's message account. What the transport does not charge stays there and pays
@@ -492,11 +504,22 @@ reported, and tells the vault to release only what it burned. Checked end to end
     place. If a new address cannot be avoided: pause the hub, wait until the transport
     has delivered every message, and change the address on both sides after that.
 36. **An order that the hub does not take waits at the transport.** That is the case
-    while the hub is paused, while the order's bridge is disabled, and while the
-    bridge's account cannot pay for one more message. The payer's funds stay locked on
-    the spoke for that time. The hub does not refund such an order, because it does
+    while the hub is paused, while the order's bridge is disabled, while the bridge's
+    queue is full, and while the bridge's account cannot hold the reserve for one more
+    message. The payer's funds stay locked on the spoke for that time. Anyone ends the
+    last two: `Gateway.flush` empties a queue, and `Rails.fund_messages` pays in. The
+    hub does not refund an order of a paused hub or a disabled bridge, because it does
     not know whether the portal is at fault. If a bridge is never enabled again, the
     owner of its portal has to return those funds by an upgrade.
+37. **A congested bridge refunds, and the refund waits too.** While 256 or more
+    messages of a bridge are deferred, the hub refunds each order for that spoke. The
+    refund is a message, and it is deferred like the others while nobody pays what the
+    transport charges. The payer gets the funds back when the refund is sent: the
+    payer or anyone pays the difference (`Gateway.send`), or the hub pays more. A
+    client can ask first: the quote gives `Congested`. A bridge becomes congested only
+    if the transport charges more than the hub pays for 256 messages and nobody acts.
+    No caller can bring that about: only the gateway defers, and only a message that
+    is not paid for.
 
 ## 8. Tests
 
@@ -504,13 +527,13 @@ reported, and tells the vault to release only what it burned. Checked end to end
 | --- | --- | --- |
 | tUSD: 18 unit tests, benchmarks as tests | `pallets/tusd/src/tests.rs` | `cargo test -p pallet-tusd --all-features` |
 | Pool: 34 unit tests, benchmarks as tests | `pallets/canonical-pool/src/tests.rs` | `cargo test -p pallet-canonical-pool --all-features` |
-| Hub: 62 unit tests, 15 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
+| Hub: 63 unit tests, 15 benchmarks as tests | `pallets/rails/src/tests.rs` | `cargo test -p pallet-rails --all-features` |
 | Index hotkey: 22 tests on the real pallet | `pallets/subtensor/src/tests/index_hotkey.rs` | `cargo test -p pallet-subtensor --all-features index_hotkey` |
 | Credits for a bridged payer: 7 tests | `pallets/subtensor/src/tests/gamma_credits.rs` | `cargo test -p pallet-subtensor --all-features gamma_credits` |
 | Staking for the hub, with a real dissolution: 8 tests | `pallets/subtensor/src/tests/rails_staking.rs` | `cargo test -p pallet-subtensor --all-features rails_staking` |
 | The production runtime through the precompile: 5 tests | `runtime/tests/rails.rs` | `cargo test -p node-subtensor-runtime --all-features --test rails` |
 | Precompile and wire format, with golden vectors | `precompiles/src/{rails,rails_wire}.rs` | `cargo test -p subtensor-precompiles --all-features rails` |
-| Contracts: 96 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
+| Contracts: 97 tests. Unit, fuzz (512 runs) and 5 invariants (64 runs of 128 calls) | `contracts/evm/test` | `just rails-contracts` |
 | Both chains and the transport, end to end | `scripts/rails/e2e.py`, `scripts/rails/e2e_cli.py` | `just rails-up && just rails-e2e` |
 
 The unit tests of the hub call `try_state` of the three pallets after each operation.
@@ -547,3 +570,20 @@ reviewed:
    message be left without its reserve (I29, I30)?
 8. Can what the portal owes differ from what the hub ordered less what the vault
    released (I31)? Look at `Portal._pay`.
+
+## 11. Operations: what to watch, and who acts
+
+Each line is a state of the hub's messages for one bridge, how it shows, and what ends
+it. `btcli bridge list` shows the queue, the deferred messages, the reserve, the
+ceiling and what the account can pay. The rig's keeper (`scripts/rails/keeper.py`)
+reports the second and the fourth state as they begin.
+
+| State | How it shows | Who ends it, and how |
+| --- | --- | --- |
+| Messages wait in the queue | `btcli bridge list`: waiting is above zero and does not fall | Anyone: `Gateway.flush(bridge, limit)`, or `btcli bridge flush`. A keeper does this all the time |
+| Messages are deferred | Events `Rails.MessageDeferred` and `Gateway.MessageDeferred`. `btcli bridge list` gives their numbers. The keeper reports each one | Anyone: pay the difference for one message, `Gateway.send(bridge, nonce)` with value, or `btcli bridge flush --message`. Anyone: pay into the account, `Rails.fund_messages`. Root: raise the ceiling, `Rails.set_message_reserve`. Then a keeper sends the messages |
+| The bridge is congested | `btcli bridge list`: status `congested`. Receipts with the reason `Congested`. Quotes fail with `Congested` | As for deferred messages. The bridge settles again when fewer than 256 are deferred |
+| The gateway cannot hand over the head of a queue | A call of `Gateway.flush` fails, also in simulation, and the head stays the same. The keeper raises an alert with the message's number and the reason | The owner of the transport repairs it. If only this message is refused, root defers it: `Rails.defer_outbound(bridge, nonce)`. This is the one step that needs root. The message stays in the hub, and anyone sends it later with `Gateway.send` |
+| The account of a bridge cannot hold one more reserve | Orders of the bridge fail at the gateway with `MessagesNotFunded` and wait at the transport. `btcli bridge list`: the budget is below the reserve times the waiting messages plus one | Anyone: `Rails.fund_messages`. The operator moves the answer fees there |
+| The queue is full | Orders of the bridge fail at the gateway with `OutboxFull` | Anyone: `Gateway.flush` |
+| The hub or the gateway is paused, or a bridge is disabled | Orders wait at the transport. `nextOutbound` gives nothing | Root resumes the hub and enables the bridge. The owner resumes the gateway through the timelock |
