@@ -93,6 +93,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "set_market_cap",
         "skip_order",
         "set_message_reserve",
+        "defer_outbound",
         # The operator of a spoke pays in what its portal collected as answer fees.
         "fund_messages",
     },

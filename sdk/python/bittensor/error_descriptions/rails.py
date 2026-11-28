@@ -155,27 +155,29 @@ DESCRIPTIONS: dict[str, str] = {
         "full period of price history yet. Retry after `CanonicalPool.TwapPeriod` blocks."
     ),
     "OutboxFull": (
-        "Too many of the hub's messages wait for the gateway in this bridge's queue "
-        "(`Rails.MaxOutbox`). Anyone can call the gateway's `flush` for the bridge to hand "
-        "them to the transport."
+        "Too many of the hub's messages for this bridge have not left (`Rails.MaxOutbox`): "
+        "they wait in line or are deferred. Anyone can call the gateway's `flush` for the "
+        "bridge to hand the ones in line to the transport, and its `send` for a deferred one."
     ),
     "NotOutboxHead": (
-        "The message is not the head of its bridge's queue. A bridge's messages leave first "
-        "in, first out; read `Rails.NextOutbound`."
+        "The message is not the head of its bridge's queue (`Rails.NextOutbound`). The "
+        "gateway takes a bridge's messages from the head, and can also take a deferred "
+        "message: one below the head that is still in `Rails.Outbox`."
     ),
     "MessagesNotFunded": (
         "The hub's messages to this bridge are not paid for. Either the admin has not set "
         "the most the hub pays for one (`Rails.MessageReserve`), or the bridge's account "
-        "does not hold that reserve for every message in its queue and one more. Anyone can "
-        "pay into the account with `Rails.fund_messages`; orders wait with the transport "
-        "until then."
+        "does not hold that reserve for every message that has not left and one more. "
+        "Anyone can pay into the account with `Rails.fund_messages`; orders wait with the "
+        "transport until then."
     ),
     "FeeAboveLimit": (
         "The gateway asked the hub for more than the hub pays for the message: more than the "
         "bridge's ceiling (`Rails.MessageCeiling`), or more than its reserve "
         "(`Rails.MessageReserve`) while the bridge's account has nothing to spare. Anyone can "
-        "pay into the account (`Rails.fund_messages`), who calls the gateway's `flush` can pay "
-        "the difference, or the admin raises the ceiling. This call is not for accounts."
+        "pay into the account (`Rails.fund_messages`), who calls the gateway's `flush` or "
+        "`send` can pay the difference, or the admin raises the ceiling. This call is not "
+        "for accounts."
     ),
     "CeilingBelowReserve": (
         "The most the hub pays for one message of a bridge (the ceiling) cannot be less than "

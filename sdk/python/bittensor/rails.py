@@ -246,9 +246,15 @@ def encode_sell(amount: int, destination: Destination, min_out: int, deadline: i
 
 
 def encode_flush(bridge: int, limit: int) -> str:
-    """``Gateway.flush``: hand up to ``limit`` of the messages that wait in the queue of
-    ``bridge`` to the transport."""
+    """``Gateway.flush``: take up to ``limit`` messages from the head of the queue of
+    ``bridge`` and hand them to the transport. A message that is not paid for is deferred."""
     return _call("flush(uint32,uint256)", ["uint32", "uint256"], [bridge, limit])
+
+
+def encode_send(bridge: int, nonce: int) -> str:
+    """``Gateway.send``: hand message ``nonce`` of ``bridge`` to the transport: a deferred
+    message, or the head of the queue."""
+    return _call("send(uint32,uint64)", ["uint32", "uint64"], [bridge, nonce])
 
 
 def encode_owed(to: str) -> str:

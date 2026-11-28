@@ -577,6 +577,7 @@ class Rails:
     NextMessage = Item('Rails', 'NextMessage', 'u64')
     NextOutbound = Item('Rails', 'NextOutbound', 'u64')
     Outbox = Item('Rails', 'Outbox', 'Message')
+    Deferred = Item('Rails', 'Deferred', 'u32')
     MessageReserve = Item('Rails', 'MessageReserve', 'TaoBalance')
     MessageCeiling = Item('Rails', 'MessageCeiling', 'TaoBalance')
     Tokens = Item('Rails', 'Tokens', 'TokenInfo')

@@ -151,15 +151,19 @@ async def bridges(view) -> list[dict]:
     stablecoin its vault must hold. `mint_cap_tusd` bounds it. `tao_supply`
     and `tao_cap` are the canonical TAO on the bridge's chain and its cap.
 
-    The last five fields say who pays for the hub's messages to the bridge's
+    The last six fields say who pays for the hub's messages to the bridge's
     chain. `message_account` holds the TAO for them, and `message_budget` is
     what it can pay: its balance less the existential deposit. `message_reserve`
     is what the hub sets aside for each message, or None while it is not set,
     and `message_ceiling` is the most the hub pays for one: above the reserve
     it pays from what the account can spare. `messages_waiting` is how many
-    wait for the gateway. The hub takes an order of the bridge only while the
-    account holds the reserve for every waiting message and one more. Anyone
-    can pay into the account (`Rails.fund_messages`).
+    have not left the hub. `messages_deferred` lists the numbers of those
+    among them that are deferred: they left the line because the transport
+    charged more for them than was paid, and the gateway sends each one when
+    somebody asks it to (`btcli bridge flush --message`). The hub takes an
+    order of the bridge only while the account holds the reserve for every
+    waiting message and one more. Anyone can pay into the account
+    (`Rails.fund_messages`).
     """
     view = await view.at()
     rows = await view.query_map(st.Tusd.Bridges)
@@ -175,8 +179,13 @@ async def bridges(view) -> list[dict]:
         ceiling = await view.query(st.Rails.MessageCeiling, [bridge_id])
         account = await view.runtime(api.RailsApi.message_account, [bridge_id])
         budget = await view.runtime(api.RailsApi.message_budget, [bridge_id])
-        queued = await view.query(st.Rails.NextMessage, [bridge_id])
-        taken = await view.query(st.Rails.NextOutbound, [bridge_id])
+        tail = int(await view.query(st.Rails.NextMessage, [bridge_id]) or 0)
+        head = int(await view.query(st.Rails.NextOutbound, [bridge_id]) or 0)
+        # The hub keeps every message that has not left. Those below the head of the
+        # line are deferred.
+        waiting = await view.query_map(st.Rails.Outbox, [bridge_id])
+        nonces = (int(k[-1] if isinstance(k, (list, tuple)) else k) for k, _ in waiting)
+        deferred = sorted(nonce for nonce in nonces if nonce < head)
         records.append(
             {
                 "bridge": bridge_id,
@@ -194,7 +203,8 @@ async def bridges(view) -> list[dict]:
                 "message_ceiling": view.balance(int(ceiling or 0), 0),
                 "message_account": str(account),
                 "message_budget": view.balance(int(budget or 0), 0),
-                "messages_waiting": int(queued or 0) - int(taken or 0),
+                "messages_waiting": tail - head + len(deferred),
+                "messages_deferred": deferred,
             }
         )
     return sorted(records, key=lambda record: record["bridge"])

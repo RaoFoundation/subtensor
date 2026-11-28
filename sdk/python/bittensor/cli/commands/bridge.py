@@ -473,6 +473,7 @@ def list_bridges(ctx: typer.Context):
             else f"{r['message_reserve']} / {r['message_ceiling']}",
             str(r["message_budget"]),
             r["messages_waiting"],
+            ", ".join(str(nonce) for nonce in r["messages_deferred"]) or "-",
             r["portal"],
         ]
         for r in records
@@ -490,6 +491,7 @@ def list_bridges(ctx: typer.Context):
             "message reserve / ceiling",
             "message budget",
             "waiting",
+            "deferred",
             "portal",
         ],
         rows,
@@ -529,7 +531,13 @@ def balance(
 def flush(
     ctx: typer.Context,
     bridge: int = typer.Option(..., "--bridge", help="Id of the bridge: 8453 is Base."),
-    limit: int = typer.Option(8, "--limit", min=1, help="The most messages to hand over."),
+    limit: int = typer.Option(8, "--limit", min=1, help="The most messages to take."),
+    message: Optional[int] = typer.Option(
+        None,
+        "--message",
+        min=0,
+        help="Send this one deferred message, by its number, instead of the messages in line.",
+    ),
     pay_up_to: Optional[str] = typer.Option(
         None,
         "--pay-up-to",
@@ -543,17 +551,20 @@ def flush(
     """Hand the hub's waiting messages for one bridge to the transport.
 
     The hub queues what it tells another chain to pay out, one queue for each
-    bridge. The gateway contract on Bittensor's EVM sends a bridge's queue each
-    time an order of that bridge arrives. A payment that starts on Bittensor
-    (`btcli bridge exit`) can wait for the next order: this sends the queue
+    bridge. The messages leave when somebody asks the gateway contract on
+    Bittensor's EVM to send them. A keeper does that, and this command does it
     now. Anyone may call it, and it can only send what the hub already decided.
     The EVM key pays the gas in TAO.
 
     The hub pays the transport for each message, up to a limit: the bridge's
     reserve, and above it what the bridge's account can spare, up to the
-    bridge's ceiling (`btcli bridge list`). If the transport charges more, the
-    messages wait until somebody pays the difference: `--pay-up-to` does, from
-    the EVM key.
+    bridge's ceiling (`btcli bridge list`). If the transport charges more,
+    `--pay-up-to` pays the difference from the EVM key.
+
+    A message that is not paid for is deferred: it leaves the line, so that the
+    messages behind it can go, and it stays in the hub. `--message` sends one
+    deferred message (`btcli bridge list` shows their numbers). It fails if the
+    message is still not paid for.
     """
     app_ctx = ctx_of(ctx)
     try:
@@ -561,13 +572,19 @@ def flush(
     except (ValueError, OSError, KeyError) as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
+    if message is None:
+        data = rails.encode_flush(bridge, limit)
+        summary = f"hand up to {limit} of the hub's messages for bridge {bridge} to the transport"
+    else:
+        data = rails.encode_send(bridge, message)
+        summary = f"hand message {message} of the hub for bridge {bridge} to the transport"
     _submit_evm_tx(
         app_ctx,
         key,
         gateway,
         value_wei=_tao_to_wei(app_ctx, pay_up_to) if pay_up_to else 0,
-        data=rails.encode_flush(bridge, limit),
-        summary=f"hand up to {limit} of the hub's messages for bridge {bridge} to the transport",
+        data=data,
+        summary=summary,
         rpc_url=rpc_url,
     )
 
