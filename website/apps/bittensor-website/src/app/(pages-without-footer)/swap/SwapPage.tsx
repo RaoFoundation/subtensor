@@ -5,10 +5,12 @@ import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {DEFAULT_SLIPPAGE_BPS, ORDER_TTL_SECONDS, railsConfig, type Service} from './config';
 import {
   approve,
+  claim,
   deposit,
   faucet,
   openRails,
   sell,
+  stableOwed,
   toHubUnits,
   type Holding,
   type Token,
@@ -175,6 +177,27 @@ export default function SwapPage() {
     }
   };
 
+  const collect = async () => {
+    if (!rails || !wallet.signer) return;
+    setBusy(`Collecting ${STABLE}`);
+    try {
+      const before = portfolio.owed;
+      await claim(rails, wallet.signer);
+      const left = await stableOwed(rails, await wallet.signer.getAddress());
+      say(
+        left < before
+          ? `${formatAmount(before - left, STABLE_DECIMALS, 2)} ${STABLE} collected.`
+          : `The vault can release no more ${STABLE} yet. Try again later.`,
+        left < before ? 'good' : 'bad',
+      );
+      portfolio.refresh();
+    } catch (cause) {
+      say(describe(cause), 'bad');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const useMax = () => {
     if (available === null) return;
     setAmountText(exactAmount(available, effectiveSide === 'buy' ? STABLE_DECIMALS : 9));
@@ -214,6 +237,20 @@ export default function SwapPage() {
                   ? '…'
                   : formatAmount(portfolio.stable, STABLE_DECIMALS, 2)}
               </Row>
+              {portfolio.owed > ZERO && (
+                <>
+                  <Row label='Still to come'>
+                    {formatAmount(portfolio.owed, STABLE_DECIMALS, 2)}
+                  </Row>
+                  <p className={styles.note}>
+                    The vault releases {STABLE} at a limited rate. The rest of your payment is yours
+                    and waits there.
+                  </p>
+                  <button className={styles.ghost} onClick={collect} disabled={busy !== null}>
+                    Collect what the vault can release now
+                  </button>
+                </>
+              )}
               {railsConfig.local.faucet && (
                 <button className={styles.ghost} onClick={mint} disabled={busy !== null}>
                   Get 1,000 test {STABLE}

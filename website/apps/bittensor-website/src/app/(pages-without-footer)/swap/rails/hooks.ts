@@ -10,6 +10,7 @@ import {
   orderStatus,
   quote,
   stableBalance,
+  stableOwed,
   type Answer,
   type Holding,
   type OrderStatus,
@@ -69,6 +70,8 @@ export function useOrderFee(rails: Rails | null): bigint | null {
 
 export type Portfolio = {
   stable: bigint | null;
+  /** The stablecoin that the vault still owes the account. */
+  owed: bigint;
   holdings: Record<string, Holding>;
   /** Credits bought for the account, by service account. */
   credits: Record<string, bigint>;
@@ -78,6 +81,7 @@ export type Portfolio = {
 /** What the account holds, refreshed while the page is open. */
 export function usePortfolio(rails: Rails | null, account: string | null, tokens: Token[] | null) {
   const [stable, setStable] = useState<bigint | null>(null);
+  const [owed, setOwed] = useState<bigint>(ZERO);
   const [holdings, setHoldings] = useState<Record<string, Holding>>({});
   const [credits, setCredits] = useState<Record<string, bigint>>({});
   const [tick, setTick] = useState(0);
@@ -86,14 +90,16 @@ export function usePortfolio(rails: Rails | null, account: string | null, tokens
   useEffect(() => {
     if (!rails || !account) {
       setStable(null);
+      setOwed(ZERO);
       setHoldings({});
       setCredits({});
       return;
     }
     let cancelled = false;
     const load = async () => {
-      const [balance, held, spent] = await Promise.all([
+      const [balance, stillOwed, held, spent] = await Promise.all([
         stableBalance(rails, account),
+        stableOwed(rails, account).catch(() => ZERO),
         Promise.all((tokens ?? []).map((token) => loadHolding(rails, token, account))),
         Promise.all(
           rails.config.services.map((service) =>
@@ -103,6 +109,7 @@ export function usePortfolio(rails: Rails | null, account: string | null, tokens
       ]);
       if (cancelled) return;
       setStable(balance);
+      setOwed(stillOwed);
       setHoldings(Object.fromEntries((tokens ?? []).map((token, i) => [token.address, held[i]])));
       setCredits(
         Object.fromEntries(rails.config.services.map((service, i) => [service.account, spent[i]])),
@@ -116,7 +123,7 @@ export function usePortfolio(rails: Rails | null, account: string | null, tokens
     };
   }, [rails, account, tokens, tick]);
 
-  return {stable, holdings, credits, refresh} satisfies Portfolio;
+  return {stable, owed, holdings, credits, refresh} satisfies Portfolio;
 }
 
 export type QuoteState =

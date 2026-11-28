@@ -236,6 +236,21 @@ export async function findAnswer(
   return null;
 }
 
+/**
+ * The stablecoin that the hub told the portal to pay `account` and the vault has not
+ * released yet. The vault releases a limited amount in a period of time, so a large
+ * payment arrives in parts.
+ */
+export async function stableOwed(rails: Rails, account: string): Promise<bigint> {
+  return rails.portal.owed(account);
+}
+
+/** Has the vault release what it can now of what it owes the signer. */
+export async function claim(rails: Rails, signer: Signer): Promise<void> {
+  const portal = rails.portal.connect(signer) as Contract;
+  await (await portal.claim(await signer.getAddress())).wait();
+}
+
 /** Local mode: mints the test stablecoin to the signer. */
 export async function faucet(rails: Rails, signer: Signer, amount: bigint): Promise<void> {
   const stable = new Contract(rails.config.contracts!.stable, FAUCET_ABI, signer);

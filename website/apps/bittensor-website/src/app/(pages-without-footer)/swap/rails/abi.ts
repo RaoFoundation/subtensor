@@ -33,6 +33,8 @@ export const PORTAL_ABI = [
   'function alphaTokens(uint16 netuid) view returns (address)',
   'function orderFee() view returns (uint256)',
   'function paused() view returns (bool)',
+  'function owed(address) view returns (uint256)',
+  'function claim(address to) returns (uint256)',
   `event OrderSent(uint64 indexed nonce, address indexed payer, uint8 source, uint16 sourceNetuid, uint64 amount, ${DESTINATION} destination, uint64 minOut, uint64 deadline, bytes32 messageId)`,
   'event Credited(uint64 indexed nonce, address indexed to, uint8 asset, uint16 netuid, uint64 amount, bool answersOrder, uint64 indexed order, bool refund)',
 ];
